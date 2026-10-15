@@ -1,0 +1,22 @@
+# Private reference images and all derived captures stay local.
+/samples/*
+!/samples/README.md
+/artifacts/
+/.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+/build/
+/dist/
+.env
+.env.*
+!.env.example
+*.sqlite*
+*.db
+*.db-*
+*.sqlite3-*
+*.log
+/private/
+/data/
+/captures/
+

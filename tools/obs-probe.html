@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src ws://127.0.0.1:*; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Local OBS screenshot probe</title>
+<h1>Local OBS screenshot probe</h1>
+<p>Experiment only. Connects to OBS on this computer. No backend, analytics, external scripts or automatic uploads.</p>
+<p>Enable WebSocket authentication in OBS Tools. Keep port 4455 private. Use a game capture input, not this browser source or a scene containing it.</p>
+<form id="connect-form" autocomplete="off">
+  <label>Local port <input id="port" type="number" value="4455" min="1" max="65535" required></label>
+  <label>OBS password <input id="password" type="password" autocomplete="off" required></label>
+  <button>Connect</button>
+  <button id="disconnect" type="button">Disconnect</button>
+</form>
+<form id="capture-form" autocomplete="off">
+  <p><label>Exact game source name <input id="source" required></label></p>
+  <p><label>HUD crop x0,y0,x1,y1 fractions <input id="roi" placeholder="0.2,0.95,0.62,1" required></label></p>
+  <button>Capture once</button>
+</form>
+<p>Password is cleared from the form after connection. Source screenshots exist briefly in browser memory; only the chosen crop is displayed. A crop is saved only if you click Download.</p>
+<pre id="status" role="status">Not connected</pre>
+<canvas id="crop" width="1" height="1"></canvas>
+<p><button id="download" disabled>Download cropped PNG</button></p>
+<script type="module" src="./obs-probe.mjs"></script>
+</html>

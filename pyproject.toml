@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "msclassic-exp-tracker"
+version = "0.1.0"
+description = "Local HUD OCR and acquisition feasibility tools for MapleStory Classic"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = ["Pillow>=11,<13", "pytesseract>=0.3.13,<0.4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+ms-exp = "exp_tracker.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["samples: requires private sample images and the local OCR engine"]
+
