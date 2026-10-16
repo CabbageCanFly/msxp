@@ -28,6 +28,11 @@ The [grayscale digit hybrid](docs/grayscale-ocr.md) raises recording pairs to 64
 (59 with automatic regions), with zero incorrect outputs observed and no Telfer
 regression. It remains experimental; limited 8/9 development data is a major blocker.
 
+The [untuned cross-stream evaluation](docs/cross-stream-evaluation.md) samples
+45 frames from each of two new broadcasts. Provisional visual labels expose
+automatic-crop alignment failures on one layout and numerical segmentation/raster
+transfer failures on the other. Human label review is still required.
+
 The [local read-only API and transparent OBS overlay](docs/overlay.md) use the
 existing SQLite state. Start with an existing demo database:
 
