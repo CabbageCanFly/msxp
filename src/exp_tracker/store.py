@@ -12,9 +12,12 @@ import sqlite3
 
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition
-from .schema import STATEMENTS, VERSION
+from .schema import MIGRATION_2, STATEMENTS, VERSION
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
+
+
+OCR_INTERRUPTION_STATUSES = {"unreadable", "missing_hud", "low_confidence", "invalid", "ambiguous"}
 
 
 def utc(value=None):
@@ -36,6 +39,10 @@ class Store:
                     if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
                         raise ValueError("unversioned existing database; refusing to adopt it")
                     for statement in STATEMENTS:
+                        self.db.execute(statement)
+                    version = 1
+                if version == 1:
+                    for statement in MIGRATION_2:
                         self.db.execute(statement)
                     self.db.execute(f"PRAGMA user_version={VERSION}")
                 elif version != VERSION:
@@ -98,7 +105,8 @@ class Store:
         if when < session["started_at"] or state["last_event_at"] and when < state["last_event_at"]:
             raise ValueError("session end precedes recorded activity")
         self.db.execute("UPDATE sessions SET ended_at=?,end_reason=? WHERE id=?", (when, reason, session["id"]))
-        self.db.execute("UPDATE tracking_state SET status='stopped',reason=? WHERE character_id=?",
+        self.db.execute("""UPDATE tracking_state SET status='stopped',reason=?,
+                        continuity_broken=1,pending_missing_observations=0 WHERE character_id=?""",
                         (reason, session["character_id"]))
 
     def select_character(self, login, character_id, *, at=None):
@@ -130,7 +138,8 @@ class Store:
                 raise ValueError("session start precedes recorded activity")
             session_id = self.db.execute("INSERT INTO sessions(streamer_id,character_id,started_at) VALUES (?,?,?)",
                                          (streamer["id"], char, when)).lastrowid
-            self.db.execute("UPDATE tracking_state SET status='waiting',reason='new_session' WHERE character_id=?", (char,))
+            self.db.execute("""UPDATE tracking_state SET status='waiting',reason='new_session',
+                            continuity_broken=1,pending_missing_observations=0 WHERE character_id=?""", (char,))
             return session_id
 
     def end_session(self, login, *, at=None):
@@ -145,6 +154,7 @@ class Store:
 
         Validation is recomputed against the DB, never a caller's cached baseline.
         No-profile results are diagnostic even when legacy OCR calls them accepted.
+        Recognition("paused") records an explicit hard pause; OCR failures are soft.
         """
         if not isinstance(event_id, str) or not 1 <= len(event_id) <= 200:
             raise ValueError("event_id must contain 1..200 characters")
@@ -173,8 +183,12 @@ class Store:
             ordered = bool(active and when >= session["started_at"] and
                            (state["last_event_at"] is None or when > state["last_event_at"]))
             transition = Transition("rejected", "no_active_session" if not active else "out_of_order")
+            interval_start = None
+            missing = 0
             if ordered:
-                if profile is None:
+                if result.status in {"offline", "paused"}:
+                    transition = Transition("rejected", ";".join(result.reasons) or result.status)
+                elif profile is None:
                     transition = Transition("rejected", "glyph_profile_required")
                 elif result.status != "accepted" or result.reading is None:
                     transition = Transition("rejected", ";".join(result.reasons) or result.status)
@@ -184,22 +198,30 @@ class Store:
                     prior = Observation(str(char), datetime.fromisoformat(previous["observed_at"]),
                                         Reading(previous["level"], previous["current_exp"], previous["percentage_bp"] / 100)) if previous and previous["session_id"] == session_id else None
                     transition = validate_transition(prior, observation)
-                    if transition.status == "accepted" and state["status"] != "tracking":
+                    if transition.status == "accepted" and state["continuity_broken"]:
                         transition = Transition("baseline", "continuity_resumed")
+                    if transition.status == "accepted":
+                        interval_start = previous["id"]
+                        missing = state["pending_missing_observations"]
             trusted = transition.status in {"accepted", "baseline"}
             reading = result.reading if trusted else None
             row_id = self.db.execute("""INSERT INTO observations(
                 event_id,streamer_id,session_id,character_id,observed_at,recorded_at,source,profile_hash,diagnostic_json,
-                outcome,reason,level,current_exp,percentage_bp,gained_exp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                outcome,reason,level,current_exp,percentage_bp,gained_exp,interval_start_observation_id,
+                missing_observations) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (event_id, streamer["id"], session_id, char, when, utc(), source, fingerprint, diagnostic,
                  transition.status, transition.reason, reading.level if reading else None,
                  reading.current_exp if reading else None, round(reading.percentage * 100) if reading else None,
-                 transition.gained_exp)).lastrowid
+                 transition.gained_exp, interval_start, missing)).lastrowid
             if ordered:
                 status = "tracking" if trusted else "ambiguous" if transition.status == "ambiguous" else "offline" if result.status == "offline" else "paused"
+                soft_failure = profile is not None and result.status in OCR_INTERRUPTION_STATUSES
+                broken = False if trusted else bool(state["continuity_broken"] or not soft_failure)
+                pending = state["pending_missing_observations"] + 1 if soft_failure else 0
                 self.db.execute("""UPDATE tracking_state SET last_event_at=?,status=?,reason=?,
+                    continuity_broken=?,pending_missing_observations=?,
                     last_trusted_observation_id=CASE WHEN ? THEN ? ELSE last_trusted_observation_id END
-                    WHERE character_id=?""", (when, status, transition.reason, trusted, row_id, char))
+                    WHERE character_id=?""", (when, status, transition.reason, broken, pending, trusted, row_id, char))
             return {**dict(self.db.execute("SELECT * FROM observations WHERE id=?", (row_id,)).fetchone()), "duplicate": False}
 
     def state(self, login, *, as_of=None):
@@ -220,8 +242,12 @@ class Store:
         if session and stale and status == "tracking":
             status = "paused"
         gained = self.db.execute("SELECT COALESCE(SUM(gained_exp),0) FROM observations WHERE session_id=?", (session["id"],)).fetchone()[0] if session else 0
+        bridged = self.db.execute("""SELECT COALESCE(SUM(gained_exp),0) FROM observations
+                                  WHERE session_id=? AND missing_observations>0""", (session["id"],)).fetchone()[0] if session else 0
         return dict(channel=streamer["login"], selected_character_id=streamer["selected_character_id"],
                     characters=chars, session=dict(session) if session else None, status=status,
                     reason="stale" if state and status == "paused" and state["status"] == "tracking" else state["reason"] if state else "select_character",
                     last_trusted=dict(last) if last else None, last_event_at=state["last_event_at"] if state else None,
-                    age_seconds=age, stale=stale, observed_session_exp=gained)
+                    age_seconds=age, stale=stale, observed_session_exp=gained, bridged_session_exp=bridged,
+                    continuity_broken=bool(state["continuity_broken"]) if state else True,
+                    pending_missing_observations=state["pending_missing_observations"] if state else 0)

@@ -169,7 +169,8 @@ def main(argv=None):
                 persisted = store.ingest(tracking_channel, record["event_id"],
                                          datetime.fromisoformat(record.get("received_at", record["attempted_at"])),
                                          attempt, profile=profile, session_id=record["tracking_session_id"], source=source.kind)
-                record["tracking"] = {key: persisted[key] for key in ("id", "outcome", "reason", "gained_exp", "duplicate")}
+                record["tracking"] = {key: persisted[key] for key in (
+                    "id", "outcome", "reason", "gained_exp", "interval_start_observation_id", "missing_observations", "duplicate")}
                 record["transition"] = {"status": persisted["outcome"], "reason": persisted["reason"], "gained_exp": persisted["gained_exp"]}
                 accepted += persisted["outcome"] in {"baseline", "accepted"} and not persisted["duplicate"]
             record["tick_seconds"] = round(time.monotonic() - tick_started, 3)

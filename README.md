@@ -7,6 +7,8 @@ No accounts, cloud resources or secrets are required for offline tests.
 The [minimal SQLite tracking engine](docs/tracking.md) now persists guarded
 observations, explicit character/session selection and trusted state across
 worker restarts. It uses Python's built-in SQLite; no service or ORM is required.
+Short OCR interruptions now preserve eligible trusted endpoint gains, with
+[missing-observation metadata and hard-break safeguards](docs/accounting.md).
 Run its local synthetic demo with a new ignored database path:
 
 ```powershell

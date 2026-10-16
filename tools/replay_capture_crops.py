@@ -84,7 +84,8 @@ def main(argv=None):
                                      datetime.fromisoformat(record.get("received_at") or record["attempted_at"]),
                                      result, profile=profile, session_id=session["id"] if session else None,
                                      source="saved-crops")
-                output["tracking"] = {key: saved[key] for key in ("id", "outcome", "reason", "gained_exp", "duplicate")}
+                output["tracking"] = {key: saved[key] for key in (
+                    "id", "outcome", "reason", "gained_exp", "interval_start_observation_id", "missing_observations", "duplicate")}
             print(json.dumps(output), flush=True)
         return 0
     except (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error) as error:

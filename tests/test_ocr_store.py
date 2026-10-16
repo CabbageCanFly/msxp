@@ -39,7 +39,7 @@ def setup(path, started):
         return store.start_session("replay", at=started)
 
 
-def test_real_saved_ocr_trust_sqlite_restart_and_pause_policy(saved, tmp_path):
+def test_real_saved_ocr_trust_sqlite_restart_and_bridging_policy(saved, tmp_path):
     records, crops, profile_path = saved
     profile = GlyphProfile.load(profile_path)
     when = lambda r: datetime.fromisoformat(r["received_at"])
@@ -69,14 +69,23 @@ def test_real_saved_ocr_trust_sqlite_restart_and_pause_policy(saved, tmp_path):
         assert len(trusted_values) == 14
         assert state["last_trusted"]["current_exp"] == 879217
         assert state["status"] == "paused"
-        assert state["observed_session_exp"] == 4529
+        assert state["observed_session_exp"] == 6121
+        assert state["bridged_session_exp"] == 1592
+        assert state["pending_missing_observations"] == 1
+        assert not state["continuity_broken"]
+        bridged = restarted.db.execute("""SELECT gained_exp,missing_observations,interval_start_observation_id
+                                          FROM observations WHERE missing_observations>0 ORDER BY id""").fetchall()
+        assert [(row["gained_exp"], row["missing_observations"]) for row in bridged] == [(738, 1), (854, 1)]
+        assert all(row["interval_start_observation_id"] is not None for row in bridged)
+        assert restarted.db.execute("SELECT COUNT(*) FROM observations WHERE outcome='baseline'").fetchone()[0] == 1
+        assert restarted.db.execute("SELECT COUNT(*) FROM observations WHERE outcome='accepted'").fetchone()[0] == 13
         assert trusted_values[-1] - trusted_values[0] == 6121
         assert restarted.db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1
         assert restarted.db.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 17
         duplicate = restarted.ingest("replay", "private-frame-0", when(records[0]), results[0],
                                      profile=profile, session_id=session_id, source="saved-crops")
         assert duplicate["duplicate"]
-        assert restarted.state("replay")["observed_session_exp"] == 4529
+        assert restarted.state("replay")["observed_session_exp"] == 6121
 
 
 def test_real_plausible_tesseract_fallback_is_never_trusted(saved, tmp_path):
@@ -116,8 +125,9 @@ def test_real_capture_cli_profile_ocr_sqlite_on_lossless_saved_video(saved, tmp_
     frame, _ = restore_frame(records[0], crops)
     image_path, video_path = tmp_path / "private-hud.png", tmp_path / "private-hud.mkv"
     frame.save(image_path)
-    subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(image_path),
-                    "-frames:v", "1", "-c:v", "ffv1", "-pix_fmt", "bgr0", str(video_path)], check=True, timeout=20)
+    # Periodic file capture seeks past t=0; keep a second identical keyframe.
+    subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-loop", "1", "-framerate", "2", "-i", str(image_path),
+                    "-frames:v", "2", "-c:v", "ffv1", "-g", "1", "-pix_fmt", "bgr0", str(video_path)], check=True, timeout=20)
     path = tmp_path / "capture-ocr.sqlite3"
     # The new local decoder delivery uses current time; replay above uses original times.
     setup(path, datetime.now().astimezone() - timedelta(seconds=1))

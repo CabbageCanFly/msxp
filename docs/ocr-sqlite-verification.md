@@ -1,5 +1,10 @@
 # Real OCR → SQLite verification and profile setup
 
+Historical integration results below used schema 1's pause policy. The later
+[short OCR interruption change](accounting.md) now counts **6,121 EXP**, including
+two explicitly marked bridged intervals. Existing saved rows retain their original
+outcomes/gains; reproduce the new policy in a fresh dedicated replay database.
+
 This verifies the existing SQLite milestone on saved private evidence. No new
 Twitch footage was collected; no OCR thresholds, glyph algorithms or tracking
 policy changed. The worktree started clean at `ba001c2`.

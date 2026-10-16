@@ -1,9 +1,9 @@
 # Minimal durable tracking
 
 Follow-up: [real OCR integration verification](ocr-sqlite-verification.md) covers
-private-crop replay, a lossless local capture CLI test, profile setup and the
-measured undercount from the conservative pause policy below. That policy is
-unchanged in this verification milestone.
+private-crop replay, local capture and profile setup. The later
+[short OCR interruption policy](accounting.md) recovers endpoint gains while
+retaining evidence of missing observations; see its before/after replay results.
 
 `Store` uses built-in `sqlite3`; no new dependency or service is needed. The OCR
 matcher/thresholds are unchanged. The existing capture trust guard moved to
@@ -12,15 +12,15 @@ matcher/thresholds are unchanged. The existing capture trust guard moved to
 
 ## Schema and transactions
 
-The actual schema is [schema.py](../src/exp_tracker/schema.py), version 1:
+The actual schema is [schema.py](../src/exp_tracker/schema.py), version 2:
 
 | Table | Stores |
 | --- | --- |
 | `streamers` | Normalized channel login and explicitly selected character |
 | `characters` | Channel-owned character labels; separate histories |
 | `sessions` | Character/session boundaries, explicit end reasons; one open session per channel |
-| `observations` | Stable event ID, session/character, timestamps, profile fingerprint, diagnostics, outcome and conservative gain |
-| `tracking_state` | Per-character last trusted observation, last event time, status and pause reason |
+| `observations` | Stable event ID, session/character, timestamps, profile fingerprint, diagnostics, outcome, endpoint gain and missing-observation metadata |
+| `tracking_state` | Per-character last trusted observation, last event time, status, pause reason, hard continuity break and pending OCR interruptions |
 
 Foreign keys enforce channel/character/session ownership and state pointer
 ownership. Trusted rows (`baseline`/`accepted`) require a profile fingerprint,
@@ -31,10 +31,13 @@ their trusted numeric columns are NULL. Percent is stored as integer hundredths
 Capture currently uses local decoder receipt, not an established broadcast time.
 
 Each connection enables foreign keys, WAL and a five-second busy timeout.
-Initialization creates all tables and `PRAGMA user_version=1` atomically. Unknown
+Initialization creates all tables and `PRAGMA user_version=2` atomically. Existing
+version 1 databases receive additive columns in the same transaction. Historical
+observations/gains are not recalculated; legacy non-tracking states are treated
+as hard breaks because their pause causes were not distinguished. Unknown
 versions and nonempty unversioned databases are refused, never overwritten.
 The old `docs/schema.sql` remains a historical design sketch, not initialization
-SQL. No old prototype database is migrated automatically.
+SQL. Unversioned prototype databases are not adopted automatically.
 
 The shared guard checks the producer's evidence first. Each ingestion then takes
 `BEGIN IMMEDIATE`, reloads selection/session/state, applies the existing transition
@@ -58,17 +61,26 @@ baseline to become authoritative after restart.
   reading, status or event watermark. A newer failure pauses tracking without
   changing the trusted reading/time. Confirmed offline can be recorded as
   `Recognition("offline")`; acquisition failure alone is not proof of offline.
-- Same-level gains use the existing validator, with **no rate limit**. A failure
-  breaks continuity: the next valid reading establishes a baseline and contributes
-  no cross-pause gain. A gap over the validator's 120 seconds also establishes a
-  new baseline. Last trusted age/staleness is visible even if no worker runs.
+- Same-level gains use the existing validator, with **no rate limit**. Within
+  120 seconds between trusted endpoints, temporary OCR rejections may be bridged
+  in the same explicitly assigned character/session. The gain belongs to that
+  endpoint interval, with its missing-attempt count; nothing is interpolated.
+- Confirmed offline, explicit hard pauses, capture/processing failures and
+  contradictory validated transitions break continuity. A later OCR failure
+  cannot erase a hard break. The next compatible reading establishes a new
+  baseline with no gain. Gaps over 120 seconds also rebaseline. Last trusted
+  age/staleness is visible even if no worker runs.
 - Level changes and decreases remain auditable ambiguous attempts with no gain
   and no automatic character reassignment. End/start a session explicitly to
   accept a new baseline after confirming the character. No cross-level totals
   or EXP table are invented.
 
-`observed_session_exp` sums only accepted, continuous deltas. It excludes gains
-across pauses/gaps/new sessions. EXP/hour, ETA and duration-based rates are deferred.
+`observed_session_exp` retains its existing name for compatibility: it sums
+validated endpoint net changes, including eligible short OCR interruptions. It
+does **not** imply continuous observation or gross EXP earned. `bridged_session_exp`
+identifies the portion counted across missing observations. Hard breaks, long
+gaps and new sessions contribute no cross-boundary gain. EXP/hour, ETA and
+duration-based rates are deferred.
 The per-character last trusted reading survives end/switch/restart, but a new
 session always starts its own baseline. Restarting an open session reuses its
 persisted state; calling `start_session` again does not create another session.
@@ -135,6 +147,10 @@ Import `Store` from `exp_tracker.store`. Do not pass a caller-computed transitio
 the transaction computes it against persisted state. Retries must retain the same
 event ID, timestamp, session and evidence. Capture/processing failures can use
 `Recognition("capture_failed", reasons=[...])` with the same session binding.
+An explicit hard pause can use `Recognition("paused", reasons=["explicit_pause"])`
+with a stable event ID and the active session. It requires no profile, remains
+diagnostic and never changes trusted values. A subsequent compatible trusted
+reading resumes with a new baseline; end/start a session to confirm a level reset.
 
 Databases, WAL/SHM journals, private profiles, raw OCR diagnostics and captures
 remain under ignored `data/`, `private/` or `artifacts/`. No screenshots, source
@@ -146,7 +162,7 @@ contain private character/OCR history; do not publish them.
 Tests cover trust/fallbacks, large gains, duplicates/conflicts, ownership,
 character switching, gaps/pauses, level changes/decreases, ordering, rollback,
 schema refusal, restart and real capture-loop wiring with synthetic input.
-At this milestone's completion: **31 targeted tests passed; full suite 240 passed, zero
+At the original SQLite milestone's completion: **31 targeted tests passed; full suite 240 passed, zero
 skipped**, including all 71 private-sample tests. Dependency, compilation and
 whitespace checks passed. The demo and separate-process state CLI both ran.
 
@@ -157,3 +173,4 @@ whitespace checks passed. The demo and separate-process state CLI both ran.
 No new footage, frontend, API, deployment, authentication or scheduler was added.
 Automatic level-up confirmation, game EXP tables, channel renames, backups,
 retention/deletion commands and Linux load testing remain future work.
+See [accounting verification](accounting.md) for the current policy's test results.

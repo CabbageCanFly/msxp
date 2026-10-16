@@ -1,6 +1,6 @@
-"""SQLite schema version 1. Statements execute inside the initialization transaction."""
+"""SQLite base schema and additive migrations, applied in one transaction."""
 
-VERSION = 1
+VERSION = 2
 STATEMENTS = (
     """CREATE TABLE streamers (
         id INTEGER PRIMARY KEY, login TEXT NOT NULL UNIQUE,
@@ -42,4 +42,17 @@ STATEMENTS = (
         status TEXT NOT NULL DEFAULT 'waiting', reason TEXT NOT NULL DEFAULT 'no_observation',
         FOREIGN KEY(last_trusted_observation_id, character_id) REFERENCES observations(id, character_id)
     )""",
+)
+
+MIGRATION_2 = (
+    """ALTER TABLE observations ADD COLUMN interval_start_observation_id INTEGER REFERENCES observations(id)
+       CHECK(interval_start_observation_id IS NULL OR outcome='accepted')""",
+    """ALTER TABLE observations ADD COLUMN missing_observations INTEGER NOT NULL DEFAULT 0
+       CHECK(missing_observations >= 0 AND (missing_observations=0 OR interval_start_observation_id IS NOT NULL))""",
+    """ALTER TABLE tracking_state ADD COLUMN continuity_broken INTEGER NOT NULL DEFAULT 0
+       CHECK(continuity_broken IN (0,1))""",
+    """ALTER TABLE tracking_state ADD COLUMN pending_missing_observations INTEGER NOT NULL DEFAULT 0
+       CHECK(pending_missing_observations >= 0)""",
+    # Version 1 pauses had no soft/hard distinction; never reinterpret their gains.
+    "UPDATE tracking_state SET continuity_broken=1 WHERE status != 'tracking'",
 )
