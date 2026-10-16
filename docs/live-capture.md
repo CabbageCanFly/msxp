@@ -3,7 +3,8 @@
 Recognition follow-up: [ocr-reliability.md](ocr-reliability.md) reports offline
 replay improving these crops from 5/18 to 17/18 correct accepted readings, with
 zero observed wrong accepts. The measurements below remain the original capture
-measurements; the new recognizer has not had a longer live trial yet.
+measurements. Subsequent user-run green-bracket trials and the capture safety
+gate are recorded in [ocr-consolidation.md](ocr-consolidation.md).
 
 This milestone adds server/developer-side Streamlink + FFmpeg acquisition. The
 streamer installs nothing and changes no OBS settings. No website, hosted worker,

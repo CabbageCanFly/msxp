@@ -1,5 +1,10 @@
 # Live OCR reliability milestone
 
+Historical experiment. Current version 2 calibration and the stricter capture
+trust boundary are documented in [ocr-consolidation.md](ocr-consolidation.md).
+In particular, Tesseract-only EXP fallback acceptance below does not imply a
+trusted tracking update when a glyph profile is supplied.
+
 Measured on Windows 11, Python 3.14.7, Pillow 12.3.0 and Tesseract
 5.4.0.20240606, 2026-10-15. This milestone replays existing private captures;
 it makes no new Twitch connections and does not change acquisition strategy.

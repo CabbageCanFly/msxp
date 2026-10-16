@@ -3,8 +3,9 @@
 Remote Streamlink/FFmpeg capture has passed a short authorized trial with zero
 streamer setup; see [live-capture.md](live-capture.md). Optional calibrated glyph
 matching improves saved live crops to 17/18 correct accepted readings; see
-[ocr-reliability.md](ocr-reliability.md). Next is longer recognition/freshness
-validation. The rest of this document remains a service proposal.
+[ocr-reliability.md](ocr-reliability.md). [Consolidated calibration and trust
+rules](ocr-consolidation.md) now support starting the local SQLite engine.
+The rest of this document remains a service proposal.
 
 This is a proposal. Only local OCR, observation validation and acquisition test
 tools exist today. There is no running website, database service or overlay.
@@ -68,6 +69,12 @@ The implemented `validate_transition` is a pure, conservative gate. It reports
 baseline/accepted/rejected/ambiguous, without mutating the prior observation.
 Only pass OCR results whose status is `accepted` into it. A low-confidence
 `reading` is a diagnostic candidate and may contain incorrect digits.
+
+For SQLite ingestion, require a calibrated glyph profile and apply the existing
+capture safety guard before this gate; see [trust rules](ocr-consolidation.md).
+An unverified Tesseract EXP fallback must never update trusted state. No gain-rate
+cap is enabled by capture. Persist state only for transition `baseline`/`accepted`,
+preserving the previous trusted reading/time for every other outcome.
 
 Proposed service behavior:
 

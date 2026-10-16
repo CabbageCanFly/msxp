@@ -63,7 +63,10 @@ def test_integer_scaling_and_translation(synthetic_profile):
 
 
 @pytest.mark.parametrize("symbol", ["[", "]", ".", "%", ","])
-def test_missing_punctuation_is_rejected(synthetic_profile, symbol):
+@pytest.mark.parametrize("mode", ["max_channel", "green_excess"])
+def test_missing_punctuation_is_rejected(synthetic_profile, symbol, mode):
+    synthetic_profile = replace(synthetic_profile, bracket_mode=mode,
+                                punctuation_threshold=11 if mode == "green_excess" else 100)
     text = "12,345[67.89%]"
     image = render(synthetic_profile, text)
     x = 3 + sum(synthetic_profile.widths[c] for c in text[:text.index(symbol)])
@@ -71,7 +74,10 @@ def test_missing_punctuation_is_rejected(synthetic_profile, symbol):
     assert not match_exp(image, synthetic_profile)["text"]
 
 
-def test_uncertain_six_eight_is_rejected(synthetic_profile):
+@pytest.mark.parametrize("mode", ["max_channel", "green_excess"])
+def test_uncertain_six_eight_is_rejected(synthetic_profile, mode):
+    synthetic_profile = replace(synthetic_profile, bracket_mode=mode,
+                                punctuation_threshold=11 if mode == "green_excess" else 100)
     image = render(synthetic_profile, "12,346[67.89%]")
     # Six and eight differ in two pixels; halfway is an exact distance tie.
     x = 3 + 5 * 6
@@ -110,6 +116,46 @@ def test_color_mask_preserves_green_bracket():
     assert mask(image, 160) == 0
 
 
+def test_green_excess_ignores_bright_gray_and_preserves_boundary():
+    image = Image.new("RGB", (4, 1))
+    image.putdata([(255, 255, 255), (120, 130, 120), (120, 131, 120), (120, 132, 120)])
+    assert mask(image, 11, green_excess=True) == 0b1100
+
+
+@pytest.mark.parametrize("threshold,ink_excess,noise_excess", [(7, 9, 0), (11, 13, 9), (15, 17, 13)])
+def test_adaptive_brackets_need_each_existing_threshold(synthetic_profile, threshold, ink_excess, noise_excess):
+    profile = replace(synthetic_profile, bracket_mode="green_excess", punctuation_threshold=11)
+    text = "12,345[67.89%]"
+    image = render(profile, text)
+    for char in "[]":
+        x = 3 + sum(profile.widths[c] for c in text[:text.index(char)])
+        width, template = profile.widths[char], profile.templates[char][0]
+        noise = 0
+        for i in range(width * profile.height):
+            if template & (1 << i):
+                image.putpixel((x + i % width, 2 + i // width), (100, 100 + ink_excess, 100))
+            elif noise_excess and noise < 5:
+                image.putpixel((x + i % width, 2 + i // width), (100, 100 + noise_excess, 100))
+                noise += 1
+        patch = image.crop((x, 2, x + width, 2 + profile.height))
+        for candidate in (7, 11, 15):
+            distance = (mask(patch, candidate, green_excess=True) ^ template).bit_count()
+            assert distance == 0 if candidate == threshold else distance > 4
+    assert match_exp(image, profile)["text"] == text
+
+
+def test_severely_degraded_green_closing_bracket_is_rejected(synthetic_profile):
+    profile = replace(synthetic_profile, bracket_mode="green_excess", punctuation_threshold=11)
+    text = "12,345[67.89%]"
+    image = render(profile, text)
+    x = 3 + sum(profile.widths[c] for c in text[:-1])
+    width = profile.widths["]"]
+    ink = [i for i in range(width * profile.height) if profile.templates["]"][0] & (1 << i)]
+    for i in ink[:5]:
+        image.putpixel((x + i % width, 2 + i // width), (30, 30, 30))
+    assert not match_exp(image, profile)["text"]
+
+
 def test_hybrid_uses_pixel_exp_and_keeps_level_engine(synthetic_profile, monkeypatch):
     image = render(synthetic_profile, "12,345[67.89%]")
     calls = []
@@ -143,7 +189,8 @@ def test_hybrid_fallback_and_pixel_ambiguity_veto(synthetic_profile, monkeypatch
     assert result.reading is None
 
 
-def test_training_roundtrip_and_heldout_guard(synthetic_profile, tmp_path):
+@pytest.mark.parametrize("version", [1, 2])
+def test_training_roundtrip_and_heldout_guard(synthetic_profile, tmp_path, version):
     from tools.train_glyph_profile import train
     text = "0123456789[12.34%],"
     render(synthetic_profile, text).save(tmp_path / "owned.png")
@@ -151,15 +198,31 @@ def test_training_roundtrip_and_heldout_guard(synthetic_profile, tmp_path):
     data = dict(height=9, digit_threshold=175, punctuation_threshold=100,
                 samples=[dict(image="owned.png", id="synthetic-training", split="development",
                               text=text, origin=[3, 2], widths=synthetic_profile.widths)])
+    if version == 2:
+        data.update(version=2, bracket_mode="green_excess", punctuation_threshold=11)
+        synthetic_profile = replace(synthetic_profile, bracket_mode="green_excess", punctuation_threshold=11)
     annotation.write_text(json.dumps(data), encoding="utf-8")
     output = tmp_path / "profile.json"
     train(annotation, output)
     assert GlyphProfile.load(output) == synthetic_profile
+    first_output = output.read_bytes()
+    train(annotation, output)
+    assert output.read_bytes() == first_output
+    assert json.loads(first_output)["version"] == version
     assert json.loads(output.read_text())["provenance"]["training_ids"] == ["synthetic-training"]
     data["samples"][0]["split"] = "heldout"
     annotation.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="Only development"):
         train(annotation, output)
+
+
+@pytest.mark.parametrize("version,mode", [(1, "green_excess"), (2, "max_channel"), (3, "green_excess")])
+def test_training_rejects_incompatible_version_and_mask(tmp_path, version, mode):
+    from tools.train_glyph_profile import train
+    annotation = tmp_path / "bad.json"
+    annotation.write_text(json.dumps(dict(version=version, bracket_mode=mode)))
+    with pytest.raises(ValueError, match="version"):
+        train(annotation, tmp_path / "profile.json")
 
 
 def test_incomplete_training_alphabet_is_rejected(synthetic_profile, tmp_path):

@@ -54,7 +54,7 @@ def main(argv=None):
     parser.add_argument("--timeout", type=float, default=20)
     parser.add_argument("--max-frame-age", type=float, default=5, help="Maximum age since LOCAL decoder delivery, not broadcast age")
     parser.add_argument("--config", type=Path)
-    parser.add_argument("--glyph-profile", type=Path, help="Private calibrated EXP font profile; Tesseract fallback")
+    parser.add_argument("--glyph-profile", type=Path, help="Require glyph-verified EXP for tracking; Tesseract fallback is diagnostic")
     parser.add_argument("--pixel-scale", type=float, action="append", help="Explicit glyph scale(s), default 1")
     parser.add_argument("--debug-dir", type=Path, help="Opt-in field crops only; use ignored artifacts/ or private/")
     parser.add_argument("--character", default="selected-character", help="Explicit logical character; never inferred from pixels")

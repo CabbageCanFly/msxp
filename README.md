@@ -4,16 +4,22 @@ Independent, free, MIT-licensed feasibility prototype. This milestone contains
 local screenshot OCR and acquisition experiments, not a hosted tracking service.
 No accounts, cloud resources or secrets are required for offline tests.
 
+Current consolidation: [green bracket OCR and capture trust rules](docs/ocr-consolidation.md).
+The saved seven-second trial replays 14/17 accepted readings. Version 2 profiles
+can now be trained reproducibly; version 1 remains supported. With a profile,
+capture refuses to promote unverified Tesseract EXP fallbacks to trusted state.
+Private calibration/profile files are intentionally absent from public Git.
+
 The prototype includes remote Streamlink/FFmpeg frame acquisition with zero
 streamer installation or OBS configuration. See [live-capture.md](docs/live-capture.md)
 for current implementation, reproduction commands, measured results and platform
 limitations. Install its optional dependencies with `pip install -e '.[capture]'`.
 
-The latest [OCR reliability results](docs/ocr-reliability.md) improve saved live
+The earlier [OCR reliability results](docs/ocr-reliability.md) improved saved live
 readings from **5/18 to 17/18 correct accepts**, including **9/9 on the same-session
 held-out set**, with zero observed incorrect accepts. Complete OCR averages
 336 ms versus 613 ms. The optional glyph profile is private calibration data;
-Tesseract remains the default and fallback. No new live/VPS trial is claimed.
+Tesseract remains available for diagnostics. Those measurements excluded live/VPS trials.
 
 ```powershell
 .\.venv\Scripts\python tools/evaluate_ocr.py private/ocr-evaluation/manifest.json --engine hybrid --profile private/ocr-evaluation/glyph-profile.json --output artifacts/ocr-hybrid.json
@@ -79,8 +85,9 @@ standalone tracker overlays. This is a limited baseline, not universal HUD recog
 Default discovery searches the lower 30% of the frame; use `--search 0,0,1,1`
 for a HUD elsewhere, or calibrate explicit ROIs. The supplied configs contain only
 sample-specific normalized regions, never expected readings. Small glyphs and
-slight crop changes affect OCR substantially. Only `status: accepted` may advance
-tracking; even a populated low-confidence reading may contain incorrect digits.
+slight crop changes affect OCR substantially. Live tracking must apply the
+[capture trust gate](docs/ocr-consolidation.md); an accepted diagnostic candidate
+alone is insufficient. Populated low-confidence readings may contain wrong digits.
 
 Verified original 1920x1080 samples:
 
