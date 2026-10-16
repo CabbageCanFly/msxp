@@ -65,6 +65,8 @@ def main(argv=None):
         models = grayscale_digits.load(args.model, args.bank)
     paths = [args.manifest, args.levels, Path(__file__).with_name('exp_digits.py')]
     paths += [p for p in (args.bank, args.profile, args.adaptive_results, args.model) if p]
+    if args.bank and args.bank.with_suffix('.paths.json').exists():
+        paths.append(args.bank.with_suffix('.paths.json'))
     if models is not None:
         paths.append(Path(__file__).with_name('grayscale_digits.py'))
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}

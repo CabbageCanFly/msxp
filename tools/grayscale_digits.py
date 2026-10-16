@@ -97,13 +97,13 @@ def train(bank_path, output):
     families, reports = [], []
     source_hashes = {}
     for family in data['families']:
-        profile = GlyphProfile.load(bank_path.parent/family['profile'])
+        profile = GlyphProfile.load(exp_digits.bank_source(bank_path, family['profile']))
         examples = []
         negatives = []
         for row in family['characters']:
             if row['split'] != 'development':
                 raise ValueError('Only manually verified development labels may train')
-            source_path = (bank_path.parent/row['image']).resolve()
+            source_path = exp_digits.bank_source(bank_path, row['image']).resolve()
             if source_path not in source_hashes:
                 source_hashes[source_path] = hashlib.sha256(source_path.read_bytes()).hexdigest()
             with Image.open(source_path) as original:

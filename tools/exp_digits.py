@@ -6,6 +6,7 @@ experimental candidates, never ingestion evidence. No resizing or OCR fallback.
 
 import argparse
 from functools import lru_cache
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -59,6 +60,22 @@ def prepare(profile, templates=None):
     return profile, (stride, packed, gaps, trailing)
 
 
+def bank_source(bank_path, reference):
+    """Optional relocation map preserves hash-bound banks and checks source bytes."""
+    sidecar = bank_path.with_suffix('.paths.json')
+    mapping = json.loads(sidecar.read_text(encoding='utf-8')) if sidecar.exists() else {}
+    if reference not in mapping:
+        return bank_path.parent / reference
+    entry = mapping[reference]
+    relative = Path(entry['path'])
+    if relative.is_absolute():
+        raise ValueError('Relocated bank sources must be manifest-relative')
+    source = bank_path.parent / relative
+    if hashlib.sha256(source.read_bytes()).hexdigest() != entry['sha256']:
+        raise ValueError('Relocated bank source hash mismatch')
+    return source
+
+
 def load_bank(path):
     """Read manually reviewed character boxes; calibration never consumes OCR guesses."""
     if path.stat().st_size > 1024 * 1024:
@@ -68,14 +85,14 @@ def load_bank(path):
         raise ValueError('unsupported experimental bank')
     bank = []
     for family in data['families']:
-        profile = GlyphProfile.load(path.parent / family['profile'])
+        profile = GlyphProfile.load(bank_source(path, family['profile']))
         if not 1 <= len(family['characters']) <= 512:
             raise ValueError('too many calibration characters')
         templates = {c: [] for c in WHITE}
         for row in family['characters']:
             if row['split'] != 'development' or row['char'] not in WHITE:
                 raise ValueError('Only manually verified development characters may calibrate')
-            with Image.open(path.parent / row['image']) as image:
+            with Image.open(bank_source(path, row['image'])) as image:
                 left, top, right, bottom = row['box']
                 if not (0 <= left < right <= image.width and 0 <= top < bottom <= image.height):
                     raise ValueError('character box is outside image')

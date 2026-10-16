@@ -140,7 +140,7 @@ def provisional_metrics(result, expected, levels):
 
 def evaluate(args):
     from adaptive_hud import locate, level_reading
-    from exp_digits import load_bank, recognize
+    from exp_digits import load_bank, recognize, bank_source
     import grayscale_digits
     from level_digits import load_profile, read_level
     from exp_tracker.metrics import ResourceMonitor
@@ -153,11 +153,13 @@ def evaluate(args):
     model_path = Path('private/numeric-classifier/model.json')
     level_path = Path('private/level-digits/profile.json')
     files = [args.manifest, bank_path, model_path, level_path, Path(__file__)]
+    if bank_path.with_suffix('.paths.json').exists():
+        files.append(bank_path.with_suffix('.paths.json'))
     files += [Path(__file__).with_name(name) for name in
               ('adaptive_hud.py', 'exp_digits.py', 'level_digits.py', 'grayscale_digits.py', 'evaluate_exp_digits.py')]
     for family in json.loads(bank_path.read_text())['families']:
-        files += [bank_path.parent / family['profile']]
-        files += [bank_path.parent / row['image'] for row in family['characters']]
+        files += [bank_source(bank_path, family['profile'])]
+        files += [bank_source(bank_path, row['image']) for row in family['characters']]
     hashes = {str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     snapshot = directory / 'annotations-before-ocr.json'
     if not snapshot.exists():
