@@ -14,10 +14,31 @@ import sys
 import time
 
 from .models import Region
+from .parsing import parse_exp
 from .glyphs import GlyphProfile
 from .recognition import recognize
 from .validation import Observation, validate_transition
 from .video import CaptureError, Source, VideoSession
+
+
+
+def _guard_unverified_exp(result, profile):
+    """Never promote a Tesseract-only EXP guess when a glyph profile was supplied.
+
+    Preserve the candidate and raw attempts for debugging, but only glyph-verified
+    EXP may advance live tracking state. This does not impose an EXP gain-rate cap.
+    """
+    if profile is None or result.status != "accepted":
+        return result
+    pixel_matches = [parse_exp(a.get("text") or "")
+                     for a in result.raw.get("exp", []) if a.get("variant") == "pixel"]
+    verified = result.reading is not None and (
+        result.reading.current_exp, result.reading.percentage) in pixel_matches
+    if not verified:
+        result.status = "low_confidence"
+        result.confidence = 0.0
+        result.reasons.append("unverified_tesseract_exp")
+    return result
 
 
 def main(argv=None):
@@ -101,6 +122,7 @@ def main(argv=None):
                 result = recognize(image, regions=regions,
                                    glyph_profile=profile, pixel_scales=tuple(args.pixel_scale or [1]),
                                    debug_dir=args.debug_dir / f"{index:04d}" if args.debug_dir else None)
+                result = _guard_unverified_exp(result, profile)
                 ocr_seconds = time.monotonic() - ocr_started
                 successes += 1
                 transition = None

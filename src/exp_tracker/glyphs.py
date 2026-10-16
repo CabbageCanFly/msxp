@@ -129,18 +129,32 @@ def match_exp(crop: Image.Image, profile: GlyphProfile, *, scales=(1.0,)) -> dic
                 width = digit_width if digit else profile.widths[symbol]
                 patch = image.crop((x, y, x + width, y + profile.height))
                 colored = symbol in "[]"
-                value = mask(patch, profile.punctuation_threshold if colored else profile.digit_threshold,
-                             color=colored,
-                             green_excess=colored and profile.bracket_mode == "green_excess")
                 candidates = "0123456789" if digit else symbol
-                ranked = sorted((min((value ^ template).bit_count()
-                                     for template in profile.templates[c]), c) for c in candidates)
+                thresholds = (profile.punctuation_threshold,)
+                if colored and profile.bracket_mode == "green_excess":
+                    thresholds = tuple(max(0, min(255, profile.punctuation_threshold + offset))
+                                       for offset in (-4, 0, 4))
+                ranked = []
+                for threshold in thresholds:
+                    value = mask(patch, threshold if colored else profile.digit_threshold,
+                                 color=colored,
+                                 green_excess=colored and profile.bracket_mode == "green_excess")
+                    if not value:
+                        continue
+                    ranked.extend((min((value ^ template).bit_count()
+                                       for template in profile.templates[c]), c) for c in candidates)
+                ranked.sort()
+                if not ranked:
+                    cache[key] = None
+                    return None
                 distance, char = ranked[0]
-                margin = ranked[1][0] - distance if digit else 99
-                # A missing punctuation mask cannot be explained by a blank cell.
-                # Green bracket pixels vary slightly under video compression.
+                if digit:
+                    # Here digits use a single threshold, as before.
+                    margin = ranked[1][0] - distance
+                else:
+                    margin = 99
                 limit = 4 if colored and profile.bracket_mode == "green_excess" else 3
-                cache[key] = (char, distance) if value and distance <= limit and margin >= 2 else None
+                cache[key] = (char, distance) if distance <= limit and margin >= 2 else None
             return cache[key]
 
         for layout in _layouts():
