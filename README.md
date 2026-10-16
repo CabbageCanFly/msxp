@@ -16,6 +16,7 @@ Start-Process 'http://127.0.0.1:8765/overlay/demo'
 The database must already use schema 2. The linked guide covers creating a demo,
 explicitly migrating old databases, saved real OCR state and timed synthetic
 updates. HTTP never creates/migrates databases or writes tracking state.
+Use a **500 × 160** OBS Browser Source for the compact, transparent overlay.
 
 The [minimal SQLite tracking engine](docs/tracking.md) now persists guarded
 observations, explicit character/session selection and trusted state across

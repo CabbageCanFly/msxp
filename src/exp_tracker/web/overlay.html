@@ -10,14 +10,17 @@
 <body>
   <main id="card" data-state="waiting" aria-label="EXP tracker">
     <header>
-      <div class="identity"><strong id="character">EXP tracker</strong><span id="channel"></span></div>
-      <span id="status" role="status">Connecting</span>
+      <span class="charm" aria-hidden="true">✦</span>
+      <strong id="character">EXP tracker</strong>
+      <span id="level">Lv. —</span>
     </header>
-    <div class="reading"><span id="level">Lv. —</span><strong id="exp">—</strong><span id="percentage">—</span></div>
-    <progress id="progress" max="100" value="0" aria-label="Trusted EXP percentage"></progress>
-    <div class="session"><span>Session net EXP</span><strong id="session-exp">—</strong></div>
-    <div id="bridged" hidden></div>
-    <footer><span id="detail">Waiting for local state</span><time id="age">No trusted reading</time></footer>
+    <div class="reading">
+      <div class="exp-reading"><span class="caption">EXP</span><strong id="exp">—</strong></div>
+      <strong id="percentage">—</strong>
+    </div>
+    <progress id="progress" max="100" value="0" aria-label="EXP percentage"></progress>
+    <div class="session"><span>This session</span><strong id="session-exp">—</strong></div>
+    <footer><span id="status" role="status">Waiting for EXP</span><time id="age"></time></footer>
   </main>
 </body>
 </html>

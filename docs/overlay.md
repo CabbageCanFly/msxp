@@ -41,10 +41,19 @@ demo showing stale is expected, not a failed server. Stop the server with Ctrl+C
 On Linux use `.venv/bin/python` and open the same URL manually.
 
 In OBS, add a **Browser Source** with URL
-`http://127.0.0.1:8765/overlay/demo`, width **480**, height **260**. The HTML/body
-background is transparent; only the compact dark information panel is drawn.
+`http://127.0.0.1:8765/overlay/demo`, width **500**, height **160**. The HTML/body
+background is transparent; only the warm cream information panel is drawn.
 No custom CSS, WebSocket credentials, plugin or page-refresh setting is needed.
 OBS must run on the same computer as this local server for this milestone.
+
+The card is always 490 × 150 pixels, with a five-pixel transparent margin inside
+the 500 × 160 canvas. Header, EXP/progress, session total and update note use fixed
+rows; no status adds a line or changes the card size or colour. Resize the source
+using OBS's transform rather than changing the Browser Source dimensions.
+Character names take priority over channel URLs; long names use an ellipsis with
+the full name in the browser tooltip. Large numbers use smaller type without
+abbreviating the displayed value. The cream, caramel and sage palette, rounded
+type and small generic star use only CSS/text, without game artwork or fonts.
 
 ## Demonstrate new updates without Twitch
 
@@ -98,7 +107,8 @@ Invoke-RestMethod 'http://127.0.0.1:8766/api/streams/telfer1/state' | ConvertTo-
 
 Expected saved values: **60 / 879,217 / 72.66%**, session net **6,121**, bridged
 **1,592**. The final rejected frame leaves tracking paused, and the historical
-reading is stale. The overlay keeps the numbers with a stale label and age.
+reading is stale. The overlay keeps the numbers with an "Updates delayed" note
+and the age of the last update.
 The earlier `artifacts/ocr-integration.sqlite3` can also be explicitly migrated
 and served, but keeps its historical **4,529** total; migration does not recalculate
 old gains. See [replay instructions](ocr-sqlite-verification.md) if creating a new
@@ -133,26 +143,40 @@ worker stops. Fetches time out after four seconds and do not overlap; request
 time is included conservatively in displayed age. Poll frequency is **not** a
 new OCR observation frequency.
 
-Tracking, OCR interruption, hard pause, stale, offline, unconfigured, waiting,
-no-active-session and review-needed states have text labels as well as colours.
-An API failure retains cached numbers with an explicit unavailable/cached warning;
-it never turns them into fresh observations or zero. Missing readings display
-an em dash. Previous-session values retained by the Store are identified while
-waiting for the new session's first trusted reading. Stale state remains visible
-in the age line even when offline or another status takes label priority.
+The player sees the selected character, level, numeric EXP, displayed percentage,
+progress bar and **"This session"**. No unsupported future statistics or placeholder
+statistic slots are shown. The wide session row can later accommodate supported
+statistics without adding them now.
+
+| Situation | Player-facing note |
+| --- | --- |
+| Tracking or brief unreadable frame | No warning; keep values and "Updated Xs ago" |
+| Stale (over 120 seconds) or a failed state request with cached values | "Updates delayed" and the actual last-update age |
+| Confirmed offline | "Offline" and the actual last-update age, if a reading exists |
+| Explicit hard pause/no active session with retained values | "Paused" and the last-update age |
+| No reading, unconfigured or unknown channel | "Waiting for EXP"; missing values are em dashes |
+| A new session awaits its first reading | "Waiting for EXP"; retain previous values and their original update age |
+| Ambiguous numeric transition | "Updates delayed"; retain values and age |
+
+All notes occupy the same reserved footer row. Brief unreadable frames do not
+recolour the card or expose warnings/reasons; they do not change the update age.
+Cached values never acquire a new timestamp on request failure. The overlay does
+not infer stream "Live" status from successful OCR. Diagnostic reason codes,
+continuity flags and bridged EXP remain available in the API/logs, not on the
+player-facing card. No technical errors or bridged-gain explanations are rendered.
 
 Unknown channels return JSON **404**, malformed channels **400**, unavailable or
 incompatible databases **503**. A known unconfigured channel returns **200** with
 null selection/session/reading. Non-GET write methods return **405**. Static
 assets use a fixed allowlist; there is no directory/file browser or cross-origin
-access header. Responses use `Cache-Control: no-store`; character/reason text is
-inserted with `textContent`, not HTML.
+access header. Responses use `Cache-Control: no-store`; character names are
+inserted with `textContent`, not HTML. Internal reasons are not rendered.
 
 ## Validation and remaining manual check
 
-- Targeted Python API/Store/CLI checks: **79 passed, 1 skipped**.
-- Full suite: **304 passed, 1 skipped**. **Zero private-sample skips**.
-- Six Node renderer checks passed (also invoked from pytest when Node is present).
+- Following the presentation redesign: **305 full-suite tests passed, zero skipped**,
+  including the real localhost TCP smoke test. **Zero private-sample skips**.
+- Eight Node renderer checks passed (also invoked from pytest when Node is present).
   Node is optional test tooling, not a server or browser dependency.
 - Real HTTP parsing/serialization is exercised in memory against actual Store
   data, including the private OCR replay. Concurrent WAL reading during a held,
@@ -162,21 +186,49 @@ inserted with `textContent`, not HTML.
 - The CLI started on 127.0.0.1:8765, and the timed demo appended seven new events
   with the expected totals. No helper server was left running.
 
-This session blocks loopback client sockets with Windows error **10013**. The
-separate real TCP smoke test is the one skip; only that specific permission
-error is skipped. Run it outside this session to verify local transport:
+The earlier restricted session skipped the real TCP test with Windows error
+10013 and could not start headless Edge. Expanded connection/browser permissions
+resolved both: actual Edge loaded the served overlay, displayed SQLite-derived
+values and completed repeated API polling. No browser security settings were
+disabled. In a restricted Codex shell, use the approved expanded connection access
+when running the tests; an ordinary local terminal needs no extra setup.
 
 ```powershell
 .\.venv\Scripts\python -m pytest -q tests/test_server.py --basetemp=artifacts/pytest-overlay-manual -rs
 ```
 
-An offline headless Edge preview was attempted using the actual overlay code and
-the database-derived API response, but Edge exited with **0xC0000005** before
-creating a screenshot. **Actual visual rendering, browser-to-HTTP polling and OBS
-transparency remain unverified here.** Please open the demo and inspect it in OBS,
-including paused/offline/stale labels and live updates. Renderer logic and CSS
-transparency declarations are tested; they do not establish a visual result.
-Linux execution and cold wheel installation were not checked in this milestone.
+## Reproduce the browser sizing and screenshot check
+
+With the local server running against a database containing a reading:
+
+```powershell
+node tools/overlay.browser.mjs http://127.0.0.1:8765/overlay/demo
+```
+
+This optional tool uses Node's built-in WebSocket (verified with Node 24) and an
+installed Chromium browser. It finds Edge/Chrome on common Windows/Linux paths;
+set `BROWSER_BIN` to the executable if needed. It opens an isolated headless browser,
+checks actual API polling, then injects presentation-only cases into the page.
+It never writes to SQLite, changes historical timestamps or collects footage.
+
+All **13 browser cases passed**: tracking, brief OCR failure, stale, offline,
+offline without a reading, explicit pause, review-needed, API failure, unconfigured,
+waiting, previous-session reading, long name/large values and zero EXP. Every
+card measured **490 × 150** at (5,5) on a **500 × 160** page, with no page or metric
+overflow and identical background/border styling. The maximum safe JavaScript
+integer (9,007,199,254,740,991) fit without abbreviation, and 99.99% fit its reserved
+region. Long names ellipsized while retaining a full-name tooltip.
+
+The PNGs and `measurements.json` are under ignored `artifacts/overlay-redesign/`.
+Tracking, delayed and long-value screenshots were visually inspected. All PNGs
+were 500 × 160 with zero alpha at the outer corner, verifying transparent page
+output. Reference imagery in `samples/` remains private/ignored; no game assets
+were copied into the overlay. The browser helper closes its server-independent
+browser; profiles and logs stay in the ignored artifact directory for diagnosis.
+
+OBS's actual CEF rendering/compositing still needs a manual check at **500 × 160**;
+only Edge was automated. Linux execution and cold wheel installation were not
+checked in this milestone. Backend, API, acquisition and accounting are unchanged.
 
 The standard-library server is for local use only. No frontend configuration UI,
 write API, account system, EXP/hour, ETA, production scheduler, remote exposure,
