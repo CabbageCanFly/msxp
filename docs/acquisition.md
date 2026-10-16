@@ -1,5 +1,9 @@
 # Acquisition feasibility
 
+This is the Phase 0/1 research snapshot. The subsequent remote-capture experiment
+is documented in [live-capture.md](live-capture.md); its implementation and newer
+measurements supersede the “not implemented” entries below for that experiment.
+
 Research checked 2026-10-15. **No Twitch or OBS live capture was verified.**
 Offline screenshot OCR is verified; the probes below are reproducible experiments.
 The reference application's URLs could not be inspected successfully using the

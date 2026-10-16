@@ -4,6 +4,27 @@ Independent, free, MIT-licensed feasibility prototype. This milestone contains
 local screenshot OCR and acquisition experiments, not a hosted tracking service.
 No accounts, cloud resources or secrets are required for offline tests.
 
+The prototype includes remote Streamlink/FFmpeg frame acquisition with zero
+streamer installation or OBS configuration. See [live-capture.md](docs/live-capture.md)
+for current implementation, reproduction commands, measured results and platform
+limitations. Install its optional dependencies with `pip install -e '.[capture]'`.
+
+The latest [OCR reliability results](docs/ocr-reliability.md) improve saved live
+readings from **5/18 to 17/18 correct accepts**, including **9/9 on the same-session
+held-out set**, with zero observed incorrect accepts. Complete OCR averages
+336 ms versus 613 ms. The optional glyph profile is private calibration data;
+Tesseract remains the default and fallback. No new live/VPS trial is claimed.
+
+```powershell
+.\.venv\Scripts\python tools/evaluate_ocr.py private/ocr-evaluation/manifest.json --engine hybrid --profile private/ocr-evaluation/glyph-profile.json --output artifacts/ocr-hybrid.json
+# Opt into calibrated EXP matching during a permitted capture trial by adding:
+# --glyph-profile private/ocr-evaluation/glyph-profile.json
+```
+
+The evaluation command needs the optional capture dependencies and private local
+fixtures. Matching itself only adds Pillow code. The linked results cover training,
+tests, benchmarks, limitations and the proposed longer live trial.
+
 Development and acquisition findings are in [docs/acquisition.md](docs/acquisition.md),
 the proposed service design in [docs/design.md](docs/design.md), and actual local
 verification in [docs/results.md](docs/results.md).
@@ -80,8 +101,9 @@ node --test tools/obs-client.test.mjs
 ```
 
 The Python suite includes private-image integration tests and synthetic validation
-tests. A public contributor can run `python -m pytest -m "not samples"` without
-private screenshots or an OCR engine. `--basetemp` keeps temporary test files under
+tests. A public contributor can run `python -m pytest -m "not ocr"` without
+private screenshots or an OCR engine. Optional video tests skip if FFmpeg or
+capture dependencies are absent. `--basetemp` keeps temporary test files under
 ignored artifacts, and is useful in restricted agent environments. Pytest clears
 that designated temporary directory on the next run.
 
@@ -104,12 +126,11 @@ The OBS browser harness never sends screenshots or credentials to a server.
 Twitch credentials belong in environment variables on a developer/server machine,
 never in the public website or an overlay URL.
 
-No acquisition route has been live-tested. The OBS test page is a local developer
-experiment, not a finished public overlay. Start its localhost server as described
-in the acquisition document; no installation on a streamer's PC has been validated.
+Streamlink/FFmpeg remote acquisition has now passed an authorized live trial;
+see [live-capture.md](docs/live-capture.md). The earlier OBS test page remains an
+unverified developer experiment and is outside the current milestone.
 
-Git is initialized, but this session's permissions prevent staging/commits inside
-`.git`. No commits or pushes were made. The intended local milestone commit after
-review is `feat: add local HUD OCR and acquisition feasibility probes`.
+The repository contains the initial prototype commit. This session's permissions
+may still prevent staging/commits inside `.git`; no remote pushes are authorized.
 See [agent-setup.md](docs/agent-setup.md) for future session permissions and manual
 commit commands when managed permissions cannot be changed.

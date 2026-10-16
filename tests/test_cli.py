@@ -18,3 +18,10 @@ def test_non_object_config_is_structured_error(tmp_path, capsys):
 def test_invalid_search_is_structured_error(capsys):
     assert main(["inspect", "unused.png", "--search", "0,0,2,1"]) == 1
     assert json.loads(capsys.readouterr().err)["status"] == "error"
+
+
+def test_invalid_glyph_profile_is_structured_error(tmp_path, capsys):
+    path = tmp_path / "bad-profile.json"
+    path.write_text('{"version":1}', encoding="utf-8")
+    assert main(["inspect", "unused.png", "--glyph-profile", str(path)]) == 1
+    assert json.loads(capsys.readouterr().err)["status"] == "error"

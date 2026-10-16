@@ -1,6 +1,5 @@
 """HUD-context discovery and small-field Tesseract OCR.
 
-No learned image templates, sample values, or fixed pixel coordinates are used.
 Explicit field ROIs are trusted user calibration; automatic discovery requires
 HP, MP, EXP and LV in the geometry of the game status panel.
 """
@@ -16,6 +15,7 @@ from pytesseract import Output
 
 from .models import Reading, Recognition, Region, reading_errors
 from .parsing import parse_exp, parse_level
+from .glyphs import GlyphProfile, match_exp
 
 
 def configure_tesseract() -> None:
@@ -98,13 +98,17 @@ def _read_field(crop: Image.Image, field: str, debug: Path | None) -> list[dict]
                 ("threshold180", gray.point(lambda p: 0 if p > 180 else 255), 7),
                 ("threshold200", gray.point(lambda p: 0 if p > 200 else 255), 7)) if field == "level" else (
                     ("inverted", ImageOps.invert(gray), 13),
-                    ("threshold140", gray.point(lambda p: 0 if p > 140 else 255), 13))
+                    ("threshold140", gray.point(lambda p: 0 if p > 140 else 255), 13),
+                    # The numeric whitelist can collapse word confidence to zero.
+                    # An unrestricted line pass still must satisfy the strict parser.
+                    ("unrestricted-line", ImageOps.invert(gray), 7))
     attempts = []
     for name, processed, psm in variants:
         processed = ImageOps.expand(processed, 10, fill=255)
         if debug:
             processed.save(debug / f"{field}-{name}.png")
-        tokens = _ocr(processed, psm, "0123456789" if field == "level" else "0123456789.,[]()%")
+        whitelist = "" if name == "unrestricted-line" else "0123456789" if field == "level" else "0123456789.,[]()%"
+        tokens = _ocr(processed, psm, whitelist)
         attempts.append(dict(variant=name, text="".join(t["text"] for t in tokens),
                              confidence=min((t["confidence"] for t in tokens), default=0)))
     return attempts
@@ -112,7 +116,8 @@ def _read_field(crop: Image.Image, field: str, debug: Path | None) -> list[dict]
 
 def recognize(image: Image.Image, *, regions: dict[str, Region] | None = None,
               search: Region = Region(0, .7, 1, 1), min_confidence: float = .4,
-              debug_dir: Path | None = None) -> Recognition:
+              debug_dir: Path | None = None, glyph_profile: GlyphProfile | None = None,
+              pixel_scales: tuple[float, ...] = (1.0,)) -> Recognition:
     """Return a visual reading, not proof of identity or a tracking observation.
 
     Tesseract confidence is an uncalibrated engine score. Conflicting plausible
@@ -138,7 +143,14 @@ def recognize(image: Image.Image, *, regions: dict[str, Region] | None = None,
         crop = image.crop(region.pixels(*image.size))
         if debug_dir:
             crop.save(debug_dir / f"{field}-crop.png")
-        raw[field] = _read_field(crop, field, debug_dir)
+        attempt = match_exp(crop, glyph_profile, scales=pixel_scales) if field == "exp" and glyph_profile else None
+        if attempt and attempt.get("veto"):
+            raw[field] = [attempt]
+            return Recognition("ambiguous", reasons=[attempt["reason"]], raw=raw, regions=regions)
+        if attempt and parse_exp(attempt["text"]) is not None:
+            raw[field] = [attempt]
+        else:
+            raw[field] = ([attempt] if attempt else []) + _read_field(crop, field, debug_dir)
         parser = parse_level if field == "level" else parse_exp
         options = [(parser(a["text"]), a["confidence"]) for a in raw[field]]
         options = [(value, conf) for value, conf in options if value is not None]

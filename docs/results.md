@@ -1,5 +1,10 @@
 # Verified results and known limits
 
+This page records the original screenshot prototype. Later remote capture results
+are in [live-capture.md](live-capture.md); the latest recognition comparison is in
+[ocr-reliability.md](ocr-reliability.md). Acquisition boundaries and next steps
+below are historical, not the current implementation status.
+
 Measured locally on Windows, 2026-10-15, after resuming the interrupted prototype.
 Python 3.14.7, Pillow 12.3.0, pytesseract 0.3.13, pytest 9.1.1 and Tesseract
 5.4.0.20240606 with English data. Results may vary with engine/model versions.

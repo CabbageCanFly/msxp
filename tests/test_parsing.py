@@ -23,6 +23,7 @@ def test_level_parser(text, expected):
     ("12,345[23.4S%]", None), ("12,345 23.45%", None),
     ("12.34[23.45%]", None), ("12,345[23.45%] garbage", None),
     ("12345123.45%)", None), ("-25(1.00%)", None), ("", None),
+    ("123.456178.90%)", None),  # do not guess an opening bracket from a digit
 ])
 def test_exp_parser(text, expected):
     assert parse_exp(text) == expected

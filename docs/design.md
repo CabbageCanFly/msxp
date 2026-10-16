@@ -1,14 +1,21 @@
 # Small service design after the feasibility prototype
 
+Remote Streamlink/FFmpeg capture has passed a short authorized trial with zero
+streamer setup; see [live-capture.md](live-capture.md). Optional calibrated glyph
+matching improves saved live crops to 17/18 correct accepted readings; see
+[ocr-reliability.md](ocr-reliability.md). Next is longer recognition/freshness
+validation. The rest of this document remains a service proposal.
+
 This is a proposal. Only local OCR, observation validation and acquisition test
 tools exist today. There is no running website, database service or overlay.
 
 ## Acquisition and service boundary
 
-Use the decision gate in [acquisition.md](acquisition.md). Trial official Twitch
-thumbnails with several-minute latency first. For 30–60 second capture, trial a
-browser dock connecting to local OBS and sending only selected HUD crops. Neither
-has passed a live trial. Do not make undocumented remote playback the default.
+For the next consented trial, keep the working periodic remote capture and test
+15-second intervals with the optional glyph profile. Official thumbnails and
+the OBS experiment remain unverified alternatives, documented in
+[acquisition.md](acquisition.md). Public remote playback still requires platform
+permission clarification. No acquisition redesign is needed for this OCR milestone.
 
 Once capture is established: a free static site serves registration/configuration
 and the read-only overlay. One small Python HTTP process on the existing VPS

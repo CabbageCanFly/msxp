@@ -11,7 +11,7 @@ from exp_tracker.recognition import recognize
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = {1: Reading(60, 71441, 5.90), 2: Reading(56, 641122, 65.59)}
-pytestmark = pytest.mark.samples
+pytestmark = [pytest.mark.samples, pytest.mark.ocr]
 
 
 def sample(number):
@@ -32,6 +32,17 @@ def test_calibrated_sample(number):
     result = recognize(sample(number), regions=configuration(number))
     assert result.reading == EXPECTED[number]
     assert result.status == "accepted"
+
+
+@pytest.mark.parametrize("number", [1, 2])
+def test_original_samples_with_live_font_profile(number):
+    from exp_tracker.glyphs import GlyphProfile
+    path = ROOT / "private/ocr-evaluation/glyph-profile.json"
+    if not path.exists():
+        pytest.skip("Private live-font calibration is intentionally excluded from Git")
+    result = recognize(sample(number), regions=configuration(number), glyph_profile=GlyphProfile.load(path))
+    assert result.status == "accepted"
+    assert result.reading == EXPECTED[number]
 
 
 @pytest.mark.parametrize("number", [1, 2])

@@ -10,6 +10,7 @@ import time
 from PIL import Image
 
 from .models import Region
+from .glyphs import GlyphProfile
 from .recognition import recognize
 
 
@@ -22,6 +23,8 @@ def main(argv: list[str] | None = None) -> int:
     inspect.add_argument("--search", default="0,0.7,1,1", help="normalized discovery rectangle")
     inspect.add_argument("--min-confidence", type=float, default=.4)
     inspect.add_argument("--debug-dir", type=Path)
+    inspect.add_argument("--glyph-profile", type=Path, help="Private calibrated EXP font profile; Tesseract fallback")
+    inspect.add_argument("--pixel-scale", type=float, action="append", help="Explicit glyph scale(s), default 1")
     args = parser.parse_args(argv)
     try:
         regions = None
@@ -31,10 +34,12 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("ROI configuration must be a JSON object with level and exp keys")
             regions = {key: Region(*value) for key, value in config.items()}
         search = Region(*map(float, args.search.split(",")))
+        profile = GlyphProfile.load(args.glyph_profile) if args.glyph_profile else None
         start = time.perf_counter()
         with Image.open(args.image) as image:
             result = recognize(image.convert("RGB"), regions=regions, search=search,
-                               min_confidence=args.min_confidence, debug_dir=args.debug_dir)
+                               min_confidence=args.min_confidence, debug_dir=args.debug_dir,
+                               glyph_profile=profile, pixel_scales=tuple(args.pixel_scale or [1]))
         print(json.dumps({**asdict(result), "elapsed_seconds": round(time.perf_counter() - start, 3)}, indent=2))
         return 0 if result.status == "accepted" else 2
     except (OSError, ValueError, TypeError, RuntimeError) as error:
