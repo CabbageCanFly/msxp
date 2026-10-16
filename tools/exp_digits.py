@@ -125,7 +125,19 @@ def character(image, templates):
     return char if accepted else None, dict(best=best, margin=margin, nearest=char)
 
 
-def field(image, templates, kind, segmentation):
+def field(image, templates, kind, segmentation, *, gray=None, alternative=None):
+    def read(left, right):
+        patch = image.crop((left, 0, right, image.height))
+        char, evidence = character(patch, templates)
+        if alternative is not None:
+            value, detail = alternative(patch, gray.crop((left, 0, right, gray.height)))
+            if char is None:
+                char = value
+            elif char.isdigit() and value is not None and value != char:
+                char = None  # Confident disagreement is a veto, not a correction.
+            evidence = {**evidence, 'alternative': detail}
+        return char, evidence
+
     runs = columns(image)
     if not runs or len(runs) > 16:
         return None, dict(reason='missing_or_extra_characters')
@@ -133,7 +145,7 @@ def field(image, templates, kind, segmentation):
     details = []
     for left, right in runs:
         patch = image.crop((left, 0, right, image.height))
-        char, evidence = character(patch, templates)
+        char, evidence = read(left, right)
         options = {char} if char is not None else set()
         if segmentation == 'valleys':
             # Every pixel belongs to one side; splitting never erases bridge pixels.
@@ -147,8 +159,11 @@ def field(image, templates, kind, segmentation):
                 for end in [*cuts, patch.width]:
                     if end <= start:
                         continue
-                    part = horizontal_trim(patch.crop((start, 0, end, patch.height)))
-                    digit, _ = character(part, templates)
+                    part = patch.crop((start, 0, end, patch.height))
+                    box = part.getbbox()
+                    if box is None:
+                        continue
+                    digit, _ = read(left + start + box[0], left + start + box[2])
                     if digit is None:
                         continue
                     for suffix in ({''} if end == patch.width else decode(end)):
@@ -208,7 +223,7 @@ def plausible_shape(value, references, width, height):
     return min(matches, default=None)
 
 
-def grammar_percentage(image, profile, templates, segmentation):
+def grammar_percentage(image, profile, templates, segmentation, *, gray=None, alternative=None):
     runs = columns(image)
     if len(runs) < 5:
         return None, dict(reason='no_separate_percent_suffix')
@@ -226,7 +241,9 @@ def grammar_percentage(image, profile, templates, segmentation):
     error = plausible_shape(bits(canvas), packed['%'], stride, canvas.height)
     if error is None:
         return None, dict(reason='implausible_percent_shape')
-    value, detail = field(image.crop((0, 0, left, image.height)), templates, 'percentage_digits', segmentation)
+    value, detail = field(image.crop((0, 0, left, image.height)), templates, 'percentage_digits', segmentation,
+                         gray=gray.crop((0, 0, left, gray.height)) if gray is not None else None,
+                         alternative=alternative)
     if value is None:
         return None, dict(reason='unverified_percentage_digits', numeric=detail)
     return value, dict(reason=None, text=detail['text'] + '%', inferred_percent=True,
@@ -264,7 +281,7 @@ def brackets(image, profile, *, infer_closing=False, templates=None):
     return matches
 
 
-def recognize(crop, bank, *, segmentation='valleys', grammar_suffix=False, localized=False):
+def recognize(crop, bank, *, segmentation='valleys', grammar_suffix=False, localized=False, alternative=None):
     if segmentation not in ('columns', 'valleys'):
         raise ValueError('unknown segmentation method')
     if grammar_suffix and not localized:
@@ -273,6 +290,7 @@ def recognize(crop, bank, *, segmentation='valleys', grammar_suffix=False, local
         return dict(exp=None, percentage=None, status='unavailable', reason='input_bounds', attempts=[])
     attempts = []
     for index, (profile, templates) in enumerate(bank):
+        reader = (lambda binary, gray: alternative(index, binary, gray)) if alternative is not None else None
         white = crop.convert('L').point(lambda p: 255 if p > profile.digit_threshold else 0)
         bands = [(a, b) for a, b in columns(white.transpose(Image.Transpose.TRANSPOSE))
                  if profile.height - 2 <= b-a <= profile.height]
@@ -282,6 +300,7 @@ def recognize(crop, bank, *, segmentation='valleys', grammar_suffix=False, local
         # Keep the complete text band; a separate one-row progress bar is not text.
         for y in range(max(0, bottom - profile.height), min(top, crop.height - profile.height) + 1):
             color_line = crop.crop((0, y, crop.width, y + profile.height))
+            gray_line = color_line.convert('L') if reader is not None else None
             line = white.crop((0, y, crop.width, y + profile.height))
             anchors = brackets(color_line, profile)
             strict_closings = set(anchors[']'])
@@ -293,11 +312,14 @@ def recognize(crop, bank, *, segmentation='valleys', grammar_suffix=False, local
                     end = closing + profile.widths[']']
                     if opening == 0 or closing <= begin or line.crop((end, 0, line.width, line.height)).getbbox():
                         continue
-                    exp, exp_detail = field(line.crop((0, 0, opening, line.height)), templates, 'exp', segmentation)
-                    percent, percent_detail = field(line.crop((begin, 0, closing, line.height)), templates, 'percentage', segmentation)
+                    exp, exp_detail = field(line.crop((0, 0, opening, line.height)), templates, 'exp', segmentation,
+                        gray=gray_line.crop((0, 0, opening, line.height)) if reader else None, alternative=reader)
+                    percent, percent_detail = field(line.crop((begin, 0, closing, line.height)), templates, 'percentage', segmentation,
+                        gray=gray_line.crop((begin, 0, closing, line.height)) if reader else None, alternative=reader)
                     if grammar_suffix and percent is None:
                         percent, percent_detail = grammar_percentage(
-                            line.crop((begin, 0, closing, line.height)), profile, templates, segmentation)
+                            line.crop((begin, 0, closing, line.height)), profile, templates, segmentation,
+                            gray=gray_line.crop((begin, 0, closing, line.height)) if reader else None, alternative=reader)
                     if closing not in strict_closings:
                         # A guessed close is usable only with independently verified numbers.
                         if percent is None:

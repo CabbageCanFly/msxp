@@ -24,6 +24,9 @@ partial field recognition is diagnostic and does not update trusted tracking sta
 Its optional [grammar-assisted suffix mode](docs/exp-digits.md#grammar-assisted-suffix-follow-up)
 recovers four more recording readings (54/117), with no additional incorrect outputs
 or improvement on Telfer. Numerical glyphs and segmentation remain the main failures.
+The [grayscale digit hybrid](docs/grayscale-ocr.md) raises recording pairs to 64/117
+(59 with automatic regions), with zero incorrect outputs observed and no Telfer
+regression. It remains experimental; limited 8/9 development data is a major blocker.
 
 The [local read-only API and transparent OBS overlay](docs/overlay.md) use the
 existing SQLite state. Start with an existing demo database:

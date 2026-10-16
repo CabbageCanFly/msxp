@@ -40,8 +40,9 @@ def main(argv=None):
     from exp_tracker.metrics import ResourceMonitor
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('manifest', type=Path)
-    parser.add_argument('--engine', choices=('baseline', 'columns', 'valleys', 'grammar'), required=True)
+    parser.add_argument('--engine', choices=('baseline', 'columns', 'valleys', 'grammar', 'grayscale'), required=True)
     parser.add_argument('--bank', type=Path)
+    parser.add_argument('--model', type=Path)
     parser.add_argument('--profile', type=Path)
     parser.add_argument('--levels', type=Path, required=True)
     parser.add_argument('--adaptive-results', type=Path)
@@ -49,6 +50,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if (args.engine == 'baseline' and not args.profile) or (args.engine != 'baseline' and not args.bank):
         parser.error('baseline needs --profile; experimental modes need --bank')
+    if args.engine=='grayscale' and not args.model:
+        parser.error('grayscale requires --model')
     os.environ.setdefault('OMP_THREAD_LIMIT', '1')
     data = json.loads(args.manifest.read_text(encoding='utf-8'))
     levels = json.loads(args.levels.read_text(encoding='utf-8'))['readings']
@@ -56,8 +59,14 @@ def main(argv=None):
         raise ValueError('level outputs must cover exactly the scoring inputs')
     profile = GlyphProfile.load(args.profile) if args.profile else None
     bank = load_bank(args.bank) if args.bank else None
+    models = None
+    if args.engine=='grayscale':
+        import grayscale_digits
+        models = grayscale_digits.load(args.model, args.bank)
     paths = [args.manifest, args.levels, Path(__file__).with_name('exp_digits.py')]
-    paths += [p for p in (args.bank, args.profile, args.adaptive_results) if p]
+    paths += [p for p in (args.bank, args.profile, args.adaptive_results, args.model) if p]
+    if models is not None:
+        paths.append(Path(__file__).with_name('grayscale_digits.py'))
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     automatic = None
     if args.adaptive_results:
@@ -99,6 +108,8 @@ def main(argv=None):
                 value = parse_exp(attempt['text'])
                 result = dict(exp=value[0] if value else None, percentage=value[1] if value else None,
                               status='candidate' if value else 'unavailable', attempt=attempt)
+            elif args.engine=='grayscale':
+                result = grayscale_digits.recognize(image, bank, models)
             else:
                 result = recognize(image, bank, segmentation='valleys' if args.engine == 'grammar' else args.engine,
                                    grammar_suffix=args.engine == 'grammar', localized=True)
