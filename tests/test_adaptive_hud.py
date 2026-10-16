@@ -1,0 +1,163 @@
+"""Synthetic safety checks for the isolated experiment; no game assets or profiles."""
+
+import importlib.util
+import json
+from pathlib import Path
+
+from PIL import Image
+import pytest
+
+from exp_tracker.models import Region
+
+SPEC=importlib.util.spec_from_file_location('adaptive_hud',Path(__file__).parents[1]/'tools/adaptive_hud.py')
+hud=importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(hud)
+
+
+def anchors(x=100,y=40,step=20):
+    return [dict(text=name,x=x+dx*step,y=y+dy*step,width=3,height=2,confidence=.8)
+            for name,dx,dy in [('HP',0,0),('MP',1,0),('EXP',2,0),('LV.',-1.9,.07)]]
+
+
+@pytest.mark.parametrize('x,y,step',[(100,40,20),(300,300,45),(600,900,80)])
+def test_layout_is_relative_to_anchors(x,y,step):
+    result=hud.layouts(anchors(x,y,step),(1920,1080))
+    assert len(result)==1
+    assert result[0]['anchor_step']==step
+    assert result[0]['regions']['exp'].x0==pytest.approx((x+2.26*step)/1920)
+
+
+def test_numeric_token_bounds_do_not_move_exp_region():
+    tokens=anchors()
+    expected=hud.layouts(tokens,(500,200))[0]['regions']
+    tokens[2].update(x=tokens[2]['x']+2,width=50,text='EXP123')
+    assert hud.layouts(tokens,(500,200))[0]['regions']==expected
+
+
+@pytest.mark.parametrize('broken',[
+    lambda t:t[:3],lambda t:t[:2]+t[3:],
+    lambda t:[{**a,'y':a['y']+50} if a['text']=='MP' else a for a in t],
+    lambda t:[{**a,'x':a['x']+50} if a['text']=='EXP' else a for a in t],
+])
+def test_missing_or_inconsistent_anchors_reject(broken):
+    assert not hud.layouts(broken(anchors()),(500,200))
+
+
+def test_multiple_huds_are_preserved_as_ambiguity():
+    assert len(hud.layouts(anchors()+anchors(100,200),(500,400)))==2
+
+
+def test_alternate_layouts_sharing_hp_anchor_are_not_silently_collapsed():
+    tokens=anchors()
+    tokens.append({**tokens[1],'x':tokens[1]['x']+2})
+    assert len(hud.layouts(tokens,(500,200)))==2
+
+
+def test_outside_frame_is_not_clamped_into_plausible_crop():
+    assert not hud.layouts(anchors(10,10),(500,200))
+
+
+@pytest.mark.parametrize('text,expected',[('HP:','HP'),('MP5/5','MP'),('EXP123','EXP'),
+                                          ('LV.','LV'),('EXPERIENCE',None),('MPOWER',None)])
+def test_anchor_prefix_is_bounded(text,expected):
+    assert hud.label({'text':text})==expected
+
+
+def test_second_localization_scale_only_used_after_no_layout(monkeypatch):
+    monkeypatch.setattr(hud,'configure_tesseract',lambda:None)
+    calls=[]
+    def ocr(image,*args):
+        calls.append(image.size)
+        return []
+    monkeypatch.setattr(hud,'_ocr',ocr)
+    assert not hud.locate(Image.new('RGB',(100,100)))
+    assert calls==[(200,200),(300,300)]
+
+
+def candidate():
+    return dict(anchor_step=20,regions={'level':Region(0,0,.4,1),'exp':Region(.4,0,1,1)})
+
+
+def test_level_needs_agreement_and_rejects_conflict(monkeypatch):
+    image=Image.new('RGB',(12,12),(250,140,40))
+    answers=iter(['8','8','9'])
+    monkeypatch.setattr(hud,'_ocr',lambda *args:[dict(text=next(answers),confidence=.95)])
+    assert hud.level_reading(image)[0] is None
+
+
+def test_missing_profile_or_failed_match_never_uses_tesseract_exp(monkeypatch):
+    monkeypatch.setattr(hud,'level_reading',lambda crop:(10,[]))
+    image=Image.new('RGB',(50,10))
+    assert hud.recognize_fields(image,candidate(),[]).status=='unreadable'
+    monkeypatch.setattr(hud,'match_exp',lambda *a,**kw:dict(variant='pixel',text='',confidence=0))
+    bank=[dict(id='synthetic',anchor_step=20,profile=object())]
+    result=hud.recognize_fields(image,candidate(),bank)
+    assert result.status=='unreadable' and result.reading is None
+
+
+def test_disagreeing_profiles_are_a_veto(monkeypatch):
+    monkeypatch.setattr(hud,'level_reading',lambda crop:(10,[]))
+    monkeypatch.setattr(hud,'match_exp',lambda crop,profile,**kw:dict(variant='pixel',text=profile,confidence=.99))
+    bank=[dict(id=str(i),anchor_step=20,profile=text) for i,text in enumerate(['100[1.00%]','200[2.00%]'])]
+    result=hud.recognize_fields(Image.new('RGB',(50,10)),candidate(),bank)
+    assert result.status=='ambiguous' and result.reading is None
+
+
+def test_existing_guard_still_receives_matched_profile(monkeypatch):
+    monkeypatch.setattr(hud,'level_reading',lambda crop:(10,[]))
+    monkeypatch.setattr(hud,'match_exp',lambda *a,**kw:dict(variant='pixel',text='100[1.00%]',confidence=.99))
+    bank=[dict(id='synthetic',anchor_step=20,profile=object())]
+    calls=[]
+    def guard(result,profile):
+        calls.append(profile)
+        result.status='low_confidence'
+        return result
+    monkeypatch.setattr(hud,'guard_unverified_exp',guard)
+    assert hud.recognize_fields(Image.new('RGB',(50,10)),candidate(),bank).status=='low_confidence'
+    assert calls==[bank[0]['profile']]
+
+
+def test_bank_requires_bounded_finite_geometry(tmp_path):
+    path=tmp_path/'bank.json'
+    for entries in ([],[{}]*5,[dict(anchor_step=-1,path='missing.json')]):
+        path.write_text(json.dumps(dict(profiles=entries)))
+        with pytest.raises(ValueError):hud.load_bank(path)
+
+
+@pytest.fixture
+def evaluation(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[1]/'tools'))
+    spec=importlib.util.spec_from_file_location('evaluate_adaptive_hud',Path(__file__).parents[1]/'tools/evaluate_adaptive_hud.py')
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_evaluation_distinguishes_location_from_complete_field_coverage(evaluation):
+    expected=dict(complete=True,level=10,current_exp=100,percentage=1.00)
+    output=dict(candidates=1,result=dict(status='accepted',reading=dict(level=10,current_exp=100,percentage=1.),
+                regions={'level':dict(x0=0,y0=0,x1=.4,y1=1),'exp':dict(x0=.4,y0=0,x1=1,y1=1)},raw={}))
+    truth={'level':(0,0,20,10),'exp':(19,0,50,10)}
+    result=evaluation.score(output,expected,truth,(50,10))
+    assert result['category']=='accepted_correct' and result['location_correct']
+    assert result['fields_contained']==dict(level=True,exp=False)
+
+
+@pytest.mark.parametrize('status,reading,category',[
+    ('accepted',dict(level=11,current_exp=100,percentage=1.),'accepted_incorrect'),
+    ('low_confidence',dict(level=10,current_exp=100,percentage=1.),'rejected_complete'),
+    ('unreadable',None,'incomplete'),
+])
+def test_evaluation_does_not_call_correct_rejections_acceptance(evaluation,status,reading,category):
+    expected=dict(complete=True,level=10,current_exp=100,percentage=1.)
+    result=evaluation.score(dict(candidates=0,result=dict(status=status,reading=reading,regions={},raw={})),
+                            expected,None,(50,10))
+    assert result['category']==category
+
+
+def test_evaluation_ink_boxes_include_green_punctuation(evaluation):
+    image=Image.new('RGB',(20,10))
+    image.putpixel((3,4),(255,255,255))
+    image.putpixel((8,4),(40,100,40))
+    boxes=evaluation.field_truth(image,{'exp':(0,0,20,10)})
+    assert boxes=={'exp':(3,4,9,5)}

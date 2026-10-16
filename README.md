@@ -8,6 +8,10 @@ The [held-out level 1–10 recording evaluation and level-up proposal](docs/leve
 documents a profile/scale incompatibility and level OCR failures on a separate
 recording. Automatic level-up handling remains design-only.
 
+The isolated [adaptive HUD experiment](docs/adaptive-ocr.md) locates fields without
+supplied regions and compares scale normalization with private native profiles.
+It remains an offline prototype; production recognition and tracking are unchanged.
+
 The [local read-only API and transparent OBS overlay](docs/overlay.md) use the
 existing SQLite state. Start with an existing demo database:
 
