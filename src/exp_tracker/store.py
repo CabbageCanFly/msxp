@@ -13,6 +13,7 @@ import sqlite3
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition
 from .schema import MIGRATION_2, STATEMENTS, VERSION
+from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
 
@@ -251,10 +252,12 @@ class Store:
         gained = self.db.execute("SELECT COALESCE(SUM(gained_exp),0) FROM observations WHERE session_id=?", (session["id"],)).fetchone()[0] if session else 0
         bridged = self.db.execute("""SELECT COALESCE(SUM(gained_exp),0) FROM observations
                                   WHERE session_id=? AND missing_observations>0""", (session["id"],)).fetchone()[0] if session else 0
-        return dict(channel=streamer["login"], selected_character_id=streamer["selected_character_id"],
+        snapshot = dict(channel=streamer["login"], selected_character_id=streamer["selected_character_id"],
                     characters=chars, session=dict(session) if session else None, status=status,
                     reason="stale" if state and status == "paused" and state["status"] == "tracking" else state["reason"] if state else "select_character",
                     last_trusted=dict(last) if last else None, last_event_at=state["last_event_at"] if state else None,
                     age_seconds=age, stale=stale, observed_session_exp=gained, bridged_session_exp=bridged,
                     continuity_broken=bool(state["continuity_broken"]) if state else True,
                     pending_missing_observations=state["pending_missing_observations"] if state else 0)
+        snapshot["statistics"] = tracking_statistics(self.db, snapshot, now)
+        return snapshot

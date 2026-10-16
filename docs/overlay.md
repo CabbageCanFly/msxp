@@ -47,13 +47,21 @@ No custom CSS, WebSocket credentials, plugin or page-refresh setting is needed.
 OBS must run on the same computer as this local server for this milestone.
 
 The card is always 490 × 150 pixels, with a five-pixel transparent margin inside
-the 500 × 160 canvas. Header, EXP/progress, session total and update note use fixed
+the 500 × 160 canvas. Header, EXP/progress, four statistic columns and update note use fixed
 rows; no status adds a line or changes the card size or colour. Resize the source
 using OBS's transform rather than changing the Browser Source dimensions.
-Character names take priority over channel URLs; long names use an ellipsis with
-the full name in the browser tooltip. Large numbers use smaller type without
-abbreviating the displayed value. The cream, caramel and sage palette, rounded
-type and small generic star use only CSS/text, without game artwork or fonts.
+The header separates `ttv/channel` and the selected character. Both names have
+bounded space, ellipsis and full-name tooltips. An optional rank badge is hidden
+until authoritative rank data exists; no leaderboard exists today. The small
+star uses a symmetric, geometrically centred SVG instead of a font baseline.
+Large current EXP numbers use smaller type without abbreviation. Statistic
+columns use compact K/M/B/T notation with full session totals in tooltips. The
+cream/caramel/sage palette and SVG are original, with no game artwork or fonts.
+
+For meaningful five-/thirty-minute demonstrations, use the
+[synthetic history workflow](statistics.md#reproducible-synthetic-history).
+The short animation below still exercises value/status changes but correctly
+leaves rolling pace/ETA unavailable.
 
 ## Demonstrate new updates without Twitch
 
@@ -129,6 +137,8 @@ in HTTP and no requirement to restart the server after a committed observation.
 - `observed_session_exp`, `bridged_session_exp`, continuity flag and pending
   missing-observation count. These keep the [existing accounting meaning](accounting.md).
 - Status/reason, `last_event_at`, last trusted age in seconds and `stale`.
+- Additive [`statistics`](statistics.md): five-minute endpoint gains, thirty-minute
+  pace, percentage-based ETA and their eligibility/coverage metadata.
 
 HTTP adds `selected_character` (ID/label or null), UTC `served_at` and
 `stale_after_seconds` from the Store's existing 120-second freshness threshold.
@@ -144,9 +154,12 @@ time is included conservatively in displayed age. Poll frequency is **not** a
 new OCR observation frequency.
 
 The player sees the selected character, level, numeric EXP, displayed percentage,
-progress bar and **"This session"**. No unsupported future statistics or placeholder
-statistic slots are shown. The wide session row can later accommodate supported
-statistics without adding them now.
+progress bar, **Last 5 min**, **EXP/h · 30m**, **This session**, and **To next level**.
+Level sits beside the progress bar, with EXP and percentage inside it. All four
+statistic columns have equal widths. Unavailable metrics use a dash; trimmed
+five-minute counts, estimated pace and ETA use `~`. See the
+[metric definitions and eligibility policy](statistics.md) before interpreting
+these as continuously observed values. Session totals keep their original meaning.
 
 | Situation | Player-facing note |
 | --- | --- |
@@ -174,9 +187,9 @@ inserted with `textContent`, not HTML. Internal reasons are not rendered.
 
 ## Validation and remaining manual check
 
-- Following the presentation redesign: **305 full-suite tests passed, zero skipped**,
+- At the current statistics milestone: **333 full-suite tests passed, zero skipped**,
   including the real localhost TCP smoke test. **Zero private-sample skips**.
-- Eight Node renderer checks passed (also invoked from pytest when Node is present).
+- Current renderer: eleven Node checks passed (also invoked from pytest when Node is present).
   Node is optional test tooling, not a server or browser dependency.
 - Real HTTP parsing/serialization is exercised in memory against actual Store
   data, including the private OCR replay. Concurrent WAL reading during a held,
@@ -211,16 +224,19 @@ set `BROWSER_BIN` to the executable if needed. It opens an isolated headless bro
 checks actual API polling, then injects presentation-only cases into the page.
 It never writes to SQLite, changes historical timestamps or collects footage.
 
-All **13 browser cases passed**: tracking, brief OCR failure, stale, offline,
+All **16 browser cases passed**: tracking, brief OCR failure, stale, offline,
 offline without a reading, explicit pause, review-needed, API failure, unconfigured,
-waiting, previous-session reading, long name/large values and zero EXP. Every
+waiting, previous-session reading, long name/large values, zero EXP, missing
+statistics and two explicitly synthetic rank cases (normal and long names). Every
 card measured **490 × 150** at (5,5) on a **500 × 160** page, with no page or metric
 overflow and identical background/border styling. The maximum safe JavaScript
-integer (9,007,199,254,740,991) fit without abbreviation, and 99.99% fit its reserved
-region. Long names ellipsized while retaining a full-name tooltip.
+integer (9,007,199,254,740,991) fit as current EXP without abbreviation, and 99.99%
+fit inside the progress section. All four stat columns had equal widths and
+fitting labels/values. The SVG/path centres matched the icon box centre. Twitch
+and character names remained separate with full-name tooltips and ellipsis.
 
-The PNGs and `measurements.json` are under ignored `artifacts/overlay-redesign/`.
-Tracking, delayed and long-value screenshots were visually inspected. All PNGs
+The current PNGs and `measurements.json` are under ignored `artifacts/overlay-statistics/`.
+Populated, missing-statistic, long-value and synthetic-rank screenshots were visually inspected. All PNGs
 were 500 × 160 with zero alpha at the outer corner, verifying transparent page
 output. Reference imagery in `samples/` remains private/ignored; no game assets
 were copied into the overlay. The browser helper closes its server-independent
@@ -228,9 +244,10 @@ browser; profiles and logs stay in the ignored artifact directory for diagnosis.
 
 OBS's actual CEF rendering/compositing still needs a manual check at **500 × 160**;
 only Edge was automated. Linux execution and cold wheel installation were not
-checked in this milestone. Backend, API, acquisition and accounting are unchanged.
+checked in this milestone. Guarded ingestion, acquisition and accounting are
+unchanged; the API adds only read-only statistics from persisted intervals.
 
 The standard-library server is for local use only. No frontend configuration UI,
-write API, account system, EXP/hour, ETA, production scheduler, remote exposure,
+write API, account system, leaderboard, production scheduler, remote exposure,
 new capture or accounting policy change is included. Databases and all preview/
 diagnostic artifacts remain ignored. No commits or pushes were made.

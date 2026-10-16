@@ -49,7 +49,9 @@ replay do not change counters, continuity or trusted state.
 means the sum of validated endpoint **net changes**, including eligible short
 OCR interruptions. It does not promise continuous observation, gross earned EXP,
 or the timing of gains inside an interval. Do not derive continuously covered
-rates or interpolate a graph through missing observations. Rates remain deferred.
+rates or interpolate a graph through missing observations. The later
+[window-statistics policy](statistics.md) adds endpoint-based estimates with
+explicit history/coverage rules; it does not change these counted gains.
 An unobserved death/reset, level change or unreported character switch that leaves
 plausible endpoints cannot be excluded by HUD readings alone; explicit selection
 and operator review remain necessary.

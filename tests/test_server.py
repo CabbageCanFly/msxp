@@ -310,3 +310,22 @@ def test_existing_real_ocr_replay_database_can_feed_overlay():
     assert result["last_trusted"]["percentage_bp"] == 7266
     assert result["observed_session_exp"] == 6121 and result["bridged_session_exp"] == 1592
     assert result["status"] == "paused" and result["stale"]
+
+
+def test_populated_statistics_are_read_from_guarded_history_not_api_constants(tmp_path, monkeypatch):
+    from tools.demo_statistics import main as statistics_demo
+    end = datetime(2026, 1, 1, 1, tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return end.astimezone(tz)
+    monkeypatch.setattr(server, "datetime", Clock)
+    path = tmp_path / "statistics.sqlite3"
+    seeded = statistics_demo(path, as_of=end)
+    with server.create_server(path, port=0) as httpd:
+        result = state((httpd, None))
+    assert result["statistics"] == seeded["statistics"]
+    assert result["statistics"]["last_5_min"]["exp"] == 20000
+    assert result["statistics"]["exp_per_hour_30m"]["exp_per_hour"] == 240000
+    assert result["statistics"]["to_next_level"]["seconds"] == 11400
+    assert "ranking" not in result

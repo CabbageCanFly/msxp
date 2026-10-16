@@ -82,8 +82,10 @@ journal-mode changes. Its readers can inspect committed state during WAL writes.
 validated endpoint net changes, including eligible short OCR interruptions. It
 does **not** imply continuous observation or gross EXP earned. `bridged_session_exp`
 identifies the portion counted across missing observations. Hard breaks, long
-gaps and new sessions contribute no cross-boundary gain. EXP/hour, ETA and
-duration-based rates are deferred.
+gaps and new sessions contribute no cross-boundary gain. The additive
+[`statistics` state field](statistics.md) provides rolling endpoint gains, a
+covered-span pace and percentage-based ETA. These read-only calculations use
+the same snapshot and stored interval links; persistence and schema are unchanged.
 The per-character last trusted reading survives end/switch/restart, but a new
 session always starts its own baseline. Restarting an open session reuses its
 persisted state; calling `start_session` again does not create another session.

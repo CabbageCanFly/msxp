@@ -2,35 +2,45 @@
 html, body { margin: 0; background: transparent; }
 * { box-sizing: border-box; }
 #card {
-  width: 490px; height: 150px; margin: 5px; padding: 12px 14px;
-  display: grid; grid-template-rows: 28px 36px 8px 30px 16px; gap: 1px;
+  width: 490px; height: 150px; margin: 5px; padding: 10px 14px;
+  display: grid; grid-template-rows: 24px 36px 44px 16px; gap: 2px;
   background: linear-gradient(120deg, #fff9e9, #f7ecd6);
   border: 2px solid #725b43; border-radius: 15px;
   box-shadow: 0 3px 0 #493b3040, inset 0 1px 0 #fff;
 }
-header, .reading, .session, footer { display: flex; align-items: center; min-width: 0; }
-header { gap: 9px; }
-.charm { display: grid; place-items: center; flex: 0 0 25px; height: 25px;
-  color: #9c582b; background: #f6dab2; border-radius: 8px; font-size: 20px; }
-#character { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; }
-#level { flex: 0 0 72px; text-align: center; border: 1px solid #d1b48d; border-radius: 9px;
-  background: #fce8c7; line-height: 23px; font-size: 13px; font-weight: 700; }
+header, .reading, footer { display: flex; align-items: center; min-width: 0; }
+header { gap: 6px; }
+.charm { display: grid; place-items: center; flex: 0 0 22px; height: 22px;
+  background: #f6dab2; border-radius: 7px; }
+.charm svg { display: block; width: 18px; height: 18px; fill: #9c582b; }
+.brand { flex: 0 0 auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+.identity { display: grid; grid-template-columns: minmax(0, 1fr) 5px minmax(0, 1fr); gap: 5px; align-items: center; flex: 1; min-width: 0; }
+#character, #streamer { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+#streamer { font-size: 11px; color: #7a6855; text-align: right; }
+.separator { color: #ad987a; }
+#rank { flex: 0 0 auto; font-size: 11px; font-weight: 700; padding: 2px 5px; background: #f6dab2; border-radius: 6px; }
+[hidden] { display: none !important; }
+#level { flex: 0 0 66px; text-align: center; border: 1px solid #d1b48d; border-radius: 8px;
+  background: #fce8c7; line-height: 30px; font-size: 15px; font-weight: 700; }
 .reading { justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
-.exp-reading { display: flex; align-items: baseline; gap: 9px; min-width: 0; flex: 1; }
-.caption { color: #7a6855; font-size: 11px; letter-spacing: .8px; }
-#exp { min-width: 0; font-size: 27px; line-height: 34px; }
-#percentage { flex: 0 0 90px; text-align: right; color: #99602b; font-size: 21px; }
-progress { display: block; width: 100%; height: 8px; margin: 0; border: 1px solid #c7b89d;
-  border-radius: 5px; overflow: hidden; background: #e8deca; accent-color: #78a778; }
+.progress-section { position: relative; flex: 1; min-width: 0; }
+.progress-label { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; gap: 5px;
+  white-space: nowrap; font-size: 14px; pointer-events: none; }
+.caption { font-size: 10px; font-weight: 700; letter-spacing: .5px; }
+#exp { font-size: 16px; }
+progress { display: block; width: 100%; height: 30px; margin: 0; border: 1px solid #bba78a;
+  border-radius: 7px; overflow: hidden; background: #e8deca; accent-color: #78a778; }
 progress::-webkit-progress-bar { background: #e8deca; }
 progress::-webkit-progress-value { background: linear-gradient(90deg, #78a778, #b0cf89); }
 progress::-moz-progress-bar { background: #78a778; }
-.session { justify-content: space-between; gap: 12px; font-size: 13px; }
-.session strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.statistics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; }
+.stat { min-width: 0; padding: 0 8px; display: grid; grid-template-rows: 16px 25px; border-left: 1px solid #d9ccb7; }
+.stat:first-child { border-left: 0; padding-left: 0; }
+.stat:last-child { padding-right: 0; }
+.stat-label { white-space: nowrap; font-size: 10px; color: #7a6855; }
+.stat strong { white-space: nowrap; font-size: 20px; line-height: 25px; font-variant-numeric: tabular-nums; }
 footer { justify-content: space-between; gap: 12px; color: #7a6855; font-size: 11px; line-height: 16px; }
 #status, #age { flex: 1; min-width: 0; white-space: nowrap; }
 #age { text-align: right; font-variant-numeric: tabular-nums; }
-#exp[data-size="medium"] { font-size: 23px; }
-#exp[data-size="long"], #session-exp[data-size="long"] { font-size: 17px; }
-#session-exp[data-size="medium"] { font-size: 18px; }
-#exp, #session-exp { white-space: nowrap; }
+#exp[data-size="long"] { font-size: 13px; }
+.stat strong[data-size="long"] { font-size: 14px; }

@@ -8,7 +8,7 @@ import {setTimeout as delay} from "node:timers/promises";
 const url = new URL(process.argv[2] || "http://127.0.0.1:8765/overlay/demo");
 assert.equal(url.hostname, "127.0.0.1", "Only the local overlay is tested");
 assert.match(url.pathname, /^\/overlay\/[A-Za-z0-9_]{1,25}$/);
-const output = resolve("artifacts/overlay-redesign");
+const output = resolve("artifacts/overlay-statistics");
 mkdirSync(output, {recursive: true});
 const browser = process.env.BROWSER_BIN || [
   "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
@@ -85,8 +85,19 @@ try {
     ["waiting", {...base, status: "waiting", last_trusted: null}, null, "Waiting for EXP"],
     ["previous-session", {...base, status: "waiting", session: {...base.session, id: -1}}, null, "Waiting for EXP"],
     ["long-values", {...base, selected_character: {...base.selected_character, label: "WhimsicalVeryLongCharacterName".repeat(4)},
+      channel: "s".repeat(25),
       last_trusted: {...base.last_trusted, current_exp: Number.MAX_SAFE_INTEGER, percentage_bp: 9999},
-      observed_session_exp: Number.MAX_SAFE_INTEGER}, null, ""],
+      observed_session_exp: Number.MAX_SAFE_INTEGER, statistics: {
+        last_5_min: {...base.statistics.last_5_min, exp: Number.MAX_SAFE_INTEGER},
+        exp_per_hour_30m: {...base.statistics.exp_per_hour_30m, exp_per_hour: Number.MAX_SAFE_INTEGER},
+        to_next_level: base.statistics.to_next_level}}, null, ""],
+    // Explicitly synthetic, page-only rank input. No server/leaderboard creates this rank.
+    ["synthetic-rank", {...base, ranking: {rank: 7, authoritative: true}}, null, ""],
+    ["synthetic-rank-long-names", {...base, channel: "s".repeat(25),
+      selected_character: {...base.selected_character, label: "LongCharacterName".repeat(5)},
+      ranking: {rank: 7, authoritative: true}}, null, ""],
+    ["insufficient-history", {...base, statistics: {last_5_min: {exp: null},
+      exp_per_hour_30m: {exp_per_hour: null}, to_next_level: {seconds: null}}}, null, ""],
     ["zero", {...base, last_trusted: {...base.last_trusted, current_exp: 0, percentage_bp: 0}}, null, ""],
   ];
   const measurements = [];
@@ -99,13 +110,27 @@ try {
         background: style.backgroundImage, border: style.borderColor,
         transparent: [document.body, document.documentElement].every(e => getComputedStyle(e).backgroundColor === "rgba(0, 0, 0, 0)"),
         status: document.getElementById("status").textContent,
-        fits: ["exp", "percentage", "session-exp", "status", "age"].every(id => {const e = document.getElementById(id); return e.scrollWidth <= e.clientWidth + 1;}),
+        fits: ["exp", "percentage", "recent-exp", "pace", "session-exp", "eta", "status", "age"].every(id => {const e = document.getElementById(id); return e.scrollWidth <= (e.clientWidth || e.getBoundingClientRect().width) + 1;}),
+        labelsFit: [...document.querySelectorAll(".stat-label")].every(e => e.scrollWidth <= e.clientWidth + 1),
+        columnWidths: [...document.querySelectorAll(".stat")].map(e => e.getBoundingClientRect().width),
+        iconCentered: (() => {const a = document.querySelector(".charm").getBoundingClientRect(), b = document.querySelector(".charm svg").getBoundingClientRect();
+          const shape = document.querySelector(".charm path").getBBox();
+          return Math.abs(a.x+a.width/2-b.x-b.width/2)<.1 && Math.abs(a.y+a.height/2-b.y-b.height/2)<.1 && shape.x+shape.width/2===12 && shape.y+shape.height/2===12;})(),
+        rankHidden: document.getElementById("rank").hidden,
+        streamer: document.getElementById("streamer").textContent,
+        character: document.getElementById("character").textContent,
+        metrics: Object.fromEntries(["recent-exp","pace","session-exp","eta"].map(id => [id,document.getElementById(id).textContent])),
         nameEllipsis: getComputedStyle(document.getElementById("character")).textOverflow};
     })()`);
     assert.deepEqual([measured.width, measured.height, measured.x, measured.y], [490, 150, 5, 5], name);
     assert.ok(measured.pageWidth <= 500 && measured.pageHeight <= 160, `${name}: page overflow`);
     assert.equal(measured.status, label, name);
-    assert.ok(measured.fits && measured.transparent, `${name}: text overflow or opaque page`);
+    assert.ok(measured.fits && measured.labelsFit && measured.transparent, `${name}: text overflow or opaque page`);
+    assert.ok(measured.iconCentered, `${name}: off-centre icon`);
+    assert.ok(measured.columnWidths.every(width => Math.abs(width - measured.columnWidths[0]) < .1), `${name}: unequal stat columns`);
+    assert.equal(measured.rankHidden, !state.ranking?.authoritative, name);
+    assert.equal(measured.streamer, `ttv/${state.channel}`, name);
+    assert.equal(measured.character, state.selected_character?.label || "—", name);
     assert.equal(measured.nameEllipsis, "ellipsis", name);
     if (measurements.length) {
       assert.equal(measured.background, measurements[0].background, name);
