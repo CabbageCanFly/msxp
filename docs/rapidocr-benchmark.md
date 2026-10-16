@@ -601,3 +601,8 @@ step: thirteen of the sixteen remaining real-sample failures at 2 px have no ROI
 Keep 2 px available for bounded experimental comparison; retain baseline defaults
 until it has independent validation and stronger numeric evidence. More suffix
 tolerance or broader padding searches are not justified here.
+
+The subsequent [EXP/percentage consistency diagnostic](exp-consistency.md) uses
+external community requirements and explicit rounding hypotheses. It flags gross
+inconsistencies, but unverified UI semantics and percentage precision prevent
+using it as an authoritative validator or repairing neural outputs.
