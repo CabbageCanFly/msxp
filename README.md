@@ -33,6 +33,11 @@ The [untuned cross-stream evaluation](docs/cross-stream-evaluation.md) samples
 automatic-crop alignment failures on one layout and numerical segmentation/raster
 transfer failures on the other. Human label review is still required.
 
+The isolated [RapidOCR CPU benchmark](docs/rapidocr-benchmark.md) tests pretrained
+whole-line recognition in a separate environment. It recovers useful cross-stream
+numeric readings, while bracket errors and raw numerical substitutions still
+prevent trusting model output directly. No production integration is included.
+
 The [local read-only API and transparent OBS overlay](docs/overlay.md) use the
 existing SQLite state. Start with an existing demo database:
 
