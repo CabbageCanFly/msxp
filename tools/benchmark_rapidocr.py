@@ -20,6 +20,7 @@ import time
 # The experiment environment need not install the production project's dependencies.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from exp_tracker.parsing import parse_exp
+from exp_tracker.models import Region
 
 
 NUMBER = r'(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+)'
@@ -114,6 +115,8 @@ def score_text(text, expected):
 
 def timing(values):
     values = sorted(values)
+    if not values:
+        return None
     return dict(mean_ms=1000*statistics.mean(values), median_ms=1000*statistics.median(values),
                 p95_ms=1000*values[math.ceil(.95*len(values))-1])
 
@@ -125,19 +128,43 @@ def crop_path(manifest, data, item):
     return manifest.parent / data['crop_root'] / f'{run}-crops' / f'{int(index):04d}' / 'exp-crop.png'
 
 
+def automatic_crops(manifest, data, saved):
+    """Use cached locator decisions, retaining absent/ambiguous regions as missing."""
+    rows = {row['id']: row for row in saved['records']}
+    result = {}
+    for item in data['examples']:
+        row = rows[item['id']]
+        if row['seconds'] != item['seconds'] or any(
+                row['expected'][key] != item[key] for key in ('level', 'current_exp', 'percentage')):
+            raise ValueError('Saved localization and manifest disagree')
+        if len(row['candidates']) != 1:
+            result[item['id']] = None
+        else:
+            result[item['id']] = manifest.parent / 'automatic-crops' / item['id'].split('/')[1] / 'exp.png'
+    return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('manifest', type=Path)
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--all', action='store_true', help='Expand to every saved crop, keeping the same variants')
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--automatic-results', type=Path, help='Use saved automatic crops/locator decisions instead of manual crops')
     args = parser.parse_args(argv)
+    if args.automatic_results and args.automatic_results.resolve() == args.output.resolve():
+        parser.error('Output must not overwrite saved localization results')
     plan = json.loads(args.plan.read_text())
     data = json.loads(args.manifest.read_text())
     stream = data['examples'][0]['id'].split('/')[0]
     selected = data['examples'] if args.all else [e for e in data['examples'] if int(e['id'].split('/')[1]) in plan['selection'][stream]]
     files = [args.manifest, args.plan, Path(__file__), Path(__file__).parents[1]/'src/exp_tracker/parsing.py']
-    files += [crop_path(args.manifest, data, item) for item in selected]
+    saved = json.loads(args.automatic_results.read_text()) if args.automatic_results else None
+    sources = (automatic_crops(args.manifest, data, saved) if saved else
+               {item['id']: crop_path(args.manifest, data, item) for item in selected})
+    files += [sources[item['id']] for item in selected if sources[item['id']] is not None]
+    if args.automatic_results:
+        files.append(args.automatic_results)
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     import_started = time.perf_counter()
     from PIL import Image, ImageDraw
@@ -168,21 +195,32 @@ def main(argv=None):
     raw_log.write_text('', encoding='utf-8')
     cpu_started = time.process_time()
     for item in selected:
-        with Image.open(crop_path(args.manifest, data, item)) as source:
-            image = source.convert('RGB')
+        image = None
+        if sources[item['id']] is not None:
+            with Image.open(sources[item['id']]) as source:
+                image = source.convert('RGB')
+            if saved:
+                row = next(row for row in saved['records'] if row['id'] == item['id'])
+                box = row['candidates'][0]['regions']['exp']
+                with Image.open(args.manifest.parent / item['frame']) as frame:
+                    original = frame.convert('RGB').crop(Region(**box).pixels(*frame.size))
+                if original.size != image.size or original.tobytes() != image.tobytes():
+                    raise ValueError('Cached automatic crop differs from saved frame/region')
         for scale in plan['scales']:
-            resized = image if scale == 1 else image.resize((image.width*scale, image.height*scale), Image.Resampling.BICUBIC)
+            resized = image if image is None or scale == 1 else image.resize((image.width*scale, image.height*scale), Image.Resampling.BICUBIC)
             for mode in plan['modes']:
                 started = time.perf_counter()
-                output = engine(resized, use_det=mode == 'detect_recognize', use_cls=False, use_rec=True)
-                elapsed = time.perf_counter()-started
+                output = engine(resized, use_det=mode == 'detect_recognize', use_cls=False, use_rec=True) if resized is not None else None
+                elapsed = time.perf_counter()-started if output is not None else None
                 raw = {key: getattr(output, key, None) for key in ('txts','scores','boxes','elapse','elapse_list')}
                 raw = {key: value.tolist() if hasattr(value, 'tolist') else value for key,value in raw.items()}
                 text = raw['txts'][0] if raw['txts'] is not None and len(raw['txts']) == 1 else None
                 row = dict(id=item['id'], seconds=item['seconds'], geometry=item.get('geometry','original'),
                     expected={k:item[k] for k in ('level','current_exp','percentage')},
                     human_verified=item.get('human_verified', False), mode=mode, scale=scale,
-                    input_size=resized.size, raw=raw, text=text, seconds_elapsed=elapsed)
+                    input_size=resized.size if resized is not None else None, raw=raw, text=text, seconds_elapsed=elapsed,
+                    crop_source='automatic' if saved else 'manual', missing_crop=image is None,
+                    localization=next(r['location'] for r in saved['records'] if r['id']==item['id']) if saved else None)
                 with raw_log.open('a', encoding='utf-8') as handle:
                     handle.write(json.dumps(row)+'\n')
                 records.append({**row, **score_text(text, item)})
@@ -200,7 +238,8 @@ def main(argv=None):
                     bracketed_pairs=sum(r['parsed']['bracketed_syntax'] and r['parsed']['pair'] is not None for r in rows),
                     literal_canonical_matches=sum(r['literal_canonical_match'] is True for r in rows),
                     compact_canonical_matches=sum(r['compact_canonical_match'] is True for r in rows),
-                    timing=timing([r['seconds_elapsed'] for r in rows]))
+                    missing_crops=sum(r['missing_crop'] for r in rows),
+                    timing=timing([r['seconds_elapsed'] for r in rows if r['seconds_elapsed'] is not None]))
     model_info = {p.name:dict(bytes=p.stat().st_size, sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in models.glob('*.onnx')}
     providers = {name:getattr(engine, name).session.session.get_providers()
                  for name in ('text_det','text_rec') if getattr(engine, name) is not None}

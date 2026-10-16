@@ -117,9 +117,8 @@ The full samples include the pilot: on the **33 non-pilot crops per stream**, 2Ã
 complete matches are 33 Stream 2 / 13 Stream 3; numeric-token matches are 33 / 33.
 4Ã— offers no aggregate gain, so there is no reason to pursue further scale sweeps.
 
-This is not an end-to-end automatic-HUD benchmark: the existing automatic-region
-baselines remain **5/45 Stream 2 and 0/45 Stream 3**. Neural inference on those
-automatic crops was not tested, nor were level recognition or transitions changed.
+That first phase tested manual crops only. The automatic-region follow-up below
+uses the same saved frames; level recognition and transitions remain unchanged.
 
 ## Original recording kept separate
 
@@ -242,3 +241,155 @@ with negative/obscured fields and human-reviewed labels. Do not simply strip suf
 choice: these weights already come from PaddleOCR. No evidence here justifies
 custom neural training before checking those smaller issues. Preserve the original
 glyph path while assessing conflicts and additional coverage separately.
+
+## Follow-up: saved automatic regions and delimiter feasibility
+
+The same 45 frames per new stream were evaluated with the **unchanged cached
+automatic regions**, native and fixed 2x bicubic inputs, direct recognition only.
+Every available cached crop was checked pixel-identical to its saved frame/region
+using the existing normalized `Region.pixels` conversion. Missing regions remain
+in the denominator and do not receive fabricated inference timings. No locator,
+model, profile, annotation or recognition threshold was changed. The original
+manual results were reused, with the same model hashes and package versions.
+
+All counts below are **provisional label matches / mismatches / unavailable**,
+not independently verified accuracy. Zero Stream 2/3 labels are human-verified.
+All complete pairs here also preserve canonical bracketed raw syntax.
+
+| Input and recognizer | Stream 2 | Stream 3 |
+|---|---:|---:|
+| Custom strict/grammar/grayscale, automatic | 5 / 0 / 40 | 0 / 0 / 45 |
+| RapidOCR manual, native | 43 / 0 / 2 | 21 / 0 / 24 |
+| RapidOCR automatic, native | 32 / 0 / 13 | 26 / 0 / 19 |
+| RapidOCR manual, 2x | 45 / 0 / 0 | 19 / 0 / 26 |
+| RapidOCR automatic, 2x | **31 / 0 / 14** | **28 / 0 / 17** |
+
+- Stream 2: nine missing regions, one available crop with an ambiguous opener,
+  and four matching numeric-token pairs with malformed suffix `1` at 2x. Thus
+  31/36 available crops parse completely, and 35/36 retain matching tokens.
+  Native has three malformed-token cases and the same ambiguous opener. Neural
+  preprocessing tolerates much of the old alignment problem without fixing it.
+  Eight automatic regions fail the older numeric-ink containment diagnostic;
+  all eight nevertheless agree numerically at both scales. This is diagnostic
+  tolerance, not evidence that clipped numerical pixels are safe to trust.
+- Stream 3: four missing regions, one ambiguous opener, and 12 matching-token
+  suffix errors at 2x. Of 41 available crops, 28 parse and 40 retain matching
+  tokens. Native has 14 malformed-token cases. At 2x the windowed geometry has
+  26/40 complete pairs, larger geometry 2/5; token matches are 36/40 and 4/5.
+- Relative to manual 2x, Stream 2 loses 14 complete pairs (nine missing crops,
+  four suffix errors, one opener). Stream 3 gains 12 and loses three complete
+  pairs, all three losses caused by missing regions: net +9. This is evidence of
+  crop/context sensitivity, not a rule that tighter crops are always better.
+- Both scales produced zero parsed mismatches against these labels. The saved
+  locator selected no secondary HUD in these samples; this does not establish
+  safe target selection when multiple Classic HUDs are visible.
+- Reusing unchanged cached level readings, automatic 2x complete triples agree
+  on 22/45 Stream 2 and 28/45 Stream 3 with Tesseract, zero with pixel levels.
+  **None is production-trusted:** neural candidates still lack calibrated numeric
+  pixel verification and the existing guarded transition. No ingestion was run.
+
+Examples: Stream 2 at 995.753 s has expected `8[14.04%]`, but automatic 2x gives
+`8114.04%1` despite the cached containment check finding all numeric ink. At
+3271.760 s it gives `475[84.82%1` instead of the correctly bracketed manual result.
+Stream 3 at 1145.146 s changes from manual `74,059[25.17%1` to automatic
+`74,059[25.17%]`. At 3271.845 s both inputs still merge the opener into
+`113,367138.53%1`. Per-frame new/lost lists are in private `audit.json`.
+
+### Closing-bracket feasibility: do not promote suffix errors
+
+A bounded pixel probe reused the two **frozen, earlier calibrated profiles** and
+`exp_digits.brackets` with its existing green-excess thresholds and distance bound.
+It uses original-resolution pixels, separate from raw neural text, and checks
+ordered bracket locations against the existing text band and suffix whitespace.
+No new templates, inferred brackets, training or fitted thresholds were used.
+
+Ordered-pair mask evidence exists on 40/45 manual Stream 3 crops, including 23 of
+the 25 malformed-suffix cases at 2x. The other two are the unsupported larger
+geometry. On automatic Stream 3 crops it covers 37/45, including ten of the 12
+malformed-token cases. However, **every supported case has ambiguous bracket
+direction**: at least one selected glyph also matches the opposite bracket role.
+Requiring both positions to exclude the opposite role leaves zero supported
+pairs, on both streams. Some frozen masks capture a blurred green stem/rectangle
+rather than a directional bracket shape. Matching these masks alone is therefore
+insufficient independent delimiter verification; this is not a defect claim about
+the existing full-field guard, which also verifies numeric glyphs.
+
+Thirteen predefined synthetic/contradictory probes were made from one readable
+Stream 3 crop, without using them to fit a verifier. Missing/cropped brackets,
+missing opener, strongly damaged top/bottom caps, and actual white/green numeral
+1 substitutions lack ordered-pair evidence. But the probe still finds brackets
+after deleting/fragmenting numeric pixels or clipping numerals. Two actual 2x
+model outputs show why this matters:
+
+- A fragmented last EXP digit changes `74,059` to **`74,050[25.17%1`**, confidence
+  .94653, while ordered bracket masks still match.
+- A crop cutting the first numeral gives **`4,059[25.17%1`**, confidence .96340,
+  while ordered bracket masks still match.
+
+Replacing either suffix blindly would create a plausible wrong complete pair.
+A separately marked injected contradictory raw string on identical pixels also
+demonstrates that punctuation cannot verify numbers. The real original
+**99.92 -> 99.82** raw substitution remains relevant for the same reason.
+One cropped-close negative parses as a missing-punctuation diagnostic pair; its
+`bracketed_syntax` is false and it has no closing-mask evidence, so it is not a
+delimiter-verified candidate. Unknown digits and decimals are never reconstructed.
+
+**No rescue rule was implemented.** New promoted pairs: zero; existing complete
+pairs lost: zero; new promoted mismatches: zero. Combined automatic results remain
+31/45 and 28/45 at 2x. This is a feasibility stop, not a zero-error validation of a
+new verifier. There is insufficient verified calibration/negative evidence for
+these new geometries to justify stronger claims or a new acceptance threshold.
+
+### Cost, reproduction and review
+
+Automatic direct-line 2x mean / median / p95: Stream 2 **39.9 / 26.7 / 66.9 ms**;
+Stream 3 **43.9 / 32.4 / 69.8 ms**, excluding missing crops, extraction,
+localization, resize and initialization. The native means are 39.5 / 40.9 ms.
+Process peak RSS is about 152 / 153 MiB, settled 132 / 134 MiB; whole benchmark
+CPU cost 3.98 / 4.83 s for both scales, including scoring and image checks.
+Workstation measurements, not a controlled VPS/manual speed comparison.
+
+The isolated environment, models and private inputs already exist locally:
+
+```powershell
+# plan.json fixes scales [1,2], modes ["line_recognize"]; --all selects the same 45 frames.
+.\private\rapidocr\.venv\Scripts\python tools/benchmark_rapidocr.py private/cross-stream/stream2/manifest.json --plan private/rapidocr-auto/plan.json --all --automatic-results private/cross-stream/stream2/results.json --output private/rapidocr-auto/stream2.json
+.\private\rapidocr\.venv\Scripts\python tools/benchmark_rapidocr.py private/cross-stream/stream3/manifest.json --plan private/rapidocr-auto/plan.json --all --automatic-results private/cross-stream/stream3/results.json --output private/rapidocr-auto/stream3.json
+.\.venv\Scripts\python private/rapidocr-auto/audit.py
+.\private\rapidocr\.venv\Scripts\python tools/benchmark_rapidocr.py private/rapidocr-auto/negative-manifest.json --plan private/rapidocr-auto/plan.json --all --output private/rapidocr-auto/negative-results.json
+.\.venv\Scripts\python private/rapidocr-auto/make_review.py
+Start-Process .\private\rapidocr-auto\review-01.png
+Start-Process .\private\rapidocr-auto\review-02.png
+.\.venv\Scripts\python -m pytest tests/test_rapidocr_benchmark.py -q --basetemp private/rapidocr-auto/pytest-targeted
+$env:PYTHONPATH = Join-Path (Get-Location) 'src'
+.\.venv\Scripts\python -m pytest -q --tb=line -rs --basetemp private/rapidocr-auto/pytest-full-current-root
+```
+
+`review.csv` has 18 review cases and blank human-review fields. Please check values,
+bracket direction, missing ink and the difference between real model output and
+explicitly synthetic contradictions. Editing this sheet does not modify frozen
+labels. PNGs, scripts, negative crops, raw JSONL, annotations and weights stay under
+ignored `private/`; no models or imagery were added to tracked directories.
+
+Public changes are limited to this report, optional cached-region input handling
+in `tools/benchmark_rapidocr.py`, and two synthetic benchmark tests. No production
+code, algorithms, thresholds, profiles, frozen labels, commits or pushes changed.
+The final harness was rerun: both streams' raw texts and scoring were identical
+at both scales. **23 benchmark tests pass. Full suite: 529 passed, 9 failed,
+zero skips** with loopback access and the current `src` on `PYTHONPATH`. All nine
+failures occur while loading unchanged private banks that still reference
+`H:/Desktop/msclassic-twitch-exp-tracker/private/adaptive-ocr/native-profile.json`,
+before the workspace moved under `H:/Desktop/codex/`. The frozen calibration
+artifacts were preserved rather than rewritten. Without loopback permission one
+HTTP test skips; without the current `PYTHONPATH` the moved editable installation
+also fails its subprocess import test. The public synthetic benchmark tests need
+neither private fixtures nor RapidOCR. Private-path relocation remains separate
+housekeeping, not an OCR result or threshold change.
+
+Next priority: **automatic crop/context handling**, with a deterministic bounded
+context policy and missing-region diagnostics, retaining raw neural outputs as
+untrusted. The geometry-dependent delimiter errors and nine/four absent regions
+are actionable acquisition-to-recognition losses. Before any trust integration,
+independent numeric verification and human-reviewed negative calibration are also
+necessary. Do not add suffix rescue using these old masks or assume high neural
+confidence proves digits. No new framework or training is justified by this audit.

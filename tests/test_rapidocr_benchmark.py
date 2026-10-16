@@ -82,3 +82,23 @@ def test_unknown_labels_are_not_counted_as_model_errors(bench):
 def test_missing_or_multiple_lines_cannot_be_reconstructed(bench):
     result = bench.score_text(None, dict(current_exp=12345, percentage=67.89))
     assert result['metrics']['pair'] == 'unavailable'
+
+
+def test_cached_automatic_inputs_keep_missing_unavailable_without_filtering_by_labels(bench, tmp_path):
+    items = [dict(id=f'stream2/{i}', seconds=i, level=8, current_exp=175, percentage=20.83)
+             for i in range(4)]
+    rows = [dict(**item, expected=item, candidates=[{}], location=location)
+            for item, location in zip(items, ('main', 'missing', 'wrong_secondary', 'main'))]
+    rows[1]['candidates'] = []
+    rows[3]['candidates'] *= 2
+    result = bench.automatic_crops(tmp_path/'manifest.json', dict(examples=items), dict(records=rows))
+    assert result['stream2/0'] == tmp_path/'automatic-crops/0/exp.png'
+    assert result['stream2/2'] == tmp_path/'automatic-crops/2/exp.png'
+    assert all(result[f'stream2/{i}'] is None for i in (1, 3))
+    rows[0]['expected'] = {**items[0], 'percentage': 20.84}
+    with pytest.raises(ValueError, match='disagree'):
+        bench.automatic_crops(tmp_path/'manifest.json', dict(examples=items), dict(records=rows))
+
+
+def test_missing_crops_have_no_inference_time(bench):
+    assert bench.timing([]) is None
