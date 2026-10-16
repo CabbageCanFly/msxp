@@ -1,5 +1,10 @@
 # Minimal durable tracking
 
+Follow-up: [real OCR integration verification](ocr-sqlite-verification.md) covers
+private-crop replay, a lossless local capture CLI test, profile setup and the
+measured undercount from the conservative pause policy below. That policy is
+unchanged in this verification milestone.
+
 `Store` uses built-in `sqlite3`; no new dependency or service is needed. The OCR
 matcher/thresholds are unchanged. The existing capture trust guard moved to
 `trust.py`; `capture._guard_unverified_exp` remains an alias for existing callers.
@@ -141,7 +146,7 @@ contain private character/OCR history; do not publish them.
 Tests cover trust/fallbacks, large gains, duplicates/conflicts, ownership,
 character switching, gaps/pauses, level changes/decreases, ordering, rollback,
 schema refusal, restart and real capture-loop wiring with synthetic input.
-On this workstation: **31 targeted tests passed; full suite 240 passed, zero
+At this milestone's completion: **31 targeted tests passed; full suite 240 passed, zero
 skipped**, including all 71 private-sample tests. Dependency, compilation and
 whitespace checks passed. The demo and separate-process state CLI both ran.
 

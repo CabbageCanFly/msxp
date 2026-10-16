@@ -85,4 +85,22 @@ def test_database_capture_requires_profile_before_connecting(tmp_path, monkeypat
     monkeypatch.setattr(capture.shutil, "which", lambda _name: "mock-ffmpeg")
     monkeypatch.setattr(capture, "VideoSession", lambda *_a, **_kw: pytest.fail("must not capture"))
     assert capture.main(["--file", str(video), "--database", str(path), "--tracking-channel", "demo"]) == 1
-    assert json.loads(capsys.readouterr().out)["status"] == "setup_error"
+    error = json.loads(capsys.readouterr().out)
+    assert error["status"] == "setup_error" and error["reason"] == "glyph_profile_required"
+
+
+@pytest.mark.parametrize("content", [None, '{"version":2}', '{"version":99}'])
+def test_invalid_profile_is_clear_and_never_starts_capture(tmp_path, monkeypatch, capsys, content):
+    pytest.importorskip("psutil")
+    video = tmp_path / "owned.mp4"
+    video.write_bytes(b"fixture")
+    profile = tmp_path / "invalid.json"
+    if content is not None:
+        profile.write_text(content)
+    monkeypatch.setattr(capture.shutil, "which", lambda _name: "mock-ffmpeg")
+    monkeypatch.setattr(capture, "VideoSession", lambda *_a, **_kw: pytest.fail("must not capture"))
+    assert capture.main(["--file", str(video), "--database", str(tmp_path / "not-created.sqlite3"),
+                         "--glyph-profile", str(profile), "--tracking-channel", "demo"]) == 1
+    error = json.loads(capsys.readouterr().out)
+    assert error["reason"] == "invalid_glyph_profile"
+    assert not (tmp_path / "not-created.sqlite3").exists()

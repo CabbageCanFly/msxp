@@ -1,6 +1,7 @@
 """Local tracking administration: python -m exp_tracker.tracking --db PATH COMMAND."""
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
@@ -20,7 +21,9 @@ def main(argv=None):
     select = commands.add_parser("select")
     select.add_argument("character_id", type=int)
     for name in ("start", "end", "state"):
-        commands.add_parser(name)
+        command = commands.add_parser(name)
+        if name in {"start", "end"}:
+            command.add_argument("--at", type=datetime.fromisoformat, help="Aware ISO timestamp; use original times for offline replay")
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
@@ -36,9 +39,9 @@ def main(argv=None):
                 if args.command == "select":
                     store.select_character(args.channel, args.character_id)
                 elif args.command == "start":
-                    store.start_session(args.channel)
+                    store.start_session(args.channel, at=args.at)
                 elif args.command == "end":
-                    store.end_session(args.channel)
+                    store.end_session(args.channel, at=args.at)
                 output = store.state(args.channel)
             print(json.dumps(output, indent=2))
         return 0

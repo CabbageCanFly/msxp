@@ -48,6 +48,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not all(math.isfinite(x) and x > 0 for x in (args.interval, args.timeout, args.max_frame_age)) or args.interval < 1 or not 1 <= args.count <= 10000:
         parser.error("interval >=1, timeout/max-frame-age positive and finite, count 1..10000")
+    if args.database and args.glyph_profile is None:
+        print(json.dumps({"status": "setup_error", "reason": "glyph_profile_required",
+                          "detail": "Configure --glyph-profile with a calibrated profile before database tracking."}))
+        return 1
     if not shutil.which(args.ffmpeg):
         print(json.dumps({"status": "setup_error", "reason": "ffmpeg_not_found"}))
         return 1
@@ -67,7 +71,12 @@ def main(argv=None):
             if not isinstance(config, dict) or set(config) != {"level", "exp"}:
                 raise ValueError("invalid_roi_config")
             regions = {key: Region(*value) for key, value in config.items()}
-        profile = GlyphProfile.load(args.glyph_profile) if args.glyph_profile else None
+        try:
+            profile = GlyphProfile.load(args.glyph_profile) if args.glyph_profile else None
+        except (OSError, ValueError, TypeError):
+            print(json.dumps({"status": "setup_error", "reason": "invalid_glyph_profile",
+                              "detail": "Cannot load the calibrated profile. Check its path, version and complete glyph alphabet."}))
+            return 1
         if args.database:
             from .store import Store
             if profile is None or not args.database.is_file() or args.character != "selected-character":

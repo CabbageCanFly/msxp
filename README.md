@@ -54,6 +54,7 @@ or Tesseract.
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[dev]"
+New-Item -ItemType Directory -Force artifacts | Out-Null
 winget install --id UB-Mannheim.TesseractOCR -e
 # If the executable is not on PATH:
 $env:TESSERACT_CMD = 'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -66,12 +67,27 @@ On Debian/Ubuntu:
 sudo apt-get install python3-venv tesseract-ocr tesseract-ocr-eng
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
+mkdir -p artifacts
 .venv/bin/python -m pytest --basetemp=artifacts/pytest-tmp
 ```
 
 Private screenshots in `samples/` are excluded from Git; see
 [samples/README.md](samples/README.md). Sample tests skip when absent; a missing
 OCR engine is a test failure when samples are present. No test downloads data.
+
+A public checkout needs no private profile, annotations or screenshots for its
+public tests. After installing Python dependencies, the core subset also needs
+no Tesseract executable:
+
+```powershell
+.\.venv\Scripts\python -m pytest -q -m "not ocr and not samples" --basetemp=artifacts/pytest-public
+```
+
+[End-to-end verification and profile setup](docs/ocr-sqlite-verification.md)
+documents saved-crop OCR → guarded SQLite, public-checkout checks and the current
+gap-accounting tradeoff. Trusted game tracking requires your own calibrated v2
+profile; no game-font profile is bundled. Synthetic font fixtures are generated
+by the public tests and are not game calibrations.
 
 ## Inspect a screenshot
 
