@@ -144,6 +144,15 @@ def automatic_crops(manifest, data, saved):
     return result
 
 
+def context_box(region, size, padding):
+    """Expand native floor/ceil coordinates; never synthesize out-of-frame pixels."""
+    if type(padding) is not int or padding not in (0, 2, 4) or min(size) <= 0:
+        raise ValueError('Context requires positive frame dimensions and 0, 2 or 4 native pixels')
+    left, top, right, bottom = region.pixels(*size)
+    return (max(0, left-padding), max(0, top-padding),
+            min(size[0], right+padding), min(size[1], bottom+padding))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('manifest', type=Path)
@@ -151,9 +160,13 @@ def main(argv=None):
     parser.add_argument('--all', action='store_true', help='Expand to every saved crop, keeping the same variants')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--automatic-results', type=Path, help='Use saved automatic crops/locator decisions instead of manual crops')
+    parser.add_argument('--padding', type=int, choices=(0, 2, 4), default=0,
+                        help='Experimental native-pixel automatic-region padding, read from original frames')
     args = parser.parse_args(argv)
     if args.automatic_results and args.automatic_results.resolve() == args.output.resolve():
         parser.error('Output must not overwrite saved localization results')
+    if args.padding and not args.automatic_results:
+        parser.error('--padding requires --automatic-results')
     plan = json.loads(args.plan.read_text())
     data = json.loads(args.manifest.read_text())
     stream = data['examples'][0]['id'].split('/')[0]
@@ -165,6 +178,7 @@ def main(argv=None):
     files += [sources[item['id']] for item in selected if sources[item['id']] is not None]
     if args.automatic_results:
         files.append(args.automatic_results)
+        files += [args.manifest.parent/item['frame'] for item in selected if sources[item['id']] is not None]
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     import_started = time.perf_counter()
     from PIL import Image, ImageDraw
@@ -195,7 +209,9 @@ def main(argv=None):
     raw_log.write_text('', encoding='utf-8')
     cpu_started = time.process_time()
     for item in selected:
+        crop_started = time.perf_counter()
         image = None
+        used_box = None
         if sources[item['id']] is not None:
             with Image.open(sources[item['id']]) as source:
                 image = source.convert('RGB')
@@ -203,9 +219,14 @@ def main(argv=None):
                 row = next(row for row in saved['records'] if row['id'] == item['id'])
                 box = row['candidates'][0]['regions']['exp']
                 with Image.open(args.manifest.parent / item['frame']) as frame:
-                    original = frame.convert('RGB').crop(Region(**box).pixels(*frame.size))
+                    full = frame.convert('RGB')
+                region = Region(**box)
+                original = full.crop(region.pixels(*full.size))
                 if original.size != image.size or original.tobytes() != image.tobytes():
                     raise ValueError('Cached automatic crop differs from saved frame/region')
+                used_box = context_box(region, full.size, args.padding)
+                image = full.crop(used_box)
+        crop_seconds = time.perf_counter()-crop_started if image is not None else None
         for scale in plan['scales']:
             resized = image if image is None or scale == 1 else image.resize((image.width*scale, image.height*scale), Image.Resampling.BICUBIC)
             for mode in plan['modes']:
@@ -220,6 +241,7 @@ def main(argv=None):
                     human_verified=item.get('human_verified', False), mode=mode, scale=scale,
                     input_size=resized.size if resized is not None else None, raw=raw, text=text, seconds_elapsed=elapsed,
                     crop_source='automatic' if saved else 'manual', missing_crop=image is None,
+                    padding_pixels=args.padding, crop_box=used_box, crop_seconds=crop_seconds,
                     localization=next(r['location'] for r in saved['records'] if r['id']==item['id']) if saved else None)
                 with raw_log.open('a', encoding='utf-8') as handle:
                     handle.write(json.dumps(row)+'\n')

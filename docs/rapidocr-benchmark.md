@@ -393,3 +393,211 @@ are actionable acquisition-to-recognition losses. Before any trust integration,
 independent numeric verification and human-reviewed negative calibration are also
 necessary. Do not add suffix rescue using these old masks or assume high neural
 confidence proves digits. No new framework or training is justified by this audit.
+
+## Repository relocation cleanup
+
+The earlier 529-pass/9-failure result is historical. After cleanup, **543 tests
+pass, zero failures and zero skips** (80.48 s), without `PYTHONPATH`. Loopback
+permission was granted for the HTTP test; restricted runners may skip it.
+
+All nine failures were reproduced in `exp_digits.load_bank`, opening the first
+profile referenced by the unchanged `private/exp-digits/bank.json`:
+
+| Test group | Cases |
+|---|---|
+| `test_exp_digits.py::test_private_success_and_rejection_regressions` | 19750 ms, 599000 ms, Telfer crop 0016 |
+| `test_grammar_suffix.py::test_private_percent_recoveries_do_not_rescue_bad_numbers` | 142500, 1770000, 599000 ms |
+| `test_grayscale_digits.py::test_private_hybrid_recoveries_and_unreadable_rejection` | 384250, 780000, 599000 ms |
+
+The bank has 16 distinct absolute references under the former repository root:
+two profiles and fourteen character source images. Every file exists under the
+current root and matches its historical cross-stream SHA-256. Rewriting the bank
+would break the grayscale model's `bank_sha256`, so neither artifact was changed.
+
+The separate, ignored `private/exp-digits/bank.paths.json` instead maps each old
+reference to a **bank-directory-relative path and recorded SHA-256**. For example,
+the old native-profile reference maps to `../adaptive-ocr/native-profile.json`.
+The shared `bank_source` resolver verifies source bytes, with no fallback after
+a mapped file is missing or mismatched. Unmapped references retain existing path
+semantics. Keep this sidecar with the bank during future moves. New banks should
+use relative paths directly. No directory search, symlink or environment override
+is needed. Experimental readers/source hashing share the resolver, and new
+evaluation outputs include the sidecar as an input dependency.
+
+Separately, the editable installation's `.pth`/`direct_url.json` and development
+Windows launchers pointed to the old location. Reinstalling the project editable
+and the exact existing console-script package versions (`--no-deps`) repaired
+them. No dependency versions changed; `pip check` passes. Imports, `ms-exp.exe`,
+`pip.exe`, `pytest.exe` and `streamlink.exe` work at the current root.
+
+The isolated RapidOCR interpreter, imports, models and benchmark `--help` also work.
+Its unused `rapidocr.exe`/`onnxruntime_test.exe` wrappers still embed the old path;
+use the documented explicit interpreter and benchmark script. Neural packages and
+weights were not reinstalled merely to fix those wrappers. Recreate virtual
+environments after future moves, or reinstall affected editable/console packages.
+Historical paths in saved results and venv creation metadata remain provenance.
+
+```powershell
+# Reinstall editable after a move; no PYTHONPATH workaround.
+.\.venv\Scripts\python -m pip install --no-deps -e .
+.\.venv\Scripts\python -c "import exp_tracker; print(exp_tracker.__file__)"
+.\.venv\Scripts\python -m pip check
+.\.venv\Scripts\python -m pytest -q -k "private_success_and_rejection_regressions or private_percent_recoveries_do_not_rescue_bad_numbers or private_hybrid_recoveries_and_unreadable_rejection" --basetemp artifacts/pytest-nine
+.\.venv\Scripts\python -m pytest tests/test_bank_paths.py -q --basetemp artifacts/pytest-paths
+.\.venv\Scripts\python -m pytest -q -rs --basetemp artifacts/pytest-full
+.\private\rapidocr\.venv\Scripts\python tools/benchmark_rapidocr.py --help
+git diff --check
+```
+
+The nine regressions pass (9/9), plus five new synthetic path tests. All **204
+snapshotted evidence files remain byte-identical**, including RapidOCR outputs,
+review sheets, models and calibration banks; twenty private source hashes also
+match the historical evaluation. Private receipt: `private/relocation-audit/before.json`.
+No templates, models, annotations, production behavior, commits or pushes changed.
+The repository is ready for the next crop/context experiment using the explicit
+RapidOCR interpreter.
+
+## Fixed automatic crop-context experiment
+
+**Two pixels is promising for recognition coverage, not sufficient for trust.**
+Default padding remains zero; only the isolated benchmark gains an opt-in
+`--padding 0|2|4` option. Production recognition and ingestion are unchanged.
+
+Before inference, `private/rapidocr-context/plan.json` fixed symmetric 0/2/4 native
+pixel padding on all four edges, followed by the same 2x bicubic enlargement and
+unchanged direct-line CPU model. Coordinates first use existing `Region.pixels`
+floor/ceil conversion, then expand and clamp to the saved frame. Expanded pixels
+come from original full frames, never from enlarging an already clipped crop.
+Only unique cached locator candidates are used; no region fallback, locator change,
+per-frame winner selection, extra scale search or later padding adjustments.
+
+Both 45-frame denominators are retained. Labels remain **Codex-provisional, zero
+human-verified**. These recordings have already been inspected in previous work;
+this predefined comparison is not fresh independent-stream validation. The
+unpadded rerun reproduces the original raw strings and scores/categories exactly.
+
+Each cell below is **complete numeric label matches / mismatches / unavailable**.
+Here complete requires the existing parser's bracketed syntax, both values and no
+extra unknown text. Its pre-existing loose missing-punctuation diagnostics do
+not count as complete observations. None of these candidates is production-trusted.
+
+| Native padding | Stream 2 | Stream 3 |
+|---|---:|---:|
+| 0 px | 31 / 0 / 14 | 28 / 0 / 17 |
+| 2 px | **35 / 0 / 10** | **39 / 0 / 6** |
+| 4 px | 29 / **1** / 15 | 41 / 0 / 4 |
+
+At 2 px, all previous complete matches survive: four new Stream 2 and eleven new
+Stream 3 matches. Stream 2's four original suffix-`1` cases recover; its remaining
+available failure (995.753 s) changes from merged `8114.04%1` to `8[14.04%1`.
+Stream 3 retains two matching-token suffix failures: 3271.845 s, where the opener
+is now recovered, and 3353.642 s in the larger geometry. Thus malformed-punctuation
+matching-token counts change from **4 to 1** and **12 to 2**. Missing regions remain
+**nine and four**, respectively. Available-crop matches are 35/36 and 39/41;
+these conditional counts must not replace the full 45-frame results.
+
+Stream 3 geometry at 2 px: windowed 36/40 (all four unavailable have no region),
+larger 3/5 (one missing region, one suffix error). At 4 px these become 37/40 and
+4/5; all available fields then parse. However, 16 raw Stream 3 outputs change a
+thousands comma to a dot: 41 semantic pair matches, only 25 literal canonical
+matches. Raw strings are preserved, not normalized before logging.
+
+Per-frame IDs (indices into each frozen manifest):
+
+- **2 px recovered, Stream 2:** 16, 23, 39, 44. **Lost:** none.
+- **2 px recovered, Stream 3:** 3, 13, 26, 28, 30, 31, 32, 35, 37, 38, 42.
+  **Lost:** none.
+- **4 px recovered, Stream 2:** 23, 39, 44. **Lost:** 12, 20, 21, 25, 42;
+  index 21 becomes an incorrect complete candidate, the others lose their opener.
+- **4 px recovered, Stream 3:** the eleven above plus 40 and 41. **Lost:** none.
+
+Exact timestamps, before/after raw strings, confidence, categories and crop boxes
+are in private `per-frame-changes.csv` and `comparison.json`. The four Stream 2
+2-px recoveries occur at 2276.007, 3271.760, 5547.768 and 6259.020 s. The Stream 3
+recoveries span 245.388 through 3435.438 s; sparse samples do not establish
+continuous tracking or transition reliability.
+
+### Context contamination and negative cases
+
+At Stream 2 **2987.260 s**, 4 px yields **`2345[92.74%]`**, score .96809, instead
+of `345[92.74%]` at 0/2 px. Visual inspection shows a partial neighboring EXP
+label at the left and the progress bar below entering the expanded crop. The
+label fragment appears to become the extra `2`; this is a plausible wrong number
+with valid punctuation, not something the parser can safely correct. Four pixels
+is therefore unsuitable as a global policy despite its Stream 3 coverage.
+
+Seven predefined synthetic full-frame negatives reuse one existing Stream 3
+source: deliberately clipped numerals, a fragmented digit, an erased digit,
+missing decimal, absent close, damaged close and an actual green numeral `1`
+in the closing position. Original files and frozen labels remain untouched.
+These stress cases retain the source's intended numerical value; they are not
+new independently verified video annotations or training examples.
+
+- Baseline accepts the clipped-numeral image as wrong `4,059[25.17%]`; 2 px makes
+  that string unavailable, but introduces a different wrong complete candidate.
+- **Fragmented digit:** 0 px gives rejected `74,050[25.17%1`; 2 px gives
+  **`74,050[25.17%]`**, score .96343, versus source intent 74,059. Padding fixes
+  punctuation while preserving the wrong digit. Four pixels also produces it.
+- The remaining five negatives stay unavailable under the strict complete-pair
+  definition at every padding. In particular, missing close produces a loose
+  numeric diagnostic, not a complete pair; the green numeral `1` is never replaced.
+
+Consequently strict wrong complete negatives number **1 / 1 / 2** at 0/2/4 px;
+the 2-px wrong case is newly introduced even though the aggregate count is equal.
+No candidate is promoted to trusted state. This counterexample prevents claiming
+that 2-px padding is a safe acceptance rule or that punctuation verifies digits.
+
+### Cost and reproduction
+
+Workstation inference-only mean / median / p95 in milliseconds, one measured pass:
+
+| Padding | Stream 2 | Stream 3 |
+|---|---|---|
+| 0 | 32.2 / 26.8 / 64.9 | 37.0 / 27.1 / 65.2 |
+| 2 | 22.5 / 20.9 / 48.3 | 29.5 / 21.9 / 55.8 |
+| 4 | 21.1 / 20.1 / 25.4 | 27.9 / 20.8 / 49.3 |
+
+Full-frame loading, cached-crop verification and cropping separately average
+30-35 ms per available frame, with no meaningful padding-related increase.
+Peak process RSS is about 160-162 MiB. At 2 px whole-loop CPU cost is 1.89 s for
+Stream 2 / 2.50 s for Stream 3, versus 2.22 / 2.84 s unpadded. Initial input
+hashing, model startup, stream capture and localization are excluded. Padding
+changes the model's normalized input geometry; the observed faster inference is
+not a controlled speed guarantee or a VPS measurement.
+
+```powershell
+# All old outputs preserved; reruns below go into a separate directory.
+foreach ($stream in 'stream2','stream3') {
+    foreach ($padding in 0,2,4) {
+        .\private\rapidocr\.venv\Scripts\python tools/benchmark_rapidocr.py "private/cross-stream/$stream/manifest.json" --plan private/rapidocr-context/plan.json --all --automatic-results "private/cross-stream/$stream/results.json" --padding $padding --output "private/rapidocr-context/repeat/$stream-pad$padding.json"
+    }
+}
+# Inspect/analyze the saved initial run, including negative results:
+.\.venv\Scripts\python private/rapidocr-context/analyze.py
+Start-Process .\private\rapidocr-context\review-01.png
+Start-Process .\private\rapidocr-context\review-02.png
+Start-Process .\private\rapidocr-context\negative-review.png
+.\.venv\Scripts\python -m pytest tests/test_rapidocr_benchmark.py -q --basetemp private/rapidocr-context/pytest-targeted
+.\.venv\Scripts\python -m pytest -q -rs --basetemp private/rapidocr-context/pytest-full
+```
+
+`prepare_negatives.py` reproduces the private synthetic frames/cached regions.
+To rerun their inference, use `negatives/manifest.json` and `negatives/results.json`
+instead of the real-stream paths, with the same plan and padding variants, and
+a new output filename. Exact raw outputs/confidences precede parsing in JSONL.
+The result JSON records crop boxes, padding and input/model hashes.
+
+This task changes only the experimental benchmark, its synthetic tests and this
+report; earlier uncommitted relocation work is preserved. **41 benchmark tests
+pass; full suite 561 passed, zero skips** (82.19 s with loopback access).
+All **205 prior snapshotted evidence files remain byte-identical**, including
+old benchmark outputs, frozen annotations, profiles and model weights. New frames,
+review sheets and result artifacts remain ignored. No commits, pushes, production
+integration, model changes or threshold tuning.
+
+Next priority is **numeric verification**, particularly clipped/degraded numerals
+and adjacent label contamination. Localization recovery is the next coverage
+step: thirteen of the sixteen remaining real-sample failures at 2 px have no ROI.
+Keep 2 px available for bounded experimental comparison; retain baseline defaults
+until it has independent validation and stronger numeric evidence. More suffix
+tolerance or broader padding searches are not justified here.

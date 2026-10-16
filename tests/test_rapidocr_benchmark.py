@@ -102,3 +102,49 @@ def test_cached_automatic_inputs_keep_missing_unavailable_without_filtering_by_l
 
 def test_missing_crops_have_no_inference_time(bench):
     assert bench.timing([]) is None
+
+
+@pytest.mark.parametrize('padding,expected', [(0,(2,2,6,5)), (2,(0,0,8,7)), (4,(0,0,10,8))])
+def test_context_uses_original_floor_ceil_pixels_and_clamps_edges(bench, padding, expected):
+    from exp_tracker.models import Region
+    from PIL import Image
+    region = Region(.21,.26,.51,.61)
+    assert bench.context_box(region,(10,8),padding) == expected
+    frame = Image.new('RGB',(10,8))
+    for y in range(8):
+        for x in range(10): frame.putpixel((x,y),(x,y,0))
+    crop = frame.crop(bench.context_box(region,frame.size,padding))
+    assert crop.getpixel((0,0)) == (expected[0],expected[1],0)
+    assert crop.getpixel((crop.width-1,crop.height-1)) == (expected[2]-1,expected[3]-1,0)
+    assert crop.size == (expected[2]-expected[0],expected[3]-expected[1])
+
+
+@pytest.mark.parametrize('padding,size', [(-2,(10,8)),(3,(10,8)),(8,(10,8)),(True,(10,8)),(2,(0,8))])
+def test_context_rejects_unplanned_padding_and_empty_frames(bench, padding, size):
+    from exp_tracker.models import Region
+    with pytest.raises(ValueError):
+        bench.context_box(Region(0,0,1,1),size,padding)
+
+
+@pytest.mark.parametrize('padding,expected', [(2,(3,3,17,17)),(4,(1,1,19,19))])
+def test_context_expands_an_interior_region_exactly(bench, padding, expected):
+    from exp_tracker.models import Region
+    assert bench.context_box(Region(.25,.25,.75,.75),(20,20),padding) == expected
+
+
+def test_padding_cannot_invent_automatic_regions_for_manual_inputs(bench):
+    with pytest.raises(SystemExit) as error:
+        bench.main(['missing.json','--plan','missing.json','--padding','2','--output','unused.json'])
+    assert error.value.code == 2
+
+
+@pytest.mark.parametrize('raw', ['XP 123[45.67%]', 'HP 5 123[45.67%]', '123[45.67%]9',
+                                 '123[45.67%1', '12?3[45.67%]', '123[?][45.67%]'])
+def test_extra_context_and_unknown_glyphs_cannot_be_trimmed_to_make_pair(bench, raw):
+    assert bench.interpret(raw)['pair'] is None
+
+
+def test_clipped_but_plausible_number_is_diagnostic_mismatch(bench):
+    result = bench.score_text('23[45.67%]',dict(current_exp=123,percentage=45.67))
+    assert result['metrics']['pair'] == 'label_mismatch'
+    assert result['parsed']['trusted'] is False
