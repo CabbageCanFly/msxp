@@ -17,6 +17,11 @@ for safer rejection: 57 correct levels, zero incorrect accepts and 60 unavailabl
 on 117 saved crops, versus Tesseract's 68 / 2 / 47. It averages 2.77 ms per field,
 but still requires private geometry-specific calibration and stays outside production.
 
+The [per-character EXP experiment](docs/exp-digits.md) improves complete EXP +
+percentage readings from 41 to 50 on 117 saved recording crops, and from 14 to 15
+on the 17-frame Telfer trial, with zero incorrect values observed. It remains isolated;
+partial field recognition is diagnostic and does not update trusted tracking state.
+
 The [local read-only API and transparent OBS overlay](docs/overlay.md) use the
 existing SQLite state. Start with an existing demo database:
 
