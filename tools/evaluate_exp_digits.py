@@ -40,7 +40,7 @@ def main(argv=None):
     from exp_tracker.metrics import ResourceMonitor
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('manifest', type=Path)
-    parser.add_argument('--engine', choices=('baseline', 'columns', 'valleys'), required=True)
+    parser.add_argument('--engine', choices=('baseline', 'columns', 'valleys', 'grammar'), required=True)
     parser.add_argument('--bank', type=Path)
     parser.add_argument('--profile', type=Path)
     parser.add_argument('--levels', type=Path, required=True)
@@ -100,7 +100,8 @@ def main(argv=None):
                 result = dict(exp=value[0] if value else None, percentage=value[1] if value else None,
                               status='candidate' if value else 'unavailable', attempt=attempt)
             else:
-                result = recognize(image, bank, segmentation=args.engine)
+                result = recognize(image, bank, segmentation='valleys' if args.engine == 'grammar' else args.engine,
+                                   grammar_suffix=args.engine == 'grammar', localized=True)
             elapsed = time.perf_counter() - start
             rows.append(dict(id=expected['id'], seconds=expected.get('seconds'),
                 expected={k: expected[k] for k in ('level', 'current_exp', 'percentage')},

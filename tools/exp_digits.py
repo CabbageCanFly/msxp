@@ -173,16 +173,67 @@ def field(image, templates, kind, segmentation):
         if len(texts) > 32:
             return None, dict(reason='ambiguous_segmentation', characters=details)
     texts = {t for t in texts if image.width - runs[-1][1] <= templates[3][t[-1]]}
-    pattern = r'(?:0|[1-9][0-9]{0,11}|[1-9][0-9]{0,2}(?:,[0-9]{3}){1,3})' if kind == 'exp' else r'(?:0|[1-9][0-9]?)\.[0-9]{2}%'
+    pattern = r'(?:0|[1-9][0-9]{0,11}|[1-9][0-9]{0,2}(?:,[0-9]{3}){1,3})' if kind == 'exp' else r'(?:0|[1-9][0-9]?)\.[0-9]{2}' + ('%' if kind == 'percentage' else '')
     valid = sorted(t for t in texts if re.fullmatch(pattern, t))
     if len(valid) != 1:
         return None, dict(reason='ambiguous_or_invalid_field', texts=sorted(texts), characters=details)
     text = valid[0]
-    value = int(text.replace(',', '')) if kind == 'exp' else float(text[:-1])
+    value = int(text.replace(',', '')) if kind == 'exp' else float(text.removesuffix('%'))
     return value, dict(text=text, reason=None, characters=details)
 
 
-def brackets(image, profile):
+def shape(value, width, height):
+    rows = [(value >> (y * width)) & ((1 << width) - 1) for y in range(height)]
+    occupied = [y for y, row in enumerate(rows) if row]
+    if not occupied:
+        return 0, 0
+    cols = 0
+    for row in rows:
+        cols |= row
+    return cols.bit_length() - (cols & -cols).bit_length() + 1, occupied[-1] - occupied[0] + 1
+
+
+def plausible_shape(value, references, width, height):
+    """Bounded partial stroke agreement, never permission to supply absent ink."""
+    actual_width, actual_height = shape(value, width, height)
+    if actual_height < .65 * (height - 4):
+        return None
+    matches = []
+    for reference in references:
+        ref_width, ref_height = shape(reference, width, height)
+        error = (value ^ reference).bit_count()
+        if (abs(actual_width - ref_width) <= 1 and abs(actual_height - ref_height) <= 1
+                and error <= min(8, (reference.bit_count() + 3) // 4)):
+            matches.append(error)
+    return min(matches, default=None)
+
+
+def grammar_percentage(image, profile, templates, segmentation):
+    runs = columns(image)
+    if len(runs) < 5:
+        return None, dict(reason='no_separate_percent_suffix')
+    left, right = runs[-1]
+    if image.width - right > templates[3]['%']:
+        return None, dict(reason='suffix_spacing')
+    patch = image.crop((left, 0, right, image.height))
+    _, evidence = character(patch, templates)
+    # All numeric competitors remain active, even though grammar expects a percent.
+    if evidence['nearest'] != '%' or evidence['margin'] < 4:
+        return None, dict(reason='digit_like_or_ambiguous_suffix')
+    stride, packed = templates[:2]
+    canvas = Image.new('L', (stride, image.height + 4))
+    canvas.paste(patch, (2, 2))
+    error = plausible_shape(bits(canvas), packed['%'], stride, canvas.height)
+    if error is None:
+        return None, dict(reason='implausible_percent_shape')
+    value, detail = field(image.crop((0, 0, left, image.height)), templates, 'percentage_digits', segmentation)
+    if value is None:
+        return None, dict(reason='unverified_percentage_digits', numeric=detail)
+    return value, dict(reason=None, text=detail['text'] + '%', inferred_percent=True,
+                       suffix_error=error, numeric=detail)
+
+
+def brackets(image, profile, *, infer_closing=False, templates=None):
     """Find both colored delimiters before interpreting any white numeric text."""
     matches = {'[': [], ']': []}
     masks = [mask(image, max(0, min(255, profile.punctuation_threshold + offset)), green_excess=True)
@@ -197,12 +248,27 @@ def brackets(image, profile):
             # Preserve the calibrated production bracket bound, independently of digits.
             if best is not None and best <= 4:
                 matches[char].append(x)
+            elif infer_closing and char == ']':
+                white = image.crop((x, 0, x + width, profile.height)).convert('L')
+                if sum(p > profile.digit_threshold for p in white.tobytes()) > 2:
+                    continue  # Never hide white digit pixels inside an inferred bracket.
+                for value in values:
+                    error = plausible_shape(value, profile.templates[char], width, profile.height)
+                    if error is None:
+                        continue
+                    patch = horizontal_trim(bitmap(value, width, profile.height))
+                    _, evidence = character(patch, templates)
+                    if evidence['best'] is not None and evidence['best'] >= error + 4:
+                        matches[char].append(x)
+                        break
     return matches
 
 
-def recognize(crop, bank, *, segmentation='valleys'):
+def recognize(crop, bank, *, segmentation='valleys', grammar_suffix=False, localized=False):
     if segmentation not in ('columns', 'valleys'):
         raise ValueError('unknown segmentation method')
+    if grammar_suffix and not localized:
+        raise ValueError('Grammar-assisted suffixes require an independently localized field ROI')
     if crop.width > 512 or crop.height > 96 or not 1 <= len(bank) <= 4:
         return dict(exp=None, percentage=None, status='unavailable', reason='input_bounds', attempts=[])
     attempts = []
@@ -218,6 +284,9 @@ def recognize(crop, bank, *, segmentation='valleys'):
             color_line = crop.crop((0, y, crop.width, y + profile.height))
             line = white.crop((0, y, crop.width, y + profile.height))
             anchors = brackets(color_line, profile)
+            strict_closings = set(anchors[']'])
+            if grammar_suffix:
+                anchors = brackets(color_line, profile, infer_closing=True, templates=templates)
             for opening in anchors['[']:
                 for closing in anchors[']']:
                     begin = opening + profile.widths['[']
@@ -226,6 +295,14 @@ def recognize(crop, bank, *, segmentation='valleys'):
                         continue
                     exp, exp_detail = field(line.crop((0, 0, opening, line.height)), templates, 'exp', segmentation)
                     percent, percent_detail = field(line.crop((begin, 0, closing, line.height)), templates, 'percentage', segmentation)
+                    if grammar_suffix and percent is None:
+                        percent, percent_detail = grammar_percentage(
+                            line.crop((begin, 0, closing, line.height)), profile, templates, segmentation)
+                    if closing not in strict_closings:
+                        # A guessed close is usable only with independently verified numbers.
+                        if percent is None:
+                            continue
+                        percent_detail = {**percent_detail, 'inferred_closing': True}
                     attempts.append(dict(profile=index, y=y, opening=opening, closing=closing,
                                          exp=exp, percentage=percent, exp_detail=exp_detail,
                                          percentage_detail=percent_detail))
@@ -246,10 +323,13 @@ def main(argv=None):
     parser.add_argument('image', type=Path)
     parser.add_argument('--bank', type=Path, required=True)
     parser.add_argument('--segmentation', choices=('columns', 'valleys'), default='valleys')
+    parser.add_argument('--grammar-suffix', action='store_true')
+    parser.add_argument('--localized', action='store_true', help='Input ROI was independently localized/verified')
     args = parser.parse_args(argv)
     bank = load_bank(args.bank)
     with Image.open(args.image) as image:
-        print(json.dumps(recognize(image, bank, segmentation=args.segmentation), indent=2))
+        print(json.dumps(recognize(image, bank, segmentation=args.segmentation,
+            grammar_suffix=args.grammar_suffix, localized=args.localized), indent=2))
 
 
 if __name__ == '__main__':

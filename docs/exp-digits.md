@@ -178,3 +178,78 @@ wrong accepts and CPU/RSS before choosing a runtime or integrating it. A wholly
 missing leading digit remains indistinguishable from a shorter value without
 reliable field-start evidence; recognition cannot establish character identity
 or source freshness. Production integration and automatic level-ups remain deferred.
+
+## Grammar-assisted suffix follow-up
+
+An optional `--grammar-suffix --localized` mode tests whether predictable `%]`
+punctuation explains the remaining failures. Strict mode remains the default.
+`--localized` asserts a separately verified field ROI; this is not a new HUD
+detector. Evaluation uses the existing saved field crops or previously verified
+automatic regions. Do not assert it for an arbitrary stream crop.
+
+Percentage digits and the decimal still pass the unchanged native matcher and
+exact `D.DD`/`DD.DD` grammar. An inferred percent must be a separate last component,
+closer to `%` than every numeric alternative by at least four pixels, with a
+native bounding box within one pixel of a template and at most one quarter of
+its ink count in differing pixels, rounded up and capped at eight. An inferred close must have green stroke
+evidence with comparable native geometry/agreement, be distinctly unlike numeric
+glyphs, and hide at most two white pixels. The opening bracket is always verified
+strictly. Empty/missing symbols, arbitrary blobs, unknown numbers and extra
+digit-like components are rejected. Attempt diagnostics explicitly mark inferred
+symbols; these candidates do not enter production trust or persistence.
+
+One rule was fixed using synthetic positive/negative tests before the frozen
+recording/Telfer runs; no threshold sweep or new templates were used. All figures
+below have **zero incorrect numeric, percentage or complete outputs**.
+
+| Correct readings | Strict per-character mode | Grammar-assisted mode |
+| --- | ---: | ---: |
+| Percentage, 117 fixed recording crops | 60 | **64** |
+| Complete EXP + percentage, same crops | 50 | **54** |
+| Complete with unchanged Tesseract level helper | 35 | **39** |
+| Complete with unchanged pixel level recognizer | 31 | **32** |
+| Percentage, previous automatic regions | 55 | **59** |
+| Complete EXP + percentage, automatic regions | 46 | **50** |
+| Telfer percentage and complete EXP, 17 frames | 15 | **15** |
+
+No old successes were lost. The four fixed-crop recoveries are 142.5/142.75 s
+(`0 / 0.00%`), 145 s (`4 / 7.02%`) and 1770 s (`1 / 0.06%`). Their percent
+symbols differ by four or five pixels. **All four recoveries infer `%`; none
+requires inferred `]`.** Telfer gains none and retains its prior 15 readings.
+
+Of 53 still-unavailable recording percentages, **47 cannot verify the numeric
+prefix/decimal/segmentation**, five lack usable bracket/field boundaries, and
+one has no HUD. The first category is a post-scoring diagnostic: at existing
+attempt boundaries, remove only the last white run and test the remaining numeric
+prefix with the unchanged matcher. No expected values choose the split, and no
+diagnostic output becomes a recognition. Causes may overlap; these counts do not
+claim that every other suffix is readable. In particular, 599 s and 1061.75 s
+remain unavailable rather than exposing the known incorrect Tesseract levels.
+
+Mean EXP processing increases from 20.28 to **51.48 ms** on the recording, p95
+70.90 ms, sampled CPU 5.578 s across 117 attempts. Peak RSS is **32.12 MiB**.
+Telfer averages 25.16 ms, peak 30.40 MiB. Acquisition, localization, level OCR,
+image loading and bank setup are excluded. No Linux/live performance was tested.
+
+```powershell
+.\.venv\Scripts\python tools/exp_digits.py private/levelup-evaluation/evaluation-crops/recording-crops/142500/exp-crop.png --bank private/exp-digits/bank.json --grammar-suffix --localized
+.\.venv\Scripts\python tools/evaluate_exp_digits.py private/levelup-evaluation/manifest.json --engine grammar --bank private/exp-digits/bank.json --levels private/exp-digits/levels-fixed.json --output private/grammar-suffix/repeat-recording.json
+.\.venv\Scripts\python tools/evaluate_exp_digits.py private/exp-digits/telfer-manifest.json --engine grammar --bank private/exp-digits/bank.json --levels private/exp-digits/levels-telfer.json --output private/grammar-suffix/repeat-telfer.json
+# Compare using --engine valleys; use the same inputs and a separate output file.
+```
+
+Private evidence under `private/grammar-suffix/` includes `freeze.json`,
+`recording.json`, `recording-adaptive.json`, `telfer.json` and
+`remaining-failures.json`. Frozen labels, development bank and original profiles
+are unchanged. This remains a correlated same-recording comparison.
+
+Validation: **470 full-suite tests passed, zero skipped**, including 43 new
+suffix tests (40 synthetic and three private regressions). These cover degraded
+but plausible punctuation, missing symbols, arbitrary blobs, malformed decimals,
+unknown digits, and all ten digits substituted for `%` or for a white/green `]`.
+Default strict recognition and production source remain unchanged.
+
+The improvement is small: four extra complete pairs and no transfer gain on
+Telfer. Keep the optional experiment; proceed with the proposed small grayscale
+classifier experiment to address numerical glyph variation, retaining suffix
+evidence and strict unknown rejection. Do not keep relaxing punctuation bounds.

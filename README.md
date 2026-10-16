@@ -21,6 +21,9 @@ The [per-character EXP experiment](docs/exp-digits.md) improves complete EXP +
 percentage readings from 41 to 50 on 117 saved recording crops, and from 14 to 15
 on the 17-frame Telfer trial, with zero incorrect values observed. It remains isolated;
 partial field recognition is diagnostic and does not update trusted tracking state.
+Its optional [grammar-assisted suffix mode](docs/exp-digits.md#grammar-assisted-suffix-follow-up)
+recovers four more recording readings (54/117), with no additional incorrect outputs
+or improvement on Telfer. Numerical glyphs and segmentation remain the main failures.
 
 The [local read-only API and transparent OBS overlay](docs/overlay.md) use the
 existing SQLite state. Start with an existing demo database:
