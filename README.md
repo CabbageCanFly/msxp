@@ -4,6 +4,16 @@ Independent, free, MIT-licensed feasibility prototype. This milestone contains
 local screenshot OCR and acquisition experiments, not a hosted tracking service.
 No accounts, cloud resources or secrets are required for offline tests.
 
+The [minimal SQLite tracking engine](docs/tracking.md) now persists guarded
+observations, explicit character/session selection and trusted state across
+worker restarts. It uses Python's built-in SQLite; no service or ORM is required.
+Run its local synthetic demo with a new ignored database path:
+
+```powershell
+.\.venv\Scripts\python tools/demo_tracking.py artifacts/sqlite-demo.sqlite3
+.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/sqlite-demo.sqlite3 --channel demo state
+```
+
 Current consolidation: [green bracket OCR and capture trust rules](docs/ocr-consolidation.md).
 The saved seven-second trial replays 14/17 accepted readings. Version 2 profiles
 can now be trained reproducibly; version 1 remains supported. With a profile,

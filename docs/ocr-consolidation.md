@@ -1,5 +1,9 @@
 # Green bracket OCR consolidation
 
+Follow-up: the [SQLite engine](tracking.md) now consumes this same trust gate and
+the existing transition validator. Matching thresholds/profile behavior are
+unchanged; capture without database mode retains its prior compatibility.
+
 This supersedes the capture trust guidance in the earlier
 [OCR reliability experiment](ocr-reliability.md). The existing green-excess
 matcher and safety patch were present in commits `169bc35` and `f5a8d0f` when

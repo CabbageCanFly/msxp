@@ -36,6 +36,10 @@ credentials remain local and must never enter URLs, backend requests or telemetr
 
 ## Persistence
 
+Implemented milestone: [tracking.md](tracking.md) describes the smaller actual
+versioned schema, CLI and trust/recovery behavior. The sketch below remains a
+historical service proposal; it is not the runtime schema or a migration.
+
 [schema.sql](schema.sql) is an executable schema sketch, not a shipped persistence
 layer. Its tables separate:
 
