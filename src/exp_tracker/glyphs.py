@@ -17,7 +17,12 @@ from .parsing import parse_exp
 SYMBOLS = "0123456789,[.]%"
 
 
-def mask(image: Image.Image, threshold: int, *, color: bool = False) -> int:
+def mask(image: Image.Image, threshold: int, *, color: bool = False,
+         green_excess: bool = False) -> int:
+    if green_excess:
+        rgb = image.convert("RGB").tobytes()
+        return sum(1 << (i // 3) for i in range(0, len(rgb), 3)
+                   if 2 * rgb[i + 1] - rgb[i] - rgb[i + 2] >= 2 * threshold)
     if color:
         r, g, b = image.convert("RGB").split()
         image = ImageChops.lighter(ImageChops.lighter(r, g), b)
@@ -33,8 +38,11 @@ class GlyphProfile:
     templates: dict[str, tuple[int, ...]]
     digit_threshold: int = 175
     punctuation_threshold: int = 100
+    bracket_mode: str = "max_channel"
 
     def __post_init__(self):
+        if self.bracket_mode not in ("max_channel", "green_excess"):
+            raise ValueError("unsupported bracket mask")
         if not 3 <= self.height <= 32 or set(self.widths) != set(SYMBOLS):
             raise ValueError("invalid glyph profile geometry or alphabet")
         if set(self.templates) != set(SYMBOLS):
@@ -56,11 +64,15 @@ class GlyphProfile:
             raise ValueError("glyph profile exceeds 1 MiB limit")
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            if data.get("version") != 1:
+            version = data.get("version")
+            if version not in (1, 2):
                 raise ValueError("unsupported glyph profile version")
+            mode = "max_channel" if version == 1 else data.get("bracket_mode")
+            if version == 2 and mode != "green_excess":
+                raise ValueError("unsupported version 2 bracket mode")
             return cls(data["height"], data["widths"],
                        {c: tuple(v) for c, v in data["templates"].items()},
-                       data["digit_threshold"], data["punctuation_threshold"])
+                       data["digit_threshold"], data["punctuation_threshold"], mode)
         except (AttributeError, KeyError, TypeError) as error:
             raise ValueError("invalid glyph profile structure") from error
 
@@ -118,14 +130,17 @@ def match_exp(crop: Image.Image, profile: GlyphProfile, *, scales=(1.0,)) -> dic
                 patch = image.crop((x, y, x + width, y + profile.height))
                 colored = symbol in "[]"
                 value = mask(patch, profile.punctuation_threshold if colored else profile.digit_threshold,
-                             color=colored)
+                             color=colored,
+                             green_excess=colored and profile.bracket_mode == "green_excess")
                 candidates = "0123456789" if digit else symbol
                 ranked = sorted((min((value ^ template).bit_count()
                                      for template in profile.templates[c]), c) for c in candidates)
                 distance, char = ranked[0]
                 margin = ranked[1][0] - distance if digit else 99
                 # A missing punctuation mask cannot be explained by a blank cell.
-                cache[key] = (char, distance) if value and distance <= 3 and margin >= 2 else None
+                # Green bracket pixels vary slightly under video compression.
+                limit = 4 if colored and profile.bracket_mode == "green_excess" else 3
+                cache[key] = (char, distance) if value and distance <= limit and margin >= 2 else None
             return cache[key]
 
         for layout in _layouts():
