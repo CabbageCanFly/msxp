@@ -12,6 +12,11 @@ The isolated [adaptive HUD experiment](docs/adaptive-ocr.md) locates fields with
 supplied regions and compares scale normalization with private native profiles.
 It remains an offline prototype; production recognition and tracking are unchanged.
 
+The separate [native level-digit experiment](docs/level-digits.md) trades coverage
+for safer rejection: 57 correct levels, zero incorrect accepts and 60 unavailable
+on 117 saved crops, versus Tesseract's 68 / 2 / 47. It averages 2.77 ms per field,
+but still requires private geometry-specific calibration and stays outside production.
+
 The [local read-only API and transparent OBS overlay](docs/overlay.md) use the
 existing SQLite state. Start with an existing demo database:
 
