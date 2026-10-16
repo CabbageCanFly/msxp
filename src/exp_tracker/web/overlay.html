@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MapleStory EXP overlay</title>
+  <link rel="stylesheet" href="/static/overlay.css">
+  <script src="/static/overlay.js" defer></script>
+</head>
+<body>
+  <main id="card" data-state="waiting" aria-label="EXP tracker">
+    <header>
+      <div class="identity"><strong id="character">EXP tracker</strong><span id="channel"></span></div>
+      <span id="status" role="status">Connecting</span>
+    </header>
+    <div class="reading"><span id="level">Lv. —</span><strong id="exp">—</strong><span id="percentage">—</span></div>
+    <progress id="progress" max="100" value="0" aria-label="Trusted EXP percentage"></progress>
+    <div class="session"><span>Session net EXP</span><strong id="session-exp">—</strong></div>
+    <div id="bridged" hidden></div>
+    <footer><span id="detail">Waiting for local state</span><time id="age">No trusted reading</time></footer>
+  </main>
+</body>
+</html>

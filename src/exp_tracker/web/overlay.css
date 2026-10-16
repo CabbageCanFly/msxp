@@ -1,0 +1,30 @@
+:root { color-scheme: dark; font-family: "Segoe UI", Arial, sans-serif; color: #f5f7fa; }
+html, body { margin: 0; background: transparent; }
+* { box-sizing: border-box; }
+#card { --accent: #81e3af; width: min(440px, calc(100vw - 16px)); margin: 8px; padding: 14px 16px;
+  background: rgba(14, 20, 30, .92); border: 1px solid #394451; border-left: 3px solid var(--accent); border-radius: 10px; }
+header, .reading, .session { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.identity { display: flex; flex-direction: column; min-width: 0; }
+#character { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
+#channel { color: #aebac7; font-size: 12px; }
+#status { color: var(--accent); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.reading { margin-top: 16px; font-variant-numeric: tabular-nums; }
+#level { font-size: 14px; color: #c6d1dc; }
+#exp { flex: 1; text-align: right; font-size: 24px; }
+#percentage { color: #f3cf83; font-size: 15px; }
+progress { display: block; width: 100%; height: 7px; margin: 9px 0 13px; border: 0; border-radius: 4px; overflow: hidden;
+  background: #303b48; accent-color: var(--accent); }
+progress::-webkit-progress-bar { background: #303b48; }
+progress::-webkit-progress-value { background: var(--accent); }
+progress::-moz-progress-bar { background: var(--accent); }
+.session { font-size: 14px; color: #c6d1dc; }
+.session strong { color: #f5f7fa; font-variant-numeric: tabular-nums; }
+#bridged { font-size: 11px; color: #f3cf83; margin-top: 4px; }
+footer { margin-top: 12px; color: #aebac7; font-size: 11px; }
+#detail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#age { display: block; margin-top: 3px; }
+#card[data-state="paused"], #card[data-state="waiting"], #card[data-state="stale"] { --accent: #f3cf83; }
+#card[data-state="offline"], #card[data-state="disconnected"], #card[data-state="ambiguous"] { --accent: #f29a99; }
+#card[data-state="unconfigured"], #card[data-state="stopped"] { --accent: #aebac7; }
+#card[data-stale="true"] progress { opacity: .5; }
+@media (max-width: 360px) { #exp { font-size: 19px; } .reading { gap: 8px; } }

@@ -5,10 +5,11 @@ streamer setup; see [live-capture.md](live-capture.md). Optional calibrated glyp
 matching improves saved live crops to 17/18 correct accepted readings; see
 [ocr-reliability.md](ocr-reliability.md). [Consolidated calibration and trust
 rules](ocr-consolidation.md) now support starting the local SQLite engine.
-The rest of this document remains a service proposal.
+The [SQLite engine](tracking.md) and [local read-only API/OBS overlay](overlay.md)
+are now implemented. The rest of this document remains a service proposal.
 
-This is a proposal. Only local OCR, observation validation and acquisition test
-tools exist today. There is no running website, database service or overlay.
+Public hosting, accounts, a write API and production operation remain proposals;
+the current overlay runs only on localhost with an existing tracking database.
 
 ## Acquisition and service boundary
 

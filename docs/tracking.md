@@ -43,8 +43,11 @@ The shared guard checks the producer's evidence first. Each ingestion then takes
 `BEGIN IMMEDIATE`, reloads selection/session/state, applies the existing transition
 validator, inserts the attempt and updates state in one
 transaction. Errors roll everything back. Current-state inspection also reads a
-consistent transaction. This serializes local writers; there is no cached
-baseline to become authoritative after restart.
+consistent transaction. Writable connections serialize local writers; there is
+no cached baseline to become authoritative after restart. The
+[local read-only HTTP server](overlay.md) uses `Store(path, read_only=True)`:
+SQLite `mode=ro`, deferred `BEGIN` snapshots, no initialization/migration and no
+journal-mode changes. Its readers can inspect committed state during WAL writes.
 
 ## Trusted ingestion and continuity
 

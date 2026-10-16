@@ -1,4 +1,4 @@
-"""Local SQLite writer. Every transition reads persisted state under a write lock."""
+"""Local SQLite state. Writers validate under a write lock; readers use snapshots."""
 
 from contextlib import contextmanager
 from copy import deepcopy
@@ -18,6 +18,7 @@ from .validation import Observation, Transition, validate_transition
 
 
 OCR_INTERRUPTION_STATUSES = {"unreadable", "missing_hud", "low_confidence", "invalid", "ambiguous"}
+STALE_AFTER_SECONDS = 120
 
 
 def utc(value=None):
@@ -28,13 +29,19 @@ def utc(value=None):
 
 
 class Store:
-    def __init__(self, path: str | Path):
-        self.db = sqlite3.connect(path, timeout=5, isolation_level=None)
+    def __init__(self, path: str | Path, *, read_only=False):
+        self.read_only = read_only
+        target = Path(path).resolve().as_uri() + "?mode=ro" if read_only else path
+        self.db = sqlite3.connect(target, uri=read_only, timeout=5, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         try:
             self.db.execute("PRAGMA foreign_keys=ON")
             with self._transaction():
                 version = self.db.execute("PRAGMA user_version").fetchone()[0]
+                if read_only:
+                    if version != VERSION:
+                        raise ValueError(f"unsupported schema version {version}; initialize/migrate with the tracking CLI first")
+                    return
                 if version == 0:
                     if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
                         raise ValueError("unversioned existing database; refusing to adopt it")
@@ -63,7 +70,7 @@ class Store:
 
     @contextmanager
     def _transaction(self):
-        self.db.execute("BEGIN IMMEDIATE")
+        self.db.execute("BEGIN" if self.read_only else "BEGIN IMMEDIATE")
         try:
             yield
             self.db.execute("COMMIT")
@@ -237,7 +244,7 @@ class Store:
         last = self.db.execute("SELECT id,session_id,observed_at,level,current_exp,percentage_bp FROM observations WHERE id=?",
                                (state["last_trusted_observation_id"],)).fetchone() if state else None
         age = max(0, (now - datetime.fromisoformat(last["observed_at"])).total_seconds()) if last else None
-        stale = age is None or age > 120
+        stale = age is None or age > STALE_AFTER_SECONDS
         status = state["status"] if state else "unconfigured"
         if session and stale and status == "tracking":
             status = "paused"

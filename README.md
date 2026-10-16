@@ -1,8 +1,21 @@
 # MapleStory Classic EXP tracker
 
-Independent, free, MIT-licensed feasibility prototype. This milestone contains
-local screenshot OCR and acquisition experiments, not a hosted tracking service.
+Independent, free, MIT-licensed feasibility prototype. This contains local OCR,
+acquisition, SQLite tracking and a localhost OBS overlay, not a hosted service.
 No accounts, cloud resources or secrets are required for offline tests.
+
+The [local read-only API and transparent OBS overlay](docs/overlay.md) use the
+existing SQLite state. Start with an existing demo database:
+
+```powershell
+.\.venv\Scripts\python -m exp_tracker.server --db artifacts/sqlite-demo.sqlite3
+# In another terminal; use this URL in an OBS Browser Source too:
+Start-Process 'http://127.0.0.1:8765/overlay/demo'
+```
+
+The database must already use schema 2. The linked guide covers creating a demo,
+explicitly migrating old databases, saved real OCR state and timed synthetic
+updates. HTTP never creates/migrates databases or writes tracking state.
 
 The [minimal SQLite tracking engine](docs/tracking.md) now persists guarded
 observations, explicit character/session selection and trusted state across
