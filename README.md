@@ -222,6 +222,10 @@ An opt-in [local shadow viewer](docs/shadow-viewer.md) at `/dev/shadow` inspects
 explicit private JSONL, with raw readings, both inferred-level hypotheses and a
 gap-aware diagnostic timeline. All values remain UNVERIFIED; no Store ingestion.
 
+Use the [blinded multi-stream review workflow](docs/shadow-reliability-review.md) to
+prepare anonymous crop sheets, freeze explicit human references and only then
+compare saved shadow predictions. It performs no OCR or trusted ingestion.
+
 See [docs/acquisition.md](docs/acquisition.md) for commands and manual test steps.
 The OBS browser harness never sends screenshots or credentials to a server.
 Twitch credentials belong in environment variables on a developer/server machine,
