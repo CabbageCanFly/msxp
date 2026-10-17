@@ -208,6 +208,10 @@ backend, both CLI entry points, and all offline tests were verified.
 
 ## Acquisition experiments
 
+For the isolated capture → adaptive HUD → RapidOCR/visual/arithmetic-level
+diagnostic runner, see [shadow-capture.md](docs/shadow-capture.md). Its JSONL stays
+private and never updates trusted tracking state.
+
 See [docs/acquisition.md](docs/acquisition.md) for commands and manual test steps.
 The OBS browser harness never sends screenshots or credentials to a server.
 Twitch credentials belong in environment variables on a developer/server machine,
