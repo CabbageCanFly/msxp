@@ -4,6 +4,12 @@ Independent, free, MIT-licensed feasibility prototype. This contains local OCR,
 acquisition, SQLite tracking and a localhost OBS overlay, not a hosted service.
 No accounts, cloud resources or secrets are required for offline tests.
 
+The local **[simulated leaderboard demo](docs/demo-leaderboard.md)** is available at
+`http://127.0.0.1:8765/demo/leaderboard` through the existing read-only server.
+It uses fictional data, functional metric/window sorting and no real Twitch or
+tracking inputs. [Latest user-reported shadow findings](docs/test-shadow-diagnostic.md)
+retain the unresolved level/percentage rounding uncertainty.
+
 The [held-out level 1–10 recording evaluation and level-up proposal](docs/level-up-evaluation.md)
 documents a profile/scale incompatibility and level OCR failures on a separate
 recording. Automatic level-up handling remains design-only.

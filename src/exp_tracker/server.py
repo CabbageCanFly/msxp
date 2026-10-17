@@ -17,6 +17,9 @@ WEB = Path(__file__).with_name("web")
 ASSETS = {
     "/static/overlay.css": ("overlay.css", "text/css"),
     "/static/overlay.js": ("overlay.js", "text/javascript"),
+    "/static/leaderboard.css": ("leaderboard.css", "text/css"),
+    "/static/leaderboard.js": ("leaderboard.js", "text/javascript"),
+    "/static/leaderboard.svg": ("leaderboard.svg", "image/svg+xml"),
 }
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
@@ -59,6 +62,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(404 if unknown else 503, {"error": "unknown_channel" if unknown else "database_unavailable"})
             except sqlite3.Error:
                 self.reply(503, {"error": "database_unavailable"})
+        elif path == "/demo/leaderboard":
+            self.reply(200, (WEB / "leaderboard.html").read_bytes(), "text/html")
         elif path in ASSETS:
             name, content_type = ASSETS[path]
             self.reply(200, (WEB / name).read_bytes(), content_type)

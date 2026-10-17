@@ -225,6 +225,44 @@ def test_overlay_assets_are_served_from_allowlist(http_server):
     assert b"fetch(" in request(http_server, "/static/overlay.js")[2]
 
 
+def test_simulated_leaderboard_assets_keep_existing_http_security(database, http_server, monkeypatch):
+    before = database.read_bytes()
+    def forbidden(*args, **kwargs):
+        pytest.fail("The simulated leaderboard must not read or write tracking state")
+    monkeypatch.setattr(server, "Store", forbidden)
+    for path, mime in (("/demo/leaderboard", "text/html"), ("/static/leaderboard.css", "text/css"),
+                       ("/static/leaderboard.js", "text/javascript"), ("/static/leaderboard.svg", "image/svg+xml")):
+        code, headers, body = request(http_server, path)
+        assert code == 200 and headers["Content-Type"].startswith(mime) and body
+        assert headers["Cache-Control"] == "no-store"
+        assert headers["X-Content-Type-Options"] == "nosniff"
+        assert "default-src 'self'" in headers["Content-Security-Policy"]
+        assert "Access-Control-Allow-Origin" not in headers
+    html = request(http_server, "/demo/leaderboard")[2]
+    assert b"SIMULATED DEMO" in html and b"No real stream or tracking data" in html
+    assert b"http://" not in html and b"https://" not in html
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+def test_leaderboard_has_no_write_endpoint(http_server, method):
+    code, headers, body = request(http_server, "/demo/leaderboard", method)
+    assert code == 405 and json.loads(body) == {"error": "read_only"}
+    assert headers["Allow"] == "GET"
+
+
+@pytest.mark.parametrize("path", ["/demo/leaderboard/other", "/static/leaderboard.html", "/demo/../private/log.jsonl"])
+def test_leaderboard_does_not_expand_file_serving(http_server, path):
+    assert request(http_server, path)[0] == 404
+
+
+def test_leaderboard_frontend_logic():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Optional Node.js frontend tests")
+    subprocess.run([node, "--test", "tools/leaderboard.test.mjs"], check=True, timeout=20)
+
+
 def test_api_reads_committed_snapshot_while_guarded_observation_is_written(database, http_server):
     before = state(http_server)
     writing, release = threading.Event(), threading.Event()

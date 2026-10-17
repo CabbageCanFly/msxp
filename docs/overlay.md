@@ -5,6 +5,10 @@ using the standard library's `ThreadingHTTPServer`. It always binds **127.0.0.1*
 there is no host/public-bind option, write API, authentication or deployment.
 The server adds no dependencies. Assets are packaged under `exp_tracker/web/`.
 
+The separate [simulated leaderboard preview](demo-leaderboard.md) is served at
+`/demo/leaderboard` by the same server. It uses fictional static data and does not
+change this overlay, its polling, the state API or tracking statistics.
+
 ## Start with a synthetic demo
 
 Run from the project root. No Tesseract, private glyphs or capture dependencies

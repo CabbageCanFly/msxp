@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simulated leaderboard · MS Classic EXP Tracker</title>
+  <link rel="icon" href="/static/leaderboard.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/leaderboard.css">
+  <script src="/static/leaderboard.js" defer></script>
+</head>
+<body>
+  <div class="sky" aria-hidden="true"></div>
+  <main>
+    <header class="masthead">
+      <div class="brand">
+        <img class="emblem" src="/static/leaderboard.svg" alt="" width="40" height="40">
+        <div><strong>EXP Tracker</strong><span>MapleStory Classic · a little progress, together</span></div>
+      </div>
+      <span class="local-badge">LOCAL PREVIEW</span>
+    </header>
+    <aside class="demo-notice"><strong>SIMULATED DEMO</strong><span>Invented characters, ranks, Twitch statuses and EXP. No real stream or tracking data.</span></aside>
+    <section class="board" aria-labelledby="board-title">
+      <header class="board-header"><h1 id="board-title"><span aria-hidden="true">✦</span> Leaderboard</h1><span>8 simulated characters · fixed snapshot</span></header>
+      <div class="toolbar">
+        <div class="metrics" role="group" aria-label="Rank by">
+          <button type="button" data-metric="pace" aria-pressed="true">EXP / hour</button>
+          <button type="button" data-metric="today" aria-pressed="false">Today's EXP</button>
+          <button type="button" data-metric="level" aria-pressed="false">Level</button>
+        </div>
+        <div class="windows" role="group" aria-label="EXP pace window"><span>last</span>
+          <button type="button" data-window="5" aria-pressed="false">5m</button>
+          <button type="button" data-window="10" aria-pressed="false">10m</button>
+          <button type="button" data-window="15" aria-pressed="false">15m</button>
+          <button type="button" data-window="30" aria-pressed="true">30m</button>
+        </div>
+      </div>
+      <div class="ranking-context"><p id="ranking-note"></p><span id="ranking-count" role="status" aria-live="polite"></span></div>
+      <ol id="entries" aria-label="Simulated leaderboard"></ol>
+      <noscript><p class="no-script">Enable JavaScript to explore the simulated leaderboard.</p></noscript>
+      <footer class="board-footer"><span>✦ Every gain starts somewhere.</span><span>Missing data stays missing. No guessed gains.</span></footer>
+    </section>
+    <footer class="page-footer"><strong>A local design demo, not a real leaderboard.</strong> Fixed simulated day: 16 October 2026 (UTC). Values do not update or connect to Twitch. Last-known readings are labeled; only complete simulated windows have pace values.</footer>
+  </main>
+</body>
+</html>
