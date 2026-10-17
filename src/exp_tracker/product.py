@@ -5,6 +5,7 @@ from datetime import datetime,timezone
 from fractions import Fraction
 
 from .diagnostic_progress import percentage_point,rational
+from .diagnostic_evidence import project
 
 
 def fraction(value):
@@ -12,13 +13,7 @@ def fraction(value):
 
 
 def level_evidence(row):
-    visual=row.get('visual_level') if row.get('visual_status')=='available' else None
-    neural=(row.get('neural_level') or {}).get('level')
-    if visual is not None and neural is not None and visual!=neural:
-        return dict(value=None,status='conflict',visual=visual,neural=neural)
-    return dict(value=visual if visual is not None else neural,
-        status='agreement' if visual is not None and neural is not None else 'single_reader' if visual is not None or neural is not None else 'unavailable',
-        visual=visual,neural=neural)
+    return row['experimental_level'] if 'experimental_level' in row else project([row])[0]['experimental_level']
 
 
 def estimates(segment,pace,bp):
@@ -45,6 +40,7 @@ def estimates(segment,pace,bp):
 
 
 def reading(row):
+    if 'experimental_level' not in row: row=project([row])[0]
     point,_=percentage_point(row)
     if not point: return None
     full=row.get('candidate') if point['evidence']=='strict_full' else None
@@ -54,7 +50,8 @@ def reading(row):
             candidate=proposed['proposals'][0]['reading']
             if candidate['percentage']==point['percentage']: full=candidate
     return dict(event_id=point['event_id'],timestamp=point['timestamp'],percentage=point['percentage'],
-        bp=point['bp'],exp=full['exp'] if full else None,evidence=point['evidence'],grammar_policy=point['grammar_policy'],
+        bp=point['bp'],exp=full['exp'] if full and row['exp_validity']['status']!='invalid' else None,
+        exp_validity=row['exp_validity'],evidence=point['evidence'],grammar_policy=point['grammar_policy'],
         fresh_at_capture=point['fresh_at_capture'] and point['capture_acquired'],level=level_evidence(row),
         simulated=row.get('timing_mode')=='simulated',trusted=False)
 

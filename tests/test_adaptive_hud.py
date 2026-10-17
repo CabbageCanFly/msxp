@@ -34,6 +34,20 @@ def test_numeric_token_bounds_do_not_move_exp_region():
     assert hud.layouts(tokens,(500,200))[0]['regions']==expected
 
 
+def test_hp_anchor_outlier_uses_two_other_spacing_constraints():
+    tokens=anchors(780,1050,109)
+    tokens[3]['x']=573
+    expected=hud.layouts(tokens,(1920,1080))[0]['regions']['exp']
+    tokens[0].update(x=769,y=1044)
+    corrected=hud.layouts(tokens,(1920,1080))[0]
+    assert corrected['anchor_correction']=='hp_outlier_mp_exp_lv_consensus'
+    assert abs(corrected['regions']['exp'].x0-expected.x0)*1920<2
+    assert corrected['regions']['exp'].y0*1080==pytest.approx(1050+.015*corrected['anchor_step'])
+    # A disputed EXP or LV anchor cannot justify silently overriding HP.
+    tokens[2]['x']+=5
+    assert 'anchor_correction' not in hud.layouts(tokens,(1920,1080))[0]
+
+
 @pytest.mark.parametrize('broken',[
     lambda t:t[:3],lambda t:t[:2]+t[3:],
     lambda t:[{**a,'y':a['y']+50} if a['text']=='MP' else a for a in t],

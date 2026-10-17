@@ -82,7 +82,7 @@ try {
   expected.observations.forEach((row, index) => {
     assert.equal(displayed[index].raw, row.raw_text ?? "—");
     assert.equal(displayed[index].visual, String(row.visual_level ?? "—"));
-    if (row.candidate) assert.equal(displayed[index].pair, `${new Intl.NumberFormat('en-US').format(BigInt(row.candidate.exp))} EXP [${row.candidate.percentage}%]`);
+    if (row.candidate) assert.equal(displayed[index].pair, `${row.exp_validity?.status==='invalid'?'WITHHELD original saved pair: ':''}${new Intl.NumberFormat('en-US').format(BigInt(row.candidate.exp))} EXP [${row.candidate.percentage}%]`);
     if (row.percentage_only_candidate) assert.match(displayed[index].pair, /percentage only.*EXP unavailable/);
     assert.equal(displayed[index].nearest, `${row.hypotheses.nearest_half_up.status} · ${row.hypotheses.nearest_half_up.levels.join(', ') || 'no candidates'}`);
     const derived=row.interpretations;
@@ -170,11 +170,15 @@ try {
     assert.equal(await evaluate('document.getElementById("show-recovered").checked'), false);
     assert.equal(await evaluate('document.querySelectorAll(".recovered-full, .recovered-percentage").length'),0);
     await evaluate('document.getElementById("show-recovered").click()');
-    const full = expected.observations.filter(row => row.interpretations?.full_exp.classification === 'unique_proposal').length;
+    const full = expected.observations.filter(row => row.exp_validity?.status!=='invalid' && row.interpretations?.full_exp.classification === 'unique_proposal').length;
     const percentages = expected.observations.filter(row => row.interpretations?.percentage.classification === 'unique_proposal').length;
     assert.equal(await evaluate('document.querySelectorAll("#timeline .recovered-full").length'),full);
     assert.equal(await evaluate('document.querySelectorAll("#percentage-timeline .recovered-percentage").length'),percentages);
-    assert.equal(await evaluate('document.querySelectorAll("#timeline .sample").length'),expected.observations.filter(r=>r.candidate && r.fresh_at_capture && r.timestamp_ordered!==false && r.status==='diagnostic_pair').length);
+    assert.equal(await evaluate('document.querySelectorAll("#timeline .sample").length'),expected.observations.filter(r=>r.exp_validity?.status!=='invalid' && r.candidate && r.fresh_at_capture && r.timestamp_ordered!==false && r.status==='diagnostic_pair').length);
+    for(const row of expected.observations.filter(r=>r.exp_validity?.status==='invalid')) {
+      assert.equal(await evaluate(`chartValue(snapshot.observations.find(r=>r.event_id===${JSON.stringify(row.event_id)}),false).value`),null);
+      assert.equal(await evaluate(`chartValue(snapshot.observations.find(r=>r.event_id===${JSON.stringify(row.event_id)}),true).value`),row.candidate?.percentage ?? row.interpretations.percentage.proposals[0].reading.percentage);
+    }
     await screenshot("recovered-layers-desktop",1440,2300);
     await screenshot("recovered-layers-mobile",390,2000);
     await evaluate('document.getElementById("timeline").closest("section").scrollIntoView()');

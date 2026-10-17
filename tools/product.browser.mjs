@@ -5,7 +5,8 @@ import {existsSync,mkdirSync,mkdtempSync,readFileSync,writeFileSync,openSync,clo
 import {resolve,join,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
-const [base='http://127.0.0.1:8765',directory,database,channel='offline_window']=process.argv.slice(2);
+const [base='http://127.0.0.1:8765',directory,databaseArgument,channel='offline_window']=process.argv.slice(2);
+const database=databaseArgument==='-'?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
@@ -38,7 +39,7 @@ async function screenshot(page,name,width,height){
 }
 try {
   const file=join(profile,'DevToolsActivePort');for(let i=0;!existsSync(file)&&i<100;i++){assert.equal(child.exitCode,null);await delay(100);}assert.ok(existsSync(file));port=readFileSync(file,'utf8').split('\n')[0];
-  const before=await api('/api/players');assert.ok(before.players.length>=2);assert.ok(before.players.some(p=>p.channel===channel));
+  const before=await api('/api/players');assert.ok(before.players.length>=1);assert.ok(before.players.some(p=>p.channel===channel));
   const board=await tab('/',1440,1050);await board.wait(`typeof data!=='undefined' && data?.players?.length===${before.players.length}`);
   assert.deepEqual(await board.evaluate('[...document.querySelectorAll(".entry")].map(r=>r.dataset.channel).sort()'),before.players.map(p=>p.channel).sort());
   for(const p of before.players)if(p.reading)assert.equal(await board.evaluate(`document.querySelector('.entry[data-channel="${p.channel}"] progress').value`),p.reading.bp/100);

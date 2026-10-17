@@ -55,12 +55,16 @@ def test_percentage_only_drives_estimated_rates_and_eta_without_absolute_exp(tra
 def test_reading_is_coherent_and_never_pairs_old_exp_with_new_percentage(tracking):
     _,_,d=tracking
     append(d,1,'100[33.00%]',candidate=[100,33.0],status='diagnostic_pair')
-    assert get(d,0)['reading']['exp']=='100'
+    # Original syntax is preserved, but this intentionally inconsistent integer is withheld.
+    assert get(d,0)['reading']['exp'] is None
+    assert get(d,0)['reading']['exp_validity']['status']=='invalid'
+    assert d.snapshot('alpha',now=NOW)['observations'][0]['candidate']['exp']=='100'
     append(d,2,'[33.05%]')
     assert get(d,15)['reading']['exp'] is None
     append(d,3,'500,000133.10%1',status='malformed_or_unavailable')
     recovered=get(d)['reading']
-    assert recovered['exp']=='500000' and recovered['evidence']=='grammar_recovered'
+    assert recovered['exp'] is None and recovered['evidence']=='grammar_recovered'
+    assert recovered['exp_validity']['status']=='invalid'  # syntactic recovery is not numeric validation
     append(d,4,'5,031[33,15%]',status='malformed_or_unavailable')
     assert get(d,45)['reading']['exp'] is None
     assert get(d,45)['reading']['percentage']=='33.15'
@@ -126,3 +130,21 @@ def test_product_http_reuses_sqlite_and_keeps_trusted_and_advanced_routes(tracki
         assert request((server,None),'/api/streams/alpha/state')[0]==200
         assert request((server,None),'/overlay/alpha')[0]==200
         assert not store.db.execute('SELECT 1 FROM observations').fetchone()
+
+
+def test_product_and_diagnostic_apis_share_integer_veto_without_rewriting_saved_pair(tracking):
+    path,store,d=tracking
+    neural=dict(text='65',level=65,status='numeric_candidate',score=.97,preprocessing='neutral4')
+    append(d,1,'713,015[45.13%]',candidate=[713015,45.13],status='diagnostic_pair',visual_level=65,neural_level=neural)
+    append(d,2,'2,458[45.14%]',candidate=[2458,45.14],status='diagnostic_pair',visual_level=63,neural_level=neural)
+    payloads=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts')]
+    with create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=json.loads(request((server,None),'/api/players/alpha')[2])['player']['reading']
+        board=json.loads(request((server,None),'/api/players')[2])['players'][0]['reading']
+        diagnostic=json.loads(request((server,None),'/dev/api/streams/alpha/diagnostics')[2])['observations'][-1]
+        assert p==board and p['exp'] is None and p['percentage']=='45.14'
+        assert p['level']['value']==65 and p['exp_validity']['status']=='invalid'
+        assert diagnostic['candidate']['exp']=='2458' and diagnostic['exp_validity']==p['exp_validity']
+        assert diagnostic['visual_level']==63 and diagnostic['neural_level']['level']==65
+    assert [r[0] for r in store.db.execute('select payload_json from diagnostic_attempts')]==payloads
+    assert not store.db.execute('select 1 from observations').fetchone()

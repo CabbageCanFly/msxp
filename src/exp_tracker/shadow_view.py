@@ -74,7 +74,9 @@ def neural_level_view(value,visual):
         status='invalid_response'; valid=False
     level=level if valid else None
     return dict(status=status,text=raw_text(text),text_redacted=text is not None and raw_text(text) is None,
-                level=level,score=number(value.get('score'),1),trusted=False,source_complete=None,
+                level=level,score=number(value.get('score'),1),trusted=False,
+                preprocessing=value.get('preprocessing') if value.get('preprocessing') in ('neutral4','rgb2','rgb4') else None,
+                source_complete=False if value.get('source_complete') is False else None,
                 comparison='agreement_not_verification' if level is not None and level==visual else
                     'conflict' if level is not None and visual is not None else 'insufficient_visual_evidence')
 

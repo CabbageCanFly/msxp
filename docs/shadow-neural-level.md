@@ -1,5 +1,10 @@
 # Opt-in neural level diagnostics in shadow capture
 
+Follow-up: the [read-time provisional level/EXP policy](exp-validity-level-policy.md)
+now combines these unchanged raw diagnostics for experimental product displays and
+percentage progress. The original worker benchmark and raw-reader semantics below
+remain unchanged; nothing is promoted into trusted Store accounting.
+
 `--experimental-neural-level` adds the evaluated fixed **Neutral4** visual-level
 diagnostic to the existing shadow worker. Default operation remains EXP-only neural
 recognition plus unchanged Tesseract/arithmetic evidence. No live capture was run.

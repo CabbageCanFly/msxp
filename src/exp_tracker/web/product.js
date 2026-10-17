@@ -5,7 +5,7 @@ const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?l
 const endpoint=channel?`/api/players/${encodeURIComponent(channel)}`:'/api/players';
 const numbers=new Intl.NumberFormat('en-US'),compact=new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1});
 const sorts={exp_hour:'Estimated pace from each eligible recent segment; community requirements are provisional.',
-  level:'Last observed levels, including old readings. A * marks evidence from one OCR reader.',
+  level:'Last observed levels, including old readings. A * marks provisional level evidence.',
   movement:'Displayed change in each uninterrupted recent segment. Durations differ; this is not a fixed-window comparison.'};
 let data=null,receivedAt=0,failed=false,sort='level';
 const el=id=>document.getElementById(id);
@@ -13,8 +13,8 @@ function node(tag,className,text) { const n=document.createElement(tag);if(class
 function ageText(seconds) { if(seconds==null)return 'No reading yet';if(seconds<60)return `${Math.floor(seconds)}s ago`;if(seconds<3600)return `${Math.floor(seconds/60)}m ago`;if(seconds<86400)return `${Math.floor(seconds/3600)}h ago`;return `${Math.floor(seconds/86400)}d ago`; }
 function expText(value) { return value==null?'—':numbers.format(BigInt(value)); }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
-function levelText(p) { const level=p.reading?.level;return level?.value==null?'—':`${level.value}${level.status==='single_reader'?'*':''}`; }
-function levelTitle(p) { const l=p.reading?.level;return l?.status==='conflict'?`Level readers disagree: ${l.visual} / ${l.neural}`:l?.status==='single_reader'?'One OCR reader; unverified level':'OCR level evidence; unverified'; }
+function levelText(p) { const level=p.reading?.level;return level?.value==null?'—':`${level.value}${['single_reader','provisional_neural','recent_context'].includes(level.status)?'*':''}`; }
+function levelTitle(p) { const l=p.reading?.level;return l?.status==='conflict'?`Level readers disagree: ${l.visual} / ${l.neural}`:l?.status==='provisional_neural' || l?.status==='recent_context'?'Provisional level from recent visual evidence; readers and arithmetic remain unverified':l?.status==='single_reader'?'One OCR reader; unverified level':'OCR level evidence; unverified'; }
 function current(p) {
   const age=p.age_seconds==null?null:p.age_seconds+(performance.now()-receivedAt)/1000;
   const stale=p.stale || age==null || age>p.stale_after_seconds;
@@ -85,7 +85,7 @@ function renderPlayer() {
   el('progress').value=r?r.bp/100:0;
   el('progress').hidden=!r;
   el('exp').textContent=(r?.evidence==='grammar_recovered'?'≈ ':'')+expText(r?.exp);
-  el('exp').title=r?.exp==null?'Absolute EXP unavailable; percentage does not reconstruct EXP':r.evidence==='grammar_recovered'?'Unverified grammar-recovered proposal':'Original strict OCR candidate; unverified';
+  el('exp').title=r?.exp_validity?.status==='invalid'?'Absolute EXP withheld: inconsistent with level and percentage under both display hypotheses':r?.exp==null?'Absolute EXP unavailable; percentage does not reconstruct EXP':r.evidence==='grammar_recovered'?'Unverified grammar-recovered proposal':'Original strict OCR candidate; unverified';
   el('percentage').textContent=r?`${r.percentage}%`:'—';
   el('status').textContent=statusText(p);
   el('age').textContent=r?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp ?? '';

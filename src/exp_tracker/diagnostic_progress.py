@@ -6,6 +6,7 @@ from fractions import Fraction
 
 from .exp_requirements import requirement
 from .shadow_grammar import interpret_exp
+from .diagnostic_evidence import project
 
 LABEL = 'EXPERIMENTAL / UNVERIFIED'
 
@@ -61,6 +62,7 @@ def percentage_point(row, *, include_recovered=True):
         fresh_at_capture=row.get('fresh_at_capture') is True,capture_acquired=row.get('capture_acquired') is True,
         evidence=kind, grammar_policy=interpreted['policy'] if kind=='grammar_recovered' else None,
         raw_text=row.get('raw_text'), visual_level=row.get('visual_level'), neural_level=(row.get('neural_level') or {}).get('level'),
+        level=(row.get('experimental_level') or {}).get('value'),level_evidence=row.get('experimental_level'),
         source_identity=row.get('source_identity'),coordinator_instance=row.get('coordinator_instance'),
         trusted=False, identity_verified=False, numerical_identity_verified=False)
     reason = None
@@ -72,18 +74,17 @@ def percentage_point(row, *, include_recovered=True):
         reason = 'hud_not_unique'
     elif not point['channel'] or point['character_id'] is None or point['session_id'] is None or not point['event_id'] or not point['run_id']:
         reason = 'explicit_assignment_missing'
-    elif row.get('visual_status') != 'available' or type(point['visual_level']) is not int or not 1<=point['visual_level']<=200:
-        reason = 'visual_level_unavailable'
+    elif point['level'] is None:
+        reason = 'level_evidence_conflict' if (row.get('experimental_level') or {}).get('status')=='conflict' else 'visual_level_unavailable'
     elif type(point['index']) is not int or point['index']<1:
         reason = 'attempt_index_unavailable'
-    elif point['neural_level'] is not None and point['neural_level'] != point['visual_level'] or row.get('relation')=='conflict':
-        reason = 'level_evidence_conflict'
     try:
         when = datetime.fromisoformat(point['timestamp'])
         if when.utcoffset() is None or row.get('timestamp_ordered') is False:
             raise ValueError
     except (TypeError,ValueError):
-        reason = reason or 'timestamp_unavailable_or_out_of_order'
+        if reason in (None,'visual_level_unavailable','level_evidence_conflict'):
+            reason = 'timestamp_unavailable_or_out_of_order'
     point['comparison_eligible'] = reason is None
     return point, reason
 
@@ -95,7 +96,7 @@ def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, 
     segments, comparisons = [], []
     previous, current, latest, latest_time = None, None, None, None
     seen = set()
-    for row in rows:
+    for row in project(rows):
         point, reason = percentage_point(row,include_recovered=include_recovered)
         when = None
         if point and point['timestamp']:
@@ -128,7 +129,7 @@ def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, 
             reason = ('source_changed' if (point['channel'],point['source_channel'],point['source_kind']) != (previous['channel'],previous['source_channel'],previous['source_kind']) else
                 'character_or_session_changed' if (point['character_id'],point['session_id']) != (previous['character_id'],previous['session_id']) else
                 'run_boundary' if point['run_id'] != previous['run_id'] and not rotated else
-                'level_changed' if point['visual_level'] != previous['visual_level'] else
+                'level_changed' if point['level'] != previous['level'] else
                 'nonincreasing_timestamp' if elapsed<=0 else
                 'missing_attempt' if not rotated and point['index'] != previous['index']+1 else
                 'sampling_gap' if elapsed>min(Fraction(120),cadence*Fraction(3,2)) else None)
@@ -145,7 +146,7 @@ def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, 
         if reason or current is None:
             if current: current['end_reason'] = reason
             current = dict(channel=point['channel'],character_id=point['character_id'],session_id=point['session_id'],
-                run_id=point['run_id'],run_ids=[],level=point['visual_level'],level_provenance='available_visual_tesseract; no conflicting neural level',
+                run_id=point['run_id'],run_ids=[],level=point['level'],level_provenance='experimental_level_v1; raw readers retained separately',
                 start_reason=reason or 'baseline',end_reason=None,points=[])
             segments.append(current)
         point['interval_seconds'] = row.get('interval_seconds',15)

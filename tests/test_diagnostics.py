@@ -361,7 +361,9 @@ def test_directory_cache_keeps_newer_values_and_recomputes_age_without_loading_h
     with Store(configured,read_only=True) as store:
         d=Diagnostics(store)
         initial=d.directory(cache,now=NOW+timedelta(seconds=16))['streams'][0]
-        assert initial['full_exp']['exp']=='101' and initial['percentage']['percentage']=='25.00'
+        # The fixture's 101 EXP / 25% contradicts its level, but its percentage remains cached.
+        assert initial['full_exp'] is None and initial['percentage']['percentage']=='25.00'
+        assert initial['player']['reading']['exp_validity']['status']=='invalid'
         assert initial['stale'] and initial['percentage_age_seconds']==1
         monkeypatch.setattr(d,'_snapshot',lambda *a,**kw:pytest.fail('Unchanged revision reloaded history'))
         later=d.directory(cache,now=NOW+timedelta(seconds=116))['streams'][0]

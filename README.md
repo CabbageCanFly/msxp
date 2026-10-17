@@ -18,6 +18,9 @@ Start-Process 'http://127.0.0.1:8765/'
 ```
 
 The guide includes a safe database-copy workflow, offline update check and screenshots.
+The [EXP validity and provisional level policy](docs/exp-validity-level-policy.md)
+withholds arithmetically contradictory EXP integers while preserving percentages,
+and confirms bounded recent neural-level evidence separately from trusted tracking.
 
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 2–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and

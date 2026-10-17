@@ -3,6 +3,7 @@ let snapshot = null, receivedAt = 0, requestError = false;
 const nf = new Intl.NumberFormat("en-US");
 const compact = new Intl.NumberFormat("en-US", {notation: "compact", maximumFractionDigits: 1});
 const svgNS = "http://www.w3.org/2000/svg";
+const reason = code => (code ?? "unavailable").replaceAll("_"," ");
 const dashboardChannel = /^\/dashboard\/([A-Za-z0-9_]{1,25})$/.exec(globalThis.location?.pathname ?? "")?.[1];
 const endpoint = dashboardChannel ? `/dev/api/streams/${encodeURIComponent(dashboardChannel)}/diagnostics` : "/dev/api/shadow";
 let historyQuery = dashboardChannel ? globalThis.location?.search || "" : "";
@@ -43,13 +44,14 @@ function grammarCard(recovery, percentageOnly = false, raw = recovery?.raw) {
 }
 function grammarCards(row) {
   const full = row?.interpretations?.full_exp ?? row?.grammar_recovery;
-  const card = grammarCard(full, false, row?.interpretations?.raw ?? full?.raw);
+  const card = grammarCard(full, row?.exp_validity?.status==='invalid', row?.interpretations?.raw ?? full?.raw);
   const percentage = !card ? grammarCard(row?.interpretations?.percentage, true, row?.interpretations?.raw) : null;
   const selected = card || percentage;
   if (selected && row?.interpretations) selected.append(element("small", `Policy: ${row.interpretations.policy}${percentage ? ` · Full EXP withheld: ${full.reason}` : ""}`));
   return selected;
 }
 function chartValue(row, percentage) {
+  if (!percentage && row.exp_validity?.status==='invalid') return {value:null};
   const strict = percentage ? row.candidate?.percentage ?? row.percentage_only_candidate?.percentage : row.candidate?.exp;
   if (strict != null) return {value: strict, kind: row.candidate ? "strict-full" : "strict-percentage"};
   if (!document.getElementById("show-recovered").checked) return {value: null};
@@ -96,8 +98,9 @@ function drawTimeline(rows, interval, percentage = false) {
     svg.append(node);
     return node;
   }
-  const levelBreaks = points.filter((point, i) => i && point.row.visual_level!=null && points[i-1].row.visual_level!=null && point.row.visual_level !== points[i-1].row.visual_level);
-  const uncertainLevels=points.filter((point,i)=>i && (point.row.visual_level==null || points[i-1].row.visual_level==null));
+  const chartLevel=row=>row.experimental_level?row.experimental_level.value:row.visual_level;
+  const levelBreaks = points.filter((point, i) => i && chartLevel(point.row)!=null && chartLevel(points[i-1].row)!=null && chartLevel(point.row)!==chartLevel(points[i-1].row));
+  const uncertainLevels=points.filter((point,i)=>i && (chartLevel(point.row)==null || chartLevel(points[i-1].row)==null));
   const cadences = [...new Set(points.map(p=>p.row.interval_seconds ?? interval).filter(n=>n))];
   const cadenceNote = cadences.length ? `Recorded cadence${cadences.length>1?"s":""}: ${cadences.join(" / ")}s.` : "Expected cadence unavailable.";
   document.getElementById(percentage ? "percentage-note" : "chart-note").textContent = `${points.length} timestamped attempts · ${gaps.length} sampling gaps · ${missingTimes} without usable timestamps. ${cadenceNote}${percentage ? ` ${levelBreaks.length} observed visual-level changes; unknown levels do not establish continuity. Hover points for exact percentage and visual level.` : ""}`;
@@ -123,7 +126,7 @@ function drawTimeline(rows, interval, percentage = false) {
   for (const point of points) {
     const row = point.row, px = x(point.time);
     const value = valueOf(row);
-    const label = `#${row.index ?? "?"} ${displayTime(row)} · ${row.status} · visual level ${row.visual_level ?? "unavailable"}`;
+    const label = `#${row.index ?? "?"} ${displayTime(row)} · ${row.status} · experimental level ${chartLevel(row) ?? "unavailable"} · raw visual level ${row.visual_level ?? "unavailable"} (Tesseract)`;
     const kind = chartValue(row, percentage).kind;
     const detail = value === null ? label : `${label} · ${kind} · UNVERIFIED ${percentage ? value+"%" : exactExp(value)+" EXP"} · ${row.event_id ?? "no event ID"}`;
     if (value !== null) {
@@ -181,7 +184,6 @@ function renderProgress() {
   const stale = data.stale || data.age_seconds == null || data.age_seconds+elapsed>snapshot.stale_after_seconds;
   const point = data.latest_percentage, movement = data.latest_movement, segment = data.current_segment;
   const label = kind => ({strict_full:"original strict full EXP",strict_percentage_only:"original percentage-only",grammar_recovered:"grammar-recovered proposal"}[kind] ?? "unavailable");
-  const reason = code => (code ?? "unavailable").replaceAll("_"," ");
   document.getElementById("progress-latest").textContent = point ?
     `Last displayed percentage: ${point.percentage}% · ${label(point.evidence)} · ${Math.floor((data.age_seconds ?? 0)+elapsed)}s old${stale?" · STALE":" · local age only"}` : "No usable percentage in recent history";
   document.getElementById("progress-movement").textContent = movement?.difference_bp != null ?
@@ -216,6 +218,8 @@ function render() {
   const rows = snapshot?.observations || [];
   const persisted = snapshot?.storage === "sqlite_diagnostics";
   document.getElementById("directory-link").hidden = !persisted;
+  document.getElementById("player-link").hidden = !persisted;
+  if(persisted) document.getElementById("player-link").href=`/stream/${encodeURIComponent(snapshot.channel)}`;
   document.getElementById("persisted").hidden = !persisted;
   document.getElementById("history-controls").hidden=!persisted;
   document.getElementById("older-attempts").disabled=!snapshot?.history?.next_before;
@@ -227,7 +231,8 @@ function render() {
     document.getElementById("session").textContent = snapshot.session ?
       `${snapshot.selected_character.label} · session ${snapshot.session.id} · started ${snapshot.session.started_at}` : "Start a session using the tracking CLI";
     const latest = snapshot.latest_reading?.observation;
-    document.getElementById("latest-candidate").textContent = latest?.candidate ?
+    document.getElementById("latest-candidate").textContent = latest?.candidate && latest.exp_validity?.status==='invalid' ?
+      `Full EXP withheld: inconsistent with provisional level/percentage under both hypotheses. Original percentage: ${latest.candidate.percentage}% (UNVERIFIED).` : latest?.candidate ?
       `UNVERIFIED candidate: ${exactExp(latest.candidate.exp)} EXP [${latest.candidate.percentage}%]` : latest?.percentage_only_candidate ?
       `UNVERIFIED candidate: ${latest.percentage_only_candidate.percentage}% · percentage only · absolute EXP unavailable` : "Waiting for complete diagnostic values";
     const trusted = snapshot.trusted_state;
@@ -257,7 +262,8 @@ function render() {
     status.append(element("small", `Neural: ${row.neural_status ?? "not available"}`), element("small", row.fresh_at_capture ? "Fresh at local capture" : "Not fresh / unavailable at capture"), element("small", "UNVERIFIED"));
     const value = element("td");
     value.append(element("code", row.raw_text_redacted ? "[Non-numeric diagnostic text redacted]" : row.raw_text ?? "—"),
-      element("span", row.candidate ? `${exactExp(row.candidate.exp)} EXP [${row.candidate.percentage}%]` : row.percentage_only_candidate ? `${row.percentage_only_candidate.percentage}% · percentage only · EXP unavailable` : "No complete saved pair"));
+      element("span", row.candidate ? `${row.exp_validity?.status==='invalid'?'WITHHELD original saved pair: ':''}${exactExp(row.candidate.exp)} EXP [${row.candidate.percentage}%]` : row.percentage_only_candidate ? `${row.percentage_only_candidate.percentage}% · percentage only · EXP unavailable` : "No complete saved pair"));
+    if(row.exp_validity) value.append(element('small',`Read-time full EXP: ${row.exp_validity.status} · ${reason(row.exp_validity.reason)}. Percentage retained independently; arithmetic agreement does not verify digits.`));
     if (row.percentage_only_origin === "legacy_raw_parse") value.append(element("small", "Percentage-only syntax parsed for display from legacy raw text"));
     if (row.partial_percentage_evidence) value.append(element("small", `Partial only: ${row.partial_percentage_evidence.percentage}% · not a complete observation`));
     if (!row.candidate && !row.percentage_only_candidate) {
@@ -267,6 +273,8 @@ function render() {
       else if (row.grammar_recovery) value.append(element("small", `Grammar: ${row.grammar_recovery.classification} · ${row.grammar_recovery.reason}`));
     }
     const visual = element("td", row.visual_level ?? "—");
+    if(row.experimental_level) visual.append(element('strong',`Experimental level: ${row.experimental_level.value ?? '—'} · ${row.experimental_level.status}`),
+      element('small',`${row.experimental_level.policy}: ${reason(row.experimental_level.reason)} · neural score ${row.experimental_level.neural_score ?? 'unavailable'} · raw readers below`));
     visual.append(element("small", `Tesseract (UNVERIFIED): ${row.visual_status ?? "unavailable"}`));
     if (row.visual_attempts?.length) visual.append(element("small", `Raw passes: ${row.visual_attempts.map(text => text ?? "[redacted]").join(" / ")}`));
     if (row.neural_level) {

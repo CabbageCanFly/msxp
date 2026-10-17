@@ -51,18 +51,29 @@ def layouts(tokens, size):
                       and -.04 * step <= t["y"] - hp["y"] <= .15 * step]
             for exp in exps:
                 for lv in levels:
+                    origin_x,origin_y=hp['x'],hp['y']
+                    field_step=step
+                    # Correct an HP-token outlier only when MP/EXP and LV/MP independently agree.
+                    mp_exp=exp['x']-mp['x'];lv_mp=(mp['x']-lv['x'])/2.9
+                    correction=None
+                    if (mp_exp>0 and abs(lv_mp-mp_exp)<=.03*mp_exp
+                            and .05*mp_exp<abs(step-mp_exp)<=.15*mp_exp
+                            and abs(mp['y']-exp['y'])<=.04*mp_exp):
+                        field_step=lv_mp;origin_x=mp['x']-field_step;origin_y=mp['y']
+                        correction='hp_outlier_mp_exp_lv_consensus'
                     # shortcut: one classic HUD layout family; reject other layouts until validated.
-                    boxes = dict(level=(lv["x"] + .29 * step, lv["y"] - .04 * step,
-                                        lv["x"] + .62 * step, lv["y"] + .17 * step),
-                                 exp=(hp["x"] + 2.26 * step, hp["y"] + .015 * step,
-                                      hp["x"] + 3.12 * step, hp["y"] + .105 * step))
+                    boxes = dict(level=(lv["x"] + .29 * field_step, lv["y"] - .04 * field_step,
+                                        lv["x"] + .62 * field_step, lv["y"] + .17 * field_step),
+                                 exp=(origin_x + 2.26 * field_step, origin_y + .015 * field_step,
+                                      origin_x + 3.12 * field_step, origin_y + .105 * field_step))
                     if any(x0 < 0 or y0 < 0 or x1 > width or y1 > height
                            for x0,y0,x1,y1 in boxes.values()):
                         continue
                     regions = {key: Region(x0/width,y0/height,x1/width,y1/height)
                                for key,(x0,y0,x1,y1) in boxes.items()}
-                    candidate = dict(regions=regions, anchor_step=step,
+                    candidate = dict(regions=regions, anchor_step=field_step,
                                      anchors={"hp":hp,"mp":mp,"exp":exp,"lv":lv})
+                    if correction: candidate['anchor_correction']=correction
                     if candidate not in candidates:
                         candidates.append(candidate)
     return candidates

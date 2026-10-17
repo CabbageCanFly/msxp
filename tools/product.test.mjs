@@ -40,3 +40,10 @@ test('unavailable rates are not ranked as zero and equal eligible values share r
   p.render(player({activity:{state:'coordinator_stopped'}}));assert.equal(p.elements.status.textContent,'Capture paused');
   assert.ok(!source.includes('innerHTML'));
 });
+
+test('withheld full EXP retains percentage and provisional level across product views',()=>{
+  const p=page();p.render(player({reading:{exp:null,percentage:'45.09',bp:4509,evidence:'strict_full',
+    exp_validity:{status:'invalid'},level:{value:65,status:'provisional_neural',visual:63,neural:65}}}));
+  assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.progress.value,45.09);
+  assert.match(p.elements.exp.title,/withheld/);assert.equal(p.elements.level.textContent,'Lv. 65*');
+});

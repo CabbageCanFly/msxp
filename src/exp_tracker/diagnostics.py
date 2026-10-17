@@ -16,6 +16,7 @@ from .shadow_grammar import interpret_exp, propose_full_exp
 from .exp_requirements import community_table, requirement
 from .diagnostic_progress import progress
 from .product import player,refresh
+from .diagnostic_evidence import project
 
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
 
@@ -330,6 +331,7 @@ class Diagnostics:
             observations.append(value)
         total = self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE session_id=?' if self.store.schema_version>=4 else
             'SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?', (session['id'],)).fetchone()[0]
+        observations=project(observations)
         result['coverage'] = coverage(observations, total)
         if result['historical']: result['coverage']['scope']='selected_history_page'
         interval = configuration['interval']
@@ -386,6 +388,7 @@ class Diagnostics:
                     full = None
                     for row in reversed(snap['observations']):
                         if not row['timestamp_ordered'] or row['candidate_invalid'] or row['percentage_only_invalid']: continue
+                        if row['exp_validity']['status']=='invalid': continue
                         proposal = row['interpretations']['full_exp']
                         reading = row['candidate'] or (proposal['proposals'][0]['reading'] if proposal['classification']=='unique_proposal' else None)
                         if reading:

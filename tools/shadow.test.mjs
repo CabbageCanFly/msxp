@@ -24,6 +24,20 @@ function page(pathname = "/dev/shadow") {
   return {elements, context, timers, evaluate, render};
 }
 
+test('conditional integer veto removes EXP chart points but preserves raw evidence and percentage',()=>{
+  const p=page('/dashboard/synthetic');
+  const row=observation(1,{candidate:{exp:'2458',percentage:'45.09'},raw_text:'2,458[45.09%]',
+    exp_validity:{status:'invalid',reason:'contradicts_both_display_hypotheses'},
+    experimental_level:{value:65,status:'recent_context',reason:'short_missing_level_read',policy:'experimental_level_v1'}});
+  p.context.row=row;
+  assert.equal(p.evaluate('chartValue(row,false).value'),null);
+  assert.equal(p.evaluate('chartValue(row,true).value'),'45.09');
+  p.render(state({channel:'synthetic',storage:'sqlite_diagnostics',selected_character:{label:'Assigned'},session:{id:1,started_at:'2026-01-01'},
+    latest_reading:{observation:row},observations:[row]}));
+  assert.match(p.elements['latest-candidate'].textContent,/Full EXP withheld/);
+  assert.equal(p.elements['player-link'].href,'/stream/synthetic');
+});
+
 test("SQLite dashboard keeps candidate values and trusted accounting separate", async () => {
   const p = page('/dashboard/synthetic');
   const data = state({storage:'sqlite_diagnostics', selected_character:{id:1,label:'Assigned <character>'},

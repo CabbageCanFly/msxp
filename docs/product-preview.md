@@ -81,8 +81,10 @@ percentage-only, then unique grammar interpretation. Absolute EXP comes **from
 that same attempt**, or stays unavailable; an old integer is never combined with
 a newer percentage. Recovered values use an ≈ marker/dashed border. The model can
 still make plausible numeric errors even in strictly parsed output. Two level
-readers in conflict produce an unavailable level; one reader is marked `*`.
-No table inference silently replaces a visual level.
+readers are retained separately. The [bounded provisional level policy](exp-validity-level-policy.md)
+can confirm recent neural evidence despite Tesseract disagreement; `*` marks
+provisional evidence. Conditional EXP contradictions withhold the integer while
+preserving its percentage. No table inference silently replaces a visual level.
 
 - **Recent progress** is the existing current uninterrupted segment's displayed
   percentage-point change, with its real duration. It is not a five-minute or
