@@ -1,5 +1,9 @@
 # Offline recognition availability at 15-second cadence
 
+Later [user-review reconciliation](ocr-label-audit.md) changes the reviewed-subset
+comparison to 18 / 0 / 3 pairs, while keeping 1141s visually disputed. Original
+counts below are historical; frozen annotations and OCR results are unchanged.
+
 **Availability is promising; numerical trust remains the blocker.** This is a
 fixed-schedule offline diagnostic, not a production acceptance or remote-capture
 trial. No candidate enters the tracking engine. No cached-ROI gate is used.

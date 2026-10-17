@@ -1,5 +1,10 @@
 # Label audit and native-pixel verification feasibility
 
+Later [user-review reconciliation](ocr-label-audit.md) supersedes the definitive
+“false corroboration” interpretation below: the 1141/1142 glyph labels remain
+disputed, and 3359s has a conditional arithmetic annotation concern. Saved binary
+rankings, original comparison counts and source annotations remain unchanged.
+
 **Correct the provisional 1146 s label in a sidecar; do not use this binary pixel
 probe as a numeric verifier.** It repeats two suspected neural errors and abstains
 on the third. No candidate becomes trusted and no production behavior changes.

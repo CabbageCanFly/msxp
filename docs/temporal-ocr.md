@@ -1,5 +1,9 @@
 # Temporal RapidOCR feasibility experiment
 
+Later [label reconciliation](ocr-label-audit.md) preserves these frozen counts but
+separates the 1146s annotation correction and new user review at 1141s. The claimed
+8→9 errors at 1141/1142/3359s are not independently established; see that audit.
+
 Temporal agreement helps identify stable model outputs and retry opportunities;
 it does **not** establish numerical correctness. The most consequential result is
 a repeated, high-confidence apparent digit error that survives both crop variants.
