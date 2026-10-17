@@ -3,6 +3,9 @@
 Follow-up: the [local alpha](local-alpha.md) adds opt-in `--db` persistence in
 separate unverified tables and a read-only dashboard. The original no-DB behavior
 below remains the default; no trusted ingestion is added.
+The newer `tools/local_alpha.py` composes this same runner with explicit setup and
+the localhost server, adding concise per-commit progress. It does not implement
+another acquisition pipeline or change the recognition/acceptance procedure.
 
 `tools/shadow_capture.py` connects existing acquisition and experimental recognition
 without trusted ingestion or updating trusted tracking/API/overlay state. Every

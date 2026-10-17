@@ -5,6 +5,115 @@ capture, SQLite diagnostics and a real-data dashboard. This is local-only,
 read-only over HTTP and **experimental/unverified**, not trusted neural tracking.
 No new dependency, model, account or scheduler is needed.
 
+## Simplest startup: one explicitly configured stream
+
+From the repository root, with the existing capture dependencies/private models:
+
+```powershell
+.\.venv\Scripts\python tools/local_alpha.py --channel telfer1 --character "Main" --authorized --experimental-neural-level --count 3 --interval 15 --save-crops
+```
+
+Run this only for a permitted trial. Open the **exact dashboard URL printed by the
+launcher**, normally `http://127.0.0.1:8765/dashboard/telfer1`. It initializes
+`private/local-alpha/live/telfer1.sqlite3` when absent, explicitly selects `Main`,
+starts/reuses its session, starts localhost HTTP and then requests bounded capture.
+No streamer installation or OBS setup is needed. Without the neural-level flag,
+that stage remains off; Tesseract and EXP diagnostics still run.
+
+The terminal first shows the database, existing selection, proposed initialization/
+reuse, channel, character, session, saved-data age and private log location. Every
+attempt reports **frame acquired/failed → HUD unique/missing/ambiguous → strict
+EXP/percentage candidate → separate levels → SQLite committed/not committed**.
+A committed failure is evidence of an attempt, not a recognized reading. Values
+and local ages remain UNVERIFIED; no numerical confidence is implied.
+
+Defaults are three attempts, 15-second spacing and the existing capture/recognition
+timeouts. At completion **capture stops**; the dashboard stays open until Ctrl+C,
+which closes the owned HTTP server. Its data ages visibly. `--exit-after-capture`
+also closes HTTP at completion for offline/automated checks. Ctrl+C during capture
+stops both. Restart reuses the selected character/session and preserves history;
+it does not silently end a session. Each run gets a new timestamp/UUID directory
+under `private/local-alpha/runs/`, containing `capture.jsonl`, concise
+`operator.jsonl` and optional crops. Existing outputs are never overwritten.
+
+An existing different character selection is **refused**, even with an explicit
+different `--character`. Use the existing tracking CLI to end/switch/select/start
+deliberately, then relaunch with the matching label. `--db` can choose an existing
+working database; if it contains channels but not the requested one, startup
+refuses instead of silently adding that channel. Existing old-schema files require
+explicit migration of a working copy; the launcher does not migrate saved evidence.
+
+Exit status: **0** = at least one locally fresh strict diagnostic observation,
+**2** = completed attempts but none available/fresh, **1** = setup/persistence error,
+**130** = interrupted capture. None establishes numerical correctness. When HTTP
+stays open, the final status is returned when it closes; a PowerShell wrapper may
+map native nonzero exits to 1, so inspect `$LASTEXITCODE` and the actual summary.
+
+## Existing Telfer1 data versus a new live trial
+
+These are different databases; the dashboard URL cannot switch databases:
+
+| File under `private/local-alpha/` | Channel | Evidence at inspection |
+| --- | --- | --- |
+| `replay-01.sqlite3` | `niru` | 12 saved attempts |
+| `replay-a-01.sqlite3` | `telfer1` | 12 saved attempts |
+| `telfer1-live-01.sqlite3` | `telfer1` | Configured character/session, zero runs/attempts |
+
+The third file now exists, but contains no capture attempt to diagnose. This does
+not show that Twitch was offline or denied access. No new Twitch trial was run
+during launcher development.
+
+To view the **saved Telfer1** example, terminal 1:
+
+```powershell
+.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/replay-a-01.sqlite3 --diagnostic-dashboard
+```
+
+Terminal 2:
+
+```powershell
+Start-Process 'http://127.0.0.1:8765/dashboard/telfer1'
+```
+
+This is an old saved recording, visibly stale. **Starting HTTP does not capture
+Twitch.** Stop that server with Ctrl+C before running the one-command live trial
+above, or add `--port 8766` to the launcher and open its printed URL. For a longer
+permitted run, replace `--count 3` with `--count 12`. Do not replace a failed frame
+or overwrite logs; retain every attempt for later blinded review.
+
+## Quick troubleshooting
+
+| Symptom | Meaning / next action |
+| --- | --- |
+| Wrong dashboard/channel | Unknown channels now return 404 with configured channels. Check `--db`; use `replay-a-01.sqlite3` for saved Telfer1. |
+| Only HTTP is running | No capture is implied. Use the launcher or the separate capture command below. |
+| Port already occupied | Stop the previous server or choose `--port 8766`. The launcher does not reuse an unidentified server. No capture starts after a bind failure. |
+| Character/database mismatch | No reassignment is performed. Use the matching existing selection/database or a fresh live path. |
+| Missing FFmpeg/Tesseract/private environment/table | Preflight stops before capture; use the existing installation instructions, `--ocr-python` or `--requirements`. No models are downloaded. |
+| Stream offline/not playable | Best-effort Streamlink classification, not confirmed offline status; check the channel manually. |
+| Access denied | Twitch refused playback. Stop; no evasion/bypass is attempted. |
+| Network failure / timeout | Check local DNS/firewall/connectivity and the saved reason code; the exact upstream cause may remain unknown. |
+| Frame acquired, no/competing HUD | Acquisition worked; localization did not select an unambiguous HUD. The attempt remains diagnostic. |
+| EXP rejected / levels unavailable | Strict OCR syntax or a separate level stage failed; raw strings remain in private JSONL. No punctuation or digits are repaired. |
+| SQLite NOT COMMITTED | Capture stops. Inspect session/character changes or DB errors. A flushed JSONL line alone does not prove a DB commit. |
+| Old values after capture stops | Expected: ages continue increasing and become stale; no background scheduler restarts capture. |
+
+Detailed stage timings, safe capture reason codes, raw neural text, Tesseract passes
+and model metadata remain private in `capture.jsonl`. Subprocess stderr/signed URLs
+are not dumped to the terminal or browser. Some failures can only be classified
+coarsely; a timeout does not establish whether the stream was offline.
+
+## Offline launcher check
+
+```powershell
+.\.venv\Scripts\python tools/local_alpha.py --channel offline_check --character "Offline Main" --file samples/sample-stream3.mp4 --start 1145 --count 1 --experimental-neural-level --port 8766 --exit-after-capture
+```
+
+No Twitch connection/authorization is involved. This checks actual local video →
+recognition → SQLite, not accuracy on unseen footage. Omit `--exit-after-capture`
+to keep the dashboard open. Repeating the command reuses the character/session,
+adds a distinct run and retains prior observations. No EXP gains are computed.
+
 ## Saved real diagnostics
 
 Run from the repository root. This uses familiar Stream B evidence, including its

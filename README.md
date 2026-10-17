@@ -8,6 +8,10 @@ The **[single-stream local alpha](docs/local-alpha.md)** connects explicit chara
 selection and shadow capture to separate SQLite diagnostics and a real-data
 `/dashboard/CHANNEL`. Neural candidates remain experimental and never count trusted
 EXP. Start with saved-log replay; no live capture is needed to try it.
+For a permitted live trial, `python tools/local_alpha.py --channel CHANNEL
+--character "Main" --authorized --experimental-neural-level` initializes/reuses
+explicit state, starts capture and prints the correct local dashboard URL. See
+the guide for saved Telfer1 data, offline video checks and failure reporting.
 
 The local **[simulated leaderboard demo](docs/demo-leaderboard.md)** is available at
 `http://127.0.0.1:8765/demo/leaderboard` through the existing read-only server.

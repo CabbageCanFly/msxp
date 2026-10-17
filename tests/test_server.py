@@ -107,6 +107,27 @@ def test_persisted_dashboard_uses_only_selected_session_and_preserves_trusted_ap
         assert empty['source_status'] == 'unconfigured' and empty['observations'] == []
 
 
+def test_wrong_dashboard_url_identifies_database_mismatch(database):
+    with server.create_server(database, port=0, diagnostic_dashboard=True) as httpd:
+        for path in ('/dashboard/other_channel', '/dev/api/streams/other_channel/diagnostics'):
+            status, headers, body = request((httpd, None), path)
+            assert status == 404 and headers['Cache-Control'] == 'no-store'
+            value = json.loads(body)
+            assert value['configured_channels'] == ['demo']
+            assert 'Check --db and the dashboard URL' in value['message']
+            assert 'does not start capture' in value['message']
+
+
+def test_server_only_startup_prints_real_urls_and_does_not_capture(database, monkeypatch, capsys):
+    def stop(self):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(server.ThreadingHTTPServer, 'serve_forever', stop)
+    assert server.main(['--db', str(database), '--port', '0', '--diagnostic-dashboard']) == 0
+    output = capsys.readouterr().out
+    assert 'capture is NOT started' in output and '/dashboard/demo' in output
+    assert '/dashboard/CHANNEL' not in output
+
+
 def test_api_matches_real_store_and_is_not_cached(database, http_server):
     result = state(http_server)
     with Store(database, read_only=True) as store:

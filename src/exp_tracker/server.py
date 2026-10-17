@@ -31,6 +31,10 @@ CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
 
 class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        if not getattr(self.server, 'quiet', False):
+            super().log_message(format, *args)
+
     def reply(self, status, body, content_type="application/json"):
         payload = json.dumps(body, allow_nan=False).encode() if content_type == "application/json" else body
         self.send_response(status)
@@ -56,16 +60,23 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(404, {"error": "not_found"})
             elif not CHANNEL.fullmatch(channel):
                 self.reply(400, {"error": "invalid_channel"})
-            elif dashboard:
-                self.reply(200, (WEB / 'shadow.html').read_bytes(), 'text/html')
             else:
                 try:
                     with Store(self.server.database, read_only=True) as store:
-                        value = Diagnostics(store).snapshot(channel)
-                    self.reply(200, value)
+                        channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login LIMIT 25')]
+                        store._channel(channel)
+                        value = Diagnostics(store).snapshot(channel) if diagnostic_api else None
+                    if dashboard:
+                        self.reply(200, (WEB / 'shadow.html').read_bytes(), 'text/html')
+                    else:
+                        self.reply(200, value)
                 except ValueError as error:
                     unknown = str(error) == 'unknown channel'
-                    self.reply(404 if unknown else 503, {'error': 'unknown_channel' if unknown else 'database_unavailable'})
+                    body = {'error': 'unknown_channel' if unknown else 'database_unavailable'}
+                    if unknown:
+                        body.update(message='This channel is not in the selected database. Check --db and the dashboard URL. Starting this server does not start capture.',
+                                    configured_channels=channels)
+                    self.reply(404 if unknown else 503, body)
                 except sqlite3.Error:
                     self.reply(503, {'error': 'database_unavailable'})
         elif path in ("/dev/shadow", "/dev/api/shadow") or path in SHADOW_ASSETS:
@@ -134,11 +145,18 @@ def main(argv=None):
     try:
         with create_server(args.db, port=args.port, shadow_log=args.shadow_log,
                            diagnostic_dashboard=args.diagnostic_dashboard) as server:
+            print(f'Database: {server.database}', flush=True)
+            print('Read-only HTTP server; capture is NOT started by this command.', flush=True)
             print(f"Local read-only server: http://127.0.0.1:{server.server_port}/overlay/CHANNEL", flush=True)
             if server.shadow_log:
                 print(f"UNVERIFIED shadow viewer: http://127.0.0.1:{server.server_port}/dev/shadow", flush=True)
             if server.diagnostic_dashboard:
-                print(f"SQLite diagnostic dashboard: http://127.0.0.1:{server.server_port}/dashboard/CHANNEL", flush=True)
+                with Store(server.database, read_only=True) as store:
+                    channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login LIMIT 25')]
+                for channel in channels:
+                    print(f"SQLite diagnostic dashboard: http://127.0.0.1:{server.server_port}/dashboard/{channel}", flush=True)
+                if not channels:
+                    print('No channels configured in this database.', flush=True)
             try:
                 server.serve_forever()
             except KeyboardInterrupt:

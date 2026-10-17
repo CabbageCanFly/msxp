@@ -122,10 +122,12 @@ class Store:
                         continuity_broken=1,pending_missing_observations=0 WHERE character_id=?""",
                         (reason, session["character_id"]))
 
-    def select_character(self, login, character_id, *, at=None):
+    def select_character(self, login, character_id, *, at=None, only_if_unselected=False):
         when = utc(at)
         with self._transaction():
             streamer = self._channel(login)
+            if only_if_unselected and streamer['selected_character_id'] not in (None, character_id):
+                raise ValueError('character selection changed; refusing automatic switch')
             if not self.db.execute("SELECT 1 FROM characters WHERE id=? AND streamer_id=?",
                                    (character_id, streamer["id"])).fetchone():
                 raise ValueError("character does not belong to channel")
@@ -135,11 +137,13 @@ class Store:
                     self._end(session, when, "character_switch")
                 self.db.execute("UPDATE streamers SET selected_character_id=? WHERE id=?", (character_id, streamer["id"]))
 
-    def start_session(self, login, *, at=None):
+    def start_session(self, login, *, at=None, expected_character_id=None):
         when = utc(at)
         with self._transaction():
             streamer = self._channel(login)
             char = streamer["selected_character_id"]
+            if expected_character_id is not None and char != expected_character_id:
+                raise ValueError('character selection changed; refusing session reassignment')
             if char is None:
                 raise ValueError("select a character first")
             session = self._open_session(streamer["id"])

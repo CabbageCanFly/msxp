@@ -305,41 +305,49 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
                 wall_seconds=clock() - started)
 
 
-def main(argv=None):
+def prepare(args):
+    """Shared offline preflight. No database writes or remote connections."""
+    if not 1 <= args.count <= 60:
+        raise ValueError('count must be 1..60')
+    for name, low, high in [('interval', 5, 300), ('timeout', 1, 30), ('max_age', 1, 30),
+                            ('ocr_timeout', 1, 30), ('start', 0, 86400)]:
+        value = getattr(args, name)
+        if not math.isfinite(value) or not low <= value <= high:
+            raise ValueError(f'{name} must be finite and {low}..{high}')
+    if args.channel and not args.authorized:
+        raise ValueError('Twitch requires --authorized: confirm streamer permission for this trial')
+    if args.tracking_channel and (not args.db or args.channel):
+        raise ValueError('--tracking-channel requires --db with a local video')
+    if args.db and not (args.channel or args.tracking_channel):
+        raise ValueError('--db requires an explicit channel assignment')
+    if args.file and not args.file.is_file():
+        raise ValueError('Video file not found')
+    if not args.ocr_python.is_file() or not args.requirements.is_file():
+        raise ValueError('Existing isolated OCR Python and requirements file are required')
+    if not shutil.which('ffmpeg'):
+        raise ValueError('FFmpeg must be installed on PATH')
+    args.output = private_path(args.output)
+    if args.output.exists() or args.save_crops and args.output.with_suffix('').exists():
+        raise ValueError('Never overwrite existing diagnostic evidence')
+    source = Source('file' if args.file else 'twitch', str(args.file) if args.file else args.channel,
+                    args.quality)
+    if args.channel:
+        source.streamlink_command()  # Validate channel and rendition before connecting.
+    table_bytes = args.requirements.read_bytes()
+    table = json.loads(table_bytes)
+    requirements = {int(key): value for key, value in table['to_next'].items()}
+    infer_levels(None, None, requirements)  # Validate table without OCR predictions.
+    return source, table_bytes, table, requirements
+
+
+def main(argv=None, *, on_record=None):
     cli = parser()
     args = cli.parse_args(argv)
     stack = ExitStack()
     try:
-        if not 1 <= args.count <= 60:
-            raise ValueError('count must be 1..60')
-        for name, low, high in [('interval', 5, 300), ('timeout', 1, 30), ('max_age', 1, 30),
-                                ('ocr_timeout', 1, 30), ('start', 0, 86400)]:
-            value = getattr(args, name)
-            if not math.isfinite(value) or not low <= value <= high:
-                raise ValueError(f'{name} must be finite and {low}..{high}')
-        if args.channel and not args.authorized:
-            raise ValueError('Twitch requires --authorized: confirm streamer permission for this trial')
-        if args.tracking_channel and (not args.db or args.channel):
-            raise ValueError('--tracking-channel requires --db with a local video')
-        if args.db and (not args.db.is_file() or not (args.channel or args.tracking_channel)):
-            raise ValueError('Existing --db and an explicit channel assignment are required')
-        if args.file and not args.file.is_file():
-            raise ValueError('Video file not found')
-        if not args.ocr_python.is_file() or not args.requirements.is_file():
-            raise ValueError('Existing isolated OCR Python and requirements file are required')
-        if not shutil.which('ffmpeg'):
-            raise ValueError('FFmpeg must be installed on PATH')
-        args.output = private_path(args.output)
-        if args.output.exists() or args.save_crops and args.output.with_suffix('').exists():
-            raise ValueError('Never overwrite existing diagnostic evidence')
-        source = Source('file' if args.file else 'twitch', str(args.file) if args.file else args.channel,
-                        args.quality)
-        if args.channel:
-            source.streamlink_command()  # Validate channel and rendition before connecting.
-        table_bytes = args.requirements.read_bytes()
-        table = json.loads(table_bytes)
-        requirements = {int(key): value for key, value in table['to_next'].items()}
-        infer_levels(None, None, requirements)  # Validate table without OCR predictions.
+        source, table_bytes, table, requirements = prepare(args)
+        if args.db and not args.db.is_file():
+            raise ValueError('Existing --db is required; initialize/select/start first')
         diagnostics = Diagnostics(stack.enter_context(Store(args.db))) if args.db else None
         if diagnostics:
             # Fail before connecting. Actual immutable binding is created with the configuration below.
@@ -359,11 +367,18 @@ def main(argv=None):
                 record = {**record, 'resources': monitor.snapshot()}
                 output.write(json.dumps(record, allow_nan=False) + '\n')
                 output.flush()
-                if diagnostics:
-                    if record['type'] == 'configuration':
-                        diagnostics.begin(run_id, args.channel or args.tracking_channel, record)
-                    else:
-                        diagnostics.append(run_id, record)
+                try:
+                    if diagnostics:
+                        if record['type'] == 'configuration':
+                            diagnostics.begin(run_id, args.channel or args.tracking_channel, record)
+                        else:
+                            diagnostics.append(run_id, record)
+                except (ValueError, sqlite3.Error):
+                    if on_record:
+                        on_record(record, False)
+                    raise
+                if on_record:
+                    on_record(record, diagnostics is not None)
             emit(dict(type='configuration', trusted=False, interval=args.interval, count=args.count,
                       timeout=args.timeout, max_local_age=args.max_age, neural_timeout=args.ocr_timeout,
                       requirements_sha256=hashlib.sha256(table_bytes).hexdigest(),
