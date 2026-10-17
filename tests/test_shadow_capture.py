@@ -253,7 +253,8 @@ def test_neural_failure_outputs_never_leak_raw_stderr(shadow, monkeypatch, retur
         shadow.neural_line(Image.new('RGB', (50, 15)), Path('unused'), 3)
 
 
-def test_cli_writes_configuration_attempt_summary_without_store(shadow, monkeypatch, tmp_path):
+@pytest.mark.parametrize('experimental',[False,True])
+def test_cli_writes_configuration_attempt_summary_without_store(shadow, monkeypatch, tmp_path, experimental):
     import json
     monkeypatch.setattr(shadow, 'ROOT', tmp_path)
     monkeypatch.setattr(shadow.shutil, 'which', lambda executable: 'ffmpeg')
@@ -271,10 +272,13 @@ def test_cli_writes_configuration_attempt_summary_without_store(shadow, monkeypa
     monkeypatch.setattr(shadow, 'run', run)
     arguments = ['--file', str(video), '--requirements', str(table), '--ocr-python', str(executable),
                  '--output', str(output)]
+    if experimental:
+        arguments.append('--experimental-neural-level')
     assert shadow.main(arguments) == 0
     records = [json.loads(line) for line in output.read_text().splitlines()]
     assert [row['type'] for row in records] == ['configuration', 'attempt', 'summary']
     assert all(not row['trusted'] for row in records)
+    assert records[0].get('experimental_neural_level',False) is experimental
     assert not list(tmp_path.rglob('*.sqlite*')) and not list(tmp_path.rglob('*.png'))
     with pytest.raises(SystemExit):
         shadow.main(arguments)  # Existing evidence cannot be overwritten.

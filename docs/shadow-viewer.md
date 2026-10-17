@@ -45,6 +45,13 @@ legacy logs may be strictly typed for display, explicitly marked as a legacy raw
 parse; punctuation is never repaired. See [percentage-only diagnostics](percentage-only-level51.md).
 Integer EXP travels as decimal text so the browser can display int64 values exactly.
 
+Opt-in [neural-level diagnostics](shadow-neural-level.md) appear separately in the
+existing level column: raw safe text, numeric candidate, score, status and comparison
+with Tesseract, always EXPERIMENTAL / UNVERIFIED. Unsupported raw characters are
+redacted in HTTP, retained in private JSONL. Neither a neural agreement nor conflict
+changes the saved Tesseract level, arithmetic evidence, percentage charts or pace.
+Missing visual evidence stays missing; complete source tiles remain unverified.
+
 The timeline uses **points only**, with no lines/interpolation or computed gains.
 Candidates, stale/not-fresh-at-capture samples and failed/rejected attempts have
 different markers. Receipt gaps over **1.5× the saved nominal interval** are shaded;

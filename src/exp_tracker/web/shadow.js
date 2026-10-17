@@ -109,8 +109,14 @@ function render() {
     if (row.percentage_only_origin === "legacy_raw_parse") value.append(element("small", "Percentage-only syntax parsed for display from legacy raw text"));
     if (row.partial_percentage_evidence) value.append(element("small", `Partial only: ${row.partial_percentage_evidence.percentage}% · not a complete observation`));
     const visual = element("td", row.visual_level ?? "—");
-    visual.append(element("small", `Visual: ${row.visual_status ?? "unavailable"}`));
+    visual.append(element("small", `Tesseract (UNVERIFIED): ${row.visual_status ?? "unavailable"}`));
     if (row.visual_attempts?.length) visual.append(element("small", `Raw passes: ${row.visual_attempts.map(text => text ?? "[redacted]").join(" / ")}`));
+    if (row.neural_level) {
+      const neural=row.neural_level;
+      visual.append(element("small", `RapidOCR EXPERIMENTAL / UNVERIFIED: ${neural.level ?? "unavailable"} · ${neural.status}`),
+        element("small", `Neural raw: ${neural.text_redacted ? "[redacted]" : neural.text ?? "—"} · score ${neural.score ?? "unavailable"}`),
+        element("small", `Level comparison: ${neural.comparison} · complete source level unverified`));
+    }
     const evidence = element("td", row.relation ?? "Unavailable");
     evidence.append(element("small", row.reasons?.join(", ") || "No additional reason codes"));
     if (row.candidate_invalid) evidence.append(element("small", "Saved candidate invalid; not repaired"));

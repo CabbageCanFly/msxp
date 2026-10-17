@@ -59,6 +59,26 @@ def hypothesis(value):
                 levels=levels)
 
 
+def neural_level_view(value,visual):
+    if value is None:
+        return None
+    value=value if isinstance(value,dict) else {}
+    text=value.get('text')
+    level=value.get('level')
+    valid=(type(level) is int and 1<=level<=200 and isinstance(text,str)
+           and re.fullmatch(r'[1-9][0-9]{0,2}',text.strip()) and int(text.strip())==level)
+    status=value.get('status')
+    allowed={'numeric_candidate','no_output','ambiguous_output','nonnumeric','invalid_numeric',
+             'missing_crop','invalid_crop','failed','not_run','invalid_response'}
+    if status not in allowed or (status=='numeric_candidate') != bool(valid):
+        status='invalid_response'; valid=False
+    level=level if valid else None
+    return dict(status=status,text=raw_text(text),text_redacted=text is not None and raw_text(text) is None,
+                level=level,score=number(value.get('score'),1),trusted=False,source_complete=None,
+                comparison='agreement_not_verification' if level is not None and level==visual else
+                    'conflict' if level is not None and visual is not None else 'insufficient_visual_evidence')
+
+
 def observation(row):
     source = row.get('source') if isinstance(row.get('source'), dict) else {}
     channel = source.get('channel')
@@ -95,6 +115,7 @@ def observation(row):
                 partial_percentage_evidence=partial,
                 raw_text=raw_text(text), raw_text_redacted=text is not None and raw_text(text) is None,
                 visual_level=visual if type(visual) is int and 1 <= visual <= 200 else None,
+                neural_level=neural_level_view(row.get('neural_level'),visual if type(visual) is int and 1<=visual<=200 else None),
                 visual_status=row.get('visual_status') if row.get('visual_status') in ('available', 'unavailable', 'failed', 'not_run') else 'unknown',
                 neural_status=row.get('neural_status') if row.get('neural_status') in ('single_line', 'no_single_line', 'failed', 'not_run') else 'unknown',
                 visual_attempts=[raw_text(a.get('text')) for a in attempts[:6] if isinstance(a, dict)],

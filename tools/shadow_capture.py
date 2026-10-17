@@ -4,7 +4,6 @@ import argparse
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
-from io import BytesIO
 import json
 import math
 import os
@@ -24,6 +23,7 @@ from adaptive_hud import locate, level_reading
 from analyze_temporal_ocr import complete_pair
 from benchmark_rapidocr import context_box, interpret
 from infer_exp_level import infer_levels
+from shadow_neural import EXP_SIZE, png_bytes, pack, checked_level, empty_level
 
 
 class ShadowSession(VideoSession):
@@ -36,24 +36,41 @@ class ShadowSession(VideoSession):
             raise
 
 
-def neural_line(crop, python, timeout):
-    if crop.width > 1024 or crop.height > 256:
-        raise CaptureError('exp_crop_exceeds_limit')
-    payload = BytesIO()
-    crop.save(payload, format='PNG')
-    if payload.tell() > 1024 * 1024:
-        raise CaptureError('exp_crop_exceeds_limit')
+def neural_line(crop, python, timeout, level_crop=None, *, experimental_neural_level=False):
+    invalid_level=False
     try:
-        result = subprocess.run([str(python), str(ROOT / 'tools/shadow_rapidocr.py')],
-                                input=payload.getvalue(), stdout=subprocess.PIPE,
+        payload = pack(crop,level_crop) if experimental_neural_level else png_bytes(crop,EXP_SIZE)
+    except ValueError:
+        if not experimental_neural_level:
+            raise CaptureError('exp_crop_exceeds_limit') from None
+        try:
+            payload=pack(crop,None)
+        except ValueError:
+            raise CaptureError('exp_crop_exceeds_limit') from None
+        invalid_level=True
+    command=[str(python),str(ROOT/'tools/shadow_rapidocr.py')]
+    if experimental_neural_level:
+        command.append('--experimental-neural-level')
+    started=time.monotonic()
+    try:
+        result = subprocess.run(command,
+                                input=payload, stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, timeout=timeout, check=False)
     except subprocess.TimeoutExpired:
         raise CaptureError('neural_timeout') from None
     if result.returncode or len(result.stdout) > 65536:
         raise CaptureError('neural_worker_failed')
     try:
-        return json.loads(result.stdout)
-    except (ValueError, UnicodeError):
+        response=json.loads(result.stdout)
+        json.dumps(response,allow_nan=False)
+        if not isinstance(response,dict) or 'text' not in response or (
+                response['text'] is not None and (not isinstance(response['text'],str) or len(response['text'])>160)):
+            raise ValueError('Invalid EXP response')
+        if experimental_neural_level:
+            response['neural_level']=empty_level('invalid_crop') if invalid_level else checked_level(response.get('neural_level'))
+            response['worker_wall_seconds']=time.monotonic()-started
+        return response
+    except (ValueError, UnicodeError, RecursionError):
         raise CaptureError('invalid_neural_response') from None
 
 
@@ -78,13 +95,15 @@ def level_evidence(pair, visual, requirements):
 
 
 def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
-            read_level=level_reading, clock=time.monotonic, crop_dir=None):
+            read_level=level_reading, clock=time.monotonic, crop_dir=None, experimental_neural_level=False):
     """No value reuse. Even completed stale work is explicitly ineligible/current=false."""
     result = dict(status='unavailable', trusted=False, current=False, reasons=[], timings={},
                   candidate=None, visual_level=None, visual_attempts=[], neural=None,
                   diagnostic_type='unavailable', percentage_only_candidate=None, partial_percentage_evidence=None,
                   visual_status='not_run', neural_status='not_run',
                   localization=None, level_evidence=level_evidence(None, None, requirements))
+    if experimental_neural_level:
+        result['neural_level']=empty_level('not_run')
 
     def fresh():
         result['local_age_seconds'] = max(0, clock() - frame.arrived_monotonic)
@@ -118,17 +137,23 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
     regions = candidates[0]['regions']
     box = context_box(regions['exp'], image.size, 2)
     crop = image.crop(box)
+    level_crop = image.crop(regions['level'].pixels(*image.size))
     result['exp_crop_box'] = box
     if crop_dir:
         crop_dir.mkdir(parents=True, exist_ok=False)
         crop.save(crop_dir / 'exp.png')
-        image.crop(regions['level'].pixels(*image.size)).save(crop_dir / 'level.png')
+        level_crop.save(crop_dir / 'level.png')
     started = clock()
     try:
-        result['neural'] = read_line(crop)
+        response=read_line(crop,level_crop) if experimental_neural_level else read_line(crop)
+        result['neural']=dict(response)
+        if experimental_neural_level:
+            result['neural_level']=checked_level(result['neural'].pop('neural_level',None))
         result['neural_status'] = 'single_line' if result['neural']['text'] is not None else 'no_single_line'
     except (OSError, RuntimeError, ValueError) as error:
         result['neural_status'] = 'failed'
+        if experimental_neural_level:
+            result['neural_level']=empty_level('failed')
         result['reasons'].append(str(error) if isinstance(error, CaptureError) else 'neural_failed')
     result['timings']['neural_bridge_seconds'] = clock() - started
     if result['neural'] is not None:
@@ -146,7 +171,7 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
         return result
     started = clock()
     try:
-        visual, attempts = read_level(image.crop(regions['level'].pixels(*image.size)))
+        visual, attempts = read_level(level_crop)
         result['visual_status'] = 'available' if visual is not None else 'unavailable'
     except (OSError, RuntimeError, ValueError):
         visual, attempts = None, []
@@ -195,6 +220,7 @@ def parser():
     cli.add_argument('--requirements', type=Path, default=ROOT / 'private/exp-consistency/requirements.json')
     cli.add_argument('--output', type=Path, required=True)
     cli.add_argument('--save-crops', action='store_true', help='Save only field crops beside the NEW JSONL')
+    cli.add_argument('--experimental-neural-level',action='store_true',help='Opt in to UNVERIFIED neutral4 level diagnostics in the existing neural worker')
     return cli
 
 
@@ -221,6 +247,8 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
                           diagnostic_type='unavailable', percentage_only_candidate=None, partial_percentage_evidence=None,
                           visual_status='not_run', neural_status='not_run',
                           level_evidence=level_evidence(None, None, requirements))
+            if getattr(args,'experimental_neural_level',False):
+                record['neural_level']=empty_level('not_run')
             session = None
             tick = clock()
             try:
@@ -243,10 +271,14 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
             if frame is not None:
                 tick = clock()
                 try:
-                    analyzed = analyze_frame(frame, requirements,
-                        lambda crop: neural_line(crop, args.ocr_python, args.ocr_timeout),
+                    experimental=getattr(args,'experimental_neural_level',False)
+                    reader=(lambda crop,level: neural_line(crop,args.ocr_python,args.ocr_timeout,level,
+                             experimental_neural_level=True)) if experimental else (
+                             lambda crop: neural_line(crop,args.ocr_python,args.ocr_timeout))
+                    options={'experimental_neural_level':True} if experimental else {}
+                    analyzed = analyze_frame(frame, requirements, reader,
                         max_age=args.max_age,
-                        crop_dir=args.output.with_suffix('') / f'{index+1:04d}' if args.save_crops else None)
+                        crop_dir=args.output.with_suffix('') / f'{index+1:04d}' if args.save_crops else None,**options)
                     record['timings'].update(analyzed.pop('timings'))
                     record.update(analyzed)
                 except (OSError, RuntimeError, ValueError) as error:
@@ -311,7 +343,9 @@ def main(argv=None):
                       requirements_sha256=hashlib.sha256(table_bytes).hexdigest(),
                       table_provenance={key: value for key, value in table.items() if key != 'to_next'},
                       neural_scale=2, native_padding=2, queue_capacity=0, capture_mode='periodic_keyframes',
-                      numerical_verification=False, character_identity_verified=False))
+                      numerical_verification=False, character_identity_verified=False,
+                      **({'experimental_neural_level':True,'neural_level_preprocessing':'neutral4'}
+                         if args.experimental_neural_level else {})))
             summary = run(args, source, requirements, emit)
             monitor.close()
             emit(summary)

@@ -7,6 +7,9 @@ No production modules, recognition parameters or frozen evidence were changed.
 
 The optional [local shadow viewer](shadow-viewer.md) reads this existing JSONL
 format and displays unverified evidence. It does not promote candidates or run OCR.
+Optional [`--experimental-neural-level`](shadow-neural-level.md) adds the fixed
+Neutral4 level diagnostic using the same recognizer process; it never replaces
+`visual_level` or feeds arithmetic/pace. Existing EXP-only behavior is the default.
 
 ## Run locally
 
@@ -54,6 +57,10 @@ still apply. Access denial remains a failure; no bypass or browser launching.
   1024×256 native crop limit, 64 KiB result limit, default 10s subprocess timeout
   (maximum 30s), one intra/inter-op inference thread, existing local models only.
   Its one-shot initialization overhead is intentional for this small prototype.
+  With neural levels opted in, the same process additionally accepts one level PNG
+  (256×128 native, 1 MiB), using bounded length-prefixed stdin (2 MiB+8 total),
+  the same response/timeout bounds and one recognizer. See the linked protocol,
+  missing-crop, stale-result and timeout limitations before a new trial.
 - Unchanged strict complete-pair parser supplies `candidate`. Loose token diagnostics
   are retained separately and never rescue malformed punctuation/digits. Raw text,
   scores, model timings and all visual Tesseract attempts remain in JSONL.

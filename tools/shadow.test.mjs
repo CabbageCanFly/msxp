@@ -139,3 +139,14 @@ test("percentage chart keeps gaps, stale values and visual level boundaries with
   assert.equal(nodes.filter(node=>node.attributes.class==='rejected').length,1);
   assert.ok(nodes.filter(node=>node.tag==='line').every(node=>['axis','level-break'].includes(node.attributes.class)));
 });
+
+test("neural level is a separate unverified comparison and never supplies the chart level", () => {
+  const p=page();
+  p.render(state({observations:[observation(1,{visual_level:null,
+    neural_level:{level:51,text:'51',score:.99,status:'numeric_candidate',comparison:'insufficient_visual_evidence'}})]}));
+  const visual=p.elements.readings.children[0].children[3];
+  assert.equal(visual.textContent,'—');
+  assert.ok(visual.children.some(node=>node.textContent.includes('RapidOCR EXPERIMENTAL / UNVERIFIED: 51')));
+  const point=p.elements['percentage-timeline'].children.find(node=>node.attributes.class==='sample');
+  assert.match(point.children[0].textContent,/visual level unavailable/);
+});
