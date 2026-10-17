@@ -1,0 +1,53 @@
+.product .brand { text-decoration:none; color:inherit; }
+.product a { color:#e8c78e; }
+.advanced { color:#e7c78c; font-size:12px; white-space:nowrap; }
+.welcome { padding:22px 4px 34px; }
+.eyebrow { color:#dfb976; letter-spacing:2px; font-size:10px; }
+.welcome h1 { font-size:clamp(32px,5vw,52px); line-height:1.05; text-transform:none; letter-spacing:-1.5px; margin:12px 0 16px; color:#fff0d6; }
+.welcome > p:last-child { font-size:14px; line-height:1.7; color:#bccae0; }
+.product .board-header h2 { margin:0; font-size:15px; }
+.product .entry { grid-template-columns:36px 64px minmax(135px,190px) minmax(160px,1fr) 120px; }
+.product .character { text-decoration:none; }
+.product .character:hover { color:#ffc36e; }
+.product .score strong { font-size:23px; }
+.product .exp-bar[data-missing="true"] { opacity:.65; }
+.product .exp-bar[data-recovered="true"] { border-style:dashed; border-color:#dbb26e; }
+.product .entry[data-stale="true"] progress { opacity:.6; }
+.product progress::-webkit-progress-value,.live-overlay progress::-webkit-progress-value { background:linear-gradient(#d8f969,#98c720); }
+.product progress::-moz-progress-bar,.live-overlay progress::-moz-progress-bar { background:#a9d633; }
+.poll-note { color:#c9b18e; font-size:11px; }
+.product .entry .exp-label { color:#fff; }
+.player-reading { display:flex; align-items:center; gap:18px; padding:28px 25px 12px; }
+.player-reading .level { min-width:75px; padding:13px 8px; }
+.player-reading .exp-section { flex:1; }
+.player-reading .exp-bar { height:34px; }
+.player-reading .exp-label { font-size:16px; gap:8px; }
+.player-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:20px 25px; gap:12px; }
+.player-stats > div { border-left:1px solid #63503a; padding-left:14px; min-width:0; }
+.player-stats > div:first-child { border-left:0; padding-left:0; }
+.player-stats span { display:block; color:#c9b18e; font-size:11px; }
+.player-stats strong { display:block; margin-top:7px; font-size:26px; overflow-wrap:anywhere; }
+.segment-note { padding:0 25px 14px; color:#c9b18e; font-size:11px; line-height:1.7; }
+.overlay-actions { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:0 25px 25px; font-size:12px; }
+.button-link { display:inline-block; border:1px solid #86603a; border-radius:30px; padding:11px 16px; text-decoration:none; }
+.history-board { margin-top:20px; }
+.history-chart { padding:18px 12px 0; overflow-x:auto; }
+.history-chart svg { width:100%; min-width:450px; height:230px; }
+.history-chart text { fill:#cfbea4; font-size:12px; }
+.history-chart .gap { fill:#d4a457; opacity:.13; }
+.history-chart .boundary { stroke:#b6a28b; stroke-dasharray:3 4; }
+.history-chart .sample { fill:#bfdc59; }
+.history-chart .recovered { fill:none; stroke:#edbe6c; stroke-width:2; }
+.history-chart .missing { stroke:#bda18b; stroke-width:2; }
+.live-overlay #card { overflow:hidden; }
+.live-overlay .progress-section { min-height:30px; background:#e8deca; border-radius:7px; }
+.live-overlay #status { flex:1.5; font-size:10px; overflow:hidden; text-overflow:ellipsis; }
+.live-overlay #age { font-size:10px; }
+.live-overlay .estimate-mark { font-size:8px; color:#897254; white-space:nowrap; }
+.live-overlay .progress-label { color:#263310; text-shadow:0 1px #f5ffc280; }
+.live-overlay #card[data-stale="true"] progress { opacity:.65; }
+.live-overlay #card[data-recovered="true"] .progress-section { outline:1px dashed #b18e50; border-radius:7px; }
+.live-overlay .stat strong { font-size:18px; }
+.live-overlay .stat strong[data-size="long"] { font-size:13px; }
+@media(max-width:850px) { .product .entry { grid-template-columns:30px 58px minmax(110px,150px) minmax(125px,1fr) 90px; gap:9px; } }
+@media(max-width:650px) { .product .entry { grid-template-columns:36px minmax(0,1fr) 87px; } .welcome { padding:12px 0 22px; } .product .toolbar { align-items:flex-start; } .poll-note { width:100%; } .player-reading { padding:22px 14px 8px; gap:12px; } .player-stats { grid-template-columns:repeat(2,minmax(0,1fr)); padding:18px 14px; gap:20px; } .player-stats strong { font-size:24px; } .segment-note { padding-left:14px; padding-right:14px; } .overlay-actions { padding-left:14px; padding-right:14px; } }

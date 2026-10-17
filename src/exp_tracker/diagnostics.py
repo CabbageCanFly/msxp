@@ -15,6 +15,7 @@ from .store import Store, utc
 from .shadow_grammar import interpret_exp, propose_full_exp
 from .exp_requirements import community_table, requirement
 from .diagnostic_progress import progress
+from .product import player,refresh
 
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
 
@@ -404,6 +405,7 @@ class Diagnostics:
                         movement=p['latest_movement'],progress_reason=p['reason'],pace=p['current_pace'],
                         stale_after_seconds=snap['stale_after_seconds'],history_limit=MAX_ROWS,
                         history_truncated=snap['truncated'],trusted=False)
+                    card['player']=player(snap,now=now)
                     card['unfinished_run_count'] = snap['unfinished_run_count']
                     cache[head['login']] = (key,card)
                 card = deepcopy(cache[head['login']][1])
@@ -420,6 +422,7 @@ class Diagnostics:
                 if card['run_status']=='unfinished' and active_runs is not None and card['run_id'] in active_runs:
                     card['run_status']='active'
                 card['operation']=operation(card,(coordinator_status or {}).get(card['channel']),now)
+                card['player']=refresh(card['player'],now=now,activity=card['operation'])
                 cards.append(card)
             allowed = {head['login'] for head in heads[:25]}
             for key in list(cache):

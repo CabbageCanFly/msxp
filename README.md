@@ -4,6 +4,21 @@ Independent, free, MIT-licensed feasibility prototype. This contains local OCR,
 acquisition, SQLite tracking and a localhost OBS overlay, not a hosted service.
 No accounts, cloud resources or secrets are required for offline tests.
 
+Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
+`/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a
+transparent **500 × 160** experimental OBS overlay at `/live/overlay/CHANNEL`.
+These use actual persisted capture readings and separately gated estimates.
+The original trusted `/overlay/CHANNEL` remains separate. Advanced diagnostics
+are at `/dev/streams` and `/dashboard/CHANNEL`. Start the existing coordinator,
+or serve an existing database without starting capture:
+
+```powershell
+.\.venv\Scripts\python -m exp_tracker.server --db private/product-preview/preview-01/tracker.sqlite3 --diagnostic-dashboard
+Start-Process 'http://127.0.0.1:8765/'
+```
+
+The guide includes a safe database-copy workflow, offline update check and screenshots.
+
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 2–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and
 separately gated experimental percentage progress. Start with the offline

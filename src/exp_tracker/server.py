@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
 from .diagnostics import Diagnostics, operation
+from .product import player,history,refresh
 
 
 WEB = Path(__file__).with_name("web")
@@ -29,6 +30,7 @@ SHADOW_ASSETS = {
     "/static/shadow.js": ("shadow.js", "text/javascript"),
 }
 DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
+PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
 
@@ -57,7 +59,38 @@ class Handler(BaseHTTPRequestHandler):
         dashboard = re.fullmatch(r"/dashboard/([^/]*)", path)
         diagnostic_api = re.fullmatch(r"/dev/api/streams/([^/]*)/diagnostics", path)
         history_api = re.fullmatch(r'/dev/api/streams/([^/]*)/(sessions|runs)',path)
-        if path in ('/streams','/dev/api/streams') or path in DIRECTORY_ASSETS:
+        product_api=re.fullmatch(r'/api/players/([^/]*)',path)
+        product_page=re.fullmatch(r'/(stream|live/overlay)/([^/]*)',path)
+        if path in ('/','/streams','/api/players') or product_api or product_page or path in PRODUCT_ASSETS:
+            if not self.server.diagnostic_dashboard:
+                self.reply(404,{'error':'not_found'});return
+            try:
+                if path in PRODUCT_ASSETS:
+                    name,kind=PRODUCT_ASSETS[path];self.reply(200,(WEB/name).read_bytes(),kind)
+                elif path in ('/','/streams'):
+                    self.reply(200,(WEB/'tracker.html').read_bytes(),'text/html')
+                elif path=='/api/players':
+                    with self.server.directory_lock,Store(self.server.database,read_only=True) as store:
+                        data=Diagnostics(store).directory(self.server.directory_cache,active_runs=self.server.active_run_ids.copy(),coordinator_status=self.server.coordinator_status.copy())
+                    self.reply(200,dict(players=[r['player'] for r in data['streams']],served_at=data['served_at'],truncated=data['truncated'],experimental=True,poll_seconds=2))
+                else:
+                    channel=(product_api[1] if product_api else product_page[2]).lower()
+                    if not CHANNEL.fullmatch(channel):self.reply(400,{'error':'invalid_channel'});return
+                    with Store(self.server.database,read_only=True) as store:
+                        store._channel(channel)
+                        if product_api:
+                            now=datetime.now(timezone.utc)
+                            snap=Diagnostics(store).snapshot(channel,now=now)
+                            activity=operation(snap,self.server.coordinator_status.get(channel),now)
+                            value=refresh(player(snap,now=now),now=now,activity=activity)
+                            self.reply(200,dict(player=value,history=history(snap),truncated=snap['truncated'],served_at=utc(now),experimental=True,poll_seconds=2))
+                        else:
+                            self.reply(200,(WEB/('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html')).read_bytes(),'text/html')
+            except ValueError as error:
+                self.reply(404 if str(error)=='unknown channel' else 503,{'error':'unknown_channel' if str(error)=='unknown channel' else 'database_unavailable'})
+            except sqlite3.Error:
+                self.reply(503,{'error':'database_unavailable'})
+        elif path in ('/dev/streams','/dev/api/streams') or path in DIRECTORY_ASSETS:
             if not self.server.diagnostic_dashboard:
                 self.reply(404, {'error':'not_found'})
             elif path == '/dev/api/streams':
@@ -175,7 +208,7 @@ def main(argv=None):
     parser.add_argument("--db", type=Path, required=True, help="Existing current-schema database; never initialized by HTTP")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--shadow-log", type=Path, help="Opt in to /dev/shadow for one private/artifacts JSONL; read-only")
-    parser.add_argument('--diagnostic-dashboard', action='store_true', help='Opt in to /dashboard/CHANNEL backed by separate SQLite diagnostics')
+    parser.add_argument('--diagnostic-dashboard', action='store_true', help='Enable the experimental homepage, live overlay and advanced SQLite diagnostics')
     args = parser.parse_args(argv)
     if not 0 <= args.port <= 65535:
         parser.error("port must be 0..65535")
@@ -188,10 +221,12 @@ def main(argv=None):
             if server.shadow_log:
                 print(f"UNVERIFIED shadow viewer: http://127.0.0.1:{server.server_port}/dev/shadow", flush=True)
             if server.diagnostic_dashboard:
-                print(f"Streamer directory: http://127.0.0.1:{server.server_port}/streams",flush=True)
+                print(f"EXP Tracker homepage: http://127.0.0.1:{server.server_port}/",flush=True)
                 with Store(server.database, read_only=True) as store:
                     channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login LIMIT 25')]
                 for channel in channels:
+                    print(f"Character: http://127.0.0.1:{server.server_port}/stream/{channel}",flush=True)
+                    print(f"Experimental OBS overlay (500x160): http://127.0.0.1:{server.server_port}/live/overlay/{channel}",flush=True)
                     print(f"SQLite diagnostic dashboard: http://127.0.0.1:{server.server_port}/dashboard/{channel}", flush=True)
                 if not channels:
                     print('No channels configured in this database.', flush=True)

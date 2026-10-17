@@ -10,7 +10,7 @@ const url = new URL(process.argv[2] || "http://127.0.0.1:8765/dev/shadow");
 const localRequest=request=>new URL(request).protocol==='data:' || new URL(request).origin===url.origin;
 assert.equal(url.hostname, "127.0.0.1");
 const dashboard = /^\/dashboard\/([A-Za-z0-9_]{1,25})$/.exec(url.pathname);
-const isDirectory = url.pathname === '/streams';
+const isDirectory = url.pathname === '/dev/streams';
 assert.ok(url.pathname === "/dev/shadow" || dashboard || isDirectory);
 const endpoint = isDirectory ? '/dev/api/streams' : dashboard ? `/dev/api/streams/${dashboard[1]}/diagnostics` : '/dev/api/shadow';
 const expected = await (await fetch(new URL(endpoint+url.search, url))).json();

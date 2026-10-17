@@ -133,7 +133,9 @@ statistics, pace, ETA and overlay consume none of this evidence.
 
 ## Directory and dashboard
 
-`/streams` and `/dev/api/streams` are opt-in with the diagnostic dashboard. Cards
+The player-facing `/` and `/streams` now use the [real-data product UI](product-preview.md).
+The original advanced directory at `/dev/streams` and `/dev/api/streams` is still
+opt-in with the diagnostic dashboard. Advanced cards
 show configured channels even before success, explicit character/session, latest
 capture/run status and age, strict/recovered percentage/full EXP, separate level
 evidence, experimental movement and `/dashboard/CHANNEL` links. No online status,
@@ -210,7 +212,7 @@ No new Twitch connection, commit, push or deployment occurred.
 .\.venv\Scripts\python -m pytest -q
 node --test tools/overlay.test.mjs tools/shadow.test.mjs tools/streams.test.mjs tools/leaderboard.test.mjs
 # With the validation replay server running on port 8765; use new private output directories:
-node tools/shadow.browser.mjs http://127.0.0.1:8765/streams private/multi-alpha/browser-directory
+node tools/shadow.browser.mjs http://127.0.0.1:8765/dev/streams private/multi-alpha/browser-directory
 node tools/shadow.browser.mjs http://127.0.0.1:8765/dashboard/telfer1 private/multi-alpha/browser-dashboard
 ```
 
