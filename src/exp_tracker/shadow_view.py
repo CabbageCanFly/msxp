@@ -11,6 +11,7 @@ import re
 import stat
 
 from .shadow_types import parse_percentage_only, partial_percentage
+from .diagnostic_geometry import suspect_crop
 
 MAX_BYTES = 512 * 1024
 MAX_LINE = 64 * 1024
@@ -105,7 +106,10 @@ def observation(row):
         only = None
     parsed = row.get('parsed_diagnostic') if isinstance(row.get('parsed_diagnostic'), dict) else {}
     partial = partial_percentage(parsed.get('percentage')) if pair is None and only is None else None
-    return dict(index=row.get('index') if type(row.get('index')) is int and 1 <= row['index'] <= 10000 else None,
+    frame_hash=row.get('frame_sha256')
+    return dict(frame_sha256=frame_hash if isinstance(frame_hash,str) and re.fullmatch(r'[0-9a-f]{64}',frame_hash) else None,
+                crop_suspect=suspect_crop(row),
+                index=row.get('index') if type(row.get('index')) is int and 1 <= row['index'] <= 10000 else None,
                 channel=channel, source_kind=source.get('kind') if source.get('kind') in ('file', 'twitch') else 'unknown',
                 attempted_at=timestamp(row.get('attempted_at')), received_at=timestamp(row.get('received_at')),
                 requested_at=timestamp(row.get('requested_at')), scheduler_delay_seconds=number(row.get('scheduler_delay_seconds'),86400),

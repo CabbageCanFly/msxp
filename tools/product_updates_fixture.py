@@ -43,7 +43,7 @@ def main():
             # Test-generated historical timestamps, not a capture throughput/accuracy claim.
             stamp=(now-timedelta(seconds=5+15*(21-index))).isoformat()
             pct=f'{(6750+index)//100}.{(6750+index)%100:02}'
-            return dict(type='attempt',trusted=False,index=index,current=True,attempted_at=stamp,received_at=stamp,
+            return dict(type='attempt',trusted=False,index=index,current=True,attempted_at=stamp,received_at=stamp,frame_sha256=f'{index:064x}',
                 source=dict(kind='file',channel=None),status='diagnostic_percentage_only',localization=dict(count=1),
                 neural=dict(text=f'[{pct}%]'),visual_level=65,visual_status='available',
                 neural_level=dict(status='numeric_candidate',text='65',level=65,score=.99,preprocessing='neutral4'))
@@ -52,9 +52,17 @@ def main():
             http.quiet=True
             thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
             print(json.dumps(dict(ready=True,port=http.server_port)),flush=True)
-            advanced=False
+            advanced=False;change_index=22
             try:
                 for command in sys.stdin:
+                    action=command.strip()
+                    if advanced and action in ('decrease','confirm','recover'):
+                        expected,pct={22:('decrease','67.50'),23:('confirm','67.55'),24:('recover','67.60')}[change_index]
+                        if action!=expected:raise ValueError('Quarantine test commands must be ordered')
+                        record=synthetic(change_index);stamp=datetime.now(timezone.utc).isoformat()
+                        record.update(attempted_at=stamp,received_at=stamp,neural=dict(text=f'[{pct}%]'))
+                        d.append('synthetic-window',record);change_index+=1
+                        print(json.dumps(dict(stage=action)),flush=True);continue
                     if command.strip()!='advance' or advanced:raise ValueError('One bounded advance only')
                     for channel,records in saved.items():
                         for record in records[1:]:

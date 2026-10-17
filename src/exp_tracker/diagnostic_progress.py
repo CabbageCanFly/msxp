@@ -7,6 +7,7 @@ from fractions import Fraction
 from .exp_requirements import requirement
 from .shadow_grammar import interpret_exp
 from .diagnostic_evidence import project
+from .diagnostic_percentage import review,boundary,CONFIRM_SECONDS
 
 LABEL = 'EXPERIMENTAL / UNVERIFIED'
 
@@ -89,15 +90,17 @@ def percentage_point(row, *, include_recovered=True):
     return point, reason
 
 
-def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, min_readings=3, min_span_seconds=30, current_run_id=None):
+def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, min_readings=3, min_span_seconds=30, current_run_id=None,confirmation_seconds=CONFIRM_SECONDS):
     if type(min_readings) is not int or min_readings<3 or not 30<=min_span_seconds<=86400:
         raise ValueError('Pace requires >=3 readings spanning >=30 seconds')
     now = now or datetime.now(timezone.utc)
     segments, comparisons = [], []
     previous, current, latest, latest_time = None, None, None, None
     seen = set()
-    for row in project(rows):
-        point, reason = percentage_point(row,include_recovered=include_recovered)
+    projected=project(rows)
+    evidence=[percentage_point(row,include_recovered=include_recovered) for row in projected]
+    reviews=review(projected,evidence,now=now,confirmation_seconds=confirmation_seconds)
+    for row,(point,reason),decision in zip(projected,evidence,reviews):
         when = None
         if point and point['timestamp']:
             try:
@@ -105,8 +108,9 @@ def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, 
                 if when.utcoffset() is None: when=None
                 elif when>now: reason=reason or 'future_timestamp';when=None
             except (TypeError,ValueError): pass
-        if point and (latest_time is None or when is not None and when>latest_time):
+        if point and decision['public_eligible'] and (latest_time is None or when is not None and when>latest_time):
             latest,latest_time = point,when
+        if reason is None and not decision['progress_eligible']:reason=decision['reason']
         edge = dict(event_id=row.get('event_id'), change='missing_comparison', reason=reason)
         if row.get('event_id') in seen:
             reason = 'duplicate_event'
@@ -121,23 +125,13 @@ def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, 
         when = datetime.fromisoformat(point['timestamp'])
         if previous:
             elapsed = elapsed_seconds(datetime.fromisoformat(previous['timestamp']),when)
-            cadence = Fraction(str(previous['interval_seconds']))
-            rotated=(point['run_id']!=previous['run_id'] and row.get('rotation_from')==previous['run_id']
-                and previous['index']==60 and point['index']==1
-                and point['source_identity'] is not None and point['source_identity']==previous['source_identity']
-                and point['coordinator_instance'] is not None and point['coordinator_instance']==previous['coordinator_instance'])
-            reason = ('source_changed' if (point['channel'],point['source_channel'],point['source_kind']) != (previous['channel'],previous['source_channel'],previous['source_kind']) else
-                'character_or_session_changed' if (point['character_id'],point['session_id']) != (previous['character_id'],previous['session_id']) else
-                'run_boundary' if point['run_id'] != previous['run_id'] and not rotated else
-                'level_changed' if point['level'] != previous['level'] else
-                'nonincreasing_timestamp' if elapsed<=0 else
-                'missing_attempt' if not rotated and point['index'] != previous['index']+1 else
-                'sampling_gap' if elapsed>min(Fraction(120),cadence*Fraction(3,2)) else None)
+            reason = boundary(previous,point,row) or decision['break_before']
             if reason is None:
                 diff = point['bp']-previous['bp']
                 edge.update(change='positive' if diff>0 else 'negative' if diff<0 else 'zero',
                     difference_bp=diff,difference_percentage_points=f'{Decimal(diff)/100:.2f}',elapsed_seconds=rational(elapsed))
-                if diff<0: reason='percentage_decrease_no_levelup_inferred'
+                if diff<0: reason='unresolved_numerical_continuity'
+        elif decision['break_before']:reason=decision['break_before']
         if reason == 'nonincreasing_timestamp':
             if current: current['end_reason']=reason
             comparisons.append({**edge,'reason':reason})
@@ -201,5 +195,6 @@ def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, 
         latest_percentage=latest,latest_movement=comparisons[-1] if comparisons else None,
         current_segment=current,current_pace=current.get('pace') if current and not stale else None,
         reason=reason,age_seconds=max(0,age) if age is not None else None,stale=stale,
-        segments=segments,comparisons=comparisons,history_scope='bounded_selected_session_history',
-        config=dict(min_readings=min_readings,min_span_seconds=min_span_seconds,max_gap_factor='1.5',max_gap_seconds=120))
+        segments=segments,comparisons=comparisons,percentage_reviews=reviews,
+        percentage_state=reviews[-1] if reviews else None,history_scope='bounded_selected_session_history',
+        config=dict(min_readings=min_readings,min_span_seconds=min_span_seconds,max_gap_factor='1.5',max_gap_seconds=120,confirmation_seconds=confirmation_seconds))

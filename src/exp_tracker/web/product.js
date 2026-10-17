@@ -29,7 +29,10 @@ function levelText(p) { const level=p.reading?.level;return level?.value==null?'
 function levelTitle(p) { const l=p.reading?.level;return l?.status==='conflict'?`Level readers disagree: ${l.visual} / ${l.neural}`:l?.status==='provisional_neural' || l?.status==='recent_context'?'Provisional level from recent visual evidence; readers and arithmetic remain unverified':l?.status==='single_reader'?'One OCR reader; unverified level':'OCR level evidence; unverified'; }
 function current(p) {
   const age=p.age_seconds==null?null:p.age_seconds+(performance.now()-receivedAt)/1000;
-  const stale=p.stale || age==null || age>p.stale_after_seconds;
+  const review=p.percentage_state;
+  const deadline=review?.verification_deadline || review?.confirmation_deadline;
+  const expired=review?.public_eligible===false && deadline && p.reading?.timestamp && age>(Date.parse(deadline)-Date.parse(p.reading.timestamp))/1000;
+  const stale=p.stale || expired || age==null || age>p.stale_after_seconds;
   const metrics=!stale && !failed?(view==='overlay'?p.estimates:selectedWindow(p)?.eligible?selectedWindow(p).estimates:null):null;
   return {age,stale,metrics};
 }
@@ -46,6 +49,7 @@ function statusText(p) {
   if(failed)return 'Updates delayed';
   if(!p.reading)return p.latest_attempt_status==='capture_failed'?'Capture unavailable':'Waiting for EXP';
   if(s.stale)return 'Updates delayed';
+  if(p.percentage_state?.public_eligible===false && p.percentage_state?.pending_since)return 'Verifying EXP change';
   if(p.latest_attempt_status==='capture_failed')return 'Capture interrupted';
   if(state==='stopped' && p.activity.completion)return ({completed:'Capture complete',interrupted:'Capture interrupted',failed:'Capture stopped'})[p.activity.completion] ?? 'Capture paused';
   return ({running:'Capturing',waiting:'Waiting for next capture',capture_delayed:'Capture delayed',capture_failing:'Capture interrupted',

@@ -74,8 +74,9 @@ def test_zero_and_negative_display_changes_do_not_establish_zero_gain_or_levelup
     assert result['current_pace']['value']['approximate']==0
     assert result['current_pace']['nearest_half_up']['lower']['approximate']==-1.2
     negative=run([row(1),row(2,'32.99'),row(3,'33.01')])
-    assert negative['comparisons'][1]['change']=='negative'
-    assert negative['comparisons'][1]['reason']=='percentage_decrease_no_levelup_inferred'
+    assert negative['comparisons'][1]['change']=='missing_comparison'  # Unconfirmed loss is no longer a negative gain endpoint.
+    assert negative['percentage_reviews'][1]['status']=='pending_exp_decrease'
+    assert negative['percentage_reviews'][2]['resolution']=='suspected_ocr_anomaly'
     assert len(negative['segments'])==2 and negative['current_pace'] is None
 
 
@@ -157,4 +158,4 @@ def test_out_of_order_or_future_evidence_never_replaces_a_newer_reading():
     assert result['latest_percentage']['percentage']=='33.10'
     assert result['comparisons'][-1]['reason']=='future_timestamp'
     stale=run([row(1,fresh_at_capture=False)])
-    assert stale['stale'] and not stale['latest_percentage']['comparison_eligible']
+    assert stale['stale'] and stale['latest_percentage'] is None  # Raw stale candidate remains in input/evidence, never a public baseline.

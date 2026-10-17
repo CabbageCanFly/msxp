@@ -21,6 +21,7 @@ from exp_tracker.models import Reading, Recognition, Region, reading_errors
 from exp_tracker.parsing import parse_exp, parse_level
 from exp_tracker.recognition import _ocr, _read_field, configure_tesseract
 from exp_tracker.trust import guard_unverified_exp
+from exp_tracker.diagnostic_geometry import exp_vertical_origin
 
 
 def label(token):
@@ -72,6 +73,10 @@ def layouts(tokens, size):
                                 and abs(mp['y']-exp['y'])<=.04*outer_step):
                             field_step=outer_step;origin_x=expected_hp;origin_y=mp['y']
                             correction='hp_outlier_lv_exp_span_mp_residual'
+                    vertical=exp_vertical_origin(dict(hp=hp,mp=mp,exp=exp,lv=lv),field_step)
+                    if vertical is not None and vertical!=origin_y:
+                        origin_y=vertical
+                        correction=(correction+'+' if correction else '')+'hp_vertical_outlier'
                     # shortcut: one classic HUD layout family; reject other layouts until validated.
                     boxes = dict(level=(lv["x"] + .29 * field_step, lv["y"] - .04 * field_step,
                                         lv["x"] + .62 * field_step, lv["y"] + .17 * field_step),

@@ -297,6 +297,9 @@ function render() {
       if (Object.keys(req.published_alternatives).length) visual.append(element("small", `Disputed publications: ${Object.entries(req.published_alternatives).map(([site, n]) => `${site}: ${exactExp(n)}`).join(" / ")}`));
     }
     const evidence = element("td", row.relation ?? "Unavailable");
+    if(row.percentage_review) evidence.append(element('strong',`Percentage: ${reason(row.percentage_review.status)}`),
+      element('small',`${row.percentage_review.policy}: ${reason(row.percentage_review.reason)}${row.percentage_review.resolution?' · '+reason(row.percentage_review.resolution):''}${row.percentage_review.resolves_event_id?' · resolves '+row.percentage_review.resolves_event_id:''}. Public ${row.percentage_review.public_eligible?'eligible':'WITHHELD'}.`));
+    if(row.crop_suspect)evidence.append(element('small','Known vertical crop displacement; cannot corroborate a loss baseline'));
     evidence.append(element("small", row.reasons?.join(", ") || "No additional reason codes"));
     if (row.candidate_invalid) evidence.append(element("small", "Saved candidate invalid; not repaired"));
     if (row.percentage_only_invalid) evidence.append(element("small", "Percentage-only candidate contradicts raw syntax; not repaired"));

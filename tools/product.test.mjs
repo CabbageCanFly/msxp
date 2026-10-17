@@ -116,3 +116,11 @@ test('owned activity and completion stay distinct from cached API failures and s
   }
   p.render(player({activity:{state:'running'},stale:true}));assert.equal(p.elements.status.textContent,'Updates delayed');
 });
+
+test('pending percentage holds prior values, removes pace, and expires despite a slow configured cadence',()=>{
+  const p=page(),base=player({stale_after_seconds:900,estimates:{},segment:null,
+    percentage_state:{status:'pending_exp_decrease',public_eligible:false,pending_since:'2026-01-01T00:00:30Z',confirmation_deadline:'2026-01-01T00:01:30Z'}});
+  p.render(base);assert.equal(p.elements.percentage.textContent,'5.90%');assert.equal(p.elements.status.textContent,'Verifying EXP change');
+  assert.equal(p.elements.rate.textContent,'—');p.context.performance.now=()=>91000;p.run('renderPlayer()');
+  assert.equal(p.elements.status.textContent,'Updates delayed');assert.equal(p.elements.percentage.textContent,'5.90%');
+});

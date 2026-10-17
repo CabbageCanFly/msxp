@@ -359,6 +359,8 @@ class Diagnostics:
         if active_runs is not None and result['run_status']=='unfinished' and run['run_id'] in active_runs:
             result['run_status']='active'
         result['percentage_progress'] = progress(observations,now=now,stale_after_seconds=result['stale_after_seconds'],current_run_id=run['run_id'])
+        for observation_value,decision in zip(observations,result['percentage_progress']['percentage_reviews']):
+            observation_value['percentage_review']=decision
         if result['historical']:
             result['percentage_progress']['history_scope']='selected_history_page'
             result['percentage_progress']['current_pace']=None

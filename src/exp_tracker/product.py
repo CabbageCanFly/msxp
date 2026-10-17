@@ -58,6 +58,7 @@ def estimates(segment,pace,bp):
 
 
 def reading(row):
+    if row.get('percentage_review',{}).get('public_eligible') is False:return None
     if 'experimental_level' not in row: row=project([row])[0]
     point,_=percentage_point(row)
     if not point: return None
@@ -134,7 +135,9 @@ def player(snapshot,*,now=None):
     usable=bool(latest and segment and segment['last_event_id']==latest['event_id'] and rows and rows[-1]['event_id']==latest['event_id'])
     movement=progress.get('latest_movement') if usable else None
     movement=movement if movement and movement.get('change') in ('positive','zero') else None
+    decision=progress.get('percentage_state')
     result=dict(channel=snapshot['channel'],character=snapshot['selected_character'],session_id=(snapshot['session'] or {}).get('id'),
+        percentage_state=decision,
         source_kind=snapshot.get('source_kind'),reading=latest,latest_attempt_at=(rows[-1].get('received_at') or rows[-1].get('attempted_at')) if rows else None,
         latest_attempt_status=rows[-1]['status'] if rows else 'waiting',
         stale_after_seconds=snapshot['stale_after_seconds'],movement=movement,
@@ -151,6 +154,11 @@ def refresh(value,*,now=None,activity=None):
     value['age_seconds']=max(0,age) if age is not None else None
     value['stale']=age is None or age<0 or age>value['stale_after_seconds'] or not latest['fresh_at_capture']
     value['activity']=activity or dict(state='coordinator_stopped')
+    decision=value.get('percentage_state')
+    deadline=(decision.get('verification_deadline') or decision.get('confirmation_deadline')) if decision else None
+    if decision and not decision['public_eligible'] and deadline and now>datetime.fromisoformat(deadline):
+        decision.update(status='unresolved_numerical_continuity',reason='confirmation_expired')
+        value['stale']=True
     if value['stale'] or latest and latest['simulated']:
         value['estimates']=estimates(None,None,0)
         for metric in value.get('windows',{}).values():
@@ -162,7 +170,7 @@ def history(snapshot):
     points=[]
     for row in snapshot['observations']:
         value=reading(row)
-        points.append(dict(event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'],
+        points.append(dict(event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'],percentage_review=row.get('percentage_review'),
             reading=value,status=row['status'],fresh_at_capture=row['fresh_at_capture'],
             interval_seconds=row['interval_seconds'],level=level_evidence(row),
             break_reason=next((c['reason'] for c in snapshot['percentage_progress']['comparisons'] if c['event_id']==row['event_id']),None)))

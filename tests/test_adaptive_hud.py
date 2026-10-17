@@ -74,6 +74,19 @@ def test_native_good_geometry_does_not_need_outer_span_override():
     assert 'anchor_correction' not in hud.layouts(tokens,(1920,1080))[0]
 
 
+def test_vertical_hp_box_contamination_uses_bare_exp_mp_and_lv_without_moving_horizontal_bounds():
+    tokens=[dict(text=name,x=x,y=y,width=w,height=h,confidence=.8) for name,x,y,w,h in (
+        ('HP.',779.5,1044,15,15),('MP',888.5,1049.5,17.5,9.5),
+        ('EXP',1000.5,1049.5,22.5,10),('LV.',573,1056,20,13))]
+    corrected=hud.layouts(tokens,(1920,1080))[0]
+    assert corrected['anchor_correction']=='hp_vertical_outlier'
+    box=corrected['regions']['exp'].pixels(1920,1080)
+    assert box[0]==1025 and box[1]==1051 and box[3]>=1061
+    for index,changes in [(2,dict(text='EXP123')),(1,dict(y=1030)),(3,dict(y=1070)),(0,dict(height=10))]:
+        other=[dict(t) for t in tokens];other[index].update(changes)
+        assert all('hp_vertical_outlier' not in c.get('anchor_correction','') for c in hud.layouts(other,(1920,1080)))
+
+
 @pytest.mark.parametrize('broken',[
     lambda t:t[:3],lambda t:t[:2]+t[3:],
     lambda t:[{**a,'y':a['y']+50} if a['text']=='MP' else a for a in t],

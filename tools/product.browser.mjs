@@ -6,7 +6,8 @@ import {resolve,join,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
 const [base='http://127.0.0.1:8765',directory,databaseArgument,channel='offline_window']=process.argv.slice(2);
-const verifyUpdates=databaseArgument==='--verify-updates';
+const verifyQuarantine=databaseArgument==='--verify-quarantine';
+const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
 const database=databaseArgument==='-' || verifyUpdates?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
@@ -109,6 +110,29 @@ try {
     assert.equal(await estimatedOverlay.evaluate('document.getElementById("exp").textContent'),'≈1.07M');
     await screenshot(board,'homepage-updated',1440,1050);await screenshot(estimatedOverlay,'overlay-million-estimate-synthetic',500,160);
     await screenshot(windowPage,'eligible-five-minute-control',1100,1050);
+    if(verifyQuarantine){
+      const stages=[];
+      for(const [command,percentage,state] of [['decrease','67.71','pending_exp_decrease'],['confirm','67.55','corroborated_lower_baseline'],['recover','67.60','accepted_observation']]){
+        assert.equal((await fixtureCommand(command)).stage,command);
+        const actual=await api('/api/players/synthetic_window');stages.push(actual);
+        assert.equal(actual.player.reading.percentage,percentage);assert.equal(actual.player.percentage_state.status,state);
+        assert.equal(actual.player.windows['5'].eligible,false);assert.equal(actual.player.estimates.exp_per_hour,null);
+        await windowPage.wait(`data?.player?.percentage_state?.status===${JSON.stringify(state)} && data?.player?.reading?.percentage===${JSON.stringify(percentage)}`);
+        await estimatedOverlay.wait(`data?.player?.percentage_state?.status===${JSON.stringify(state)} && data?.player?.reading?.percentage===${JSON.stringify(percentage)}`);
+        await board.wait(`data?.players.find(p=>p.channel==='synthetic_window')?.percentage_state?.status===${JSON.stringify(state)}`);
+        if(command==='decrease'){
+          assert.equal(await estimatedOverlay.evaluate('document.getElementById("status").textContent'),'Verifying EXP change');
+          const advanced=await api('/dev/api/streams/synthetic_window/diagnostics');
+          assert.equal(advanced.observations.at(-1).raw_text,'[67.50%]');
+          assert.equal(advanced.observations.at(-1).percentage_review.public_eligible,false);
+          await screenshot(estimatedOverlay,'pending-decrease-overlay',500,160);
+        }
+      }
+      assert.equal(stages.at(-1).player.segment.difference_percentage_points,'0.05');
+      for(const page of [board,windowPage,estimatedOverlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+      await screenshot(windowPage,'confirmed-lower-baseline',1100,1050);
+      writeFileSync(join(output,'quarantine-stages.json'),JSON.stringify(stages,null,2));
+    }
     observed.push({before:original.player.reading,after:after.player.reading,syntheticWindow:control.windows['5'],updateMilliseconds});
     writeFileSync(join(output,'after.json'),JSON.stringify(all,null,2));
   }
