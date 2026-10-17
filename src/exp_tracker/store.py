@@ -12,7 +12,7 @@ import sqlite3
 
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition
-from .schema import MIGRATION_2, STATEMENTS, VERSION
+from .schema import MIGRATION_2, MIGRATION_3, STATEMENTS, VERSION
 from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
@@ -52,9 +52,14 @@ class Store:
                 if version == 1:
                     for statement in MIGRATION_2:
                         self.db.execute(statement)
-                    self.db.execute(f"PRAGMA user_version={VERSION}")
-                elif version != VERSION:
+                    version = 2
+                if version == 2:
+                    for statement in MIGRATION_3:
+                        self.db.execute(statement)
+                    version = 3
+                if version != VERSION:
                     raise ValueError(f"unsupported schema version {version}")
+                self.db.execute(f"PRAGMA user_version={VERSION}")
             self.db.execute("PRAGMA journal_mode=WAL")
         except Exception:
             self.db.close()

@@ -12,7 +12,7 @@ matcher/thresholds are unchanged. The existing capture trust guard moved to
 
 ## Schema and transactions
 
-The actual schema is [schema.py](../src/exp_tracker/schema.py), version 2:
+The actual schema is [schema.py](../src/exp_tracker/schema.py), version 3:
 
 | Table | Stores |
 | --- | --- |
@@ -21,6 +21,7 @@ The actual schema is [schema.py](../src/exp_tracker/schema.py), version 2:
 | `sessions` | Character/session boundaries, explicit end reasons; one open session per channel |
 | `observations` | Stable event ID, session/character, timestamps, profile fingerprint, diagnostics, outcome, endpoint gain and missing-observation metadata |
 | `tracking_state` | Per-character last trusted observation, last event time, status, pause reason, hard continuity break and pending OCR interruptions |
+| `diagnostic_runs`, `diagnostic_attempts` | Separate unverified shadow evidence linked to existing entities; never contributes trusted EXP or gains ([local alpha](local-alpha.md)) |
 
 Foreign keys enforce channel/character/session ownership and state pointer
 ownership. Trusted rows (`baseline`/`accepted`) require a profile fingerprint,
@@ -31,11 +32,14 @@ their trusted numeric columns are NULL. Percent is stored as integer hundredths
 Capture currently uses local decoder receipt, not an established broadcast time.
 
 Each connection enables foreign keys, WAL and a five-second busy timeout.
-Initialization creates all tables and `PRAGMA user_version=2` atomically. Existing
+Initialization creates all tables and `PRAGMA user_version=3` atomically. Existing
 version 1 databases receive additive columns in the same transaction. Historical
 observations/gains are not recalculated; legacy non-tracking states are treated
 as hard breaks because their pause causes were not distinguished. Unknown
 versions and nonempty unversioned databases are refused, never overwritten.
+Version 2 working databases receive only the separate diagnostic tables/index;
+trusted history/state is unchanged. Migrate working copies with a writable CLI
+before serving HTTP. Copy frozen evidence databases before migrating.
 The old `docs/schema.sql` remains a historical design sketch, not initialization
 SQL. Unversioned prototype databases are not adopted automatically.
 

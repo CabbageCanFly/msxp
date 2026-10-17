@@ -1,9 +1,15 @@
 # Bounded shadow capture
 
+Follow-up: the [local alpha](local-alpha.md) adds opt-in `--db` persistence in
+separate unverified tables and a read-only dashboard. The original no-DB behavior
+below remains the default; no trusted ingestion is added.
+
 `tools/shadow_capture.py` connects existing acquisition and experimental recognition
-without importing the Store, choosing a character, or updating tracking/API/overlay
-state. Every output has `trusted: false`. A complete candidate is not verified EXP.
-No production modules, recognition parameters or frozen evidence were changed.
+without trusted ingestion or updating trusted tracking/API/overlay state. Every
+output has `trusted: false`. A complete candidate is not verified EXP. Optional
+`--db` uses an explicitly preselected character/session and separate diagnostics;
+without it no database is opened. Recognition parameters and frozen evidence are
+unchanged.
 
 The optional [local shadow viewer](shadow-viewer.md) reads this existing JSONL
 format and displays unverified evidence. It does not promote candidates or run OCR.

@@ -7,8 +7,10 @@ import {setTimeout as delay} from "node:timers/promises";
 
 const url = new URL(process.argv[2] || "http://127.0.0.1:8765/dev/shadow");
 assert.equal(url.hostname, "127.0.0.1");
-assert.equal(url.pathname, "/dev/shadow");
-const expected = await (await fetch(new URL("/dev/api/shadow", url))).json();
+const dashboard = /^\/dashboard\/([A-Za-z0-9_]{1,25})$/.exec(url.pathname);
+assert.ok(url.pathname === "/dev/shadow" || dashboard);
+const endpoint = dashboard ? `/dev/api/streams/${dashboard[1]}/diagnostics` : '/dev/api/shadow';
+const expected = await (await fetch(new URL(endpoint, url))).json();
 assert.ok(expected.observations.length > 0, "Use an opt-in server with a completed shadow log");
 const output = resolve(process.argv[3] || "artifacts/shadow-view");
 assert.ok(["artifacts", "private"].some(root => output.startsWith(resolve(root) + sep)), "Screenshots must stay private/ or artifacts/");
@@ -62,6 +64,11 @@ try {
     if (!loaded) await delay(100);
   }
   assert.ok(loaded);
+  if (dashboard) {
+    assert.equal(await evaluate('document.getElementById("persisted").hidden'), false);
+    assert.equal(await evaluate('document.getElementById("assignment").textContent'), expected.selected_character.label);
+    assert.match(await evaluate('document.getElementById("trusted-summary").textContent'), /no trusted session observations|Separate trusted engine/);
+  }
   const displayed = await evaluate(`[...document.querySelectorAll('#readings tr')].map(row => ({
     raw:row.children[2].querySelector('code').textContent,
     pair:row.children[2].querySelector('span').textContent,
@@ -75,8 +82,8 @@ try {
     assert.equal(displayed[index].nearest, `${row.hypotheses.nearest_half_up.status} · ${row.hypotheses.nearest_half_up.levels.join(', ') || 'no candidates'}`);
   });
   await delay(2300);
-  assert.ok(await evaluate('performance.getEntriesByType("resource").filter(r => r.name.includes("/dev/api/shadow")).length >= 2'));
-  const apiMilliseconds = await evaluate('performance.getEntriesByType("resource").filter(r => r.name.includes("/dev/api/shadow")).map(r => r.duration)');
+  assert.ok(await evaluate(`performance.getEntriesByType("resource").filter(r => r.name.includes(${JSON.stringify(endpoint)})).length >= 2`));
+  const apiMilliseconds = await evaluate(`performance.getEntriesByType("resource").filter(r => r.name.includes(${JSON.stringify(endpoint)})).map(r => r.duration)`);
   const metrics = (await command("Performance.getMetrics")).metrics;
   await evaluate('globalThis.fetch = () => new Promise(() => {})');
   const measurements = [];

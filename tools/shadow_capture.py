@@ -1,6 +1,7 @@
 """Bounded, serial capture -> experimental OCR diagnostics. Never trusted ingestion."""
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
@@ -9,9 +10,11 @@ import math
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
@@ -19,6 +22,8 @@ sys.path.insert(0, str(ROOT / 'src'))
 from exp_tracker.metrics import ResourceMonitor
 from exp_tracker.video import CaptureError, Source, VideoSession
 from exp_tracker.shadow_types import parse_percentage_only, partial_percentage
+from exp_tracker.store import Store
+from exp_tracker.diagnostics import Diagnostics
 from adaptive_hud import locate, level_reading
 from analyze_temporal_ocr import complete_pair
 from benchmark_rapidocr import context_box, interpret
@@ -221,6 +226,8 @@ def parser():
     cli.add_argument('--output', type=Path, required=True)
     cli.add_argument('--save-crops', action='store_true', help='Save only field crops beside the NEW JSONL')
     cli.add_argument('--experimental-neural-level',action='store_true',help='Opt in to UNVERIFIED neutral4 level diagnostics in the existing neural worker')
+    cli.add_argument('--db', type=Path, help='Opt in to separate SQLite diagnostic persistence; initialize/select/start first')
+    cli.add_argument('--tracking-channel', help='Explicit DB channel assignment for a local video only')
     return cli
 
 
@@ -301,6 +308,7 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
 def main(argv=None):
     cli = parser()
     args = cli.parse_args(argv)
+    stack = ExitStack()
     try:
         if not 1 <= args.count <= 60:
             raise ValueError('count must be 1..60')
@@ -311,6 +319,10 @@ def main(argv=None):
                 raise ValueError(f'{name} must be finite and {low}..{high}')
         if args.channel and not args.authorized:
             raise ValueError('Twitch requires --authorized: confirm streamer permission for this trial')
+        if args.tracking_channel and (not args.db or args.channel):
+            raise ValueError('--tracking-channel requires --db with a local video')
+        if args.db and (not args.db.is_file() or not (args.channel or args.tracking_channel)):
+            raise ValueError('Existing --db and an explicit channel assignment are required')
         if args.file and not args.file.is_file():
             raise ValueError('Video file not found')
         if not args.ocr_python.is_file() or not args.requirements.is_file():
@@ -328,29 +340,48 @@ def main(argv=None):
         table = json.loads(table_bytes)
         requirements = {int(key): value for key, value in table['to_next'].items()}
         infer_levels(None, None, requirements)  # Validate table without OCR predictions.
-    except (OSError, ValueError, KeyError) as error:
+        diagnostics = Diagnostics(stack.enter_context(Store(args.db))) if args.db else None
+        if diagnostics:
+            # Fail before connecting. Actual immutable binding is created with the configuration below.
+            state = diagnostics.store.state(args.channel or args.tracking_channel)
+            if not state['session'] or state['session']['character_id'] != state['selected_character_id']:
+                raise ValueError('Explicitly select a character and start a session first')
+    except (OSError, ValueError, KeyError, sqlite3.Error) as error:
+        stack.close()
         cli.error(str(error))
     os.environ['OMP_THREAD_LIMIT'] = '1'
     args.output.parent.mkdir(parents=True, exist_ok=True)
     monitor = ResourceMonitor(sample_interval=.05, scope='serial shadow runner + capture + OCR children')
     try:
         with args.output.open('x', encoding='utf-8') as output:
+            run_id = uuid.uuid4().hex if diagnostics else None
             def emit(record):
-                output.write(json.dumps({**record, 'resources': monitor.snapshot()}, allow_nan=False) + '\n')
+                record = {**record, 'resources': monitor.snapshot()}
+                output.write(json.dumps(record, allow_nan=False) + '\n')
                 output.flush()
+                if diagnostics:
+                    if record['type'] == 'configuration':
+                        diagnostics.begin(run_id, args.channel or args.tracking_channel, record)
+                    else:
+                        diagnostics.append(run_id, record)
             emit(dict(type='configuration', trusted=False, interval=args.interval, count=args.count,
                       timeout=args.timeout, max_local_age=args.max_age, neural_timeout=args.ocr_timeout,
                       requirements_sha256=hashlib.sha256(table_bytes).hexdigest(),
                       table_provenance={key: value for key, value in table.items() if key != 'to_next'},
                       neural_scale=2, native_padding=2, queue_capacity=0, capture_mode='periodic_keyframes',
                       numerical_verification=False, character_identity_verified=False,
+                      **({'run_id':run_id} if diagnostics else {}),
                       **({'experimental_neural_level':True,'neural_level_preprocessing':'neutral4'}
                          if args.experimental_neural_level else {})))
             summary = run(args, source, requirements, emit)
             monitor.close()
             emit(summary)
+    except (OSError, ValueError, sqlite3.Error) as error:
+        print('Shadow capture/persistence stopped; inspect the private JSONL and explicit session assignment', file=sys.stderr)
+        return 1
     finally:
         monitor.close()
+        stack.close()
     return 130 if summary['interrupted'] else 0
 
 

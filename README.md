@@ -4,6 +4,11 @@ Independent, free, MIT-licensed feasibility prototype. This contains local OCR,
 acquisition, SQLite tracking and a localhost OBS overlay, not a hosted service.
 No accounts, cloud resources or secrets are required for offline tests.
 
+The **[single-stream local alpha](docs/local-alpha.md)** connects explicit character
+selection and shadow capture to separate SQLite diagnostics and a real-data
+`/dashboard/CHANNEL`. Neural candidates remain experimental and never count trusted
+EXP. Start with saved-log replay; no live capture is needed to try it.
+
 The local **[simulated leaderboard demo](docs/demo-leaderboard.md)** is available at
 `http://127.0.0.1:8765/demo/leaderboard` through the existing read-only server.
 It uses fictional data, functional metric/window sorting and no real Twitch or
@@ -53,7 +58,7 @@ existing SQLite state. Start with an existing demo database:
 Start-Process 'http://127.0.0.1:8765/overlay/demo'
 ```
 
-The database must already use schema 2. The linked guide covers creating a demo,
+The database must already use schema 3. The linked guide covers creating a demo,
 explicitly migrating old databases, saved real OCR state and timed synthetic
 updates. HTTP never creates/migrates databases or writes tracking state.
 Use a **500 × 160** OBS Browser Source for the compact, transparent overlay.

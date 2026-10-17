@@ -12,6 +12,7 @@ import threading
 import pytest
 
 from exp_tracker import server
+from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.glyphs import GlyphProfile, SYMBOLS
 from exp_tracker.models import Reading, Recognition
 from exp_tracker.schema import STATEMENTS, VERSION
@@ -66,6 +67,44 @@ def state(http_server):
     status, _, body = request(http_server)
     assert status == 200
     return json.loads(body)
+
+
+@pytest.mark.parametrize('path', ['/dashboard/demo', '/dev/api/streams/demo/diagnostics'])
+def test_persisted_dashboard_is_opt_in(http_server, path):
+    assert request(http_server, path)[0] == 404
+
+
+def test_persisted_dashboard_uses_only_selected_session_and_preserves_trusted_api(database):
+    with Store(database) as store:
+        trusted_before = store.state('demo')
+        Diagnostics(store).begin('run', 'demo', dict(type='configuration', trusted=False, interval=15))
+        Diagnostics(store).append('run', dict(type='attempt', index=1, trusted=False,
+            attempted_at=datetime.now(timezone.utc).isoformat(), current=True, status='diagnostic_pair',
+            source=dict(kind='twitch', channel='demo'), candidate=[98765, 25.0],
+            neural=dict(text='98765[25.00%]', token='secret'), visual_level=51))
+    with server.create_server(database, port=0, diagnostic_dashboard=True) as httpd:
+        fixture = (httpd, None)
+        status, headers, body = request(fixture, '/dev/api/streams/demo/diagnostics?file=secret')
+        data = json.loads(body)
+        assert status == 200 and headers['Cache-Control'] == 'no-store'
+        assert headers['Content-Security-Policy'].startswith("default-src 'self'")
+        assert data['observations'][0]['candidate']['exp'] == '98765' and not data['trusted']
+        assert data['trusted_state']['last_trusted'] == trusted_before['last_trusted']
+        assert data['selected_character']['id'] == trusted_before['selected_character_id']
+        assert 'secret' not in body.decode()
+        for path in ['/dashboard/demo', '/static/shadow.js', '/static/shadow.css']:
+            assert request(fixture, path)[0] == 200
+        assert request(fixture, '/dev/shadow')[0] == 404
+        assert request(fixture, '/dev/api/streams/absent/diagnostics')[0] == 404
+        assert request(fixture, '/dev/api/streams/bad!/diagnostics')[0] == 400
+        assert request(fixture, '/dev/api/streams/demo/diagnostics', 'POST')[0] == 405
+        trusted = json.loads(request(fixture)[2])
+        assert trusted['last_trusted'] == trusted_before['last_trusted']
+        assert trusted['observed_session_exp'] == trusted_before['observed_session_exp']
+        with Store(database) as store:
+            store.end_session('demo')
+        empty = json.loads(request(fixture, '/dev/api/streams/demo/diagnostics')[2])
+        assert empty['source_status'] == 'unconfigured' and empty['observations'] == []
 
 
 def test_api_matches_real_store_and_is_not_cached(database, http_server):
@@ -393,10 +432,18 @@ def test_overlay_renderer_regressions():
 
 
 @pytest.mark.samples
-def test_existing_real_ocr_replay_database_can_feed_overlay():
+def test_existing_real_ocr_replay_database_can_feed_overlay(tmp_path):
     path = Path(__file__).resolve().parents[1] / "artifacts/accounting-bridge.sqlite3"
     if not path.exists():
         pytest.skip("Private saved OCR replay database is intentionally absent")
+    # Historical evidence stays unchanged; migrate a snapshot, as a user would a working copy.
+    working = tmp_path / 'real-replay.sqlite3'
+    with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True) as original:
+        with sqlite3.connect(working) as copied:
+            original.backup(copied)
+    with Store(working):
+        pass
+    path = working
     with server.create_server(path, port=0) as httpd:
         status, _, body = request((httpd, None), "/api/streams/telfer1/state")
     assert status == 200

@@ -1,6 +1,6 @@
 """SQLite base schema and additive migrations, applied in one transaction."""
 
-VERSION = 2
+VERSION = 3
 STATEMENTS = (
     """CREATE TABLE streamers (
         id INTEGER PRIMARY KEY, login TEXT NOT NULL UNIQUE,
@@ -55,4 +55,22 @@ MIGRATION_2 = (
        CHECK(pending_missing_observations >= 0)""",
     # Version 1 pauses had no soft/hard distinction; never reinterpret their gains.
     "UPDATE tracking_state SET continuity_broken=1 WHERE status != 'tracking'",
+)
+
+# Neural evidence has no trusted EXP/gain columns and never changes tracking_state.
+MIGRATION_3 = (
+    """CREATE TABLE diagnostic_runs (
+        run_id TEXT PRIMARY KEY, streamer_id INTEGER NOT NULL,
+        character_id INTEGER NOT NULL, session_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL, configuration_json TEXT NOT NULL, summary_json TEXT,
+        FOREIGN KEY(session_id, character_id, streamer_id)
+            REFERENCES sessions(id, character_id, streamer_id)
+    )""",
+    """CREATE TABLE diagnostic_attempts (
+        id INTEGER PRIMARY KEY, run_id TEXT NOT NULL REFERENCES diagnostic_runs(run_id),
+        attempt_index INTEGER NOT NULL CHECK(attempt_index BETWEEN 1 AND 60),
+        attempted_at TEXT NOT NULL, received_at TEXT, recorded_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL, UNIQUE(run_id, attempt_index)
+    )""",
+    "CREATE INDEX diagnostic_session ON diagnostic_runs(session_id, created_at)",
 )

@@ -10,12 +10,20 @@
 </head>
 <body>
   <main>
-    <header><div><p class="eyebrow">LOCAL DEVELOPMENT · READ ONLY</p><h1>Shadow capture viewer</h1></div><span class="badge">UNVERIFIED / DIAGNOSTIC</span></header>
+    <header><div><p class="eyebrow">LOCAL DEVELOPMENT · READ ONLY</p><h1 id="page-title">Shadow capture viewer</h1></div><span class="badge">UNVERIFIED / DIAGNOSTIC</span></header>
     <aside>Actual OCR outputs, <strong>not trusted tracking observations</strong>. No character identity, gains, EXP/hour, ETA or ranks are inferred here. Neither rounding hypothesis is selected.</aside>
     <section class="overview" aria-label="Diagnostic source">
-      <div><span>Configured source</span><strong id="channel">—</strong><small>No character assignment</small></div>
+      <div><span>Configured source</span><strong id="channel">—</strong><small id="assignment">No character assignment</small></div>
       <div><span>Capture / run status</span><strong id="source-status">Waiting for diagnostics</strong><small id="run-status">—</small></div>
       <div><span>Latest known timestamp</span><strong id="age">—</strong><small>Age since local receipt / attempt; broadcast latency unknown</small></div>
+    </section>
+    <section id="persisted" class="panel" hidden aria-label="Persisted diagnostic state">
+      <h2>Selected character · experimental local alpha</h2>
+      <p id="session"></p>
+      <p id="latest-candidate"></p>
+      <p id="candidate-age" class="muted"></p>
+      <p id="trusted-summary"></p>
+      <p class="muted">Assignment is explicit, not inferred from pixels. Candidate values never update trusted EXP totals. Level evidence remains separate; neither visual recognizer verifies a complete tile or character identity.</p>
     </section>
     <p id="notice" role="status" aria-live="polite">Loading diagnostic log…</p>
     <section class="panel" aria-labelledby="timeline-title">
@@ -33,7 +41,7 @@
     </section>
     <section class="panel" aria-labelledby="readings-title">
       <h2 id="readings-title">Recent attempts <span id="count">0</span></h2>
-      <p class="muted">Oldest to newest in file order. Saved candidates and raw model strings are separate; dashes mean unavailable. All rows remain UNVERIFIED.</p>
+      <p class="muted">Oldest to newest in recorded attempt order. Saved candidates and raw model strings are separate; dashes mean unavailable. All rows remain UNVERIFIED.</p>
       <div class="table-wrap"><table><thead><tr><th scope="col">Attempt / time (UTC)</th><th scope="col">Recognition</th><th scope="col">Raw model text / saved pair</th><th scope="col">Visual level</th><th scope="col">Nearest half-up</th><th scope="col">Truncation</th><th scope="col">Evidence / disagreements</th></tr></thead><tbody id="readings"></tbody></table></div>
       <p id="empty">No completed observations yet.</p>
     </section>

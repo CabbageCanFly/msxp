@@ -3,6 +3,8 @@ let snapshot = null, receivedAt = 0, requestError = false;
 const nf = new Intl.NumberFormat("en-US");
 const compact = new Intl.NumberFormat("en-US", {notation: "compact", maximumFractionDigits: 1});
 const svgNS = "http://www.w3.org/2000/svg";
+const dashboardChannel = /^\/dashboard\/([A-Za-z0-9_]{1,25})$/.exec(globalThis.location?.pathname ?? "")?.[1];
+const endpoint = dashboardChannel ? `/dev/api/streams/${encodeURIComponent(dashboardChannel)}/diagnostics` : "/dev/api/shadow";
 
 function element(tag, text) {
   const node = document.createElement(tag);
@@ -66,7 +68,7 @@ function drawTimeline(rows, interval, percentage = false) {
     const detail = value === null ? label : `${label} · UNVERIFIED ${percentage ? value+"%" : exactExp(value)+" EXP"}`;
     if (value !== null) {
       const py = y(Number(value));
-      if (row.fresh_at_capture && (row.status === "diagnostic_pair" || percentage && row.percentage_only_candidate && ["diagnostic_percentage_only", "malformed_or_unavailable"].includes(row.status)))
+      if (row.fresh_at_capture && row.timestamp_ordered !== false && (row.status === "diagnostic_pair" || percentage && row.percentage_only_candidate && ["diagnostic_percentage_only", "malformed_or_unavailable"].includes(row.status)))
         shape("circle", {cx: px, cy: py, r: 4, class: "sample"}, detail);
       else shape("path", {d: `M${px} ${py-5}l5 5-5 5-5-5Z`, class: "stale"}, detail);
     } else shape("path", {d: `M${px-4} 168l8 8m0-8-8 8`, class: "rejected"}, label);
@@ -86,10 +88,32 @@ function renderStatus() {
   if (snapshot?.malformed_lines) notices.push(`${snapshot.malformed_lines} malformed lines; no repair attempted`);
   if (snapshot?.truncated) notices.push("Bounded recent history only; earlier content omitted");
   if (delayed) notices.push("Updates old/delayed; capture activity is not established");
+  if (snapshot?.storage === "sqlite_diagnostics") {
+    const latest = snapshot.latest_reading;
+    const age = latest ? latest.age_seconds + (performance.now() - receivedAt) / 1000 : null;
+    document.getElementById("candidate-age").textContent = age == null ? "No complete diagnostic values in this session" :
+      `Candidate ${Math.floor(age)}s old · ${latest.stale || age > snapshot.stale_after_seconds ? "STALE" : "local age only"} · broadcast freshness unknown`;
+  }
   document.getElementById("notice").textContent = notices.join(" · ") || "Read-only UNVERIFIED diagnostics · local delivery does not prove source freshness";
 }
 function render() {
   const rows = snapshot?.observations || [];
+  const persisted = snapshot?.storage === "sqlite_diagnostics";
+  document.getElementById("persisted").hidden = !persisted;
+  if (persisted) {
+    document.getElementById("page-title").textContent = "Local streamer dashboard";
+    document.getElementById("assignment").textContent = snapshot.selected_character?.label ?? "Select a character using the tracking CLI";
+    document.getElementById("session").textContent = snapshot.session ?
+      `${snapshot.selected_character.label} · session ${snapshot.session.id} · started ${snapshot.session.started_at}` : "Start a session using the tracking CLI";
+    const latest = snapshot.latest_reading?.observation;
+    document.getElementById("latest-candidate").textContent = latest?.candidate ?
+      `UNVERIFIED candidate: ${exactExp(latest.candidate.exp)} EXP [${latest.candidate.percentage}%]` : latest?.percentage_only_candidate ?
+      `UNVERIFIED candidate: ${latest.percentage_only_candidate.percentage}% · percentage only · absolute EXP unavailable` : "Waiting for complete diagnostic values";
+    const trusted = snapshot.trusted_state;
+    document.getElementById("trusted-summary").textContent = snapshot.session && trusted?.last_trusted?.session_id === snapshot.session.id ?
+      `Separate trusted engine: ${exactExp(trusted.observed_session_exp)} counted session EXP. Shadow candidates do not contribute.` :
+      "Trusted session totals unavailable · no trusted session observations. These diagnostic candidates do not count EXP gains.";
+  }
   document.getElementById("channel").textContent = snapshot?.mixed_channels ? "Mixed sources — see rows" : snapshot?.channel ? `ttv/${snapshot.channel}` : "Local video / channel unavailable";
   document.getElementById("source-status").textContent = snapshot?.source_status || "Waiting for diagnostics";
   document.getElementById("run-status").textContent = `Run: ${snapshot?.run_status || "waiting"} · UNVERIFIED`;
@@ -121,6 +145,8 @@ function render() {
     evidence.append(element("small", row.reasons?.join(", ") || "No additional reason codes"));
     if (row.candidate_invalid) evidence.append(element("small", "Saved candidate invalid; not repaired"));
     if (row.percentage_only_invalid) evidence.append(element("small", "Percentage-only candidate contradicts raw syntax; not repaired"));
+    if (row.timestamp_ordered === false) evidence.append(element("small", "Out-of-order source timestamp; not current evidence"));
+    if (row.event_id) when.append(element("small", `ID ${row.event_id}`));
     tr.append(when, status, value, visual, element("td", levels(row.hypotheses?.nearest_half_up)), element("td", levels(row.hypotheses?.truncate)), evidence);
     return tr;
   });
@@ -135,7 +161,7 @@ async function poll() {
     if (document.hidden) return;
     controller = new AbortController();
     timer = setTimeout(() => controller.abort(), 5000);
-    const response = await fetch("/dev/api/shadow", {cache: "no-store", signal: controller.signal});
+    const response = await fetch(endpoint, {cache: "no-store", signal: controller.signal});
     if (!response.ok) throw new Error("Viewer unavailable");
     snapshot = await response.json();
     receivedAt = performance.now();

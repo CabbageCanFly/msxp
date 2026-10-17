@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlsplit
 
 from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
+from .diagnostics import Diagnostics
 
 
 WEB = Path(__file__).with_name("web")
@@ -47,8 +48,28 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlsplit(self.path).path)
         api = re.fullmatch(r"/api/streams/([^/]*)/state", path)
         overlay = re.fullmatch(r"/overlay/([^/]*)", path)
-        if path in ("/dev/shadow", "/dev/api/shadow") or path in SHADOW_ASSETS:
-            if self.server.shadow_log is None:
+        dashboard = re.fullmatch(r"/dashboard/([^/]*)", path)
+        diagnostic_api = re.fullmatch(r"/dev/api/streams/([^/]*)/diagnostics", path)
+        if dashboard or diagnostic_api:
+            channel = (dashboard or diagnostic_api)[1]
+            if not self.server.diagnostic_dashboard:
+                self.reply(404, {"error": "not_found"})
+            elif not CHANNEL.fullmatch(channel):
+                self.reply(400, {"error": "invalid_channel"})
+            elif dashboard:
+                self.reply(200, (WEB / 'shadow.html').read_bytes(), 'text/html')
+            else:
+                try:
+                    with Store(self.server.database, read_only=True) as store:
+                        value = Diagnostics(store).snapshot(channel)
+                    self.reply(200, value)
+                except ValueError as error:
+                    unknown = str(error) == 'unknown channel'
+                    self.reply(404 if unknown else 503, {'error': 'unknown_channel' if unknown else 'database_unavailable'})
+                except sqlite3.Error:
+                    self.reply(503, {'error': 'database_unavailable'})
+        elif path in ("/dev/shadow", "/dev/api/shadow") or path in SHADOW_ASSETS:
+            if self.server.shadow_log is None and not (path in SHADOW_ASSETS and self.server.diagnostic_dashboard):
                 self.reply(404, {"error": "not_found"})
             elif path == "/dev/api/shadow":
                 self.reply(200, self.server.shadow_log.snapshot())
@@ -89,7 +110,7 @@ class Handler(BaseHTTPRequestHandler):
     do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = reject_write
 
 
-def create_server(database, *, port=8765, shadow_log=None):
+def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False):
     database = Path(database).resolve()
     with Store(database, read_only=True):
         pass  # Validate without creating, migrating or changing journal mode.
@@ -97,6 +118,7 @@ def create_server(database, *, port=8765, shadow_log=None):
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.database = database
     server.shadow_log = diagnostics
+    server.diagnostic_dashboard = diagnostic_dashboard
     return server
 
 
@@ -105,14 +127,18 @@ def main(argv=None):
     parser.add_argument("--db", type=Path, required=True, help="Existing current-schema database; never initialized by HTTP")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--shadow-log", type=Path, help="Opt in to /dev/shadow for one private/artifacts JSONL; read-only")
+    parser.add_argument('--diagnostic-dashboard', action='store_true', help='Opt in to /dashboard/CHANNEL backed by separate SQLite diagnostics')
     args = parser.parse_args(argv)
     if not 0 <= args.port <= 65535:
         parser.error("port must be 0..65535")
     try:
-        with create_server(args.db, port=args.port, shadow_log=args.shadow_log) as server:
+        with create_server(args.db, port=args.port, shadow_log=args.shadow_log,
+                           diagnostic_dashboard=args.diagnostic_dashboard) as server:
             print(f"Local read-only server: http://127.0.0.1:{server.server_port}/overlay/CHANNEL", flush=True)
             if server.shadow_log:
                 print(f"UNVERIFIED shadow viewer: http://127.0.0.1:{server.server_port}/dev/shadow", flush=True)
+            if server.diagnostic_dashboard:
+                print(f"SQLite diagnostic dashboard: http://127.0.0.1:{server.server_port}/dashboard/CHANNEL", flush=True)
             try:
                 server.serve_forever()
             except KeyboardInterrupt:

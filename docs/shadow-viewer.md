@@ -1,5 +1,9 @@
 # Local unverified shadow viewer
 
+The [local alpha](local-alpha.md) also reuses this renderer for opt-in
+`/dashboard/CHANNEL`, reading separate persisted SQLite diagnostics. The JSONL
+viewer described below retains its original behavior and access boundaries.
+
 `/dev/shadow` displays actual saved shadow-capture attempts. It is **off by
 default** and separate from the trusted state API, SQLite Store, OBS overlay and
 simulated leaderboard. There is no capture implementation or recognition here.

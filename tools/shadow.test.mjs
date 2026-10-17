@@ -10,9 +10,9 @@ class Element {
   replaceChildren(...children) { this.children = children; }
   setAttribute(key, value) { this.attributes[key] = String(value); }
 }
-function page() {
+function page(pathname = "/dev/shadow") {
   const elements = {}, timers = [];
-  const context = vm.createContext({Intl, Date, BigInt, AbortController, performance: {now: () => 0},
+  const context = vm.createContext({Intl, Date, BigInt, AbortController, location: {pathname}, performance: {now: () => 0},
     document: {hidden: false, getElementById: id => elements[id] ??= new Element(),
       createElement: tag => new Element(tag), createElementNS: (ns, tag) => new Element(tag)},
     fetch: () => new Promise(() => {}), setTimeout: (callback, delay) => { timers.push({callback, delay}); return timers.length; },
@@ -22,6 +22,29 @@ function page() {
   function render(data) { context.fixture = data; vm.runInContext('snapshot = fixture; receivedAt=0; render()', context); }
   return {elements, context, timers, evaluate, render};
 }
+
+test("SQLite dashboard keeps candidate values and trusted accounting separate", async () => {
+  const p = page('/dashboard/synthetic');
+  const data = state({storage:'sqlite_diagnostics', selected_character:{id:1,label:'Assigned <character>'},
+    session:{id:3,started_at:'2026-01-01T00:00:00Z'}, trusted_state:{last_trusted:null},
+    latest_reading:{observation:observation(1),age_seconds:60,stale:true}});
+  p.render(data);
+  assert.equal(p.elements.persisted.hidden, false);
+  assert.equal(p.elements.assignment.textContent, 'Assigned <character>');
+  assert.match(p.elements['latest-candidate'].textContent, /UNVERIFIED candidate: 100 EXP/);
+  assert.match(p.elements['candidate-age'].textContent, /STALE/);
+  assert.match(p.elements['trusted-summary'].textContent, /no trusted session observations/);
+  const requests = [];
+  p.context.fetch = async url => {requests.push(url); return {ok:true,json:async()=>data};};
+  await vm.runInContext('poll()',p.context);
+  assert.deepEqual(requests,['/dev/api/streams/synthetic/diagnostics']);
+  data.latest_reading.observation = observation(2,{candidate:null,percentage_only_candidate:{percentage:'70.51'}});
+  p.render(data);
+  assert.match(p.elements['latest-candidate'].textContent,/percentage only.*EXP unavailable/);
+  p.render({...data,session:null,selected_character:null,latest_reading:null,observations:[]});
+  assert.match(p.elements.session.textContent,/Start a session/);
+  assert.match(p.elements['latest-candidate'].textContent,/Waiting/);
+});
 function observation(index, overrides = {}) {
   return {index, channel: "synthetic", status: "diagnostic_pair", fresh_at_capture: true,
     received_at: new Date(Date.UTC(2026, 0, 1) + index * 15000).toISOString(), attempted_at: null,
