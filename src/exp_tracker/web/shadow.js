@@ -26,6 +26,17 @@ function levels(hypothesis) {
 function exactExp(value) {
   return value == null ? "—" : nf.format(BigInt(value));
 }
+function grammarCard(recovery) {
+  if (recovery?.classification !== "unique_proposal" || recovery.proposals?.length !== 1) return null;
+  const proposal = recovery.proposals[0], card = element("div");
+  card.className = "grammar-proposal";
+  card.append(element("small", "GRAMMAR-RECOVERED / EXPERIMENTAL / UNVERIFIED"),
+    element("code", `${recovery.raw} → ${proposal.interpretation}`),
+    element("small", `${exactExp(proposal.reading.exp)} EXP [${proposal.reading.percentage}%] · proposal only`),
+    element("small", `Edits (zero-based): ${proposal.edits.map(e => `${e.index}: ${e.old} → ${e.new} (${e.category})`).join("; ")}`),
+    element("small", "Source completeness and numeric digits unverified. No tracking or pace contribution."));
+  return card;
+}
 function timelineData(rows, interval) {
   const points = rows.map((row, position) => ({row, position, time: timeOf(row)})).filter(point => point.time !== null);
   const gaps = [];
@@ -113,6 +124,10 @@ function render() {
     document.getElementById("trusted-summary").textContent = snapshot.session && trusted?.last_trusted?.session_id === snapshot.session.id ?
       `Separate trusted engine: ${exactExp(trusted.observed_session_exp)} counted session EXP. Shadow candidates do not contribute.` :
       "Trusted session totals unavailable · no trusted session observations. These diagnostic candidates do not count EXP gains.";
+    const last = rows.at(-1), holder = document.getElementById("latest-grammar");
+    const card = !last?.candidate && !last?.percentage_only_candidate ? grammarCard(last?.grammar_recovery) : null;
+    holder.hidden = !card;
+    holder.replaceChildren(...(card ? [element("small", "Last attempt's text hypothesis; timestamp/age shown above"), card] : []));
   }
   document.getElementById("channel").textContent = snapshot?.mixed_channels ? "Mixed sources — see rows" : snapshot?.channel ? `ttv/${snapshot.channel}` : "Local video / channel unavailable";
   document.getElementById("source-status").textContent = snapshot?.source_status || "Waiting for diagnostics";
@@ -132,6 +147,11 @@ function render() {
       element("span", row.candidate ? `${exactExp(row.candidate.exp)} EXP [${row.candidate.percentage}%]` : row.percentage_only_candidate ? `${row.percentage_only_candidate.percentage}% · percentage only · EXP unavailable` : "No complete saved pair"));
     if (row.percentage_only_origin === "legacy_raw_parse") value.append(element("small", "Percentage-only syntax parsed for display from legacy raw text"));
     if (row.partial_percentage_evidence) value.append(element("small", `Partial only: ${row.partial_percentage_evidence.percentage}% · not a complete observation`));
+    if (!row.candidate && !row.percentage_only_candidate) {
+      const card = grammarCard(row.grammar_recovery);
+      if (card) value.append(card);
+      else if (row.grammar_recovery) value.append(element("small", `Grammar: ${row.grammar_recovery.classification} · ${row.grammar_recovery.reason}`));
+    }
     const visual = element("td", row.visual_level ?? "—");
     visual.append(element("small", `Tesseract (UNVERIFIED): ${row.visual_status ?? "unavailable"}`));
     if (row.visual_attempts?.length) visual.append(element("small", `Raw passes: ${row.visual_attempts.map(text => text ?? "[redacted]").join(" / ")}`));

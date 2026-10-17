@@ -57,6 +57,27 @@ function state(overrides = {}) {
     observations: [observation(1)], interval_seconds: 15, age_seconds: 5, stale_after_seconds: 45, ...overrides};
 }
 
+test("grammar proposals render separately and never become timeline or latest strict values", () => {
+  const p=page('/dashboard/synthetic');
+  const recovery={classification:'unique_proposal',raw:'123,456112.34%1',proposals:[{
+    interpretation:'123,456[12.34%]',reading:{exp:'123456',percentage:'12.34'},
+    edits:[{index:7,old:'1',new:'[',category:'opening_bracket'}]}]};
+  const row=observation(1,{candidate:null,raw_text:recovery.raw,grammar_recovery:recovery});
+  p.render(state({storage:'sqlite_diagnostics',session:{id:1,started_at:'2026-01-01'},
+    selected_character:{label:'Explicit'},latest_reading:null,trusted_state:{last_trusted:null},observations:[row]}));
+  const card=p.elements.readings.children[0].children[2].children.at(-1);
+  assert.equal(card.className,'grammar-proposal');
+  assert.equal(card.children[0].textContent,'GRAMMAR-RECOVERED / EXPERIMENTAL / UNVERIFIED');
+  assert.match(card.children[1].textContent,/123,456112.34%1 → 123,456\[12.34%\]/);
+  assert.ok(p.elements.timeline.children.every(n=>n.attributes.class!=='sample'));
+  assert.ok(p.elements['percentage-timeline'].children.every(n=>n.attributes.class!=='sample'));
+  assert.match(p.elements['latest-candidate'].textContent,/Waiting/);
+  assert.equal(p.elements['latest-grammar'].hidden,false);
+  row.grammar_recovery={classification:'ambiguous',reason:'multiple_interpretations_abstain',proposals:recovery.proposals};
+  p.render(state({observations:[row]}));
+  assert.notEqual(p.elements.readings.children[0].children[2].children.at(-1).className,'grammar-proposal');
+});
+
 test("raw and candidate values stay distinct; neither hypothesis supplies missing visual level", () => {
   const p = page(); p.render(state());
   const row = p.elements.readings.children[0];

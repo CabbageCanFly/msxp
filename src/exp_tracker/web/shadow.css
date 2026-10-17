@@ -36,6 +36,9 @@ td small { display: block; color: #abbcd0; }
 td code { display: block; color: #c9f0e7; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 230px; }
 .warning { color: #edc585; }
 .rejected-row td { background: #66423912; }
+.grammar-proposal { border-left: 2px solid #d6ab69; padding: 6px 9px; margin-top: 8px; overflow-wrap: anywhere; }
+.grammar-proposal small, .grammar-proposal code { display: block; }
+.grammar-proposal small { color: #dfc38e; font-size: 10px; }
 #count { color: #a6bbcc; font-weight: normal; font-size: 12px; }
 #empty { color: #abbcd0; font-size: 13px; }
 footer { margin-top: 20px; }

@@ -1,5 +1,9 @@
 # Grammar hypotheses and percentage endpoint diagnostics
 
+Follow-up: [bounded live full-EXP proposals](live-grammar-recovery.md) adds a narrower
+read-only dashboard mode. The historical experiment and percentage calculations
+documented below retain their original rules and evidence.
+
 No acceptance policy changes. Strict full-pair/percentage-only parsers, models,
 thresholds, shadow capture/viewer, production recognition, Store, statistics,
 OBS overlay and leaderboard remain unchanged. The two-stream reviewed trial is

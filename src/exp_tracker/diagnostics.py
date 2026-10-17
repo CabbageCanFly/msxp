@@ -11,6 +11,7 @@ import sys
 
 from .shadow_view import MAX_LINE, MAX_ROWS, ShadowLog, observation, timestamp
 from .store import Store, utc
+from .shadow_grammar import propose_full_exp
 
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
 
@@ -163,6 +164,7 @@ class Diagnostics:
             previous = None
             for row in rows:
                 value = observation(json.loads(row['payload_json']))  # Same HTTP allowlist as the log viewer.
+                value['grammar_recovery'] = propose_full_exp(value['raw_text'])
                 when = value['received_at'] or value['attempted_at']
                 value.update(event_id=f"{row['run_id']}:{row['attempt_index']}", run_id=row['run_id'],
                              timestamp_ordered=previous is None or when > previous)

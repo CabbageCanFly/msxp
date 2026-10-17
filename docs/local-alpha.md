@@ -5,6 +5,12 @@ capture, SQLite diagnostics and a real-data dashboard. This is local-only,
 read-only over HTTP and **experimental/unverified**, not trusted neural tracking.
 No new dependency, model, account or scheduler is needed.
 
+The SQLite dashboard now also derives [bounded grammar proposals](live-grammar-recovery.md)
+from malformed raw EXP strings. They are labeled GRAMMAR-RECOVERED / EXPERIMENTAL /
+UNVERIFIED, separately from strict candidates. Original logs/rows, launcher success
+counts, both strict timelines and all tracking/pace calculations are unchanged.
+Restart the server to inspect existing observations; no recapture or migration.
+
 ## Simplest startup: one explicitly configured stream
 
 From the repository root, with the existing capture dependencies/private models:

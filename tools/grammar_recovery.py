@@ -5,6 +5,7 @@ import re
 from analyze_temporal_ocr import complete_pair
 from exp_tracker.parsing import parse_level
 from exp_tracker.shadow_types import parse_percentage_only
+from exp_tracker.shadow_grammar import propose_full_exp  # Narrow live-display mode; historical propose() stays frozen.
 
 
 def strict_field(text):

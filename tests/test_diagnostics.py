@@ -277,3 +277,27 @@ def test_capture_binding_change_stops_persistence_but_keeps_jsonl_evidence(confi
     with Store(configured) as store:
         assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0] == 1
         assert store.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0] == 0
+
+
+def test_grammar_is_derived_read_only_without_changing_candidates_or_trusted_state(configured):
+    row = attempt()
+    row.update(candidate=None, status='malformed_or_unavailable', neural=dict(text='123,456112.34%1'),
+               grammar_recovery=dict(classification='forged', proposals=['never use saved proposals']))
+    with Store(configured) as store:
+        diagnostic=Diagnostics(store)
+        diagnostic.begin('grammar', 'alpha', CONFIG)
+        diagnostic.append('grammar', row)
+        payload=store.db.execute('SELECT payload_json FROM diagnostic_attempts').fetchone()[0]
+        trusted=store.state('alpha', as_of=NOW)
+    before=configured.read_bytes()
+    with Store(configured,read_only=True) as store:
+        snapshot=Diagnostics(store).snapshot('alpha',now=NOW)
+        value=snapshot['observations'][0]
+        assert value['grammar_recovery']['classification']=='unique_proposal'
+        assert value['grammar_recovery']['proposals'][0]['reading']['exp']=='123456'
+        assert value['candidate'] is None and value['percentage_only_candidate'] is None
+        assert value['raw_text']=='123,456112.34%1'
+        assert snapshot['latest_reading'] is None and snapshot['trusted_state']==trusted
+        assert store.db.execute('SELECT payload_json FROM diagnostic_attempts').fetchone()[0]==payload
+        assert store.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==0
+    assert configured.read_bytes()==before

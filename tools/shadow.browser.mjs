@@ -73,13 +73,16 @@ try {
     raw:row.children[2].querySelector('code').textContent,
     pair:row.children[2].querySelector('span').textContent,
     visual:row.children[3].firstChild.textContent,
-    nearest:row.children[4].textContent, truncation:row.children[5].textContent}))`);
+    nearest:row.children[4].textContent, truncation:row.children[5].textContent,
+    grammar:row.children[2].querySelector('.grammar-proposal code')?.textContent ?? null}))`);
   expected.observations.forEach((row, index) => {
     assert.equal(displayed[index].raw, row.raw_text ?? "—");
     assert.equal(displayed[index].visual, String(row.visual_level ?? "—"));
     if (row.candidate) assert.equal(displayed[index].pair, `${new Intl.NumberFormat('en-US').format(BigInt(row.candidate.exp))} EXP [${row.candidate.percentage}%]`);
     if (row.percentage_only_candidate) assert.match(displayed[index].pair, /percentage only.*EXP unavailable/);
     assert.equal(displayed[index].nearest, `${row.hypotheses.nearest_half_up.status} · ${row.hypotheses.nearest_half_up.levels.join(', ') || 'no candidates'}`);
+    const grammar=row.grammar_recovery;
+    assert.equal(displayed[index].grammar, grammar?.classification === 'unique_proposal' ? `${grammar.raw} → ${grammar.proposals[0].interpretation}` : null);
   });
   await delay(2300);
   assert.ok(await evaluate(`performance.getEntriesByType("resource").filter(r => r.name.includes(${JSON.stringify(endpoint)})).length >= 2`));
