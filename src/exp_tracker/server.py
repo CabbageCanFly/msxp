@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
+import threading
 from urllib.parse import unquote, urlsplit
 
 from .store import STALE_AFTER_SECONDS, Store, utc
@@ -27,6 +28,7 @@ SHADOW_ASSETS = {
     "/static/shadow.css": ("shadow.css", "text/css"),
     "/static/shadow.js": ("shadow.js", "text/javascript"),
 }
+DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
 
@@ -54,7 +56,20 @@ class Handler(BaseHTTPRequestHandler):
         overlay = re.fullmatch(r"/overlay/([^/]*)", path)
         dashboard = re.fullmatch(r"/dashboard/([^/]*)", path)
         diagnostic_api = re.fullmatch(r"/dev/api/streams/([^/]*)/diagnostics", path)
-        if dashboard or diagnostic_api:
+        if path in ('/streams','/dev/api/streams') or path in DIRECTORY_ASSETS:
+            if not self.server.diagnostic_dashboard:
+                self.reply(404, {'error':'not_found'})
+            elif path == '/dev/api/streams':
+                try:
+                    with self.server.directory_lock, Store(self.server.database,read_only=True) as store:
+                        self.reply(200,Diagnostics(store).directory(self.server.directory_cache,
+                            active_runs=self.server.active_run_ids.copy()))
+                except (ValueError,sqlite3.Error):
+                    self.reply(503,{'error':'database_unavailable'})
+            else:
+                name,kind = DIRECTORY_ASSETS.get(path,('streams.html','text/html'))
+                self.reply(200,(WEB/name).read_bytes(),kind)
+        elif dashboard or diagnostic_api:
             channel = (dashboard or diagnostic_api)[1]
             if not self.server.diagnostic_dashboard:
                 self.reply(404, {"error": "not_found"})
@@ -65,7 +80,7 @@ class Handler(BaseHTTPRequestHandler):
                     with Store(self.server.database, read_only=True) as store:
                         channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login LIMIT 25')]
                         store._channel(channel)
-                        value = Diagnostics(store).snapshot(channel) if diagnostic_api else None
+                        value = Diagnostics(store).snapshot(channel,active_runs=self.server.active_run_ids.copy()) if diagnostic_api else None
                     if dashboard:
                         self.reply(200, (WEB / 'shadow.html').read_bytes(), 'text/html')
                     else:
@@ -130,6 +145,9 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.database = database
     server.shadow_log = diagnostics
     server.diagnostic_dashboard = diagnostic_dashboard
+    server.active_run_ids = set()
+    server.directory_cache = {}
+    server.directory_lock = threading.Lock()
     return server
 
 
@@ -151,6 +169,7 @@ def main(argv=None):
             if server.shadow_log:
                 print(f"UNVERIFIED shadow viewer: http://127.0.0.1:{server.server_port}/dev/shadow", flush=True)
             if server.diagnostic_dashboard:
+                print(f"Streamer directory: http://127.0.0.1:{server.server_port}/streams",flush=True)
                 with Store(server.database, read_only=True) as store:
                     channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login LIMIT 25')]
                 for channel in channels:

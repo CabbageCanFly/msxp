@@ -1,6 +1,7 @@
 """Experimental shadow persistence. This module never calls trusted ingestion."""
 
 import argparse
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -13,6 +14,7 @@ from .shadow_view import MAX_LINE, MAX_ROWS, ShadowLog, observation, timestamp
 from .store import Store, utc
 from .shadow_grammar import interpret_exp, propose_full_exp
 from .exp_requirements import community_table, requirement
+from .diagnostic_progress import progress
 
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
 
@@ -165,76 +167,150 @@ class Diagnostics:
         return dict(run_id=run_id, session_id=binding['session_id'], character_id=binding['character_id'],
                     inserted_records=inserted, source_sha256=hashlib.sha256(data).hexdigest(), trusted=False)
 
-    def snapshot(self, channel, *, now=None):
+    def snapshot(self, channel, *, now=None, active_runs=None):
         now = now or datetime.now(timezone.utc)
         with self.store._transaction():
-            state = self.store._state(channel, as_of=now)
-            selected = next((c for c in state['characters'] if c['id'] == state['selected_character_id']), None)
-            session = state['session']
-            run = self.db.execute('''SELECT rowid,* FROM diagnostic_runs WHERE session_id=?
-                ORDER BY rowid DESC LIMIT 1''', (session['id'],)).fetchone() if session else None
-            result = dict(trusted=False, storage='sqlite_diagnostics', served_at=utc(now), log_status='ready',
-                channel=state['channel'], selected_character=selected, session=session,
-                source_status='waiting' if session else 'unconfigured', run_status='waiting', run_id=None,
-                age_seconds=None, stale=False, interval_seconds=None, stale_after_seconds=45, poll_seconds=2,
-                observations=[], truncated=False, mixed_channels=False, latest_reading=None,
-                trusted_state=state)
-            table, sha = community_table()
-            result['requirements_table'] = dict(version=table['version'], sha256=sha,
-                status=table['status'], agreeing_levels=[1, 89], disputed_levels=[90, 99],
-                missing_levels=[100, 200], authoritative=False)
-            result['coverage'] = coverage([], 0)
-            if not run:
-                return result
-            configuration = json.loads(run['configuration_json'])
-            rows = list(self.db.execute('''SELECT a.*, r.configuration_json FROM diagnostic_attempts a
-                JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?
-                ORDER BY a.id DESC LIMIT ?''', (session['id'], MAX_ROWS + 1)))
-            result['truncated'] = len(rows) > MAX_ROWS
-            rows = list(reversed(rows[:MAX_ROWS]))
-            observations = []
-            previous = None
-            for row in rows:
-                payload = json.loads(row['payload_json'])
-                value = observation(payload)  # Same HTTP allowlist as the log viewer.
-                value['grammar_recovery'] = propose_full_exp(value['raw_text'])
-                value['interpretations'] = interpret_exp(value['raw_text'])
-                value['interval_seconds'] = json.loads(row['configuration_json'])['interval']
-                localization = payload.get('localization')
-                count = localization.get('count') if isinstance(localization, dict) else None
-                value['hud_count'] = count if type(count) is int and 0 <= count <= 200 else None
-                value['capture_acquired'] = False if value['status'] == 'capture_failed' else (
-                    True if value['received_at'] is not None else None)
-                value['requirements'] = dict(visual=requirement(value['visual_level']),
-                    neural=requirement((value['neural_level'] or {}).get('level')))
-                when = value['received_at'] or value['attempted_at']
-                value.update(event_id=f"{row['run_id']}:{row['attempt_index']}", run_id=row['run_id'],
-                             timestamp_ordered=previous is None or when > previous)
-                previous = max(previous, when) if previous else when
-                observations.append(value)
-            total = self.db.execute('''SELECT COUNT(*) FROM diagnostic_attempts a
-                JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?''', (session['id'],)).fetchone()[0]
-            result['coverage'] = coverage(observations, total)
-            interval = configuration['interval']
-            summary = json.loads(run['summary_json']) if run['summary_json'] else None
-            result.update(run_id=run['run_id'], observations=observations, interval_seconds=interval,
-                stale_after_seconds=max(45, 3 * interval),
-                run_status=('interrupted' if summary.get('interrupted') else 'completed') if summary else 'unfinished')
-            if observations:
-                latest = observations[-1]
-                when = latest['received_at'] or latest['attempted_at']
-                age = (now - datetime.fromisoformat(when)).total_seconds()
-                result.update(source_status=latest['status'], age_seconds=max(0, age),
-                              stale=age < 0 or age > result['stale_after_seconds'] or not latest['timestamp_ordered'])
-                # The latest attempt can fail; an older candidate is explicitly aged, never made current.
-                reading = next((o for o in reversed(observations) if o['timestamp_ordered'] and
-                                (o['candidate'] or o['percentage_only_candidate'])), None)
-                if reading:
-                    age = (now - datetime.fromisoformat(reading['received_at'] or reading['attempted_at'])).total_seconds()
-                    result['latest_reading'] = dict(observation=reading, age_seconds=max(0, age),
-                        stale=age < 0 or age > result['stale_after_seconds'] or not reading['fresh_at_capture']
-                              or not reading['timestamp_ordered'])
+            return self._snapshot(channel, now=now, active_runs=active_runs)
+
+    def _snapshot(self, channel, *, now, active_runs=None):
+        state = self.store._state(channel, as_of=now)
+        selected = next((c for c in state['characters'] if c['id'] == state['selected_character_id']), None)
+        session = state['session']
+        run = self.db.execute('''SELECT rowid,* FROM diagnostic_runs WHERE session_id=?
+            ORDER BY rowid DESC LIMIT 1''', (session['id'],)).fetchone() if session else None
+        result = dict(trusted=False, storage='sqlite_diagnostics', served_at=utc(now), log_status='ready',
+            channel=state['channel'], selected_character=selected, session=session,
+            source_status='waiting' if session else 'unconfigured', run_status='waiting', run_id=None,
+            age_seconds=None, stale=False, interval_seconds=None, stale_after_seconds=45, poll_seconds=2,
+            observations=[], truncated=False, mixed_channels=False, latest_reading=None,
+            trusted_state=state)
+        table, sha = community_table()
+        result['requirements_table'] = dict(version=table['version'], sha256=sha,
+            status=table['status'], agreeing_levels=[1, 89], disputed_levels=[90, 99],
+            missing_levels=[100, 200], authoritative=False)
+        result['coverage'] = coverage([], 0)
+        result['unfinished_run_count'] = self.db.execute(
+            'SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=? AND summary_json IS NULL',
+            (session['id'],)).fetchone()[0] if session else 0
+        if not run:
+            result['percentage_progress'] = progress([],now=now)
             return result
+        configuration = json.loads(run['configuration_json'])
+        rows = list(self.db.execute('''SELECT a.*, r.configuration_json, r.summary_json FROM diagnostic_attempts a
+            JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?
+            ORDER BY a.id DESC LIMIT ?''', (session['id'], MAX_ROWS + 1)))
+        result['truncated'] = len(rows) > MAX_ROWS
+        rows = list(reversed(rows[:MAX_ROWS]))
+        observations = []
+        previous = None
+        for row in rows:
+            payload = json.loads(row['payload_json'])
+            value = observation(payload)  # Same HTTP allowlist as the log viewer.
+            value['grammar_recovery'] = propose_full_exp(value['raw_text'])
+            value['interpretations'] = interpret_exp(value['raw_text'])
+            value['interval_seconds'] = json.loads(row['configuration_json'])['interval']
+            value.update(assigned_channel=state['channel'], character_id=selected['id'], session_id=session['id'],
+                         run_interrupted=bool(row['summary_json'] and json.loads(row['summary_json']).get('interrupted')))
+            localization = payload.get('localization')
+            count = localization.get('count') if isinstance(localization, dict) else None
+            value['hud_count'] = count if type(count) is int and 0 <= count <= 200 else None
+            value['capture_acquired'] = False if value['status'] == 'capture_failed' else (
+                True if value['received_at'] is not None else None)
+            value['requirements'] = dict(visual=requirement(value['visual_level']),
+                neural=requirement((value['neural_level'] or {}).get('level')))
+            when = value['received_at'] or value['attempted_at']
+            value.update(event_id=f"{row['run_id']}:{row['attempt_index']}", run_id=row['run_id'],
+                         timestamp_ordered=previous is None or when > previous)
+            previous = max(previous, when) if previous else when
+            observations.append(value)
+        total = self.db.execute('''SELECT COUNT(*) FROM diagnostic_attempts a
+            JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?''', (session['id'],)).fetchone()[0]
+        result['coverage'] = coverage(observations, total)
+        interval = configuration['interval']
+        summary = json.loads(run['summary_json']) if run['summary_json'] else None
+        result.update(run_id=run['run_id'], observations=observations, interval_seconds=interval,
+            stale_after_seconds=max(45, 3 * interval),
+            run_status=('interrupted' if summary.get('interrupted') else 'completed') if summary else 'unfinished')
+        if observations:
+            latest = observations[-1]
+            when = latest['received_at'] or latest['attempted_at']
+            age = (now - datetime.fromisoformat(when)).total_seconds()
+            result.update(source_status=latest['status'], age_seconds=max(0, age),
+                          stale=age < 0 or age > result['stale_after_seconds'] or not latest['timestamp_ordered'])
+            # The latest attempt can fail; an older candidate is explicitly aged, never made current.
+            reading = next((o for o in reversed(observations) if o['timestamp_ordered'] and
+                            (o['candidate'] or o['percentage_only_candidate'])), None)
+            if reading:
+                age = (now - datetime.fromisoformat(reading['received_at'] or reading['attempted_at'])).total_seconds()
+                result['latest_reading'] = dict(observation=reading, age_seconds=max(0, age),
+                    stale=age < 0 or age > result['stale_after_seconds'] or not reading['fresh_at_capture']
+                          or not reading['timestamp_ordered'])
+        if active_runs is not None and result['run_status']=='unfinished' and run['run_id'] in active_runs:
+            result['run_status']='active'
+        result['percentage_progress'] = progress(observations,now=now,stale_after_seconds=result['stale_after_seconds'],current_run_id=run['run_id'])
+        return result
+
+    def directory(self, cache, *, now=None, active_runs=None):
+        """Cache compact cards by committed revision; never retain full histories."""
+        now = now or datetime.now(timezone.utc)
+        cards = []
+        with self.store._transaction():
+            heads = list(self.db.execute('''SELECT s.login,s.selected_character_id,se.id AS session_id,
+                r.run_id,r.summary_json,
+                (SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=se.id AND summary_json IS NULL) AS unfinished_count,
+                (SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id
+                 WHERE dr.session_id=se.id) AS last_attempt_id
+                FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
+                LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
+                ORDER BY s.login LIMIT 26'''))
+            for head in heads[:25]:
+                key = tuple(head)
+                cached = cache.get(head['login'])
+                if cached is None or cached[0] != key:
+                    snap = self._snapshot(head['login'],now=now)
+                    p = snap['percentage_progress']
+                    last = snap['observations'][-1] if snap['observations'] else {}
+                    full = None
+                    for row in reversed(snap['observations']):
+                        if not row['timestamp_ordered'] or row['candidate_invalid'] or row['percentage_only_invalid']: continue
+                        proposal = row['interpretations']['full_exp']
+                        reading = row['candidate'] or (proposal['proposals'][0]['reading'] if proposal['classification']=='unique_proposal' else None)
+                        if reading:
+                            full = dict(exp=reading['exp'],percentage=reading['percentage'],
+                                evidence='strict_full' if row['candidate'] else 'grammar_recovered',
+                                event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'])
+                            break
+                    point = p['latest_percentage']
+                    card = dict(channel=snap['channel'],character=snap['selected_character'],session=snap['session'],
+                        source_status=snap['source_status'],run_status=snap['run_status'],run_id=snap['run_id'],
+                        reasons=last.get('reasons',[]),
+                        last_attempt_at=last.get('received_at') or last.get('attempted_at'),
+                        last_attempt_noncurrent=last.get('timestamp_ordered') is False or not last.get('fresh_at_capture'),
+                        percentage={k:point[k] for k in ('percentage','evidence','timestamp','event_id')} if point else None,
+                        full_exp=full,visual_level=last.get('visual_level'),neural_level=(last.get('neural_level') or {}).get('level'),
+                        movement=p['latest_movement'],progress_reason=p['reason'],pace=p['current_pace'],
+                        stale_after_seconds=snap['stale_after_seconds'],history_limit=MAX_ROWS,
+                        history_truncated=snap['truncated'],trusted=False)
+                    card['unfinished_run_count'] = snap['unfinished_run_count']
+                    cache[head['login']] = (key,card)
+                card = deepcopy(cache[head['login']][1])
+                def age(when):
+                    return (now-datetime.fromisoformat(when)).total_seconds() if when else None
+                local_age = age(card['last_attempt_at'])
+                percentage_age = age((card['percentage'] or {}).get('timestamp'))
+                card.update(age_seconds=max(0,local_age) if local_age is not None else None,
+                    percentage_age_seconds=max(0,percentage_age) if percentage_age is not None else None,
+                    percentage_stale=percentage_age is None or percentage_age<0 or percentage_age>card['stale_after_seconds'],
+                    stale=local_age is None or local_age<0 or local_age>card['stale_after_seconds'] or card['last_attempt_noncurrent'])
+                if card['stale'] or percentage_age is None or percentage_age<0 or percentage_age>card['stale_after_seconds']:
+                    card['pace']=None
+                if card['run_status']=='unfinished' and active_runs is not None and card['run_id'] in active_runs:
+                    card['run_status']='active'
+                cards.append(card)
+            allowed = {head['login'] for head in heads[:25]}
+            for key in list(cache):
+                if key not in allowed: del cache[key]
+        return dict(streams=cards,truncated=len(heads)>25,poll_seconds=2,served_at=utc(now),trusted=False)
 
 
 def main(argv=None):

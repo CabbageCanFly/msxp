@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local streams · MS Classic EXP Tracker</title>
+  <link rel="icon" href="/static/leaderboard.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/shadow.css">
+  <script src="/static/streams.js" defer></script>
+</head>
+<body><main>
+  <header><div><p class="eyebrow">LOCAL APPLICATION · READ ONLY</p><h1>Streamer directory</h1></div><span class="badge">EXPERIMENTAL / UNVERIFIED</span></header>
+  <aside>Actual saved diagnostics from explicitly assigned channels and characters. OCR and recovered values are unverified. No trusted EXP gains, online status, rankings or ETA are inferred.</aside>
+  <p id="directory-notice" role="status" aria-live="polite">Loading configured streams…</p>
+  <div id="streams" class="stream-grid"></div>
+  <p id="directory-empty" hidden>No configured channels yet. Start the local multi-stream coordinator.</p>
+  <footer>Local capture age does not establish broadcast freshness or character identity. Cards summarize at most 120 recent attempts per selected session; unavailable values remain unavailable. Polls every two seconds while visible.</footer>
+  <noscript>JavaScript is required to display the read-only directory.</noscript>
+</main></body></html>

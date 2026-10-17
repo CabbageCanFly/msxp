@@ -360,6 +360,60 @@ def test_shadow_frontend_logic():
     subprocess.run([node, '--test', 'tools/shadow.test.mjs'], check=True, timeout=20)
 
 
+def test_stream_directory_frontend_logic():
+    node = shutil.which('node')
+    if not node: pytest.skip('Optional Node.js frontend tests')
+    subprocess.run([node,'--test','tools/streams.test.mjs'],check=True,timeout=20)
+
+
+def test_directory_opt_in_cache_freshness_and_assignment_isolation(database,monkeypatch):
+    with server.create_server(database,port=0) as httpd:
+        for path in ('/streams','/dev/api/streams','/static/streams.js'):
+            assert request((httpd,None),path)[0]==404
+    with Store(database) as store:
+        for name in ('alpha','beta','waiting'):
+            store.add_channel(name)
+            char=store.add_character(name,f'{name} explicitly selected')
+            store.select_character(name,char);store.start_session(name)
+        d=Diagnostics(store)
+        for name in ('alpha','beta'):
+            d.begin(name,name,dict(type='configuration',trusted=False,interval=15))
+            d.append(name,dict(type='attempt',index=1,trusted=False,current=True,status='malformed_or_unavailable',
+                attempted_at='2026-01-01T00:00:00Z',received_at='2026-01-01T00:00:00Z',source=dict(kind='twitch',channel=name),
+                neural=dict(text='5,031[33,05%]'),visual_level=64,visual_status='available',localization=dict(count=1),
+                secret_url='https://private/playback?token=secret'))
+    before=database.read_bytes()
+    with server.create_server(database,port=0,diagnostic_dashboard=True) as httpd:
+        calls=[];original=Diagnostics._snapshot
+        def count(self,channel,**kwargs):
+            calls.append(channel);return original(self,channel,**kwargs)
+        monkeypatch.setattr(Diagnostics,'_snapshot',count)
+        code,headers,body=request((httpd,None),'/dev/api/streams?path=private.jsonl')
+        assert code==200 and b'secret' not in body and b'private.jsonl' not in body
+        result=json.loads(body);rows={r['channel']:r for r in result['streams']}
+        assert rows['alpha']['percentage']['percentage']=='33.05'
+        assert rows['alpha']['full_exp'] is None
+        assert rows['waiting']['source_status']=='waiting' and rows['waiting']['percentage'] is None
+        assert rows['alpha']['stale'] and rows['alpha']['run_status']=='unfinished'
+        assert headers['Cache-Control']=='no-store' and 'default-src' in headers['Content-Security-Policy']
+        first=len(calls);request((httpd,None),'/dev/api/streams');assert len(calls)==first
+        httpd.active_run_ids.add('alpha')
+        active=json.loads(request((httpd,None),'/dev/api/streams')[2])
+        assert next(r for r in active['streams'] if r['channel']=='alpha')['run_status']=='active'
+        assert request((httpd,None),'/streams')[0]==request((httpd,None),'/static/streams.js')[0]==200
+        assert request((httpd,None),'/dev/api/streams','POST')[0]==405
+        assert request((httpd,None),'/dashboard/beta')[0]==200
+        assert request((httpd,None),'/dashboard/no_such_channel')[0]==404
+    assert database.read_bytes()==before
+    with Store(database) as store:
+        char=store.add_character('alpha','Explicit switch')
+        store.select_character('alpha',char);store.start_session('alpha')
+    with server.create_server(database,port=0,diagnostic_dashboard=True) as httpd:
+        rows=json.loads(request((httpd,None),'/dev/api/streams')[2])['streams']
+        a=next(r for r in rows if r['channel']=='alpha')
+        assert a['percentage'] is None and a['character']['label']=='Explicit switch'
+
+
 def test_shadow_http_follows_completed_appends_without_touching_log(database, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     log = tmp_path / 'artifacts/growing.jsonl'

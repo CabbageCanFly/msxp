@@ -247,7 +247,9 @@ Changed files:
   `docs/live-grammar-recovery.md`, `docs/exp-consistency.md`, this document:
   current defaults, historical-policy distinction and reproduction.
 
-Next: a bounded **offline multi-source runner** with explicit per-channel character,
-database and capture limits, retaining this diagnostics-only boundary. Before any
+The [multi-stream alpha](multi-alpha.md) now implements bounded sequential capture,
+a shared database/directory and separately gated experimental percentage progress.
+Grammar proposals may contribute there; they still contribute no trusted accounting.
+Before any
 trusted neural ingestion, independently review source completeness/numeric errors
 and resolve build/table semantics; more punctuation coverage alone is insufficient.

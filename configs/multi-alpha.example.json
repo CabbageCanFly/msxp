@@ -1,0 +1,28 @@
+{
+  "database": "private/multi-alpha/tracking.sqlite3",
+  "port": 8765,
+  "streams": [
+    {
+      "channel": "offline_one",
+      "character": "Local character A",
+      "source": "file",
+      "file": "samples/sample-stream3.mp4",
+      "start": 1145,
+      "interval": 15,
+      "count": 3,
+      "experimental_neural_level": true,
+      "save_crops": true
+    },
+    {
+      "channel": "offline_two",
+      "character": "Local character B",
+      "source": "file",
+      "file": "samples/sample-stream.mp4",
+      "start": 599,
+      "interval": 15,
+      "count": 3,
+      "experimental_neural_level": true,
+      "save_crops": true
+    }
+  ]
+}

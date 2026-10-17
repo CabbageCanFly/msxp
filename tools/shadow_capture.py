@@ -232,6 +232,64 @@ def parser():
     return cli
 
 
+def capture_attempt(args, source, requirements, index, *, seek=None, session_factory=ShadowSession,
+                    analyze_frame=analyze, clock=time.monotonic):
+    """One bounded acquisition/OCR operation, shared by serial coordinators."""
+    attempt_started = clock()
+    record = dict(type='attempt', index=index, trusted=False, current=False,
+                  attempted_at=datetime.now(timezone.utc).isoformat(),
+                  source=dict(kind=source.kind, channel=source.value if source.kind == 'twitch' else None,
+                              requested_video_offset_seconds=seek, verified_source_pts=None),
+                  freshness=dict(source_age_known=False, broadcast_latency_known=False,
+                                 basis='local_decoder_receipt_only'),
+                  reasons=[], timings={}, source_bytes=0,
+                  candidate=None, visual_level=None, neural=None, localization=None,
+                  diagnostic_type='unavailable', percentage_only_candidate=None, partial_percentage_evidence=None,
+                  visual_status='not_run', neural_status='not_run',
+                  level_evidence=level_evidence(None, None, requirements))
+    if getattr(args,'experimental_neural_level',False):
+        record['neural_level']=empty_level('not_run')
+    session = None
+    tick = clock()
+    try:
+        session = session_factory(source, file_offset=seek or 0)
+        frame = session.frame(timeout=args.timeout, max_age=min(5, args.max_age))
+        record['received_at'] = frame.received_at
+        record['frame_sha256'] = hashlib.sha256(frame.png).hexdigest()
+        record['timings']['capture_wait_seconds'] = clock() - tick
+    except CaptureError as error:
+        record.update(status='capture_failed', reasons=[str(error)])
+        frame = None
+    except OSError:
+        record.update(status='capture_failed', reasons=['capture_process_failed'])
+        frame = None
+    finally:
+        if session is not None:
+            session.close()
+            record['source_bytes'] = session.source_bytes
+        record['timings']['capture_and_close_seconds'] = clock() - tick
+    if frame is not None:
+        tick = clock()
+        try:
+            experimental=getattr(args,'experimental_neural_level',False)
+            reader=(lambda crop,level: neural_line(crop,args.ocr_python,args.ocr_timeout,level,
+                     experimental_neural_level=True)) if experimental else (
+                     lambda crop: neural_line(crop,args.ocr_python,args.ocr_timeout))
+            options={'experimental_neural_level':True} if experimental else {}
+            analyzed = analyze_frame(frame, requirements, reader,
+                max_age=args.max_age,
+                crop_dir=args.output.with_suffix('') / f'{index:04d}' if args.save_crops else None,**options)
+            record['timings'].update(analyzed.pop('timings'))
+            record.update(analyzed)
+        except (OSError, RuntimeError, ValueError) as error:
+            # Only CaptureError carries a safe reason; library messages may contain URLs.
+            record.update(status='recognition_failed', current=False,
+                          reasons=[str(error) if isinstance(error, CaptureError) else 'recognition_failed'])
+        record['timings']['recognition_total_seconds'] = clock() - tick
+    record['timings']['attempt_seconds'] = clock() - attempt_started
+    return record
+
+
 def run(args, source, requirements, emit, *, session_factory=ShadowSession, analyze_frame=analyze,
         clock=time.monotonic, sleep=time.sleep):
     started = clock()
@@ -241,60 +299,10 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
     try:
         for index in range(args.count):
             sleep(max(0, deadline - clock()))
-            attempt_started = clock()
             attempted += 1
             seek = args.start + clock() - started if source.kind == 'file' else None
-            record = dict(type='attempt', index=index + 1, trusted=False, current=False,
-                          attempted_at=datetime.now(timezone.utc).isoformat(),
-                          source=dict(kind=source.kind, channel=source.value if source.kind == 'twitch' else None,
-                                      requested_video_offset_seconds=seek, verified_source_pts=None),
-                          freshness=dict(source_age_known=False, broadcast_latency_known=False,
-                                         basis='local_decoder_receipt_only'),
-                          reasons=[], timings={}, source_bytes=0,
-                          candidate=None, visual_level=None, neural=None, localization=None,
-                          diagnostic_type='unavailable', percentage_only_candidate=None, partial_percentage_evidence=None,
-                          visual_status='not_run', neural_status='not_run',
-                          level_evidence=level_evidence(None, None, requirements))
-            if getattr(args,'experimental_neural_level',False):
-                record['neural_level']=empty_level('not_run')
-            session = None
-            tick = clock()
-            try:
-                session = session_factory(source, file_offset=seek or 0)
-                frame = session.frame(timeout=args.timeout, max_age=min(5, args.max_age))
-                record['received_at'] = frame.received_at
-                record['frame_sha256'] = hashlib.sha256(frame.png).hexdigest()
-                record['timings']['capture_wait_seconds'] = clock() - tick
-            except CaptureError as error:
-                record.update(status='capture_failed', reasons=[str(error)])
-                frame = None
-            except OSError:
-                record.update(status='capture_failed', reasons=['capture_process_failed'])
-                frame = None
-            finally:
-                if session is not None:
-                    session.close()
-                    record['source_bytes'] = session.source_bytes
-                record['timings']['capture_and_close_seconds'] = clock() - tick
-            if frame is not None:
-                tick = clock()
-                try:
-                    experimental=getattr(args,'experimental_neural_level',False)
-                    reader=(lambda crop,level: neural_line(crop,args.ocr_python,args.ocr_timeout,level,
-                             experimental_neural_level=True)) if experimental else (
-                             lambda crop: neural_line(crop,args.ocr_python,args.ocr_timeout))
-                    options={'experimental_neural_level':True} if experimental else {}
-                    analyzed = analyze_frame(frame, requirements, reader,
-                        max_age=args.max_age,
-                        crop_dir=args.output.with_suffix('') / f'{index+1:04d}' if args.save_crops else None,**options)
-                    record['timings'].update(analyzed.pop('timings'))
-                    record.update(analyzed)
-                except (OSError, RuntimeError, ValueError) as error:
-                    # Only CaptureError carries a safe reason; library messages may contain URLs.
-                    record.update(status='recognition_failed', current=False,
-                                  reasons=[str(error) if isinstance(error, CaptureError) else 'recognition_failed'])
-                record['timings']['recognition_total_seconds'] = clock() - tick
-            record['timings']['attempt_seconds'] = clock() - attempt_started
+            record = capture_attempt(args, source, requirements, index+1, seek=seek,
+                session_factory=session_factory, analyze_frame=analyze_frame, clock=clock)
             emit(record)
             # No catch-up queue: skip elapsed schedule slots instead of replaying stale work.
             deadline += args.interval
@@ -306,7 +314,7 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
                 wall_seconds=clock() - started)
 
 
-def prepare(args):
+def prepare(args, *, allow_missing_video=False):
     """Shared offline preflight. No database writes or remote connections."""
     if not 1 <= args.count <= 60:
         raise ValueError('count must be 1..60')
@@ -321,7 +329,7 @@ def prepare(args):
         raise ValueError('--tracking-channel requires --db with a local video')
     if args.db and not (args.channel or args.tracking_channel):
         raise ValueError('--db requires an explicit channel assignment')
-    if args.file and not args.file.is_file():
+    if args.file and not args.file.is_file() and not allow_missing_video:
         raise ValueError('Video file not found')
     if not args.ocr_python.is_file() or not args.requirements.is_file():
         raise ValueError('Existing isolated OCR Python and requirements file are required')
@@ -339,6 +347,18 @@ def prepare(args):
     requirements = {int(key): value for key, value in table['to_next'].items()}
     infer_levels(None, None, requirements)  # Validate table without OCR predictions.
     return source, table_bytes, table, requirements
+
+
+def configuration(args, table_bytes, table, run_id=None):
+    return dict(type='configuration', trusted=False, interval=args.interval, count=args.count,
+        timeout=args.timeout, max_local_age=args.max_age, neural_timeout=args.ocr_timeout,
+        requirements_sha256=hashlib.sha256(table_bytes).hexdigest(),
+        table_provenance={key: value for key, value in table.items() if key != 'to_next'},
+        neural_scale=2, native_padding=2, queue_capacity=0, capture_mode='periodic_keyframes',
+        numerical_verification=False, character_identity_verified=False,
+        **({'run_id': run_id} if run_id else {}),
+        **({'experimental_neural_level': True, 'neural_level_preprocessing': 'neutral4'}
+           if args.experimental_neural_level else {}))
 
 
 def main(argv=None, *, on_record=None):
@@ -380,15 +400,7 @@ def main(argv=None, *, on_record=None):
                     raise
                 if on_record:
                     on_record(record, diagnostics is not None)
-            emit(dict(type='configuration', trusted=False, interval=args.interval, count=args.count,
-                      timeout=args.timeout, max_local_age=args.max_age, neural_timeout=args.ocr_timeout,
-                      requirements_sha256=hashlib.sha256(table_bytes).hexdigest(),
-                      table_provenance={key: value for key, value in table.items() if key != 'to_next'},
-                      neural_scale=2, native_padding=2, queue_capacity=0, capture_mode='periodic_keyframes',
-                      numerical_verification=False, character_identity_verified=False,
-                      **({'run_id':run_id} if diagnostics else {}),
-                      **({'experimental_neural_level':True,'neural_level_preprocessing':'neutral4'}
-                         if args.experimental_neural_level else {})))
+            emit(configuration(args, table_bytes, table, run_id))
             summary = run(args, source, requirements, emit)
             monitor.close()
             emit(summary)

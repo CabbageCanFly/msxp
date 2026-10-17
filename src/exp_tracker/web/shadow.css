@@ -14,6 +14,10 @@ aside { background: #293025; border-left: 3px solid #dcba65; padding: 14px; font
 .overview span, .muted, .overview small, footer { color: #abbcd0; font-size: 11px; line-height: 1.7; }
 .overview strong { font-size: 17px; margin: 6px 0; overflow-wrap: anywhere; }
 .panel { margin-top: 18px; }
+a { color: #a6dfcd; }
+.stream-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,350px),1fr)); gap: 16px; }
+.stream-card { overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+.stream-card small { color: #abbcd0; display: block; }
 #persisted { overflow-wrap: anywhere; }
 #notice { font-size: 12px; color: #dfc38e; min-height: 20px; }
 .chart-wrap, .table-wrap { overflow-x: auto; }

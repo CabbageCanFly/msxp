@@ -8,10 +8,11 @@ import {setTimeout as delay} from "node:timers/promises";
 const url = new URL(process.argv[2] || "http://127.0.0.1:8765/dev/shadow");
 assert.equal(url.hostname, "127.0.0.1");
 const dashboard = /^\/dashboard\/([A-Za-z0-9_]{1,25})$/.exec(url.pathname);
-assert.ok(url.pathname === "/dev/shadow" || dashboard);
-const endpoint = dashboard ? `/dev/api/streams/${dashboard[1]}/diagnostics` : '/dev/api/shadow';
+const isDirectory = url.pathname === '/streams';
+assert.ok(url.pathname === "/dev/shadow" || dashboard || isDirectory);
+const endpoint = isDirectory ? '/dev/api/streams' : dashboard ? `/dev/api/streams/${dashboard[1]}/diagnostics` : '/dev/api/shadow';
 const expected = await (await fetch(new URL(endpoint, url))).json();
-assert.ok(expected.observations.length > 0, "Use an opt-in server with a completed shadow log");
+assert.ok(isDirectory ? expected.streams.length > 0 : expected.observations.length > 0, "Use a populated opt-in local diagnostic server");
 const output = resolve(process.argv[3] || "artifacts/shadow-view");
 assert.ok(["artifacts", "private"].some(root => output.startsWith(resolve(root) + sep)), "Screenshots must stay private/ or artifacts/");
 mkdirSync(output, {recursive: true});
@@ -60,10 +61,11 @@ try {
   await command("Page.navigate", {url:url.href});
   let loaded = false;
   for (let i = 0; i < 100 && !loaded; i++) {
-    loaded = await evaluate(`document.querySelectorAll('#readings tr').length === ${expected.observations.length}`);
+    loaded = await evaluate(isDirectory ? `document.querySelectorAll('.stream-card').length === ${expected.streams.length}` : `document.querySelectorAll('#readings tr').length === ${expected.observations.length}`);
     if (!loaded) await delay(100);
   }
   assert.ok(loaded);
+  if (!isDirectory) {
   if (dashboard) {
     assert.equal(await evaluate('document.getElementById("persisted").hidden'), false);
     assert.equal(await evaluate('document.getElementById("assignment").textContent'), expected.selected_character.label);
@@ -86,6 +88,22 @@ try {
       derived?.percentage?.classification === 'unique_proposal' ? derived.percentage : row.grammar_recovery;
     assert.equal(displayed[index].grammar, grammar?.classification === 'unique_proposal' ? `${derived?.raw ?? grammar.raw} → ${grammar.proposals[0].interpretation}` : null);
   });
+  if (expected.percentage_progress) {
+    assert.equal(await evaluate('document.getElementById("experimental-progress").hidden'),false);
+    const point=expected.percentage_progress.latest_percentage;
+    if(point) assert.ok((await evaluate('document.getElementById("progress-latest").textContent')).includes(`${point.percentage}%`));
+    if(expected.percentage_progress.stale) assert.match(await evaluate('document.getElementById("progress-pace").textContent'),/unavailable.*old\/stopped/);
+  }
+  } else {
+    const cards=await evaluate('[...document.querySelectorAll(".stream-card")].map(card=>({channel:card.dataset.channel,text:card.textContent,href:card.querySelector("a").getAttribute("href")}))');
+    assert.deepEqual(cards.map(c=>c.channel),expected.streams.map(c=>c.channel));
+    expected.streams.forEach((row,i)=>{
+      assert.equal(cards[i].href,`/dashboard/${row.channel}`);
+      if(row.character) assert.ok(cards[i].text.includes(row.character.label));
+      if(row.percentage) assert.ok(cards[i].text.includes(row.percentage.percentage+'%'));
+      if(row.full_exp) assert.ok(cards[i].text.includes(new Intl.NumberFormat('en-US').format(BigInt(row.full_exp.exp))));
+    });
+  }
   await delay(2300);
   assert.ok(await evaluate(`performance.getEntriesByType("resource").filter(r => r.name.includes(${JSON.stringify(endpoint)})).length >= 2`));
   const apiMilliseconds = await evaluate(`performance.getEntriesByType("resource").filter(r => r.name.includes(${JSON.stringify(endpoint)})).map(r => r.duration)`);
@@ -101,12 +119,20 @@ try {
       rejected:document.querySelectorAll('#timeline .rejected').length,
       stale:document.querySelectorAll('#timeline .stale').length,
       percentageCandidates:document.querySelectorAll('#percentage-timeline .sample').length,
-      notice:document.getElementById('notice').textContent})`);
+      notice:(document.getElementById('notice') ?? document.getElementById('directory-notice')).textContent})`);
     assert.ok(measured.pageWidth <= width, `${name}: page overflow`);
     const shot = await command("Page.captureScreenshot", {format:"png", captureBeyondViewport:false});
     writeFileSync(join(output, `${name}.png`), Buffer.from(shot.data, "base64"));
     measurements.push({name, ...measured});
   }
+  if (isDirectory) {
+    await screenshot('directory-desktop',1440,1100);
+    await screenshot('directory-mobile',390,1500);
+    await evaluate('failed=true;renderDirectory()');
+    await screenshot('directory-cached-api-failure',1440,1100);
+    await evaluate('directory={streams:[]};failed=false;renderDirectory()');
+    await screenshot('directory-empty',390,800);
+  } else {
   await screenshot("test-shadow-desktop", 1440, 2000);
   await screenshot("test-shadow-mobile", 390, 1200);
   if (expected.observations.some(row => row.interpretations)) {
@@ -142,11 +168,13 @@ try {
   await evaluate('snapshot=originalSnapshot; requestError=true; render()');
   await screenshot("cached-api-failure", 1440, 1400);
   assert.ok(requests.every(request => new URL(request).origin === url.origin));
+  }
   assert.deepEqual(failures, []);
+  assert.ok(requests.every(request => new URL(request).origin === url.origin));
   writeFileSync(join(output,"browser-measurements.json"),JSON.stringify({measurements,requests,
-    observations:expected.observations.length,apiMilliseconds,
+    observations:expected.observations?.length ?? null,streams:expected.streams?.length ?? null,apiMilliseconds,
     jsHeapUsedBytes:metrics.find(metric => metric.name === 'JSHeapUsedSize')?.value},null,2));
-  console.log(`Verified ${expected.observations.length} saved attempts, repeated polling and ${measurements.length} screenshots. ${output}`);
+  console.log(`Verified ${isDirectory ? expected.streams.length+' directory cards' : expected.observations.length+' saved attempts'}, repeated polling and ${measurements.length} screenshots. ${output}`);
 } finally {
   socket?.close(); child.kill(); closeSync(log);
 }

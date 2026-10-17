@@ -347,3 +347,23 @@ def test_v2_queryable_after_restart_without_payload_changes_or_trusted_promotion
             assert [r[0] for r in store.db.execute('SELECT payload_json FROM diagnostic_attempts')] == [r[0] for r in before]
             assert store.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0] == 0
     assert configured.read_bytes() == db_bytes
+
+
+def test_directory_cache_keeps_newer_values_and_recomputes_age_without_loading_history(configured,monkeypatch):
+    with Store(configured) as store:
+        d=Diagnostics(store);d.begin('ordered','alpha',CONFIG)
+        first=attempt(1);first.update(received_at=first['attempted_at'],localization=dict(count=1))
+        d.append('ordered',first)
+        old=attempt(2);old.update(attempted_at=NOW.isoformat(),received_at=NOW.isoformat(),
+            candidate=[999,26.0],neural=dict(text='999[26.00%]'),localization=dict(count=1))
+        d.append('ordered',old)
+    cache={}
+    with Store(configured,read_only=True) as store:
+        d=Diagnostics(store)
+        initial=d.directory(cache,now=NOW+timedelta(seconds=16))['streams'][0]
+        assert initial['full_exp']['exp']=='101' and initial['percentage']['percentage']=='25.00'
+        assert initial['stale'] and initial['percentage_age_seconds']==1
+        monkeypatch.setattr(d,'_snapshot',lambda *a,**kw:pytest.fail('Unchanged revision reloaded history'))
+        later=d.directory(cache,now=NOW+timedelta(seconds=116))['streams'][0]
+        assert later['percentage_age_seconds']==101 and later['percentage_stale']
+        assert later['pace'] is None

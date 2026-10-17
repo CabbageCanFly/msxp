@@ -35,7 +35,7 @@ function grammarCard(recovery, percentageOnly = false, raw = recovery?.raw) {
     element("small", percentageOnly ? `Recovered percentage: ${proposal.reading.percentage}% · Absolute EXP: unavailable` :
       `${exactExp(proposal.reading.exp)} EXP [${proposal.reading.percentage}%] · proposal only`),
     element("small", `Edits (zero-based): ${proposal.edits.map(e => `${e.index}: ${e.old} → ${e.new} (${e.category})`).join("; ")}`),
-    element("small", "Source completeness and numeric digits unverified. No tracking or pace contribution."));
+    element("small", "Source completeness and numeric digits unverified. No trusted accounting contribution; may qualify for separate experimental percentage progress."));
   return card;
 }
 function grammarCards(row) {
@@ -158,10 +158,46 @@ function renderStatus() {
       `Candidate ${Math.floor(age)}s old · ${latest.stale || age > snapshot.stale_after_seconds ? "STALE" : "local age only"} · broadcast freshness unknown`;
   }
   document.getElementById("notice").textContent = notices.join(" · ") || "Read-only UNVERIFIED diagnostics · local delivery does not prove source freshness";
+  const runLabel=requestError && snapshot?.run_status==="active" ? "previously active; current activity unknown" : snapshot?.run_status || "waiting";
+  document.getElementById("run-status").textContent = `Run: ${runLabel} · UNVERIFIED${snapshot?.unfinished_run_count ? ` · ${snapshot.unfinished_run_count} unfinished database run(s); activity established only when marked active` : ""}`;
+  renderProgress();
+}
+function renderProgress() {
+  const data = snapshot?.percentage_progress, holder = document.getElementById("experimental-progress");
+  holder.hidden = !data;
+  if (!data) return;
+  const elapsed = (performance.now()-receivedAt)/1000;
+  const stale = data.stale || data.age_seconds == null || data.age_seconds+elapsed>snapshot.stale_after_seconds;
+  const point = data.latest_percentage, movement = data.latest_movement, segment = data.current_segment;
+  const label = kind => ({strict_full:"original strict full EXP",strict_percentage_only:"original percentage-only",grammar_recovered:"grammar-recovered proposal"}[kind] ?? "unavailable");
+  const reason = code => (code ?? "unavailable").replaceAll("_"," ");
+  document.getElementById("progress-latest").textContent = point ?
+    `Last displayed percentage: ${point.percentage}% · ${label(point.evidence)} · ${Math.floor((data.age_seconds ?? 0)+elapsed)}s old${stale?" · STALE":" · local age only"}` : "No usable percentage in recent history";
+  document.getElementById("progress-movement").textContent = movement?.difference_bp != null ?
+    `Last displayed movement: ${movement.difference_bp>0?"+":""}${movement.difference_percentage_points} percentage points${movement.change==="negative"?" · segment ended; no level-up inferred":" · UNVERIFIED"}` :
+    `Comparable movement unavailable: ${reason(movement?.reason ?? data.reason)}`;
+  document.getElementById("progress-segment").textContent = segment ?
+    `Recent segment: ${segment.start_percentage}% → ${segment.end_percentage}% · ${segment.readings} attempts / ${segment.span_seconds.approximate.toFixed(3)}s · visual level ${segment.level}. Strict full ${segment.evidence_counts.strict_full}, strict percentage-only ${segment.evidence_counts.strict_percentage_only}, recovered ${segment.evidence_counts.grammar_recovered}. No missing intermediate attempts.` :
+    `No current eligible segment: ${reason(data.reason)}. Individual percentage points remain visible.`;
+  const pace = !stale && !requestError ? data.current_pace : null;
+  document.getElementById("progress-pace").textContent = pace ?
+    `EXPERIMENTAL / UNVERIFIED recent pace: ${pace.value.approximate.toFixed(2)} percentage points/hour` :
+    `Percentage pace unavailable: ${requestError?"viewer disconnected":stale?"updates old/stopped":reason(segment?.pace_reason ?? data.reason)} (requires ≥3 comparable readings spanning ≥30s)`;
+  document.getElementById("progress-bounds").textContent = pace ? ["nearest_half_up","truncation"].map(rule=>
+    `${reason(rule)}: ${pace[rule].lower.approximate.toFixed(3)} to ${pace[rule].upper.approximate.toFixed(3)} pp/hour`).join(" · ")+" · outer display-precision bounds; neither rule selected" : "";
+  const estimate = !stale && !requestError ? segment?.estimated_exp : null;
+  document.getElementById("progress-exp").textContent = estimate ?
+    `UNVERIFIED estimated EXP range · community-provisional requirement ${nf.format(segment.requirement.to_next)}: `+
+      Object.entries(estimate.hypotheses).map(([rule,bounds])=>`${reason(rule)} ≈ ${bounds.lower.approximate.toFixed(1)} to ${bounds.upper.approximate.toFixed(1)} EXP`).join(" · ")+". Not an earned-EXP total." :
+    `Estimated EXP unavailable: ${stale?"stale observations":reason(segment?.requirement?.status ?? "stable visual level required")}. Percentages are never converted to absolute current EXP.`;
+  const historical = (data.segments ?? []).filter(s=>s.pace).at(-1);
+  document.getElementById("progress-history").textContent = historical && (!pace || historical.last_event_id!==segment?.last_event_id) ?
+    `Historical qualifying segment (not current): ${historical.difference_percentage_points} pp over ${historical.span_seconds.approximate.toFixed(3)}s / ${historical.readings} attempts; strict ${historical.evidence_counts.strict_full+historical.evidence_counts.strict_percentage_only}, recovered ${historical.evidence_counts.grammar_recovered}. Recorded pace ${historical.pace.value.approximate.toFixed(2)} pp/hour · EXPERIMENTAL / UNVERIFIED · ended ${historical.end}` : "";
 }
 function render() {
   const rows = snapshot?.observations || [];
   const persisted = snapshot?.storage === "sqlite_diagnostics";
+  document.getElementById("directory-link").hidden = !persisted;
   document.getElementById("persisted").hidden = !persisted;
   if (persisted) {
     document.getElementById("page-title").textContent = "Local streamer dashboard";
@@ -183,7 +219,7 @@ function render() {
   }
   document.getElementById("channel").textContent = snapshot?.mixed_channels ? "Mixed sources — see rows" : snapshot?.channel ? `ttv/${snapshot.channel}` : "Local video / channel unavailable";
   document.getElementById("source-status").textContent = snapshot?.source_status || "Waiting for diagnostics";
-  document.getElementById("run-status").textContent = `Run: ${snapshot?.run_status || "waiting"} · UNVERIFIED`;
+  document.getElementById("run-status").textContent = `Run: ${snapshot?.run_status || "waiting"} · UNVERIFIED${snapshot?.unfinished_run_count ? ` · ${snapshot.unfinished_run_count} unfinished database run(s); activity established only when marked active` : ""}`;
   document.getElementById("count").textContent = `(${rows.length} · UNVERIFIED)`;
   document.getElementById("empty").hidden = rows.length > 0;
   renderCoverage();

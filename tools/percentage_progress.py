@@ -7,6 +7,7 @@ import re
 
 from analyze_temporal_ocr import complete_pair
 from exp_tracker.shadow_types import parse_percentage_only
+from exp_tracker.diagnostic_progress import rational, quantization_pace
 
 
 def strict_point(row):
@@ -48,11 +49,6 @@ def strict_point(row):
     bp = int(Decimal(str(pair[1]))*100) if pair else only['percentage_bp']
     return dict(index=row['index'], channel=source.lower(), level=level, time=time,
                 timestamp=time.isoformat(), bp=bp), None
-
-
-def rational(value):
-    """JSON-safe exact rational plus a display approximation, never a confidence interval."""
-    return dict(numerator=value.numerator, denominator=value.denominator, approximate=float(value))
 
 
 def progress(rows, *, interval_seconds=15, min_readings=3, min_span_seconds=30):
@@ -109,14 +105,7 @@ def progress(rows, *, interval_seconds=15, min_readings=3, min_span_seconds=30):
             difference_bp=gain, difference_percentage_points=f'{Decimal(gain)/100:.2f}',
             pace=None, reason='insufficient_readings' if len(points)<min_readings else 'insufficient_span')
         if len(points) >= min_readings and elapsed >= span:
-            bounds = {}
-            for rule, offset, width in [('nearest_half_up', Fraction(1, 2), Fraction(1, 2)),
-                                        ('truncation', 0, 1)]:
-                a_low, a_high = max(0, first['bp']-offset), min(10000, first['bp']+width)
-                b_low, b_high = max(0, last['bp']-offset), min(10000, last['bp']+width)
-                bounds[rule] = dict(lower=rational(Fraction(b_low-a_high)*36/elapsed),
-                                    upper=rational(Fraction(b_high-a_low)*36/elapsed),
-                                    endpoint_error_bp='[-0.5,+0.5)' if offset else '[0,1)')
+            bounds = quantization_pace(first['bp'], last['bp'], elapsed)
             segment.update(reason='eligible_experimental_endpoints', pace=dict(
                 label='EXPERIMENTAL / UNVERIFIED', units='percentage_points_per_hour',
                 value=rational(Fraction(gain*36, 1)/elapsed),

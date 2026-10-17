@@ -90,6 +90,33 @@ test("raw and candidate values stay distinct; neither hypothesis supplies missin
   assert.match(row.children[1].children[2].textContent, /UNVERIFIED/);
 });
 
+test("experimental progress renders recovered contributions separately and expires pace locally",()=>{
+  const p=page('/dashboard/synthetic');
+  const bounds={lower:{approximate:10.8},upper:{approximate:13.2}};
+  const pace={value:{approximate:12},nearest_half_up:bounds,truncation:bounds};
+  const estimated={lower:{approximate:1348},upper:{approximate:1647}};
+  const progress={latest_percentage:{percentage:'33.10',evidence:'grammar_recovered'},age_seconds:1,stale:false,
+    latest_movement:{change:'positive',difference_bp:5,difference_percentage_points:'0.05'},current_pace:pace,
+    current_segment:{start_percentage:'33.00',end_percentage:'33.10',readings:3,span_seconds:{approximate:30},level:64,
+      evidence_counts:{strict_full:1,strict_percentage_only:1,grammar_recovered:1},pace_reason:'eligible_experimental_endpoints',
+      requirement:{status:'community_provisional',to_next:1497832},
+      estimated_exp:{hypotheses:{nearest_half_up:estimated,truncation:estimated}}}};
+  p.render(state({percentage_progress:progress}));
+  assert.equal(p.elements['experimental-progress'].hidden,false);
+  assert.match(p.elements['progress-latest'].textContent,/33.10%.*grammar-recovered proposal/);
+  assert.match(p.elements['progress-pace'].textContent,/EXPERIMENTAL.*12.00 percentage points\/hour/);
+  assert.match(p.elements['progress-exp'].textContent,/Not an earned-EXP total/);
+  vm.runInContext('requestError=true;snapshot.run_status="active";renderStatus()',p.context);
+  assert.match(p.elements['progress-pace'].textContent,/unavailable.*disconnected/);
+  assert.match(p.elements['run-status'].textContent,/previously active.*activity unknown/);
+  vm.runInContext('requestError=false',p.context);
+  p.context.performance.now=()=>60000;vm.runInContext('renderStatus()',p.context);
+  assert.match(p.elements['progress-pace'].textContent,/unavailable.*old\/stopped/);
+  p.render(state({percentage_progress:{...progress,current_segment:null,current_pace:null,reason:'visual_level_unavailable'}}));
+  assert.match(p.elements['progress-latest'].textContent,/33.10%/);
+  assert.match(p.elements['progress-segment'].textContent,/visual level unavailable/);
+});
+
 test("v2 percentage recovery and optional chart layers never replace strict evidence", () => {
   const p = page('/dashboard/synthetic');
   const proposal = (reading) => ({classification:'unique_proposal',proposals:[{

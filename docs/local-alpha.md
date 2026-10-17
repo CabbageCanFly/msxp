@@ -5,11 +5,15 @@ capture, SQLite diagnostics and a real-data dashboard. This is local-only,
 read-only over HTTP and **experimental/unverified**, not trusted neural tracking.
 No new dependency, model, account or scheduler is needed.
 
+For two to five assignments, use the [multi-stream coordinator and `/streams`
+guide](multi-alpha.md). This single-stream launcher remains supported. The persisted
+dashboard also derives separately gated experimental percentage progress.
+
 The SQLite dashboard derives [versioned grammar and independent percentage proposals](extended-diagnostics.md)
 from malformed raw EXP strings. They are labeled GRAMMAR-RECOVERED / EXPERIMENTAL /
 UNVERIFIED, separately from strict candidates. Optional hollow chart layers are
 off by default; original strict points and failure markers remain visible.
-Original logs/rows, launcher success counts and all tracking/pace calculations are unchanged.
+Original logs/rows, launcher success counts and trusted tracking/pace calculations are unchanged.
 Restart the server to inspect existing observations; no recapture or migration.
 
 ## Simplest startup: one explicitly configured stream

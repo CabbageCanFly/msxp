@@ -10,8 +10,8 @@
 </head>
 <body>
   <main>
-    <header><div><p class="eyebrow">LOCAL DEVELOPMENT · READ ONLY</p><h1 id="page-title">Shadow capture viewer</h1></div><span class="badge">UNVERIFIED / DIAGNOSTIC</span></header>
-    <aside>Actual OCR outputs, <strong>not trusted tracking observations</strong>. No character identity, gains, EXP/hour, ETA or ranks are inferred here. Neither rounding hypothesis is selected.</aside>
+    <header><div><p class="eyebrow">LOCAL DEVELOPMENT · READ ONLY</p><h1 id="page-title">Shadow capture viewer</h1><a id="directory-link" href="/streams" hidden>Streamer directory</a></div><span class="badge">UNVERIFIED / DIAGNOSTIC</span></header>
+    <aside>Actual OCR outputs, <strong>not trusted tracking observations</strong>. No authenticated character identity, trusted gains, EXP/hour, ETA or ranks are inferred here. Neither rounding hypothesis is selected.</aside>
     <section class="overview" aria-label="Diagnostic source">
       <div><span>Configured source</span><strong id="channel">—</strong><small id="assignment">No character assignment</small></div>
       <div><span>Capture / run status</span><strong id="source-status">Waiting for diagnostics</strong><small id="run-status">—</small></div>
@@ -27,6 +27,17 @@
       <p class="muted">Assignment is explicit, not inferred from pixels. Candidate values never update trusted EXP totals. Level evidence remains separate; neither visual recognizer verifies a complete tile or character identity.</p>
     </section>
     <p id="notice" role="status" aria-live="polite">Loading diagnostic log…</p>
+    <section id="experimental-progress" class="panel" hidden aria-label="Experimental percentage progress">
+      <h2>Experimental percentage progress · UNVERIFIED</h2>
+      <p id="progress-latest"></p>
+      <p id="progress-movement"></p>
+      <p id="progress-segment" class="muted"></p>
+      <p id="progress-pace"></p>
+      <p id="progress-bounds" class="muted"></p>
+      <p id="progress-exp" class="muted"></p>
+      <p id="progress-history" class="muted"></p>
+      <p class="muted">Based on displayed percentages and local capture timestamps. One value per attempt; unique grammar proposals may contribute only when continuity gates pass. No trusted EXP totals, identity verification, automatic level-ups or ETA. Zero displayed change does not prove zero gain. Bounds describe display precision, not OCR accuracy.</p>
+    </section>
     <section id="coverage" class="panel" hidden aria-label="Diagnostic coverage, not accuracy">
       <h2>Diagnostic coverage · selected session</h2>
       <p id="coverage-scope" class="muted"></p>

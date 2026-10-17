@@ -24,7 +24,7 @@ REASONS = {'missing_hud', 'multiple_huds', 'local_receipt_age_exceeded', 'strict
            'neural_failed', 'invalid_neural_response', 'exp_crop_exceeds_limit', 'recognition_failed',
            'offline_or_unavailable', 'access_denied', 'network_unavailable', 'source_ended',
            'decoder_failed', 'frame_timeout', 'capture_process_failed', 'frame_exceeds_byte_limit',
-           'frame_exceeds_pixel_limit', 'invalid_decoder_output', 'invalid_png_header'}
+           'frame_exceeds_pixel_limit', 'invalid_decoder_output', 'invalid_png_header', 'operator_interrupted'}
 RELATIONS = {'visual_unavailable', 'unsupported_visual_level', 'pair_unavailable', 'conflict',
              'agreement_not_verification', 'compatible_but_ambiguous'}
 
@@ -106,6 +106,7 @@ def observation(row):
     return dict(index=row.get('index') if type(row.get('index')) is int and 1 <= row['index'] <= 10000 else None,
                 channel=channel, source_kind=source.get('kind') if source.get('kind') in ('file', 'twitch') else 'unknown',
                 attempted_at=timestamp(row.get('attempted_at')), received_at=timestamp(row.get('received_at')),
+                requested_at=timestamp(row.get('requested_at')), scheduler_delay_seconds=number(row.get('scheduler_delay_seconds'),86400),
                 status=row.get('status') if row.get('status') in STATUSES else 'unknown_status',
                 reasons=[reason for reason in reasons[:32] if isinstance(reason, str) and reason in REASONS],
                 candidate=pair, candidate_invalid=candidate is not None and pair is None,

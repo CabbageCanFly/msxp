@@ -1,5 +1,10 @@
 # Grammar hypotheses and percentage endpoint diagnostics
 
+Current follow-up: [multi-stream diagnostic progress](multi-alpha.md) separately
+supports recovered percentages with explicit assignments, conservative segments
+and dashboard output. This document's original strict-only tool/policy remains
+unchanged; only exact quantization helpers are shared.
+
 Follow-up: [bounded live full-EXP proposals](live-grammar-recovery.md) adds a narrower
 read-only dashboard mode. The historical experiment and percentage calculations
 documented below retain their original rules and evidence.

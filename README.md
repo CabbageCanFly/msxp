@@ -4,6 +4,11 @@ Independent, free, MIT-licensed feasibility prototype. This contains local OCR,
 acquisition, SQLite tracking and a localhost OBS overlay, not a hosted service.
 No accounts, cloud resources or secrets are required for offline tests.
 
+The **[multi-stream local alpha](docs/multi-alpha.md)** runs 2–5 explicit assignments
+sequentially with one shared database/server, a real `/streams` directory and
+separately gated experimental percentage progress. Start with the offline
+two-video example; neural/grammar values never contribute to trusted EXP totals.
+
 The **[single-stream local alpha](docs/local-alpha.md)** connects explicit character
 selection and shadow capture to separate SQLite diagnostics and a real-data
 `/dashboard/CHANNEL`. Neural candidates remain experimental and never count trusted
