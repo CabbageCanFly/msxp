@@ -148,3 +148,55 @@ def test_product_and_diagnostic_apis_share_integer_veto_without_rewriting_saved_
         assert diagnostic['visual_level']==63 and diagnostic['neural_level']['level']==65
     assert [r[0] for r in store.db.execute('select payload_json from diagnostic_attempts')]==payloads
     assert not store.db.execute('select 1 from observations').fetchone()
+
+
+def test_percentage_exp_estimate_is_separate_exact_bounded_and_does_not_replace_raw(tracking):
+    from exp_tracker.exp_consistency import assess
+    from exp_tracker.product import fraction
+    from fractions import Fraction
+    _,store,d=tracking
+    append(d,1,'[67.72%]',visual_level=65,
+        neural_level=dict(text='65',level=65,status='numeric_candidate',score=.99))
+    before=store.db.execute('select payload_json from diagnostic_attempts').fetchone()[0]
+    value=get(d,0)['reading'];e=value['estimated_exp']
+    assert value['exp'] is None and e['level_evidence']['value']==65
+    assert fraction(e['value'])==Fraction(6772*1579913,10000)
+    assert not e['trusted'] and e['requirement']['status']=='community_provisional'
+    for mode,b in e['hypotheses'].items():
+        for x in (b['min'],b['max']):assert assess(65,x,'67.72',{65:1579913},mode)['status']=='consistent'
+    assert e['hypotheses']['nearest_half_up']!=e['hypotheses']['truncate']
+    assert store.db.execute('select payload_json from diagnostic_attempts').fetchone()[0]==before
+    assert store.state('alpha')['last_trusted'] is None
+    assert not store.db.execute('select 1 from observations').fetchone()
+    # Contradictory integer withheld; percentage estimate remains distinct.
+    append(d,2,'2,458[67.72%]',candidate=[2458,67.72],status='diagnostic_pair',visual_level=65,
+        neural_level=dict(text='65',level=65,status='numeric_candidate',score=.99))
+    assert get(d,15)['reading']['exp_validity']['status']=='invalid'
+    e2=get(d,15)['reading']['estimated_exp']
+    assert e2['value']==e['value'] and e2['hypotheses']==e['hypotheses']
+    assert e2['level_evidence']['temporal_samples']==2  # Evidence retains the current frame's provenance.
+
+
+@pytest.mark.parametrize('percentage',['0.00','100.00'])
+def test_percentage_estimate_retains_zero_and_within_level_bin_limits(tracking,percentage):
+    _,_,d=tracking;append(d,1,f'[{percentage}%]')
+    estimate=get(d,0)['reading']['estimated_exp']
+    for b in estimate['hypotheses'].values():
+        assert b['min']>=0 and b['max']<1497832
+    if percentage=='100.00':assert estimate['hypotheses']['truncate']['count']==0
+
+
+def test_raw_exp_priority_and_unresolved_level_never_become_computed_readings(tracking):
+    _,_,d=tracking
+    append(d,1,'1,069,917[67.72%]',candidate=[1069917,67.72],status='diagnostic_pair',visual_level=65,
+        neural_level=dict(text='65',level=65,status='numeric_candidate',score=.99))
+    assert get(d,0)['reading']['exp']=='1069917' and get(d,0)['reading']['estimated_exp'] is None
+    append(d,2,'[67.73%]',visual_level=99,neural_level=None)
+    assert get(d,15)['reading']['estimated_exp'] is None  # Disputed requirement.
+    append(d,3,'[67.74%]',visual_level=None,neural_level=dict(text='65',level=65,status='numeric_candidate',score=.75))
+    assert get(d,30)['reading']['level']['value'] is None and get(d,30)['reading']['estimated_exp'] is None
+
+
+def test_estimate_abstains_when_neither_hypothesis_has_a_compatible_integer():
+    from exp_tracker.product import percentage_exp
+    assert percentage_exp(5000,dict(value=1,status='agreement')) is None  # 15 EXP requirement cannot display 50.00%.

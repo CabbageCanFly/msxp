@@ -47,6 +47,12 @@ it does not silently end a session. Each run gets a new timestamp/UUID directory
 under `private/local-alpha/runs/`, containing `capture.jsonl`, concise
 `operator.jsonl` and optional crops. Existing outputs are never overwritten.
 
+The launcher now publishes its own running/waiting/failing/completion state to
+the existing HTTP runtime status, including the player website and OBS overlay.
+An independent `exp_tracker.server` process cannot see another process's worker;
+fresh observations alone never prove capture is running. See
+[live updates and percentage-derived EXP](live-player-updates.md).
+
 An existing different character selection is **refused**, even with an explicit
 different `--character`. Use the existing tracking CLI to end/switch/select/start
 deliberately, then relaunch with the matching label. `--db` can choose an existing

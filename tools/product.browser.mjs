@@ -6,10 +6,21 @@ import {resolve,join,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
 const [base='http://127.0.0.1:8765',directory,databaseArgument,channel='offline_window']=process.argv.slice(2);
-const database=databaseArgument==='-'?null:databaseArgument;
+const verifyUpdates=databaseArgument==='--verify-updates';
+const database=databaseArgument==='-' || verifyUpdates?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
+let fixture=null,fixtureCommand=null;
+if(verifyUpdates){
+  const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80'],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  let buffer='',waiting=null;const messages=[];
+  fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
+  const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
+  fixtureCommand=async command=>{fixture.stdin.write(command+'\n');return next();};
+  assert.ok((await next()).ready);
+}
 if(database)assert.ok(['private','artifacts'].some(root=>resolve(database).startsWith(resolve(root)+sep)));
 const browser=process.env.BROWSER_BIN || ['C:/Program Files/Google/Chrome/Application/chrome.exe','/usr/bin/chromium'].find(existsSync);
 assert.ok(browser,'Set BROWSER_BIN to Chrome/Chromium');
@@ -67,10 +78,40 @@ try {
   assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 15 min');
   await screenshot(detail,'character-15-minute',1440,1050);
   await detail.evaluate('document.querySelectorAll("[data-window]")[0].click()');
-  await detail.command('Page.bringToFront');await delay(2300);
-  assert.ok(await detail.evaluate('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2'));
-  assert.ok(await overlay.evaluate('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2'));
+  await detail.command('Page.bringToFront');
+  await detail.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
+  await overlay.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   const observed=[];
+  if(verifyUpdates){
+    const initialWindow=before.players.find(p=>p.channel==='synthetic_window');assert.equal(initialWindow.windows['5'].eligible,false);
+    const windowPage=await tab('/stream/synthetic_window',1100,1050);await windowPage.wait('typeof data!=="undefined" && !!data?.player');
+    assert.equal(await windowPage.evaluate('document.getElementById("rate").textContent'),'—');
+    const advanceStarted=performance.now();assert.ok((await fixtureCommand('advance')).advanced);
+    const after=await api('/api/players/'+channel),all=await api('/api/players');
+    assert.notEqual(after.player.reading.event_id,original.player.reading.event_id);
+    assert.equal(after.player.reading.exp,null);assert.equal(after.player.reading.estimated_exp,null); // Unresolved saved level evidence must stay unresolved.
+    // Keep other tabs hidden: background updates are part of the regression.
+    await overlay.wait(`data?.player?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
+    await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
+    await detail.wait(`data?.player?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
+    const control=all.players.find(p=>p.channel==='synthetic_window');assert.equal(control.windows['5'].eligible,true);
+    assert.equal(control.windows['5'].coverage_seconds.approximate,300);
+    await windowPage.wait('data?.player?.windows["5"].eligible===true');
+    const updateMilliseconds=performance.now()-advanceStarted;
+    assert.match(await windowPage.evaluate('document.getElementById("rate").textContent'),/^~/);
+    await board.evaluate('document.querySelector("[data-sort=exp_hour]").click()');
+    await board.wait('document.querySelector(".entry[data-channel=synthetic_window]").dataset.rank==="1"');
+    for(const page of [board,detail,overlay,windowPage])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+    assert.equal(await detail.evaluate('document.getElementById("exp").textContent'),'—');
+    assert.equal(await overlay.evaluate('document.getElementById("percentage").textContent'),'67.72%');
+    assert.equal(await windowPage.evaluate('document.getElementById("exp").textContent'),'≈1.07M');
+    const estimatedOverlay=await tab('/live/overlay/synthetic_window',500,160);await estimatedOverlay.wait('typeof data!=="undefined" && !!data?.player');
+    assert.equal(await estimatedOverlay.evaluate('document.getElementById("exp").textContent'),'≈1.07M');
+    await screenshot(board,'homepage-updated',1440,1050);await screenshot(estimatedOverlay,'overlay-million-estimate-synthetic',500,160);
+    await screenshot(windowPage,'eligible-five-minute-control',1100,1050);
+    observed.push({before:original.player.reading,after:after.player.reading,syntheticWindow:control.windows['5'],updateMilliseconds});
+    writeFileSync(join(output,'after.json'),JSON.stringify(all,null,2));
+  }
   if(database){
     await board.command('Page.bringToFront');
     captureLog=openSync(join(output,'capture-terminal.txt'),'wx');
@@ -101,9 +142,11 @@ try {
   }
   assert.deepEqual(failures,[]);
   assert.ok(requests.every(request=>new URL(request).origin===url.origin || new URL(request).protocol==='data:'));
-  writeFileSync(join(output,'verification.json'),JSON.stringify({before,observed,shots,failures,networkRequests:requests.length,actualCapture:!!database},null,2));
-  console.log(`Verified ${before.players.length} real-data rows, detail and 500×160 transparent overlay; ${observed.length} distinct polled readings; ${shots.length} screenshots.`);
+  writeFileSync(join(output,'verification.json'),JSON.stringify({before,observed,shots,failures,networkRequests:requests.length,actualCapture:!!database,
+    syntheticWindowControl:verifyUpdates},null,2));
+  console.log(`Verified ${before.players.length} SQLite rows${verifyUpdates?' (two saved streams + one synthetic window control)':''}, detail and 500×160 transparent overlay; ${observed.length} ${verifyUpdates?'verified update batches':'distinct polled readings'}; ${shots.length} screenshots.`);
 } finally {
   if(capture?.exitCode===null)capture.kill();
+  if(fixture){fixture.stdin.end();await new Promise(ok=>{if(fixture.exitCode!==null)return ok();fixture.once('exit',ok);setTimeout(()=>{fixture.kill();ok();},3000).unref();});}
   sockets.forEach(ws=>ws.close());child.kill();closeSync(browserLog);if(captureLog!==null)closeSync(captureLog);
 }

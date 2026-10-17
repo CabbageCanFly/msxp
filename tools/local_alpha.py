@@ -158,9 +158,12 @@ def main(argv=None):
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         thread.start()
         say(f'Dashboard: http://127.0.0.1:{httpd.server_port}/dashboard/{args.channel}')
+        say(f'EXP Tracker: http://127.0.0.1:{httpd.server_port}/stream/{args.channel}')
         say('UNVERIFIED diagnostics only. HTTP is ready; no frame acquired yet. Ctrl+C stops capture and HTTP.')
         counts = dict(attempts=0, frames=0, candidates=0, committed=0)
+        active_run_id=None
         def progress(record, committed):
+            nonlocal active_run_id
             if record['type'] == 'configuration':
                 if committed:
                     with Store(database, read_only=True) as store:
@@ -169,6 +172,8 @@ def main(argv=None):
                     if tuple(binding) != (state['selected_character_id'], state['session']['id']):
                         say('Assignment changed during startup; capture has NOT started. Restart with the explicit current selection.')
                         raise ValueError('Diagnostic startup assignment changed')
+                    active_run_id=record['run_id']
+                    httpd.active_run_ids.add(active_run_id)
                 say(f'Capture runner starting: {args.count} attempts at {args.interval:g}s; source={"local video" if args.file else "authorized Twitch"}. Awaiting first frame.'
                     if committed else 'Configuration NOT committed; capture has NOT started.')
             if record['type'] == 'attempt':
@@ -179,7 +184,15 @@ def main(argv=None):
                     (record.get('candidate') is not None or record.get('percentage_only_candidate') is not None))
                 say(report_attempt(record, committed, database=database, channel=args.channel,
                                    neural_enabled=args.experimental_neural_level))
-        code = shadow_capture.main(capture, on_record=progress)
+        def activity(value):
+            if active_run_id:httpd.coordinator_status[args.channel]={**value,'run_id':active_run_id}
+        code=1
+        try:
+            code = shadow_capture.main(capture, on_record=progress,on_activity=activity)
+        finally:
+            httpd.active_run_ids.clear()
+            httpd.coordinator_status[args.channel]=dict(state='stopped',updated_at=utc(),
+                completion='completed' if code==0 else 'interrupted' if code==130 or sys.exc_info()[0] is KeyboardInterrupt else 'failed')
         say(f'Capture STOPPED: {counts["frames"]}/{counts["attempts"]} frames; {counts["candidates"]} fresh strict diagnostic candidates; {counts["committed"]} SQLite commits. None are trusted EXP.')
         if code == 130:
             return 130

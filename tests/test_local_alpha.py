@@ -31,7 +31,7 @@ def alpha(tmp_path, monkeypatch):
     args = ['--channel', 'alpha', '--character', 'Main', '--file', str(video),
             '--requirements', str(table), '--ocr-python', str(executable), '--port', '0', '--exit-after-capture']
     calls = []
-    def run(options, source, requirements, emit):
+    def run(options, source, requirements, emit, **kwargs):
         calls.append((options, source))
         emit(record())
         return dict(type='summary', trusted=False, attempts=1, interrupted=False)
@@ -94,7 +94,7 @@ def test_mismatches_refuse_before_mutation_or_capture(alpha, kind, capsys):
 @pytest.mark.parametrize('reason', ['offline_or_unavailable', 'access_denied', 'network_unavailable', 'frame_timeout'])
 def test_failed_capture_is_committed_but_not_tracking_success(alpha, monkeypatch, reason, capsys):
     module, args, database, calls = alpha
-    def run(options, source, requirements, emit):
+    def run(options, source, requirements, emit, **kwargs):
         row = record()
         row.update(status='capture_failed', current=False, received_at=None, candidate=None,
                    neural=None, localization=None, reasons=[reason])
@@ -114,7 +114,7 @@ def test_failed_capture_is_committed_but_not_tracking_success(alpha, monkeypatch
 @pytest.mark.parametrize('mode', ['missing_hud', 'multiple_huds', 'malformed', 'stale'])
 def test_recognition_failures_are_distinct_and_untrusted(alpha, monkeypatch, mode, capsys):
     module, args, database, calls = alpha
-    def run(options, source, requirements, emit):
+    def run(options, source, requirements, emit, **kwargs):
         row = record()
         if mode in ('missing_hud', 'multiple_huds'):
             row.update(candidate=None, neural=None, status='unavailable',
@@ -236,3 +236,36 @@ def test_config_binding_race_stops_before_first_frame(alpha, monkeypatch, capsys
     assert 'Assignment changed during startup' in capsys.readouterr().out
     with Store(database, read_only=True) as store:
         assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('interrupted',[False,True])
+def test_owned_runtime_is_visible_while_capturing_and_cleared_at_shutdown(alpha,monkeypatch,interrupted):
+    from datetime import timedelta
+    from tests.test_server import request
+    module,args,database,_=alpha
+    create=module.create_server;servers=[];final=[]
+    def status():
+        server=servers[0]
+        board=json.loads(request((server,None),'/api/players')[2])['players'][0]['activity']
+        detail=json.loads(request((server,None),'/api/players/alpha')[2])['player']['activity']
+        assert board==detail
+        return detail
+    def server(*a,**kw):
+        http=create(*a,**kw);servers.append(http);shutdown=http.shutdown
+        def stop():
+            final.append(status());assert not http.active_run_ids;shutdown()
+        http.shutdown=stop;return http
+    monkeypatch.setattr(module,'create_server',server)
+    def run(options,source,requirements,emit,*,on_activity):
+        now=datetime.now(timezone.utc)
+        on_activity(dict(state='running',updated_at=now.isoformat(),expected_completion_seconds=45))
+        assert status()['state']=='running' and servers[0].active_run_ids
+        emit(record())
+        on_activity(dict(state='waiting',updated_at=now.isoformat(),next_due_at=(now+timedelta(seconds=15)).isoformat()))
+        assert status()['state']=='waiting'
+        on_activity(dict(state='capture_failing',updated_at=now.isoformat(),next_due_at=now.isoformat()))
+        assert status()['state']=='capture_failing'  # Does not assert Twitch offline.
+        return dict(type='summary',trusted=False,attempts=1,interrupted=interrupted)
+    monkeypatch.setattr(module.shadow_capture,'run',run)
+    assert module.main(args)==(130 if interrupted else 0)
+    assert final[0]['state']=='stopped' and final[0]['completion']==('interrupted' if interrupted else 'completed')

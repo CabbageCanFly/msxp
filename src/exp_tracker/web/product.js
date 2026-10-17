@@ -4,14 +4,26 @@ const view=document.body.dataset.view;
 const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?location.pathname.split('/')[2]:null;
 const endpoint=channel?`/api/players/${encodeURIComponent(channel)}`:'/api/players';
 const numbers=new Intl.NumberFormat('en-US'),compact=new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1});
+const compactExp=new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:2});
 const sorts={exp_hour:'Estimated pace over the selected window; community requirements are provisional.',
   level:'Last observed levels, including old readings. A * marks provisional level evidence.',
   movement:'Displayed change within the selected window. Incomplete or interrupted coverage is not ranked.'};
-let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=5;
+let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=5,pollTimer=null,activeController=null;
 const el=id=>document.getElementById(id);
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
 function ageText(seconds) { if(seconds==null)return 'No reading yet';if(seconds<60)return `${Math.floor(seconds)}s ago`;if(seconds<3600)return `${Math.floor(seconds/60)}m ago`;if(seconds<86400)return `${Math.floor(seconds/3600)}h ago`;return `${Math.floor(seconds/86400)}d ago`; }
 function expText(value) { return value==null?'—':numbers.format(BigInt(value)); }
+function displayedExp(r) {
+  return r?.exp!=null?(r.evidence==='grammar_recovered'?'≈ ':'')+expText(r.exp):
+    r?.estimated_exp?`≈${compactExp.format(r.estimated_exp.value.approximate)}`:'—';
+}
+function expTitle(r) {
+  if(r?.estimated_exp) {
+    const e=r.estimated_exp;
+    return `Estimated from observed percentage and provisional level ${e.level_evidence.value} requirement, not read directly by OCR. ${Object.entries(e.hypotheses).map(([rule,b])=>`${rule}: ${b.count?`${numbers.format(b.min)}–${numbers.format(b.max)} EXP`:'no compatible within-level integer'}`).join('; ')}. Community table ${e.requirement.version}; bounds exclude OCR/table errors.${r.exp_validity?.status==='invalid'?' Contradictory OCR integer withheld.':''}`;
+  }
+  return r?.exp_validity?.status==='invalid'?'Absolute EXP withheld: inconsistent with level and percentage under both display hypotheses':r?.exp==null?'Absolute EXP unavailable; level or requirement unresolved':r.evidence==='grammar_recovered'?'Unverified grammar-recovered proposal':'Original strict OCR candidate; unverified';
+}
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
 function levelText(p) { const level=p.reading?.level;return level?.value==null?'—':`${level.value}${['single_reader','provisional_neural','recent_context'].includes(level.status)?'*':''}`; }
 function levelTitle(p) { const l=p.reading?.level;return l?.status==='conflict'?`Level readers disagree: ${l.visual} / ${l.neural}`:l?.status==='provisional_neural' || l?.status==='recent_context'?'Provisional level from recent visual evidence; readers and arithmetic remain unverified':l?.status==='single_reader'?'One OCR reader; unverified level':'OCR level evidence; unverified'; }
@@ -35,6 +47,7 @@ function statusText(p) {
   if(!p.reading)return p.latest_attempt_status==='capture_failed'?'Capture unavailable':'Waiting for EXP';
   if(s.stale)return 'Updates delayed';
   if(p.latest_attempt_status==='capture_failed')return 'Capture interrupted';
+  if(state==='stopped' && p.activity.completion)return ({completed:'Capture complete',interrupted:'Capture interrupted',failed:'Capture stopped'})[p.activity.completion] ?? 'Capture paused';
   return ({running:'Capturing',waiting:'Waiting for next capture',capture_delayed:'Capture delayed',capture_failing:'Capture interrupted',
     stopped:'Capture paused',coordinator_stopped:'Capture paused',previous_unfinished_run:'Capture stopped'})[state] ?? 'Capture paused';
 }
@@ -62,7 +75,7 @@ function entry({player:p,value,rank}) {
   identity.append(name,node('span','channel',sourceText(p)),node('span','status',statusText(p)));
   const section=node('div','exp-section'),bar=node('div','exp-bar'),progress=node('progress');progress.max=100;progress.value=r?r.bp/100:0;progress.hidden=!r;progress.setAttribute('aria-label',`${p.character?.label ?? p.channel} observed EXP percentage`);
   bar.dataset.missing=String(!r);bar.dataset.recovered=String(r?.evidence==='grammar_recovered');
-  const label=node('span','exp-label');label.append(node('small','',r?.evidence==='grammar_recovered'?'≈ EXP':'EXP'),node('span','exp-number',expText(r?.exp)),node('span','percentage',r?`[${r.percentage}%]`:'Waiting for EXP'));
+  const label=node('span','exp-label');label.title=expTitle(r);label.append(node('small','','EXP'),node('span','exp-number',displayedExp(r)),node('span','percentage',r?`[${r.percentage}%]`:'Waiting for EXP'));
   bar.append(progress,label);
   section.append(bar,node('div','exp-detail',`${windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):sort==='movement'?`+${value.toFixed(2)}`:`~${compact.format(value)}`),
@@ -92,8 +105,7 @@ function renderPlayer() {
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
   el('progress').value=r?r.bp/100:0;
   el('progress').hidden=!r;
-  el('exp').textContent=(r?.evidence==='grammar_recovered'?'≈ ':'')+expText(r?.exp);
-  el('exp').title=r?.exp_validity?.status==='invalid'?'Absolute EXP withheld: inconsistent with level and percentage under both display hypotheses':r?.exp==null?'Absolute EXP unavailable; percentage does not reconstruct EXP':r.evidence==='grammar_recovered'?'Unverified grammar-recovered proposal':'Original strict OCR candidate; unverified';
+  el('exp').textContent=displayedExp(r);el('exp').title=expTitle(r);
   el('percentage').textContent=r?`${r.percentage}%`:'—';
   el('status').textContent=statusText(p);
   el('age').textContent=r?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp ?? '';
@@ -141,15 +153,19 @@ function drawHistory() {
   el('history-note').textContent=`${points.length} attempts in the ${windowMinutes} min ending at the last capture · ${Math.round((last-first)/1000)}s displayed · UTC · ${gaps} sampling gaps${current(data.player).stale?' · archived/stale readings':''}${data.truncated?' · earlier history available in Advanced':''}. Points only; no interpolation.`;
 }
 async function poll() {
+  if(activeController)return;
+  clearTimeout(pollTimer);
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000),requested=performance.now();
+  activeController=controller;
   try {
-    if(document.hidden && view!=='overlay')return;
     const response=await fetch(endpoint,{cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error();
     data=await response.json();receivedAt=requested;failed=false;
     if(view==='board')renderBoard();else { renderPlayer();if(view==='player')drawHistory(); }
   } catch { failed=true;if(view==='board')renderBoard();else renderPlayer(); }
-  finally { clearTimeout(timeout);setTimeout(poll,document.hidden && view!=='overlay'?10000:2000); }
+  finally { clearTimeout(timeout);activeController=null;pollTimer=setTimeout(poll,2000); }
 }
+document.addEventListener?.('visibilitychange',()=>{if(!document.hidden)poll();});
+globalThis.addEventListener?.('pageshow',poll);
 if(view==='board') document.querySelectorAll('[data-sort]').forEach(button=>button.addEventListener('click',()=>{sort=button.dataset.sort;if(sort in sorts)renderBoard();}));
 document.querySelectorAll('[data-window]').forEach(button=>button.addEventListener('click',()=>{
   const minutes=Number(button.dataset.window);if(![5,10,15,30].includes(minutes))return;windowMinutes=minutes;

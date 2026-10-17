@@ -23,6 +23,8 @@ withholds arithmetically contradictory EXP integers while preserving percentages
 and confirms bounded recent neural-level evidence separately from trusted tracking.
 The [recent-window update](docs/recent-windows.md) adds real 5/10/15/30-minute
 comparisons and readable recent graphs, while leaving incomplete windows unavailable.
+The [live-update and million-EXP notes](docs/live-player-updates.md) cover background
+polling, truthful single-stream activity, and separately labeled percentage-derived EXP.
 
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 2–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and

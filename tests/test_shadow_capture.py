@@ -155,6 +155,19 @@ def test_capture_failure_is_safe_and_closes(shadow, tmp_path, failure):
     assert 'secret url' not in str(rows)
 
 
+def test_activity_callback_brackets_actual_attempt_and_never_equates_failure_with_offline(shadow,tmp_path,monkeypatch):
+    events=[]
+    def capture(*args,**kwargs):
+        assert events[-1]['state']=='running'
+        return dict(type='attempt',status='capture_failed')
+    monkeypatch.setattr(shadow,'capture_attempt',capture)
+    summary=shadow.run(run_options(tmp_path),Source('file','unused'),{},lambda r:events.append(dict(state='committed')),
+        on_activity=events.append,clock=lambda:100,sleep=lambda _:None)
+    assert [e['state'] for e in events]==['running','committed','capture_failing']*2
+    assert summary['attempts']==2 and not summary['interrupted']
+    assert all('offline' not in e['state'] for e in events)
+
+
 def test_shutdown_interrupt_closes_active_capture(shadow, tmp_path):
     closed = []
     class Interrupted:

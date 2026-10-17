@@ -8,16 +8,16 @@ class Element {
   append(...c){this.children.push(...c);}replaceChildren(...c){this.children=c;}
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v){(this.listeners??={})[k]=v;}
 }
-function page(view='overlay'){
-  const elements={},timers=[];
+function page(view='overlay',fetcher=()=>new Promise(()=>{})){
+  const elements={},timers=[],events={};
   const buttons=[5,10,15,30].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const context=vm.createContext({Intl,Date,BigInt,AbortController,performance:{now:()=>0},
     location:{pathname:view==='overlay'?'/live/overlay/alpha':'/stream/alpha',origin:'http://127.0.0.1:8765'},
-    navigator:{},document:{body:{dataset:{view}},hidden:false,getElementById:id=>elements[id]??=new Element(),
+    navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{body:{dataset:{view}},hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
       querySelectorAll:selector=>selector==='[data-window]'?buttons:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
-    fetch:()=>new Promise(()=>{}),setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
+    fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
-  return {context,elements,timers,buttons,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
+  return {context,elements,timers,buttons,events,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
 }
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
@@ -84,4 +84,35 @@ test('withheld full EXP retains percentage and provisional level across product 
     exp_validity:{status:'invalid'},level:{value:65,status:'provisional_neural',visual:63,neural:65}}}));
   assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.progress.value,45.09);
   assert.match(p.elements.exp.title,/withheld/);assert.equal(p.elements.level.textContent,'Lv. 65*');
+});
+
+test('percentage-derived EXP is explicitly approximate and leaves direct OCR integer display intact',()=>{
+  const p=page(),r={exp:null,percentage:'67.72',bp:6772,evidence:'strict_percentage_only',level:{value:65,status:'provisional_neural'},
+    estimated_exp:{value:{approximate:1069917.0836},level_evidence:{value:65},requirement:{version:'synthetic'},
+      hypotheses:{nearest_half_up:{min:1069839,max:1069996,count:158},truncate:{min:1069918,max:1070075,count:158}}}};
+  p.render(player({reading:r}));assert.equal(p.elements.exp.textContent,'≈1.07M');assert.match(p.elements.exp.title,/not read directly by OCR/);
+  p.render(player({reading:{...r,exp:'1069917',estimated_exp:null,evidence:'strict_full'}}));
+  assert.equal(p.elements.exp.textContent,'1,069,917');assert.match(p.elements.exp.title,/Original strict OCR/);
+  p.render(player({reading:{...r,estimated_exp:null,level:{value:null,status:'conflict'}}}));assert.equal(p.elements.exp.textContent,'—');
+});
+
+test('polling continues in background, refreshes on return, and never overlaps an active request',async()=>{
+  let calls=0,hang=false,release;
+  const p=page('player',async()=>{calls++;return hang?new Promise(ok=>{release=ok;}):{ok:true,json:async()=>({player:player()})};});
+  await new Promise(setImmediate);assert.equal(calls,1);
+  p.context.document.hidden=true;await p.run('poll()');assert.equal(calls,2);
+  hang=true;const pending=p.run('poll()');assert.equal(calls,3);
+  p.context.document.hidden=false;p.events.visibilitychange();p.events.pageshow();assert.equal(calls,3);
+  release({ok:false});await pending;assert.equal(p.elements.status.textContent,'Updates delayed');
+  hang=false;p.events.pageshow();await new Promise(setImmediate);assert.equal(calls,4);
+  assert.equal(p.elements.status.textContent,'Waiting for next capture');assert.equal(p.timers.at(-1),2000);
+});
+
+test('owned activity and completion stay distinct from cached API failures and stale values',()=>{
+  const p=page();
+  for(const [activity,text] of [[{state:'running'},'Capturing'],[{state:'waiting'},'Waiting for next capture'],
+    [{state:'stopped',completion:'completed'},'Capture complete'],[{state:'stopped',completion:'interrupted'},'Capture interrupted']]){
+    p.render(player({activity}));assert.equal(p.elements.status.textContent,text);
+  }
+  p.render(player({activity:{state:'running'},stale:true}));assert.equal(p.elements.status.textContent,'Updates delayed');
 });

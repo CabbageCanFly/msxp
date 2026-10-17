@@ -6,6 +6,8 @@ from fractions import Fraction
 
 from .diagnostic_progress import percentage_point,rational,quantization_pace,elapsed_seconds
 from .diagnostic_evidence import project
+from .exp_requirements import requirement
+from .exp_consistency import MODES, assess
 
 WINDOWS=(5,10,15,30)
 PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
@@ -17,6 +19,19 @@ def fraction(value):
 
 def level_evidence(row):
     return row['experimental_level'] if 'experimental_level' in row else project([row])[0]['experimental_level']
+
+
+def percentage_exp(bp, level):
+    """Presentation estimate only; never supplies an OCR integer or chooses a level."""
+    req=requirement(level.get('value'))
+    if req['to_next'] is None:return None
+    percentage=f'{bp//100}.{bp%100:02}'
+    # The bin depends only on the display; the dummy EXP does not select a hypothesis.
+    bins={mode:assess(level['value'],0,percentage,{level['value']:req['to_next']},mode)['exp_bin'] for mode in MODES}
+    if not any(b['count'] for b in bins.values()):return None
+    return dict(value=rational(Fraction(bp*req['to_next'],10000)),hypotheses=bins,
+        requirement=req,level_evidence=level,source='displayed_percentage_and_provisional_requirement',
+        label='EXPERIMENTAL / UNVERIFIED',trusted=False)
 
 
 def estimates(segment,pace,bp):
@@ -52,10 +67,12 @@ def reading(row):
         if proposed.get('classification')=='unique_proposal':
             candidate=proposed['proposals'][0]['reading']
             if candidate['percentage']==point['percentage']: full=candidate
+    exp=full['exp'] if full and row['exp_validity']['status']!='invalid' else None
+    level=level_evidence(row)
     return dict(event_id=point['event_id'],timestamp=point['timestamp'],percentage=point['percentage'],
-        bp=point['bp'],exp=full['exp'] if full and row['exp_validity']['status']!='invalid' else None,
+        bp=point['bp'],exp=exp,estimated_exp=percentage_exp(point['bp'],level) if exp is None else None,
         exp_validity=row['exp_validity'],evidence=point['evidence'],grammar_policy=point['grammar_policy'],
-        fresh_at_capture=point['fresh_at_capture'] and point['capture_acquired'],level=level_evidence(row),
+        fresh_at_capture=point['fresh_at_capture'] and point['capture_acquired'],level=level,
         simulated=row.get('timing_mode')=='simulated',trusted=False)
 
 

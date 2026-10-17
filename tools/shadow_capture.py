@@ -3,7 +3,7 @@
 import argparse
 from contextlib import ExitStack
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
@@ -291,7 +291,7 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
 
 
 def run(args, source, requirements, emit, *, session_factory=ShadowSession, analyze_frame=analyze,
-        clock=time.monotonic, sleep=time.sleep):
+        clock=time.monotonic, sleep=time.sleep, on_activity=None):
     started = clock()
     deadline = started
     attempted = 0
@@ -299,6 +299,8 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
     try:
         for index in range(args.count):
             sleep(max(0, deadline - clock()))
+            if on_activity:on_activity(dict(state='running',updated_at=datetime.now(timezone.utc).isoformat(),
+                expected_completion_seconds=args.timeout+args.ocr_timeout+15))
             attempted += 1
             seek = args.start + clock() - started if source.kind == 'file' else None
             record = capture_attempt(args, source, requirements, index+1, seek=seek,
@@ -308,6 +310,9 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
             deadline += args.interval
             while deadline < clock():
                 deadline += args.interval
+            if on_activity:on_activity(dict(state='capture_failing' if record.get('status')=='capture_failed' else 'waiting',
+                updated_at=datetime.now(timezone.utc).isoformat(),
+                next_due_at=(datetime.now(timezone.utc)+timedelta(seconds=max(0,deadline-clock()))).isoformat()))
     except KeyboardInterrupt:
         interrupted = True
     return dict(type='summary', attempts=attempted, interrupted=interrupted, trusted=False,
@@ -363,7 +368,7 @@ def configuration(args, table_bytes, table, run_id=None):
            if args.experimental_neural_level else {}))
 
 
-def main(argv=None, *, on_record=None):
+def main(argv=None, *, on_record=None, on_activity=None):
     cli = parser()
     args = cli.parse_args(argv)
     stack = ExitStack()
@@ -403,7 +408,7 @@ def main(argv=None, *, on_record=None):
                 if on_record:
                     on_record(record, diagnostics is not None)
             emit(configuration(args, table_bytes, table, run_id))
-            summary = run(args, source, requirements, emit)
+            summary = run(args, source, requirements, emit,**({'on_activity':on_activity} if on_activity else {}))
             monitor.close()
             emit(summary)
     except (OSError, ValueError, sqlite3.Error) as error:

@@ -87,6 +87,15 @@ can confirm recent neural evidence despite Tesseract disagreement; `*` marks
 provisional evidence. Conditional EXP contradictions withhold the integer while
 preserving its percentage. No table inference silently replaces a visual level.
 
+When that integer is unavailable/withheld, `reading.estimated_exp` may separately
+provide a presentation estimate from the displayed percentage and the existing
+supported visual-level context. The UI shows a compact `≈1.07M` with both formatting
+hypotheses' integer ranges in its tooltip. `reading.exp` and all raw candidates
+remain unchanged; missing/disputed levels/requirements leave this estimate blank.
+See [live update validation](live-player-updates.md). Player pages poll every two
+seconds including background tabs (browser throttling may delay timers), with an
+immediate request on returning and no overlapping requests.
+
 - **Homepage and character-page comparisons** use the selected 5/10/15/30-minute
   window ending at the latest capture. Only endpoints inside that window count;
   no boundary gains are interpolated. At least 90% uninterrupted coverage and a
