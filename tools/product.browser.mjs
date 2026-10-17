@@ -34,7 +34,9 @@ async function tab(path,width,height){
 }
 async function screenshot(page,name,width,height){
   await page.command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<650 && width!==500});
+  await page.evaluate('if(document.body.dataset.view==="player")drawHistory()');
   assert.ok(await page.evaluate('document.documentElement.scrollWidth<=innerWidth'),name+': horizontal overflow');
+  if(name.startsWith('character'))assert.ok(await page.evaluate('document.getElementById("history-chart").parentElement.scrollWidth<=document.getElementById("history-chart").parentElement.clientWidth'),name+': chart horizontal overflow');
   const image=await page.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});writeFileSync(join(output,name+'.png'),Buffer.from(image.data,'base64'));shots.push(name);
 }
 try {
@@ -43,6 +45,10 @@ try {
   const board=await tab('/',1440,1050);await board.wait(`typeof data!=='undefined' && data?.players?.length===${before.players.length}`);
   assert.deepEqual(await board.evaluate('[...document.querySelectorAll(".entry")].map(r=>r.dataset.channel).sort()'),before.players.map(p=>p.channel).sort());
   for(const p of before.players)if(p.reading)assert.equal(await board.evaluate(`document.querySelector('.entry[data-channel="${p.channel}"] progress').value`),p.reading.bp/100);
+  assert.equal(await board.evaluate('document.querySelectorAll("[data-window]").length'),4);
+  await board.evaluate('document.querySelector("[data-sort=movement]").click();document.querySelectorAll("[data-window]")[1].click()');
+  assert.match(await board.evaluate('document.getElementById("ranking-note").textContent'),/10-minute window/);
+  await board.evaluate('document.querySelectorAll("[data-window]")[0].click()');
   await screenshot(board,'homepage-desktop',1440,1050);await screenshot(board,'homepage-mobile',390,1200);
   const overlay=await tab('/live/overlay/'+channel,500,160);await overlay.wait("typeof data!=='undefined' && !!data?.player");
   const original=await api('/api/players/'+channel);
@@ -51,7 +57,19 @@ try {
   assert.equal(await overlay.evaluate('getComputedStyle(document.body).backgroundColor'),'rgba(0, 0, 0, 0)');
   await screenshot(overlay,'overlay-before-stale',500,160);
   const detail=await tab('/stream/'+channel,1440,1050);await detail.wait("typeof data!=='undefined' && !!data?.player");
+  const recent=await detail.evaluate('({start:document.getElementById("history-chart").dataset.start,end:document.getElementById("history-chart").dataset.end,note:document.getElementById("history-note").textContent})');
+  if(recent.start)assert.ok(Date.parse(recent.end)-Date.parse(recent.start)<=300000);
+  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 5 min');
+  if(!original.player.windows['5'].eligible)assert.equal(await detail.evaluate('document.getElementById("rate").textContent'),'—');
   await screenshot(detail,'character-desktop',1440,1050);
+  await screenshot(detail,'character-mobile',390,1200);
+  await detail.evaluate('document.querySelectorAll("[data-window]")[2].click()');
+  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 15 min');
+  await screenshot(detail,'character-15-minute',1440,1050);
+  await detail.evaluate('document.querySelectorAll("[data-window]")[0].click()');
+  await detail.command('Page.bringToFront');await delay(2300);
+  assert.ok(await detail.evaluate('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2'));
+  assert.ok(await overlay.evaluate('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2'));
   const observed=[];
   if(database){
     await board.command('Page.bringToFront');

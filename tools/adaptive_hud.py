@@ -61,6 +61,17 @@ def layouts(tokens, size):
                             and abs(mp['y']-exp['y'])<=.04*mp_exp):
                         field_step=lv_mp;origin_x=mp['x']-field_step;origin_y=mp['y']
                         correction='hp_outlier_mp_exp_lv_consensus'
+                    elif all(re.fullmatch(pattern,t['text'],re.I) for pattern,t in (
+                            (r'LV[.:]?',lv),(r'MP[.:]?',mp),(r'EXP[.:]?',exp))):
+                        # A tall MP token can move its left edge. Check its residual against stable outer labels.
+                        outer_step=(exp['x']-lv['x'])/3.9
+                        expected_mp=lv['x']+2.9*outer_step
+                        expected_hp=lv['x']+1.9*outer_step
+                        if (outer_step>0 and .05*outer_step<abs(hp['x']-expected_hp)<=.15*outer_step
+                                and abs(mp['x']-expected_mp)<=min(.03*outer_step,mp['width']/4)
+                                and abs(mp['y']-exp['y'])<=.04*outer_step):
+                            field_step=outer_step;origin_x=expected_hp;origin_y=mp['y']
+                            correction='hp_outlier_lv_exp_span_mp_residual'
                     # shortcut: one classic HUD layout family; reject other layouts until validated.
                     boxes = dict(level=(lv["x"] + .29 * field_step, lv["y"] - .04 * field_step,
                                         lv["x"] + .62 * field_step, lv["y"] + .17 * field_step),

@@ -4,10 +4,10 @@ const view=document.body.dataset.view;
 const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?location.pathname.split('/')[2]:null;
 const endpoint=channel?`/api/players/${encodeURIComponent(channel)}`:'/api/players';
 const numbers=new Intl.NumberFormat('en-US'),compact=new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1});
-const sorts={exp_hour:'Estimated pace from each eligible recent segment; community requirements are provisional.',
+const sorts={exp_hour:'Estimated pace over the selected window; community requirements are provisional.',
   level:'Last observed levels, including old readings. A * marks provisional level evidence.',
-  movement:'Displayed change in each uninterrupted recent segment. Durations differ; this is not a fixed-window comparison.'};
-let data=null,receivedAt=0,failed=false,sort='level';
+  movement:'Displayed change within the selected window. Incomplete or interrupted coverage is not ranked.'};
+let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=5;
 const el=id=>document.getElementById(id);
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
 function ageText(seconds) { if(seconds==null)return 'No reading yet';if(seconds<60)return `${Math.floor(seconds)}s ago`;if(seconds<3600)return `${Math.floor(seconds/60)}m ago`;if(seconds<86400)return `${Math.floor(seconds/3600)}h ago`;return `${Math.floor(seconds/86400)}d ago`; }
@@ -18,8 +18,16 @@ function levelTitle(p) { const l=p.reading?.level;return l?.status==='conflict'?
 function current(p) {
   const age=p.age_seconds==null?null:p.age_seconds+(performance.now()-receivedAt)/1000;
   const stale=p.stale || age==null || age>p.stale_after_seconds;
-  const metrics=!stale && !failed?p.estimates:null;
+  const metrics=!stale && !failed?(view==='overlay'?p.estimates:selectedWindow(p)?.eligible?selectedWindow(p).estimates:null):null;
   return {age,stale,metrics};
+}
+function selectedWindow(p) { return p.windows?.[String(windowMinutes)]; }
+function windowNote(p) {
+  const w=selectedWindow(p);
+  if(current(p).stale || failed)return 'Waiting for fresh readings';
+  if(w?.eligible)return `Last ${windowMinutes} min · ${Math.round(w.coverage_seconds.approximate)}s observed · ${w.readings} readings`;
+  if(w?.state==='unavailable')return 'History interrupted · waiting for comparable readings';
+  return `Building ${windowMinutes}m history${p.segment?.readings>=2?` · recent +${p.segment.difference_percentage_points} pp / ${Math.round(p.segment.span_seconds.approximate)}s`:''}`;
 }
 function statusText(p) {
   const s=current(p),state=p.activity?.state;
@@ -32,14 +40,14 @@ function statusText(p) {
 }
 function etaText(value) { if(!value)return '—';const m=Math.max(5,Math.ceil(value.seconds.approximate/300)*5);if(m<60)return `~${m}m`;if(m<1440)return `~${Math.floor(m/60)}h ${m%60}m`;return `~${Math.floor(m/1440)}d ${Math.floor(m%1440/60)}h`; }
 function rateTitle(rate) {
-  if(!rate)return 'Building comparable history; estimates require three readings across at least 30 seconds.';
+  if(!rate)return view==='overlay'?'Building comparable history; estimates require three readings across at least 30 seconds.':`Building ${windowMinutes}-minute history; at least 90% contiguous coverage, with no interpolation.`;
   return `Experimental estimate, not earned EXP. ${Object.entries(rate.hypotheses).map(([rule,b])=>`${rule}: ${numbers.format(Math.round(b.lower.approximate))}–${numbers.format(Math.round(b.upper.approximate))} EXP/h`).join('; ')}. Community requirement ${rate.requirement.version}; quantization bounds exclude OCR errors.`;
 }
 function metricValue(p,key) {
   if(key==='level')return p.reading?.level?.value ?? null;
   if(current(p).stale || failed)return null;
   if(key==='exp_hour')return current(p).metrics?.exp_per_hour?.value.approximate ?? null;
-  return p.segment && p.segment.readings>=2?Number(p.segment.difference_percentage_points):null;
+  return selectedWindow(p)?.eligible?Number(selectedWindow(p).difference_percentage_points):null;
 }
 function ranked(players,key) {
   const rows=players.map(player=>({player,value:metricValue(player,key)})).sort((a,b)=>(a.value==null)-(b.value==null)||(b.value??0)-(a.value??0)||a.player.channel.localeCompare(b.player.channel));
@@ -56,8 +64,7 @@ function entry({player:p,value,rank}) {
   bar.dataset.missing=String(!r);bar.dataset.recovered=String(r?.evidence==='grammar_recovered');
   const label=node('span','exp-label');label.append(node('small','',r?.evidence==='grammar_recovered'?'≈ EXP':'EXP'),node('span','exp-number',expText(r?.exp)),node('span','percentage',r?`[${r.percentage}%]`:'Waiting for EXP'));
   bar.append(progress,label);
-  const movement=!s.stale && p.segment && p.segment.readings>=2?`+${p.segment.difference_percentage_points} pp · ${Math.round(p.segment.span_seconds.approximate)}s segment`:'Building recent history';
-  section.append(bar,node('div','exp-detail',`${movement} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
+  section.append(bar,node('div','exp-detail',`${windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):sort==='movement'?`+${value.toFixed(2)}`:`~${compact.format(value)}`),
     node('small','score-label',sort==='level'?'last observed level':sort==='movement'?'percentage points':'estimated EXP / hour'));
   score.title=sort==='exp_hour'?rateTitle(s.metrics?.exp_per_hour):sort==='level'?levelTitle(p):'Displayed percentage change only; no exact earned EXP is inferred.';
@@ -71,9 +78,10 @@ function renderBoard() {
   el('empty').hidden=rows.length>0 || !data;
   el('board-count').textContent=data?`${rows.length} character${rows.length===1?'':'s'} · saved stream readings`:failed?'Tracker unavailable':'Loading your party…';
   el('ranking-count').textContent=`${rows.filter(r=>r.rank!=null).length} eligible · ${rows.length} shown`;
-  el('ranking-note').textContent=sorts[sort];
+  el('ranking-note').textContent=sorts[sort]+(sort==='level'?'':` ${windowMinutes}-minute window ending at each latest capture; ≥90% contiguous coverage, no interpolation.`);
   el('connection').textContent=failed?'Connection interrupted · showing older readings':'Updates automatically · local tracker';
   document.querySelectorAll('[data-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.sort===sort)));
+  document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
 }
 function renderPlayer() {
   const p=data?.player,r=p?.reading;
@@ -89,24 +97,32 @@ function renderPlayer() {
   el('percentage').textContent=r?`${r.percentage}%`:'—';
   el('status').textContent=statusText(p);
   el('age').textContent=r?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp ?? '';
-  el('movement').textContent=!s.stale && !failed && p.segment?.readings>=2?`+${p.segment.difference_percentage_points} pp`:'—';
+  const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null;
+  el('movement').textContent=!s.stale && !failed && movement!=null?`+${movement} pp`:'—';
   el('rate').textContent=m?.exp_per_hour?`~${compact.format(m.exp_per_hour.value.approximate)}`:'—';el('rate').title=rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Experimental displayed percentage points/hour; zero displayed change does not prove zero actual EXP.';
   el('eta').textContent=etaText(m?.eta);el('eta').title=m?.eta?'Provisional same-level percentage estimate at the last reading, not a countdown. Both quantization hypotheses require positive pace.':'Building positive, comparable history';
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';
   if(view==='player') {
-    el('segment-note').textContent=p.segment?`Recent segment · ${p.segment.readings} readings across ${Math.round(p.segment.span_seconds.approximate)}s · ${p.segment.evidence_counts.grammar_recovered} recovered. Estimates use displayed percentages and local capture time; gaps and level changes start a new segment.`:'Building comparable history. Missing readings and uncertain levels interrupt pace; no session earnings are invented.';
+    el('movement-label').textContent=`Last ${windowMinutes} min`;
+    el('segment-note').textContent=windowNote(p)+'. Window estimates need ≥90% uninterrupted same-level coverage and a first reading within one capture interval of the boundary. Local capture time; no missing progress is filled in.';
+    document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
   }
 }
 function drawHistory() {
   const svg=el('history-chart');svg.replaceChildren();
-  const points=(data?.history ?? []).map(r=>({...r,time:Date.parse(r.timestamp)})).filter(r=>Number.isFinite(r.time));
+  delete svg.dataset.start;delete svg.dataset.end;
+  const width=Math.max(300,Math.min(960,svg.clientWidth||960)),plotWidth=width-100;
+  svg.setAttribute('viewBox',`0 0 ${width} 230`);
+  const all=(data?.history ?? []).map(r=>({...r,time:Date.parse(r.timestamp)})).filter(r=>Number.isFinite(r.time));
+  const anchor=all.length?Math.max(...all.map(p=>p.time)):0;
+  const points=all.filter(p=>p.time>=anchor-windowMinutes*60000);
   const values=points.filter(p=>p.reading).map(p=>p.reading.bp/100),min=values.length?Math.min(...values):0,max=values.length?Math.max(...values):100;
   function shape(tag,attrs,title) { const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(title)n.append(node('title','',title));svg.append(n);return n; }
   if(!points.length) { shape('text',{x:30,y:100}).textContent='Your next adventure starts here.';return; }
   const first=Math.min(...points.map(p=>p.time)),last=Math.max(...points.map(p=>p.time));
-  const x=t=>70+(t-first)/Math.max(1,last-first)*850,y=v=>175-(v-min)/Math.max(.02,max-min)*140;
+  const x=t=>60+(t-first)/Math.max(1,last-first)*plotWidth,y=v=>175-(v-min)/Math.max(.02,max-min)*140;
   let gaps=0;
   points.forEach((p,i)=>{
     const previous=points[i-1];
@@ -116,8 +132,13 @@ function drawHistory() {
     else shape('path',{d:`M${x(p.time)-3} 185l6 6m0-6-6 6`,class:'missing'},`${p.timestamp} · reading unavailable`);
   });
   shape('text',{x:10,y:32}).textContent=max.toFixed(2)+'%';shape('text',{x:10,y:180}).textContent=min.toFixed(2)+'%';
-  shape('text',{x:70,y:218}).textContent=new Date(first).toISOString().slice(11,19)+' UTC';shape('text',{x:920,y:218,'text-anchor':'end'}).textContent=new Date(last).toISOString().slice(11,19)+' UTC';
-  el('history-note').textContent=`${points.length} saved attempts · ${gaps} sampling gaps${data.truncated?' · earlier history available in Advanced':''}. Points only; no progress is assigned between missing observations.`;
+  const ticks=width<600?3:5;
+  for(let i=0;i<ticks;i++) {
+    const time=first+(last-first)*i/(ticks-1);
+    shape('text',{x:60+plotWidth*i/(ticks-1),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=new Date(time).toISOString().slice(11,19);
+  }
+  svg.dataset.start=new Date(first).toISOString();svg.dataset.end=new Date(last).toISOString();
+  el('history-note').textContent=`${points.length} attempts in the ${windowMinutes} min ending at the last capture · ${Math.round((last-first)/1000)}s displayed · UTC · ${gaps} sampling gaps${current(data.player).stale?' · archived/stale readings':''}${data.truncated?' · earlier history available in Advanced':''}. Points only; no interpolation.`;
 }
 async function poll() {
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000),requested=performance.now();
@@ -130,7 +151,12 @@ async function poll() {
   finally { clearTimeout(timeout);setTimeout(poll,document.hidden && view!=='overlay'?10000:2000); }
 }
 if(view==='board') document.querySelectorAll('[data-sort]').forEach(button=>button.addEventListener('click',()=>{sort=button.dataset.sort;if(sort in sorts)renderBoard();}));
+document.querySelectorAll('[data-window]').forEach(button=>button.addEventListener('click',()=>{
+  const minutes=Number(button.dataset.window);if(![5,10,15,30].includes(minutes))return;windowMinutes=minutes;
+  if(view==='board')renderBoard();else if(data?.player){renderPlayer();drawHistory();}
+}));
 if(view==='player') {
+  globalThis.addEventListener?.('resize',drawHistory);
   const url=`${location.origin}/live/overlay/${encodeURIComponent(channel)}`;
   el('overlay-link').href=url;el('diagnostics').href=`/dashboard/${channel}`;el('history-link').href=`/dashboard/${channel}`;
   el('copy-overlay').addEventListener('click',async()=>{try {await navigator.clipboard.writeText(url);el('copy-status').textContent='Copied · use a 500 × 160 Browser Source';}catch{el('copy-status').textContent='Copy the Open OBS overlay link · 500 × 160';}});

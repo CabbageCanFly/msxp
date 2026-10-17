@@ -15,7 +15,7 @@ from .store import Store, utc
 from .shadow_grammar import interpret_exp, propose_full_exp
 from .exp_requirements import community_table, requirement
 from .diagnostic_progress import progress
-from .product import player,refresh
+from .product import player,refresh,PRODUCT_ROWS
 from .diagnostic_evidence import project
 
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
@@ -240,12 +240,13 @@ class Diagnostics:
                 attempts=self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?',(row['run_id'],)).fetchone()[0]))
         return dict(runs=values,next_before=rows[limit-1]['rowid'] if len(rows)>limit else None,trusted=False)
 
-    def snapshot(self, channel, *, now=None, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None):
+    def snapshot(self, channel, *, now=None, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS):
         now = now or datetime.now(timezone.utc)
         with self.store._transaction():
-            return self._snapshot(channel, now=now, active_runs=active_runs,session_id=session_id,run_id=run_id,before=before,start=start,end=end)
+            return self._snapshot(channel, now=now, active_runs=active_runs,session_id=session_id,run_id=run_id,before=before,start=start,end=end,limit=limit)
 
-    def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None):
+    def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS):
+        if type(limit) is not int or not 1<=limit<=PRODUCT_ROWS:raise ValueError('Invalid history limit')
         state = self.store._state(channel, as_of=now)
         selected = next((c for c in state['characters'] if c['id'] == state['selected_character_id']), None)
         session = state['session']
@@ -291,10 +292,10 @@ class Diagnostics:
         for condition,value in [('a.run_id=?',run_id),('a.id<?',before),('a.attempted_at>=?',start),('a.attempted_at<?',end)]:
             if value is not None: where.append(condition);values.append(value)
         rows = list(self.db.execute('SELECT a.*,r.configuration_json,r.summary_json FROM diagnostic_attempts a '
-            'JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE '+' AND '.join(where)+' ORDER BY a.id DESC LIMIT ?',(*values,MAX_ROWS+1)))
-        result['truncated'] = len(rows) > MAX_ROWS
-        if result['truncated']: result['history']['next_before']=rows[MAX_ROWS-1]['id']
-        rows = list(reversed(rows[:MAX_ROWS]))
+            'JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE '+' AND '.join(where)+' ORDER BY a.id DESC LIMIT ?',(*values,limit+1)))
+        result['truncated'] = len(rows) > limit
+        if result['truncated']: result['history']['next_before']=rows[limit-1]['id']
+        rows = list(reversed(rows[:limit]))
         observations = []
         previous = None
         links={}
@@ -333,6 +334,7 @@ class Diagnostics:
             'SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?', (session['id'],)).fetchone()[0]
         observations=project(observations)
         result['coverage'] = coverage(observations, total)
+        result['coverage']['history_limit']=limit
         if result['historical']: result['coverage']['scope']='selected_history_page'
         interval = configuration['interval']
         summary = json.loads(run['summary_json']) if run['summary_json'] else None
@@ -382,7 +384,7 @@ class Diagnostics:
                 key = tuple(head)
                 cached = cache.get(head['login'])
                 if cached is None or cached[0] != key:
-                    snap = self._snapshot(head['login'],now=now)
+                    snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS)
                     p = snap['percentage_progress']
                     last = snap['observations'][-1] if snap['observations'] else {}
                     full = None
@@ -406,7 +408,7 @@ class Diagnostics:
                         percentage={k:point[k] for k in ('percentage','evidence','timestamp','event_id')} if point else None,
                         full_exp=full,visual_level=last.get('visual_level'),neural_level=(last.get('neural_level') or {}).get('level'),
                         movement=p['latest_movement'],progress_reason=p['reason'],pace=p['current_pace'],
-                        stale_after_seconds=snap['stale_after_seconds'],history_limit=MAX_ROWS,
+                        stale_after_seconds=snap['stale_after_seconds'],history_limit=PRODUCT_ROWS,
                         history_truncated=snap['truncated'],trusted=False)
                     card['player']=player(snap,now=now)
                     card['unfinished_run_count'] = snap['unfinished_run_count']

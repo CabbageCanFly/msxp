@@ -48,6 +48,32 @@ def test_hp_anchor_outlier_uses_two_other_spacing_constraints():
     assert 'anchor_correction' not in hud.layouts(tokens,(1920,1080))[0]
 
 
+@pytest.mark.parametrize('exp_x,mp_width,exp_y',[(998.5,16.5,1047),(998.5,22.5,1046)])
+def test_bare_label_outer_span_handles_small_mp_displacement(exp_x,mp_width,exp_y):
+    # Geometry regression from saved anchors, not expected EXP digits.
+    tokens=[dict(text=name,x=x,y=y,width=w,height=h,confidence=.8) for name,x,y,w,h in (
+        ('HP',768.5,1044,25.5,15),('MP',886.5,1047.5,mp_width,16.5),
+        ('EXP',exp_x,exp_y,20.5,17.5),('LV.',573,1054,20,26))]
+    result=hud.layouts(tokens,(1920,1080))[0]
+    assert result['anchor_correction']=='hp_outlier_lv_exp_span_mp_residual'
+    box=result['regions']['exp'].pixels(1920,1080)
+    assert 1025<=box[0]<=1027 and 1048<=box[1]<=1050
+    # Source-coordinate check: the leading pixels at x1026 survive this crop.
+    image=Image.new('RGB',(1920,1080));image.putpixel((1027,1051),(255,255,255))
+    assert image.crop(box).getbbox() is not None
+    for index,change in [(1,dict(x=882)),(1,dict(y=1035)),(2,dict(text='EXP123')),(3,dict(x=565))]:
+        alternative=[dict(t) for t in tokens];alternative[index].update(change)
+        candidates=hud.layouts(alternative,image.size)
+        assert not candidates or candidates[0].get('anchor_correction')!='hp_outlier_lv_exp_span_mp_residual'
+
+
+def test_native_good_geometry_does_not_need_outer_span_override():
+    tokens=[dict(text=name,x=x,y=y,width=w,height=h,confidence=.8) for name,x,y,w,h in (
+        ('HP',779.5,1049.5,15.5,9.5),('MP',888.5,1049.5,17.5,9.5),
+        ('EXP',998.5,1047,20.5,17.5),('LV.',573,1056,20,13))]
+    assert 'anchor_correction' not in hud.layouts(tokens,(1920,1080))[0]
+
+
 @pytest.mark.parametrize('broken',[
     lambda t:t[:3],lambda t:t[:2]+t[3:],
     lambda t:[{**a,'y':a['y']+50} if a['text']=='MP' else a for a in t],

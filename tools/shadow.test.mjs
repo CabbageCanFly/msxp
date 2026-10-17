@@ -72,6 +72,18 @@ function state(overrides = {}) {
     observations: [observation(1)], interval_seconds: 15, age_seconds: 5, stale_after_seconds: 45, ...overrides};
 }
 
+test('chart defaults to recent captures while all loaded history and the original table remain available',()=>{
+  const p=page('/dashboard/synthetic');
+  p.render(state({observations:[observation(1),observation(30),observation(31)]}));
+  assert.equal(p.elements.readings.children.length,3);
+  assert.equal(p.elements.timeline.dataset.start,new Date(Date.UTC(2026,0,1)+30*15000).toISOString());
+  assert.match(p.elements['chart-note'].textContent,/Last 5 min.*2 timestamped attempts/);
+  p.elements['chart-range'].value='all';p.elements['chart-range'].listeners.change();
+  assert.equal(p.elements.timeline.dataset.start,new Date(Date.UTC(2026,0,1)+15000).toISOString());
+  assert.match(p.elements['chart-note'].textContent,/All loaded history.*3 timestamped attempts.*1 sampling gaps/);
+  assert.equal(p.elements['percentage-timeline'].dataset.start,p.elements.timeline.dataset.start);
+});
+
 test("grammar proposals render separately and never become timeline or latest strict values", () => {
   const p=page('/dashboard/synthetic');
   const recovery={classification:'unique_proposal',raw:'123,456112.34%1',proposals:[{

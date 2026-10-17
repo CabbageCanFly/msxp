@@ -1,11 +1,14 @@
 """Read-only player presentation of existing experimental evidence, never accounting."""
 
 from copy import deepcopy
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
 from fractions import Fraction
 
-from .diagnostic_progress import percentage_point,rational
+from .diagnostic_progress import percentage_point,rational,quantization_pace,elapsed_seconds
 from .diagnostic_evidence import project
+
+WINDOWS=(5,10,15,30)
+PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
 
 
 def fraction(value):
@@ -56,6 +59,52 @@ def reading(row):
         simulated=row.get('timing_mode')=='simulated',trusted=False)
 
 
+def window_comparisons(snapshot, *, now):
+    """Observed endpoints inside a fixed window; never split an interval at its boundary."""
+    rows=snapshot['observations'];data=snapshot['percentage_progress'];segment=data['current_segment']
+    reference=(rows[-1]['received_at'] or rows[-1]['attempted_at']) if rows else None
+    end=datetime.fromisoformat(reference) if reference else now
+    sequence=[]
+    if segment:
+        inside=False
+        for row in rows:
+            if row['event_id']==segment['first_event_id']:inside=True
+            if inside:sequence.append((row,percentage_point(row)[0]))
+            if row['event_id']==segment['last_event_id']:break
+    result={}
+    for minutes in WINDOWS:
+        cutoff=end-timedelta(minutes=minutes)
+        points=[(r,p) for r,p in sequence if p and cutoff<=datetime.fromisoformat(p['timestamp'])<=end]
+        metric=dict(minutes=minutes,reference_at=reference,requested_start=cutoff.isoformat(),eligible=False,
+            state='building_history',reason='insufficient_contiguous_coverage',readings=len(points),
+            coverage_seconds=rational(Fraction(0)),coverage_fraction=rational(Fraction(0)),
+            difference_percentage_points=None,estimates=estimates(None,None,0),trusted=False)
+        if points:
+            first,last=points[0][1],points[-1][1]
+            a,b=datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp'])
+            elapsed=elapsed_seconds(a,b)
+            metric.update(start=first['timestamp'],end=last['timestamp'],coverage_seconds=rational(elapsed),
+                coverage_fraction=rational(elapsed/(minutes*60)),
+                evidence_counts={kind:sum(p['evidence']==kind for _,p in points) for kind in ('strict_full','strict_percentage_only','grammar_recovered')})
+            boundary=elapsed_seconds(cutoff,a)
+            complete=(len(points)>=3 and elapsed>=30 and elapsed>=Fraction(minutes*60*9,10)
+                and boundary<=Fraction(str(points[0][0]['interval_seconds']))
+                and rows[-1]['event_id']==last['event_id'])
+            if complete:
+                diff=last['bp']-first['bp']
+                pace=dict(label='EXPERIMENTAL / UNVERIFIED',units='percentage_points_per_hour',
+                    value=rational(Fraction(diff*36)/elapsed),**quantization_pace(first['bp'],last['bp'],elapsed),
+                    bounds_kind='outer_quantization_bounds_not_statistical_intervals')
+                metric.update(eligible=True,state='eligible',reason='observed_endpoints_cover_window',
+                    difference_percentage_points=f'{diff//100}.{diff%100:02}',
+                    estimates=estimates(segment,pace,last['bp']))
+        if reference is None or end>now or data['stale'] or segment is None:
+            metric.update(eligible=False,state='stale' if data['stale'] else 'unavailable',
+                reason='future_timestamp' if end>now else data['reason'],estimates=estimates(None,None,0))
+        result[str(minutes)]=metric
+    return result
+
+
 def player(snapshot,*,now=None):
     now=now or datetime.now(timezone.utc)
     rows=snapshot['observations'];latest=None
@@ -75,7 +124,7 @@ def player(snapshot,*,now=None):
         segment=dict(start=segment['start'],end=segment['end'],readings=segment['readings'],span_seconds=segment['span_seconds'],
             difference_percentage_points=segment['difference_percentage_points'],evidence_counts=segment['evidence_counts']) if usable else None,
         estimates=estimates(segment,progress['current_pace'],latest['bp']) if usable else estimates(None,None,0),
-        trusted=False,experimental=True)
+        windows=window_comparisons(snapshot,now=now),trusted=False,experimental=True)
     return refresh(result,now=now)
 
 
@@ -87,6 +136,8 @@ def refresh(value,*,now=None,activity=None):
     value['activity']=activity or dict(state='coordinator_stopped')
     if value['stale'] or latest and latest['simulated']:
         value['estimates']=estimates(None,None,0)
+        for metric in value.get('windows',{}).values():
+            metric.update(eligible=False,state='stale',reason='stale_or_simulated_reading',estimates=estimates(None,None,0))
     return value
 
 

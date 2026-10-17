@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
 from .diagnostics import Diagnostics, operation
-from .product import player,history,refresh
+from .product import player,history,refresh,PRODUCT_ROWS
 
 
 WEB = Path(__file__).with_name("web")
@@ -80,7 +80,7 @@ class Handler(BaseHTTPRequestHandler):
                         store._channel(channel)
                         if product_api:
                             now=datetime.now(timezone.utc)
-                            snap=Diagnostics(store).snapshot(channel,now=now)
+                            snap=Diagnostics(store).snapshot(channel,now=now,limit=PRODUCT_ROWS)
                             activity=operation(snap,self.server.coordinator_status.get(channel),now)
                             value=refresh(player(snap,now=now),now=now,activity=activity)
                             self.reply(200,dict(player=value,history=history(snap),truncated=snap['truncated'],served_at=utc(now),experimental=True,poll_seconds=2))

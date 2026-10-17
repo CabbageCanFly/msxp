@@ -80,7 +80,7 @@ try {
     nearest:row.children[4].textContent, truncation:row.children[5].textContent,
     grammar:row.children[2].querySelector('.grammar-proposal code')?.textContent ?? null}))`);
   expected.observations.forEach((row, index) => {
-    assert.equal(displayed[index].raw, row.raw_text ?? "—");
+    assert.equal(displayed[index].raw, row.raw_text_redacted ? "[Non-numeric diagnostic text redacted]" : row.raw_text ?? "—");
     assert.equal(displayed[index].visual, String(row.visual_level ?? "—"));
     if (row.candidate) assert.equal(displayed[index].pair, `${row.exp_validity?.status==='invalid'?'WITHHELD original saved pair: ':''}${new Intl.NumberFormat('en-US').format(BigInt(row.candidate.exp))} EXP [${row.candidate.percentage}%]`);
     if (row.percentage_only_candidate) assert.match(displayed[index].pair, /percentage only.*EXP unavailable/);
@@ -137,6 +137,12 @@ try {
   } else {
   await screenshot("test-shadow-desktop", 1440, 2000);
   await screenshot("test-shadow-mobile", 390, 1200);
+  const recentAxis=await evaluate('({start:document.getElementById("timeline").dataset.start,end:document.getElementById("timeline").dataset.end})');
+  if(recentAxis.start)assert.ok(Date.parse(recentAxis.end)-Date.parse(recentAxis.start)<=300000);
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:950,deviceScaleFactor:1,mobile:false});
+  await evaluate('document.getElementById("timeline").closest("section").scrollIntoView()');
+  await screenshot('recent-charts',1440,950);
+  await evaluate('scrollTo(0,0);document.getElementById("chart-range").value="all";document.getElementById("chart-range").dispatchEvent(new Event("change"))');
   if(dashboard && expected.history) {
     await evaluate("globalThis.fetch=globalThis.browserOriginalFetch;document.getElementById('browse-history').click()");
     async function waitFor(expression) { for(let i=0;i<100;i++) { if(await evaluate(expression)) return; await delay(100); } assert.fail('Historical navigation timed out: '+expression); }

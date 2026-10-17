@@ -72,7 +72,8 @@ Start-Process 'http://127.0.0.1:8766/stream/telfer1'
 
 `/api/players` uses the existing cached, bounded SQLite directory projection.
 `/api/players/CHANNEL` reuses the selected session's snapshot and returns at most
-120 compact history points. Both are read-only, opt-in, localhost-only and retain
+640 compact history points (enough for 30 minutes at the offline 3-second floor).
+Advanced diagnostics keep their 120-attempt pages. Both are read-only, opt-in, localhost-only and retain
 the server's CSP/security behavior. Raw model text, private paths and playback
 URLs are absent. Advanced APIs retain raw evidence and detailed bounds.
 
@@ -86,9 +87,14 @@ can confirm recent neural evidence despite Tesseract disagreement; `*` marks
 provisional evidence. Conditional EXP contradictions withhold the integer while
 preserving its percentage. No table inference silently replaces a visual level.
 
-- **Recent progress** is the existing current uninterrupted segment's displayed
-  percentage-point change, with its real duration. It is not a five-minute or
-  session-wide EXP total. At least two comparable readings are necessary.
+- **Homepage and character-page comparisons** use the selected 5/10/15/30-minute
+  window ending at the latest capture. Only endpoints inside that window count;
+  no boundary gains are interpolated. At least 90% uninterrupted coverage and a
+  first endpoint within one recorded capture interval of the boundary are needed.
+  Actual elapsed time is shown; shorter/interrupted histories leave metrics blank.
+  See [recent windows](recent-windows.md) for the policy and saved-data checks.
+- **OBS overlay recent progress** retains the existing current uninterrupted
+  segment's displayed change and actual duration; it is not a fixed-window total.
 - **Pace** reuses the existing engine: at least three readings over 30 seconds,
   explicit same-level evidence, source/character/session continuity and all
   freshness/missing-attempt/rotation safeguards. Zero displayed change can give
@@ -109,7 +115,8 @@ preserving its percentage. No table inference silently replaces a visual level.
 Ranking compares only eligible configured characters for the selected metric,
 with unavailable values after eligible ones and equal values sharing ranks.
 Level sorting explicitly uses **last observed** levels, which may be old. Recent
-progress compares differently sized segments and says so. No unsupported window,
+progress on the website compares eligible selected windows with actual coverage.
+The overlay retains shorter segment estimates. No unsupported window,
 daily total, session earnings or authoritative rank is invented.
 
 All of these are experimental presentation, never `Store.ingest`, trusted state,

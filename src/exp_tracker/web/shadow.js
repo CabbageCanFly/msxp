@@ -90,7 +90,12 @@ function timelineData(rows, interval) {
 function drawTimeline(rows, interval, percentage = false) {
   const svg = document.getElementById(percentage ? "percentage-timeline" : "timeline");
   svg.replaceChildren();
-  const {points, gaps, missingTimes} = timelineData(rows, interval);
+  delete svg.dataset.start; delete svg.dataset.end;
+  const missingTimes = rows.filter(row => timeOf(row) === null).length;
+  const range = document.getElementById("chart-range").value || "5";
+  const lastTime = Math.max(...rows.map(timeOf).filter(time => time !== null));
+  if (range !== "all") rows = rows.filter(row => timeOf(row) !== null && timeOf(row) >= lastTime - Number(range)*60000);
+  const {points, gaps} = timelineData(rows, interval);
   function shape(tag, attributes, title) {
     const node = document.createElementNS(svgNS, tag);
     for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
@@ -103,11 +108,12 @@ function drawTimeline(rows, interval, percentage = false) {
   const uncertainLevels=points.filter((point,i)=>i && (chartLevel(point.row)==null || chartLevel(points[i-1].row)==null));
   const cadences = [...new Set(points.map(p=>p.row.interval_seconds ?? interval).filter(n=>n))];
   const cadenceNote = cadences.length ? `Recorded cadence${cadences.length>1?"s":""}: ${cadences.join(" / ")}s.` : "Expected cadence unavailable.";
-  document.getElementById(percentage ? "percentage-note" : "chart-note").textContent = `${points.length} timestamped attempts · ${gaps.length} sampling gaps · ${missingTimes} without usable timestamps. ${cadenceNote}${percentage ? ` ${levelBreaks.length} observed visual-level changes; unknown levels do not establish continuity. Hover points for exact percentage and visual level.` : ""}`;
+  document.getElementById(percentage ? "percentage-note" : "chart-note").textContent = `${range === 'all' ? 'All loaded history' : `Last ${range} min ending at latest loaded capture`} · ${points.length} timestamped attempts · ${gaps.length} sampling gaps · ${missingTimes} without usable timestamps in loaded history. The table retains every loaded attempt. ${cadenceNote}${percentage ? ` ${levelBreaks.length} observed visual-level changes; unknown levels do not establish continuity. Hover points for exact percentage and visual level.` : ""}`;
   if (!points.length) { shape("text", {x: 40, y: 105}).textContent = "Waiting for timestamped attempts"; return; }
   const valueOf = row => chartValue(row, percentage).value;
   const times = points.map(point => point.time), values = points.map(p => valueOf(p.row)).filter(value => value !== null).map(Number);
   const left = Math.min(...times), right = Math.max(...times);
+  svg.dataset.start = new Date(left).toISOString(); svg.dataset.end = new Date(right).toISOString();
   let low = Math.min(...values), high = Math.max(...values);
   if (percentage && values.length) {
     const padding = Math.max(.01, (high-low)*.1);
@@ -144,8 +150,10 @@ function drawTimeline(rows, interval, percentage = false) {
       else shape("path", {d: `M${px} ${py-5}l5 5-5 5-5-5Z`, class: "stale"}, detail);
     } else shape("path", {d: `M${px-4} 168l8 8m0-8-8 8`, class: "rejected"}, label);
   }
-  shape("text", {x: 80, y: 211}).textContent = new Date(left).toISOString().slice(11, 19) + " UTC";
-  shape("text", {x: 930, y: 211, "text-anchor": "end"}).textContent = new Date(right).toISOString().slice(11, 19) + " UTC";
+  for (let i=0;i<5;i++) {
+    const time=left+(right-left)*i/4;
+    shape("text", {x:x(time),y:211,"text-anchor":i===0?'start':i===4?'end':'middle'}).textContent = new Date(time).toISOString().slice(11,19)+(i===4?' UTC':'');
+  }
 }
 function renderStatus() {
   const age = snapshot?.age_seconds == null ? null : snapshot.age_seconds + (performance.now() - receivedAt) / 1000;
@@ -330,6 +338,10 @@ async function poll() {
 poll();
 setInterval(renderStatus, 1000);
 document.getElementById("show-recovered").addEventListener("change", () => {
+  drawTimeline(snapshot?.observations || [], snapshot?.interval_seconds);
+  drawTimeline(snapshot?.observations || [], snapshot?.interval_seconds, true);
+});
+document.getElementById("chart-range").addEventListener("change", () => {
   drawTimeline(snapshot?.observations || [], snapshot?.interval_seconds);
   drawTimeline(snapshot?.observations || [], snapshot?.interval_seconds, true);
 });
