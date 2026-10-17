@@ -1,0 +1,65 @@
+"""Conditional EXP-derived levels from an explicit table; never numerical verification."""
+import argparse
+from decimal import Decimal
+import hashlib
+import json
+from pathlib import Path
+import re
+
+from check_exp_consistency import MODES, assess
+
+
+def infer_levels(exp, percentage, requirements, mode='nearest_half_up'):
+    """Enumerate every compatible supplied level, without an OCR level or tolerance."""
+    if mode not in MODES:
+        raise ValueError('Unknown rounding hypothesis')
+    if not requirements or any(type(level) is not int or level<1 or type(total) is not int or total<=0
+                               for level,total in requirements.items()):
+        raise ValueError('A nonempty positive integer level/requirement table is required')
+    result=dict(levels=[],unique_level=None,rounding=mode,trusted=False,authoritative=False,
+                exhaustive_only_within_supplied_table=True)
+    if exp is None or percentage is None:
+        return {**result,'status':'unavailable'}
+    if (type(exp) is not int or exp<0 or exp>2**63-1 or isinstance(percentage,bool)
+        or not isinstance(percentage,(int,float,str,Decimal))
+        or isinstance(percentage,str) and re.fullmatch(r'[0-9]{1,3}\.[0-9]{2}',percentage) is None):
+        return {**result,'status':'invalid_input'}
+    levels=[]
+    for level in sorted(requirements):
+        check=assess(level,exp,percentage,requirements,mode)
+        if check['status']=='unavailable_numeric':
+            return {**result,'status':'invalid_input'}
+        if check['status']=='consistent':levels.append(level)
+    return {**result,'status':'unique' if len(levels)==1 else 'ambiguous' if levels else 'incompatible',
+            'levels':levels,'unique_level':levels[0] if len(levels)==1 else None}
+
+
+def strategies(tesseract,inference):
+    """C retains OCR contradictions; D strictly requires two unique agreeing sources."""
+    if tesseract is not None and (type(tesseract) is not int or tesseract<1):
+        raise ValueError('Expected an existing integer OCR level or None')
+    derived=inference['unique_level'] if inference['status']=='unique' else None
+    return dict(A=tesseract,B=derived,C=tesseract if tesseract is not None else derived,
+                D=tesseract if tesseract is not None and tesseract==derived else None)
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--requirements',type=Path,required=True)
+    parser.add_argument('--exp',type=int,required=True)
+    parser.add_argument('--percentage',required=True,help='Exact display value, e.g. 25.17; no percent sign')
+    parser.add_argument('--output',type=Path)
+    args=parser.parse_args()
+    if args.output and args.output.exists():parser.error('Never overwrite saved diagnostic evidence')
+    table=json.loads(args.requirements.read_text(encoding='utf-8'))
+    requirements={int(k):v for k,v in table['to_next'].items()}
+    result=dict(exp=args.exp,percentage=args.percentage,
+        requirements_sha256=hashlib.sha256(args.requirements.read_bytes()).hexdigest(),
+        table_provenance={k:v for k,v in table.items() if k!='to_next'},
+        hypotheses={mode:infer_levels(args.exp,args.percentage,requirements,mode) for mode in MODES})
+    serialized=json.dumps(result,indent=2)+'\n'
+    if args.output:args.output.write_text(serialized,encoding='utf-8')
+    else:print(serialized,end='')
+
+
+if __name__=='__main__':main()
