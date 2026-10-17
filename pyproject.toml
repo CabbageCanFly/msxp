@@ -21,7 +21,7 @@ ms-exp = "exp_tracker.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-exp_tracker = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg"]
+exp_tracker = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg", "data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

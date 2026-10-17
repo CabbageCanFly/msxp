@@ -1,5 +1,9 @@
 # Bounded full-EXP grammar proposals
 
+This page preserves the **v1** policy/results. The [v2 follow-up](extended-diagnostics.md)
+adds bounded pipe/percentage-comma interpretations, independent percentage
+recovery and opt-in chart layers without changing v1 or the strict baseline.
+
 This is **display/review evidence**, not recovered tracking observations. It adds
 no model inference, numerical verification or acceptance policy. Original strict
 full-pair/percentage-only parsers, capture JSONL, SQLite payloads, trusted Store,

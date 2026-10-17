@@ -22,12 +22,21 @@ aside { background: #293025; border-left: 3px solid #dcba65; padding: 14px; font
 .chart-wrap .axis { stroke: #3d536a; stroke-width: 1; }
 .chart-wrap .gap { fill: #ae8d4d; opacity: .13; }
 .chart-wrap .sample { fill: #7bd4c0; }
+.chart-wrap .sample[data-kind="strict-percentage"] { fill: #95c3ff; }
+.chart-wrap .recovered-full { fill: none; stroke: #efc06d; stroke-width: 2; }
+.chart-wrap .recovered-percentage { fill: none; stroke: #dfa6ed; stroke-width: 2; }
+.chart-wrap [data-stale="true"] { stroke-dasharray: 2 2; }
 .chart-wrap .stale { fill: #e9ba70; }
 .chart-wrap .rejected { stroke: #ee9d9b; stroke-width: 2; }
 .chart-wrap .level-break { stroke: #d4b0f5; stroke-dasharray: 3 4; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 11px; color: #7bd4c0; }
 .legend .old { color: #e9ba70; }
 .legend .failed { color: #ee9d9b; }
+.coverage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.coverage-grid dt { color: #abbcd0; font-size: 11px; }
+.coverage-grid dd { margin: 4px 0; font-size: 21px; }
+label { font-size: 12px; line-height: 1.7; }
+input[type="checkbox"] { accent-color: #efc06d; vertical-align: middle; }
 table { border-collapse: collapse; width: 100%; min-width: 1050px; text-align: left; font-size: 11px; }
 th { color: #9db3ca; font-size: 10px; }
 th, td { padding: 12px 9px; border-bottom: 1px solid #304459; vertical-align: top; }

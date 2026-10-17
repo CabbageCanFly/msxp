@@ -9,6 +9,7 @@ class Element {
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
   setAttribute(key, value) { this.attributes[key] = String(value); }
+  addEventListener(name, callback) { (this.listeners ??= {})[name] = callback; }
 }
 function page(pathname = "/dev/shadow") {
   const elements = {}, timers = [];
@@ -89,6 +90,58 @@ test("raw and candidate values stay distinct; neither hypothesis supplies missin
   assert.match(row.children[1].children[2].textContent, /UNVERIFIED/);
 });
 
+test("v2 percentage recovery and optional chart layers never replace strict evidence", () => {
+  const p = page('/dashboard/synthetic');
+  const proposal = (reading) => ({classification:'unique_proposal',proposals:[{
+    interpretation:reading.exp ? `${reading.exp}[${reading.percentage}%]` : `[${reading.percentage}%]`,
+    reading,edits:[{index:9,old:',',new:'.',category:'percentage_decimal'}]}]});
+  const full = observation(2,{candidate:null,raw_text:'123,456|12.34%|',interpretations:{
+    policy:'bounded_exp_v2',raw:'123,456|12.34%|',full_exp:proposal({exp:'123456',percentage:'12.34'}),percentage:proposal({percentage:'12.34'})}});
+  const only = observation(3,{candidate:null,raw_text:'5,031[33,05%]',event_id:'saved-event:3',interpretations:{
+    policy:'bounded_exp_v2',raw:'5,031[33,05%]',full_exp:{classification:'rejected',reason:'exp_completeness_unknown',proposals:[]},percentage:proposal({percentage:'33.05'})}});
+  const stale = {...only,index:4,fresh_at_capture:false};
+  const rows = [observation(1),full,only,stale];
+  p.render(state({observations:rows}));
+  let nodes = p.elements.timeline.children;
+  assert.equal(nodes.filter(n=>n.attributes.class==='sample').length,1);
+  assert.equal(nodes.filter(n=>n.attributes.class==='recovered-full').length,0);
+  const percentageCard = p.elements.readings.children[2].children[2].children.at(-1);
+  assert.equal(percentageCard.children[1].textContent,'5,031[33,05%] → [33.05%]');
+  assert.match(percentageCard.children[2].textContent,/Recovered percentage: 33.05%.*Absolute EXP: unavailable/);
+  p.elements['show-recovered'].checked=true;
+  p.elements['show-recovered'].listeners.change();
+  nodes=p.elements.timeline.children;
+  assert.equal(nodes.filter(n=>n.attributes.class==='sample').length,1);
+  assert.equal(nodes.filter(n=>n.attributes.class==='recovered-full').length,1);
+  assert.equal(nodes.filter(n=>n.attributes.class==='rejected').length,3); // Original strict failures remain visible beneath the layer.
+  const percentages=p.elements['percentage-timeline'].children.filter(n=>n.attributes.class==='recovered-percentage');
+  assert.equal(percentages.length,3);
+  assert.equal(percentages[1].attributes['data-event-id'],'saved-event:3');
+  assert.equal(percentages[2].attributes['data-stale'],'true');
+  assert.equal(full.candidate,null);
+  assert.ok(nodes.filter(n=>n.tag==='line').every(n=>n.attributes.class==='axis'));
+  full.interpretations.full_exp.classification='ambiguous';
+  only.interpretations.percentage.classification='ambiguous';
+  p.render(state({observations:rows}));
+  assert.equal(p.elements.timeline.children.filter(n=>n.attributes.class==='recovered-full').length,0);
+  assert.match(p.elements.readings.children[2].children[2].children.at(-1).textContent,/Grammar bounded_exp_v2: full_exp: rejected.*percentage: ambiguous/);
+});
+
+test("coverage is explicitly bounded and overlapping, not accuracy or summed observations", () => {
+  const p = page('/dashboard/synthetic');
+  p.render(state({coverage:{session_attempts:200,summarized_attempts:120,history_limit:120,
+    acquired_frames:120,unique_huds:100,strict_full_pairs:20,strict_percentage_only:5,recovered_full_exp:50,
+    recovered_percentages:60,percentage_recovery_without_full:10,unrecoverable:35,ambiguous:0,
+    malformed_or_missing_strict:95,visual_level_unavailable:10,neural_level_unavailable:20,
+    level_conflicts:3,acquisition_unknown:0,hud_unknown:5}}));
+  assert.equal(p.elements.coverage.hidden,false);
+  assert.match(p.elements['coverage-scope'].textContent,/200 session attempts.*latest 120.*Categories overlap/);
+  assert.equal(p.elements['coverage-counts'].children[0].children[1].textContent,'120');
+  assert.match(p.elements['coverage-unknown'].textContent,/HUD-count evidence unknown: 5/);
+  p.render(state());
+  assert.equal(p.elements.coverage.hidden,true);
+});
+
 test("timeline is points only and marks missing sampling time, failures and stale frames", () => {
   const p = page();
   p.render(state({observations: [observation(1), observation(2, {candidate: null, status: "capture_failed"}),
@@ -108,6 +161,15 @@ test("missing timestamps are not invented and zero EXP remains visible", () => {
   assert.match(p.elements["chart-note"].textContent, /1 without usable timestamps/);
   assert.equal(p.elements.readings.children[0].children[2].children[1].textContent, "0 EXP [0.00%]");
   assert.equal(p.elements.readings.children[1].children[0].children[0].textContent, "Timestamp unavailable");
+});
+
+test("sampling gaps use each saved run's cadence, rather than the latest run for all history", () => {
+  const p = page();
+  const rows = [observation(1,{interval_seconds:30}), observation(3,{interval_seconds:30}),
+    observation(4,{interval_seconds:7}), observation(6,{interval_seconds:7})];
+  p.render(state({observations:rows,interval_seconds:7}));
+  assert.equal(p.elements.timeline.children.filter(n=>n.attributes.class==='gap').length,1);
+  assert.match(p.elements['chart-note'].textContent,/Recorded cadences: 30 \/ 7s/);
 });
 
 test("no data, missing log and malformed lines show explicit diagnostic states", () => {

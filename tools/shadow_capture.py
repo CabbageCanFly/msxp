@@ -222,7 +222,8 @@ def parser():
     cli.add_argument('--ocr-timeout', type=float, default=10)
     cli.add_argument('--ocr-python', type=Path, default=ROOT / 'private/rapidocr/.venv' /
                      ('Scripts/python.exe' if os.name == 'nt' else 'bin/python'))
-    cli.add_argument('--requirements', type=Path, default=ROOT / 'private/exp-consistency/requirements.json')
+    cli.add_argument('--requirements', type=Path, default=ROOT / 'src/exp_tracker/data/community-exp-v2.json',
+                     help='Explicit diagnostic table; default community v2 selects agreeing levels 1–89, not disputed 90–99')
     cli.add_argument('--output', type=Path, required=True)
     cli.add_argument('--save-crops', action='store_true', help='Save only field crops beside the NEW JSONL')
     cli.add_argument('--experimental-neural-level',action='store_true',help='Opt in to UNVERIFIED neutral4 level diagnostics in the existing neural worker')

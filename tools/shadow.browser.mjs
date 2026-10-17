@@ -81,8 +81,10 @@ try {
     if (row.candidate) assert.equal(displayed[index].pair, `${new Intl.NumberFormat('en-US').format(BigInt(row.candidate.exp))} EXP [${row.candidate.percentage}%]`);
     if (row.percentage_only_candidate) assert.match(displayed[index].pair, /percentage only.*EXP unavailable/);
     assert.equal(displayed[index].nearest, `${row.hypotheses.nearest_half_up.status} · ${row.hypotheses.nearest_half_up.levels.join(', ') || 'no candidates'}`);
-    const grammar=row.grammar_recovery;
-    assert.equal(displayed[index].grammar, grammar?.classification === 'unique_proposal' ? `${grammar.raw} → ${grammar.proposals[0].interpretation}` : null);
+    const derived=row.interpretations;
+    const grammar=derived?.full_exp?.classification === 'unique_proposal' ? derived.full_exp :
+      derived?.percentage?.classification === 'unique_proposal' ? derived.percentage : row.grammar_recovery;
+    assert.equal(displayed[index].grammar, grammar?.classification === 'unique_proposal' ? `${derived?.raw ?? grammar.raw} → ${grammar.proposals[0].interpretation}` : null);
   });
   await delay(2300);
   assert.ok(await evaluate(`performance.getEntriesByType("resource").filter(r => r.name.includes(${JSON.stringify(endpoint)})).length >= 2`));
@@ -107,16 +109,33 @@ try {
   }
   await screenshot("test-shadow-desktop", 1440, 2000);
   await screenshot("test-shadow-mobile", 390, 1200);
+  if (expected.observations.some(row => row.interpretations)) {
+    assert.equal(await evaluate('document.getElementById("show-recovered").checked'), false);
+    assert.equal(await evaluate('document.querySelectorAll(".recovered-full, .recovered-percentage").length'),0);
+    await evaluate('document.getElementById("show-recovered").click()');
+    const full = expected.observations.filter(row => row.interpretations?.full_exp.classification === 'unique_proposal').length;
+    const percentages = expected.observations.filter(row => row.interpretations?.percentage.classification === 'unique_proposal').length;
+    assert.equal(await evaluate('document.querySelectorAll("#timeline .recovered-full").length'),full);
+    assert.equal(await evaluate('document.querySelectorAll("#percentage-timeline .recovered-percentage").length'),percentages);
+    assert.equal(await evaluate('document.querySelectorAll("#timeline .sample").length'),expected.observations.filter(r=>r.candidate && r.fresh_at_capture && r.timestamp_ordered!==false && r.status==='diagnostic_pair').length);
+    await screenshot("recovered-layers-desktop",1440,2300);
+    await screenshot("recovered-layers-mobile",390,2000);
+    await evaluate('document.getElementById("timeline").closest("section").scrollIntoView()');
+    await screenshot("recovered-charts-mobile",390,1100);
+    await evaluate('scrollTo(0,0)');
+    await evaluate('document.getElementById("show-recovered").click()');
+    assert.equal(await evaluate('document.querySelectorAll(".recovered-full, .recovered-percentage").length'),0);
+  }
   await evaluate('globalThis.originalSnapshot = snapshot');
   await evaluate('snapshot = {...originalSnapshot,observations:[],log_status:"missing",age_seconds:null,stale:false,channel:null}; render()');
   await screenshot("missing-log", 1440, 900);
   await evaluate('snapshot = {...originalSnapshot,incomplete_tail:true}; render()');
   await screenshot("incomplete-tail", 1440, 1400);
   const rows = [1,2,5].map((index, position) => ({...expected.observations[0], index,
-    channel:"synthetic_review", received_at:new Date(Date.UTC(2026,0,1)+index*15000).toISOString(),
+    channel:"synthetic_review", interval_seconds:15, received_at:new Date(Date.UTC(2026,0,1)+index*15000).toISOString(),
     status:position===1?"capture_failed":position===2?"stale_local_frame":"diagnostic_pair",
     fresh_at_capture:position===0, candidate:position===1?null:{exp:"100",percentage:"25.00"}, raw_text:position===1?null:"100[25.00%]"}));
-  await evaluate(`snapshot = {...originalSnapshot,channel:"synthetic_review",observations:${JSON.stringify(rows)},interval_seconds:15}; render()`);
+  await evaluate(`snapshot = {...originalSnapshot,channel:"synthetic_review",coverage:null,observations:${JSON.stringify(rows)},interval_seconds:15}; render()`);
   await screenshot("synthetic-gaps-failures-stale", 1440, 1000);
   const gaps = measurements.at(-1);
   assert.deepEqual([gaps.candidates,gaps.rejected,gaps.stale,gaps.gaps], [1,1,1,1]);

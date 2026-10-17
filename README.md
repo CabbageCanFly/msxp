@@ -8,6 +8,9 @@ The **[single-stream local alpha](docs/local-alpha.md)** connects explicit chara
 selection and shadow capture to separate SQLite diagnostics and a real-data
 `/dashboard/CHANNEL`. Neural candidates remain experimental and never count trusted
 EXP. Start with saved-log replay; no live capture is needed to try it.
+The [extended diagnostic coverage guide](docs/extended-diagnostics.md) covers
+versioned community EXP requirements, independent percentage recovery, optional
+grammar chart layers and the session coverage summary. All remain unverified.
 For a permitted live trial, `python tools/local_alpha.py --channel CHANNEL
 --character "Main" --authorized --experimental-neural-level` initializes/reuses
 explicit state, starts capture and prints the correct local dashboard URL. See

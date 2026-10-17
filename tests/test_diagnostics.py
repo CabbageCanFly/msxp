@@ -155,7 +155,7 @@ def test_history_spans_runs_but_not_sessions_and_is_bounded(configured):
     with Store(configured) as store:
         diagnostic = Diagnostics(store)
         for run in range(3):
-            diagnostic.begin(f'run{run}', 'alpha', CONFIG)
+            diagnostic.begin(f'run{run}', 'alpha', {**CONFIG, 'interval': (15, 30, 7)[run]})
             for index in range(1, 61):
                 row = attempt(index)
                 row['attempted_at'] = (NOW+timedelta(seconds=(60*run+index)*15)).isoformat()
@@ -163,6 +163,10 @@ def test_history_spans_runs_but_not_sessions_and_is_bounded(configured):
         snap = diagnostic.snapshot('alpha')
         assert len(snap['observations']) == 120 and snap['truncated']
         assert len({r['event_id'] for r in snap['observations']}) == 120
+        assert snap['coverage']['session_attempts'] == 180
+        assert snap['coverage']['summarized_attempts'] == 120
+        assert snap['observations'][0]['interval_seconds'] == 30
+        assert snap['observations'][-1]['interval_seconds'] == 7
 
 
 @pytest.mark.parametrize('change', [dict(trusted=True), dict(index=0), dict(index=True),
@@ -301,3 +305,45 @@ def test_grammar_is_derived_read_only_without_changing_candidates_or_trusted_sta
         assert store.db.execute('SELECT payload_json FROM diagnostic_attempts').fetchone()[0]==payload
         assert store.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==0
     assert configured.read_bytes()==before
+
+
+def test_v2_queryable_after_restart_without_payload_changes_or_trusted_promotion(configured):
+    texts = ['101[25.00%]', '123,456|12.34%|', '5,031[33,05%]', '[70.51%]', None]
+    with Store(configured) as store:
+        diagnostic = Diagnostics(store)
+        diagnostic.begin('v2', 'alpha', CONFIG)
+        for index, text in enumerate(texts, 1):
+            row = attempt(index)
+            row.update(neural=dict(text=text), localization=dict(count=1 if text else 0),
+                received_at=row['attempted_at'] if text else None, visual_level=64 if index < 3 else None,
+                neural_level=dict(status='numeric_candidate', text='54', level=54, score=.99) if index==2 else None)
+            if index > 1:
+                row.update(candidate=None, status='malformed_or_unavailable')
+            if text is None:
+                row.update(status='capture_failed', current=False)
+            diagnostic.append('v2', row)
+        before = list(store.db.execute('SELECT payload_json FROM diagnostic_attempts'))
+        trusted = store.state('alpha', as_of=NOW)
+    db_bytes = configured.read_bytes()
+    for _ in range(2):
+        with Store(configured, read_only=True) as store:
+            snap = Diagnostics(store).snapshot('alpha', now=NOW)
+            rows, counts = snap['observations'], snap['coverage']
+            assert counts['session_attempts'] == counts['summarized_attempts'] == 5
+            assert counts['acquired_frames'] == counts['unique_huds'] == 4
+            assert counts['strict_full_pairs'] == counts['strict_percentage_only'] == 1
+            assert counts['recovered_full_exp'] == counts['percentage_recovery_without_full'] == 1
+            assert counts['recovered_percentages'] == 2 and counts['unrecoverable'] == 1
+            assert counts['malformed_or_missing_strict'] == 3 and counts['level_conflicts'] == 1
+            assert rows[2]['interpretations']['full_exp']['proposals'] == []
+            assert rows[2]['interpretations']['percentage']['proposals'][0]['reading']['percentage'] == '33.05'
+            assert rows[2]['candidate'] is rows[2]['percentage_only_candidate'] is None
+            assert rows[1]['requirements']['visual']['to_next'] == 1497832
+            assert rows[1]['neural_level']['level'] == 54  # Never silently replace a wrong neural level.
+            assert rows[1]['requirements']['neural']['level'] == 54
+            assert rows[2]['event_id'] == 'v2:3' and rows[2]['attempted_at'] == attempt(3)['attempted_at']
+            assert snap['latest_reading']['observation']['index'] == 4
+            assert snap['trusted_state'] == trusted
+            assert [r[0] for r in store.db.execute('SELECT payload_json FROM diagnostic_attempts')] == [r[0] for r in before]
+            assert store.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0] == 0
+    assert configured.read_bytes() == db_bytes

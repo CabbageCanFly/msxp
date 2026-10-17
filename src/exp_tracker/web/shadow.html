@@ -27,23 +27,34 @@
       <p class="muted">Assignment is explicit, not inferred from pixels. Candidate values never update trusted EXP totals. Level evidence remains separate; neither visual recognizer verifies a complete tile or character identity.</p>
     </section>
     <p id="notice" role="status" aria-live="polite">Loading diagnostic log…</p>
+    <section id="coverage" class="panel" hidden aria-label="Diagnostic coverage, not accuracy">
+      <h2>Diagnostic coverage · selected session</h2>
+      <p id="coverage-scope" class="muted"></p>
+      <dl id="coverage-counts" class="coverage-grid"></dl>
+      <p id="coverage-unknown" class="muted"></p>
+      <p class="muted">Strict means original complete parser syntax, not verified numeric correctness. Grammar proposals interpret punctuation only and remain unverified. Recovered percentages overlap full proposals; an attempt is never two independent observations.</p>
+    </section>
+    <section class="panel" aria-label="Experimental chart controls">
+      <label><input id="show-recovered" type="checkbox"> Show GRAMMAR-RECOVERED / EXPERIMENTAL / UNVERIFIED chart layer</label>
+      <p class="muted">Off by default. Hollow triangles: recovered full EXP; hollow diamonds: recovered percentage. These are hypotheses, not accepted observations. Numeric identity and source completeness are unverified.</p>
+    </section>
     <section class="panel" aria-labelledby="timeline-title">
       <h2 id="timeline-title">Unverified EXP timeline</h2>
-      <p class="muted">Strict candidates only; grammar proposals are not plotted. Points only: no interpolation or gains. Shading marks missed sampling time, not zero EXP.</p>
+      <p class="muted">Original strict readings by default; optional recovered points remain separate. Points only: no interpolation or gains. Shading marks missed sampling time, not zero EXP.</p>
       <div class="chart-wrap"><svg id="timeline" viewBox="0 0 960 230" role="img" aria-label="Unverified EXP samples and interrupted captures"></svg></div>
       <p id="chart-note" class="muted"></p>
       <div class="legend"><span>● Candidate</span><span class="old">◆ Stale / not fresh at capture</span><span class="failed">× Rejected / failed</span><span>▧ Sampling gap</span></div>
     </section>
     <section class="panel" aria-labelledby="percentage-title">
       <h2 id="percentage-title">Unverified percentage timeline</h2>
-      <p class="muted">Full pairs and complete percentage-only fields only. Points do not establish continuous progress or a shared character/level. Partial malformed evidence is not plotted.</p>
+      <p class="muted">Original full pairs (circles) and complete percentage-only fields (squares), plus the optional hollow recovered layer. Percentage axis zooms to the displayed range. No EXP is invented for percentage-only values. Points do not establish continuous progress or a shared character/level. Malformed partial evidence is not plotted.</p>
       <div class="chart-wrap"><svg id="percentage-timeline" viewBox="0 0 960 230" role="img" aria-label="Exact observed percentages, missing readings and level boundaries"></svg></div>
       <p id="percentage-note" class="muted"></p>
     </section>
     <section class="panel" aria-labelledby="readings-title">
       <h2 id="readings-title">Recent attempts <span id="count">0</span></h2>
       <p class="muted">Oldest to newest in recorded attempt order. Saved candidates and raw model strings are separate; dashes mean unavailable. All rows remain UNVERIFIED.</p>
-      <div class="table-wrap"><table><thead><tr><th scope="col">Attempt / time (UTC)</th><th scope="col">Recognition</th><th scope="col">Raw model text / saved pair</th><th scope="col">Visual level</th><th scope="col">Nearest half-up</th><th scope="col">Truncation</th><th scope="col">Evidence / disagreements</th></tr></thead><tbody id="readings"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th scope="col">Attempt / time (UTC)</th><th scope="col">Recognition</th><th scope="col">Raw model text / saved pair</th><th scope="col">Visual level / provisional requirement</th><th scope="col">Saved nearest half-up (original table)</th><th scope="col">Saved truncation (original table)</th><th scope="col">Evidence / disagreements</th></tr></thead><tbody id="readings"></tbody></table></div>
       <p id="empty">No completed observations yet.</p>
     </section>
     <footer>Private diagnostic view · polls every 2 seconds while visible · latest 120 attempts only. Numeric output and arithmetic agreement do not prove correctness. No raw logs, images or playback URLs are served.</footer>

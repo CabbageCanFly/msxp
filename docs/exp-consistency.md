@@ -1,5 +1,9 @@
 # Conditional EXP / percentage consistency experiment
 
+Follow-up: [extended diagnostic coverage](extended-diagnostics.md) adds a separate
+versioned community dataset. The historical 1–49 data and results below are
+preserved; their extent was not a recognized-character level cap.
+
 **Useful independent arithmetic evidence, not an authoritative OCR validator yet.**
 No OCR inference, training, production changes or candidate promotion occurred.
 

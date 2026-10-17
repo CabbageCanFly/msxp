@@ -11,9 +11,36 @@ import sys
 
 from .shadow_view import MAX_LINE, MAX_ROWS, ShadowLog, observation, timestamp
 from .store import Store, utc
-from .shadow_grammar import propose_full_exp
+from .shadow_grammar import interpret_exp, propose_full_exp
+from .exp_requirements import community_table, requirement
 
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
+
+
+def coverage(observations, total):
+    """Bounded read-only summary; overlapping proposal categories are explicit."""
+    unique = lambda value: value.get('classification') == 'unique_proposal'
+    return dict(scope='selected_session_recent_history', session_attempts=total,
+        summarized_attempts=len(observations), history_limit=MAX_ROWS,
+        acquired_frames=sum(r['capture_acquired'] is True for r in observations),
+        acquisition_unknown=sum(r['capture_acquired'] is None for r in observations),
+        unique_huds=sum(r['hud_count'] == 1 for r in observations),
+        hud_unknown=sum(r['hud_count'] is None for r in observations),
+        strict_full_pairs=sum(r['candidate'] is not None for r in observations),
+        strict_percentage_only=sum(r['percentage_only_candidate'] is not None for r in observations),
+        malformed_or_missing_strict=sum(not r['candidate'] and not r['percentage_only_candidate'] for r in observations),
+        recovered_full_exp=sum(unique(r['interpretations']['full_exp']) for r in observations),
+        recovered_percentages=sum(unique(r['interpretations']['percentage']) for r in observations),
+        percentage_recovery_without_full=sum(unique(r['interpretations']['percentage']) and
+            not unique(r['interpretations']['full_exp']) for r in observations),
+        unrecoverable=sum(not r['candidate'] and not r['percentage_only_candidate'] and
+            not unique(r['interpretations']['full_exp']) and not unique(r['interpretations']['percentage']) for r in observations),
+        ambiguous=sum(any(r['interpretations'][f]['classification'] == 'ambiguous'
+                          for f in ('full_exp', 'percentage')) for r in observations),
+        visual_level_unavailable=sum(r['visual_level'] is None for r in observations),
+        neural_level_unavailable=sum(not r['neural_level'] or r['neural_level']['level'] is None for r in observations),
+        level_conflicts=sum(bool(r['neural_level'] and r['neural_level']['comparison'] == 'conflict') for r in observations),
+        categories_overlap=True, trusted=False)
 
 
 def encoded(record):
@@ -152,10 +179,15 @@ class Diagnostics:
                 age_seconds=None, stale=False, interval_seconds=None, stale_after_seconds=45, poll_seconds=2,
                 observations=[], truncated=False, mixed_channels=False, latest_reading=None,
                 trusted_state=state)
+            table, sha = community_table()
+            result['requirements_table'] = dict(version=table['version'], sha256=sha,
+                status=table['status'], agreeing_levels=[1, 89], disputed_levels=[90, 99],
+                missing_levels=[100, 200], authoritative=False)
+            result['coverage'] = coverage([], 0)
             if not run:
                 return result
             configuration = json.loads(run['configuration_json'])
-            rows = list(self.db.execute('''SELECT a.* FROM diagnostic_attempts a
+            rows = list(self.db.execute('''SELECT a.*, r.configuration_json FROM diagnostic_attempts a
                 JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?
                 ORDER BY a.id DESC LIMIT ?''', (session['id'], MAX_ROWS + 1)))
             result['truncated'] = len(rows) > MAX_ROWS
@@ -163,13 +195,26 @@ class Diagnostics:
             observations = []
             previous = None
             for row in rows:
-                value = observation(json.loads(row['payload_json']))  # Same HTTP allowlist as the log viewer.
+                payload = json.loads(row['payload_json'])
+                value = observation(payload)  # Same HTTP allowlist as the log viewer.
                 value['grammar_recovery'] = propose_full_exp(value['raw_text'])
+                value['interpretations'] = interpret_exp(value['raw_text'])
+                value['interval_seconds'] = json.loads(row['configuration_json'])['interval']
+                localization = payload.get('localization')
+                count = localization.get('count') if isinstance(localization, dict) else None
+                value['hud_count'] = count if type(count) is int and 0 <= count <= 200 else None
+                value['capture_acquired'] = False if value['status'] == 'capture_failed' else (
+                    True if value['received_at'] is not None else None)
+                value['requirements'] = dict(visual=requirement(value['visual_level']),
+                    neural=requirement((value['neural_level'] or {}).get('level')))
                 when = value['received_at'] or value['attempted_at']
                 value.update(event_id=f"{row['run_id']}:{row['attempt_index']}", run_id=row['run_id'],
                              timestamp_ordered=previous is None or when > previous)
                 previous = max(previous, when) if previous else when
                 observations.append(value)
+            total = self.db.execute('''SELECT COUNT(*) FROM diagnostic_attempts a
+                JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?''', (session['id'],)).fetchone()[0]
+            result['coverage'] = coverage(observations, total)
             interval = configuration['interval']
             summary = json.loads(run['summary_json']) if run['summary_json'] else None
             result.update(run_id=run['run_id'], observations=observations, interval_seconds=interval,

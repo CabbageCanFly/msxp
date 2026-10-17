@@ -25,7 +25,12 @@ Neutral4 level diagnostic using the same recognizer process; it never replaces
 From the repository root, use the existing capture environment and private
 RapidOCR environment/models. FFmpeg must be on PATH and Tesseract installed.
 The runner does not install dependencies or download models. Defaults reference
-`private/rapidocr/.venv` and `private/exp-consistency/requirements.json`.
+`private/rapidocr/.venv` and the public `src/exp_tracker/data/community-exp-v2.json`.
+The [versioned community table](extended-diagnostics.md) supplies agreeing 1–89
+requirements; conflicting published 90–99 values are retained but not selected.
+Missing requirements never invalidate a recognized 1–200 level. Historical runs
+keep their original table hashes. To reproduce the original table explicitly,
+pass `--requirements private/exp-consistency/requirements.json`.
 Use `--ocr-python` and `--requirements` for alternate existing installations.
 The neural worker requires the benchmarked RapidOCR **3.10.0**; this run used
 ONNX Runtime **1.31.0**, CPU. Model hashes and runtime versions accompany results.
