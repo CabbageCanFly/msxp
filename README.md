@@ -218,6 +218,10 @@ For the isolated capture → adaptive HUD → RapidOCR/visual/arithmetic-level
 diagnostic runner, see [shadow-capture.md](docs/shadow-capture.md). Its JSONL stays
 private and never updates trusted tracking state.
 
+An opt-in [local shadow viewer](docs/shadow-viewer.md) at `/dev/shadow` inspects one
+explicit private JSONL, with raw readings, both inferred-level hypotheses and a
+gap-aware diagnostic timeline. All values remain UNVERIFIED; no Store ingestion.
+
 See [docs/acquisition.md](docs/acquisition.md) for commands and manual test steps.
 The OBS browser harness never sends screenshots or credentials to a server.
 Twitch credentials belong in environment variables on a developer/server machine,

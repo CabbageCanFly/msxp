@@ -5,6 +5,9 @@ without importing the Store, choosing a character, or updating tracking/API/over
 state. Every output has `trusted: false`. A complete candidate is not verified EXP.
 No production modules, recognition parameters or frozen evidence were changed.
 
+The optional [local shadow viewer](shadow-viewer.md) reads this existing JSONL
+format and displays unverified evidence. It does not promote candidates or run OCR.
+
 ## Run locally
 
 From the repository root, use the existing capture environment and private

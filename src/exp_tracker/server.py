@@ -11,6 +11,7 @@ import sys
 from urllib.parse import unquote, urlsplit
 
 from .store import STALE_AFTER_SECONDS, Store, utc
+from .shadow_view import ShadowLog
 
 
 WEB = Path(__file__).with_name("web")
@@ -20,6 +21,10 @@ ASSETS = {
     "/static/leaderboard.css": ("leaderboard.css", "text/css"),
     "/static/leaderboard.js": ("leaderboard.js", "text/javascript"),
     "/static/leaderboard.svg": ("leaderboard.svg", "image/svg+xml"),
+}
+SHADOW_ASSETS = {
+    "/static/shadow.css": ("shadow.css", "text/css"),
+    "/static/shadow.js": ("shadow.js", "text/javascript"),
 }
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
@@ -42,7 +47,15 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlsplit(self.path).path)
         api = re.fullmatch(r"/api/streams/([^/]*)/state", path)
         overlay = re.fullmatch(r"/overlay/([^/]*)", path)
-        if api or overlay:
+        if path in ("/dev/shadow", "/dev/api/shadow") or path in SHADOW_ASSETS:
+            if self.server.shadow_log is None:
+                self.reply(404, {"error": "not_found"})
+            elif path == "/dev/api/shadow":
+                self.reply(200, self.server.shadow_log.snapshot())
+            else:
+                name, content_type = SHADOW_ASSETS.get(path, ("shadow.html", "text/html"))
+                self.reply(200, (WEB / name).read_bytes(), content_type)
+        elif api or overlay:
             channel = (api or overlay)[1]
             if not CHANNEL.fullmatch(channel):
                 self.reply(400, {"error": "invalid_channel"})
@@ -76,12 +89,14 @@ class Handler(BaseHTTPRequestHandler):
     do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = reject_write
 
 
-def create_server(database, *, port=8765):
+def create_server(database, *, port=8765, shadow_log=None):
     database = Path(database).resolve()
     with Store(database, read_only=True):
         pass  # Validate without creating, migrating or changing journal mode.
+    diagnostics = ShadowLog(shadow_log) if shadow_log is not None else None
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.database = database
+    server.shadow_log = diagnostics
     return server
 
 
@@ -89,12 +104,15 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, required=True, help="Existing current-schema database; never initialized by HTTP")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--shadow-log", type=Path, help="Opt in to /dev/shadow for one private/artifacts JSONL; read-only")
     args = parser.parse_args(argv)
     if not 0 <= args.port <= 65535:
         parser.error("port must be 0..65535")
     try:
-        with create_server(args.db, port=args.port) as server:
+        with create_server(args.db, port=args.port, shadow_log=args.shadow_log) as server:
             print(f"Local read-only server: http://127.0.0.1:{server.server_port}/overlay/CHANNEL", flush=True)
+            if server.shadow_log:
+                print(f"UNVERIFIED shadow viewer: http://127.0.0.1:{server.server_port}/dev/shadow", flush=True)
             try:
                 server.serve_forever()
             except KeyboardInterrupt:

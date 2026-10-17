@@ -263,6 +263,65 @@ def test_leaderboard_frontend_logic():
     subprocess.run([node, "--test", "tools/leaderboard.test.mjs"], check=True, timeout=20)
 
 
+@pytest.mark.parametrize('path', ['/dev/shadow', '/dev/api/shadow', '/static/shadow.js', '/static/shadow.css'])
+def test_shadow_routes_are_opt_in(http_server, path):
+    assert request(http_server, path)[0] == 404
+
+
+def test_shadow_api_is_sanitized_read_only_and_cannot_select_arbitrary_files(database, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    log = tmp_path / 'private/trial.jsonl'
+    log.parent.mkdir()
+    row = dict(type='attempt', index=1, status='capture_failed', reasons=['access_denied'],
+               attempted_at='2026-01-01T00:00:00Z', source={'kind':'twitch', 'channel':'synthetic', 'url':'secret'})
+    log.write_text(json.dumps(row)+'\n')
+    before = database.read_bytes(), log.read_bytes()
+    with server.create_server(database, port=0, shadow_log=log) as httpd:
+        def forbidden(*args, **kwargs):
+            pytest.fail('Diagnostic HTTP requests must not open Store')
+        monkeypatch.setattr(server, 'Store', forbidden)
+        code, headers, body = request((httpd, None), '/dev/api/shadow?path=outside.jsonl')
+        assert code == 200 and json.loads(body)['source_status'] == 'capture_failed'
+        assert b'secret' not in body and b'outside.jsonl' not in body
+        assert headers['Cache-Control'] == 'no-store' and 'default-src' in headers['Content-Security-Policy']
+        for path in ['/dev/shadow', '/static/shadow.js', '/static/shadow.css']:
+            assert request((httpd, None), path)[0] == 200
+        assert b'UNVERIFIED' in request((httpd, None), '/dev/shadow')[2]
+        for path in ['/dev/shadow/raw', '/dev/shadow/crop.png', '/private/trial.jsonl']:
+            assert request((httpd, None), path)[0] == 404
+        assert request((httpd, None), '/dev/api/shadow', 'POST')[0] == 405
+    assert (database.read_bytes(), log.read_bytes()) == before
+
+
+def test_shadow_frontend_logic():
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Optional Node.js frontend tests')
+    subprocess.run([node, '--test', 'tools/shadow.test.mjs'], check=True, timeout=20)
+
+
+def test_shadow_http_follows_completed_appends_without_touching_log(database, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    log = tmp_path / 'artifacts/growing.jsonl'
+    log.parent.mkdir()
+    with server.create_server(database, port=0, shadow_log=log) as httpd:
+        def snapshot():
+            return json.loads(request((httpd, None), '/dev/api/shadow')[2])
+        assert snapshot()['log_status'] == 'missing' and not log.exists()
+        row = dict(type='attempt', index=1, status='diagnostic_pair', candidate=[0,0.0],
+                   attempted_at='2026-01-01T00:00:00Z')
+        log.write_text(json.dumps(row))
+        assert snapshot()['incomplete_tail'] and not snapshot()['observations']
+        with log.open('a') as writer:
+            writer.write('\n')
+        assert snapshot()['observations'][0]['candidate'] == {'exp':'0','percentage':'0.00'}
+        with log.open('a') as writer:
+            writer.write(json.dumps({**row,'index':2,'status':'capture_failed','candidate':None,
+                                    'reasons':['offline_or_unavailable']})+'\n')
+        result = snapshot()
+        assert len(result['observations']) == 2 and result['source_status'] == 'offline_or_unavailable'
+
+
 def test_api_reads_committed_snapshot_while_guarded_observation_is_written(database, http_server):
     before = state(http_server)
     writing, release = threading.Event(), threading.Event()
