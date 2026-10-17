@@ -1,6 +1,6 @@
 """SQLite base schema and additive migrations, applied in one transaction."""
 
-VERSION = 3
+VERSION = 4
 STATEMENTS = (
     """CREATE TABLE streamers (
         id INTEGER PRIMARY KEY, login TEXT NOT NULL UNIQUE,
@@ -73,4 +73,14 @@ MIGRATION_3 = (
         payload_json TEXT NOT NULL, UNIQUE(run_id, attempt_index)
     )""",
     "CREATE INDEX diagnostic_session ON diagnostic_runs(session_id, created_at)",
+)
+
+# Indexed diagnostic ownership is derived from the immutable run binding, not OCR.
+MIGRATION_4 = (
+    'ALTER TABLE diagnostic_attempts ADD COLUMN session_id INTEGER REFERENCES sessions(id)',
+    'UPDATE diagnostic_attempts SET session_id=(SELECT session_id FROM diagnostic_runs WHERE run_id=diagnostic_attempts.run_id)',
+    'CREATE INDEX diagnostic_recent ON diagnostic_attempts(session_id,id)',
+    'CREATE INDEX diagnostic_time ON diagnostic_attempts(session_id,attempted_at,id)',
+    'CREATE INDEX diagnostic_run_order ON diagnostic_runs(session_id)',
+    'CREATE INDEX session_listing ON sessions(streamer_id,id)',
 )

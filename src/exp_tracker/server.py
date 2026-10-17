@@ -9,11 +9,11 @@ import re
 import sqlite3
 import sys
 import threading
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
-from .diagnostics import Diagnostics
+from .diagnostics import Diagnostics, operation
 
 
 WEB = Path(__file__).with_name("web")
@@ -56,6 +56,7 @@ class Handler(BaseHTTPRequestHandler):
         overlay = re.fullmatch(r"/overlay/([^/]*)", path)
         dashboard = re.fullmatch(r"/dashboard/([^/]*)", path)
         diagnostic_api = re.fullmatch(r"/dev/api/streams/([^/]*)/diagnostics", path)
+        history_api = re.fullmatch(r'/dev/api/streams/([^/]*)/(sessions|runs)',path)
         if path in ('/streams','/dev/api/streams') or path in DIRECTORY_ASSETS:
             if not self.server.diagnostic_dashboard:
                 self.reply(404, {'error':'not_found'})
@@ -63,14 +64,14 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     with self.server.directory_lock, Store(self.server.database,read_only=True) as store:
                         self.reply(200,Diagnostics(store).directory(self.server.directory_cache,
-                            active_runs=self.server.active_run_ids.copy()))
+                            active_runs=self.server.active_run_ids.copy(),coordinator_status=self.server.coordinator_status.copy()))
                 except (ValueError,sqlite3.Error):
                     self.reply(503,{'error':'database_unavailable'})
             else:
                 name,kind = DIRECTORY_ASSETS.get(path,('streams.html','text/html'))
                 self.reply(200,(WEB/name).read_bytes(),kind)
-        elif dashboard or diagnostic_api:
-            channel = (dashboard or diagnostic_api)[1]
+        elif dashboard or diagnostic_api or history_api:
+            channel = (dashboard or diagnostic_api or history_api)[1].lower()
             if not self.server.diagnostic_dashboard:
                 self.reply(404, {"error": "not_found"})
             elif not CHANNEL.fullmatch(channel):
@@ -80,7 +81,22 @@ class Handler(BaseHTTPRequestHandler):
                     with Store(self.server.database, read_only=True) as store:
                         channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login LIMIT 25')]
                         store._channel(channel)
-                        value = Diagnostics(store).snapshot(channel,active_runs=self.server.active_run_ids.copy()) if diagnostic_api else None
+                        query=parse_qs(urlsplit(self.path).query,keep_blank_values=True,max_num_fields=8)
+                        allowed={'session','run','before','start','end'} if diagnostic_api or dashboard else {'session','before'} if history_api else set()
+                        query={k:v for k,v in query.items() if k in allowed}
+                        if any(len(v)!=1 or not v[0] for v in query.values()):
+                            raise ValueError('Invalid history query')
+                        for name in ('session','before'):
+                            if name in query and (not re.fullmatch(r'[1-9][0-9]{0,17}',query[name][0])): raise ValueError('Invalid history cursor')
+                        session=int(query['session'][0]) if 'session' in query else None
+                        before=int(query['before'][0]) if 'before' in query else None
+                        diagnostic=Diagnostics(store)
+                        if diagnostic_api:
+                            value=diagnostic.snapshot(channel,active_runs=self.server.active_run_ids.copy(),session_id=session,
+                                before=before,run_id=query.get('run',[None])[0],start=query.get('start',[None])[0],end=query.get('end',[None])[0])
+                            value['operation']=dict(state='historical_session') if value['historical'] else operation(value,self.server.coordinator_status.get(channel),datetime.now(timezone.utc))
+                        elif history_api:
+                            value=diagnostic.sessions(channel,before=before) if history_api[2]=='sessions' else diagnostic.runs(channel,session,before=before)
                     if dashboard:
                         self.reply(200, (WEB / 'shadow.html').read_bytes(), 'text/html')
                     else:
@@ -91,7 +107,9 @@ class Handler(BaseHTTPRequestHandler):
                     if unknown:
                         body.update(message='This channel is not in the selected database. Check --db and the dashboard URL. Starting this server does not start capture.',
                                     configured_channels=channels)
-                    self.reply(404 if unknown else 503, body)
+                    query_error=not unknown and ('history' in str(error).lower() or any(word in str(error).lower() for word in ('session','cursor','timestamp','window','run')))
+                    if query_error: body={'error':'invalid_history_query'}
+                    self.reply(404 if unknown else 400 if query_error else 503, body)
                 except sqlite3.Error:
                     self.reply(503, {'error': 'database_unavailable'})
         elif path in ("/dev/shadow", "/dev/api/shadow") or path in SHADOW_ASSETS:
@@ -146,6 +164,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.shadow_log = diagnostics
     server.diagnostic_dashboard = diagnostic_dashboard
     server.active_run_ids = set()
+    server.coordinator_status = {}
     server.directory_cache = {}
     server.directory_lock = threading.Lock()
     return server

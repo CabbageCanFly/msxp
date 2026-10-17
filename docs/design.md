@@ -9,9 +9,11 @@ The [SQLite engine](tracking.md) and [local read-only API/OBS overlay](overlay.m
 are now implemented. The rest of this document remains a service proposal.
 
 The local [multi-stream alpha](multi-alpha.md) reuses shadow capture, separate SQLite
-diagnostics and the read-only server for bounded sequential 2–5-channel operation.
+diagnostics and the read-only server for sequential 2–25-channel operation.
 Its directory and displayed-percentage progress remain unverified, with no neural
 promotion into the trusted Store. The hosted design below remains a proposal.
+The [continuous local guide](continuous-alpha.md) documents rotation, history and
+capacity limits; configured channel count does not establish sustainable cadence.
 
 Public hosting, accounts, a write API and production operation remain proposals;
 the current overlay runs only on localhost with an existing tracking database.

@@ -61,9 +61,12 @@ def percentage_point(row, *, include_recovered=True):
         fresh_at_capture=row.get('fresh_at_capture') is True,capture_acquired=row.get('capture_acquired') is True,
         evidence=kind, grammar_policy=interpreted['policy'] if kind=='grammar_recovered' else None,
         raw_text=row.get('raw_text'), visual_level=row.get('visual_level'), neural_level=(row.get('neural_level') or {}).get('level'),
+        source_identity=row.get('source_identity'),coordinator_instance=row.get('coordinator_instance'),
         trusted=False, identity_verified=False, numerical_identity_verified=False)
     reason = None
-    if not row.get('fresh_at_capture') or row.get('capture_acquired') is not True or row.get('status') not in ('diagnostic_pair','diagnostic_percentage_only','malformed_or_unavailable'):
+    if row.get('timing_mode')=='simulated':
+        reason='simulated_timing_not_real_progress'
+    elif not row.get('fresh_at_capture') or row.get('capture_acquired') is not True or row.get('status') not in ('diagnostic_pair','diagnostic_percentage_only','malformed_or_unavailable'):
         reason = 'failed_or_stale_capture'
     elif row.get('hud_count') != 1:
         reason = 'hud_not_unique'
@@ -118,12 +121,16 @@ def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, 
         if previous:
             elapsed = elapsed_seconds(datetime.fromisoformat(previous['timestamp']),when)
             cadence = Fraction(str(previous['interval_seconds']))
+            rotated=(point['run_id']!=previous['run_id'] and row.get('rotation_from')==previous['run_id']
+                and previous['index']==60 and point['index']==1
+                and point['source_identity'] is not None and point['source_identity']==previous['source_identity']
+                and point['coordinator_instance'] is not None and point['coordinator_instance']==previous['coordinator_instance'])
             reason = ('source_changed' if (point['channel'],point['source_channel'],point['source_kind']) != (previous['channel'],previous['source_channel'],previous['source_kind']) else
                 'character_or_session_changed' if (point['character_id'],point['session_id']) != (previous['character_id'],previous['session_id']) else
-                'run_boundary' if point['run_id'] != previous['run_id'] else
+                'run_boundary' if point['run_id'] != previous['run_id'] and not rotated else
                 'level_changed' if point['visual_level'] != previous['visual_level'] else
                 'nonincreasing_timestamp' if elapsed<=0 else
-                'missing_attempt' if point['index'] != previous['index']+1 else
+                'missing_attempt' if not rotated and point['index'] != previous['index']+1 else
                 'sampling_gap' if elapsed>min(Fraction(120),cadence*Fraction(3,2)) else None)
             if reason is None:
                 diff = point['bp']-previous['bp']
@@ -138,10 +145,12 @@ def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, 
         if reason or current is None:
             if current: current['end_reason'] = reason
             current = dict(channel=point['channel'],character_id=point['character_id'],session_id=point['session_id'],
-                run_id=point['run_id'],level=point['visual_level'],level_provenance='available_visual_tesseract; no conflicting neural level',
+                run_id=point['run_id'],run_ids=[],level=point['visual_level'],level_provenance='available_visual_tesseract; no conflicting neural level',
                 start_reason=reason or 'baseline',end_reason=None,points=[])
             segments.append(current)
         point['interval_seconds'] = row.get('interval_seconds',15)
+        current['run_id']=point['run_id']
+        if not current['run_ids'] or current['run_ids'][-1]!=point['run_id']: current['run_ids'].append(point['run_id'])
         current['points'].append(point)
         previous = point
         edge['reason'] = reason or ('baseline' if len(current['points'])==1 else 'contiguous_diagnostic_endpoints')

@@ -1,6 +1,9 @@
 # Local multi-stream alpha
 
-One coordinator runs **2–5 explicit assignments**, one capture/OCR job at a time,
+Current follow-up: [continuous capture, safe rotation, fast offline testing and
+historical browsing](continuous-alpha.md). The finite workflow below remains supported.
+
+One coordinator runs **2–25 explicit assignments**, one capture/OCR job at a time,
 one shared SQLite database and one localhost HTTP server. All neural and
 grammar-derived evidence remains **EXPERIMENTAL / UNVERIFIED**. Trusted Store
 accounting, the OBS overlay, models, grammar policy and requirement dataset are

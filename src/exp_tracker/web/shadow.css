@@ -64,3 +64,15 @@ footer { margin-top: 20px; }
   .overview > div { padding: 12px; }
   .panel { padding: 12px; }
 }
+.history-controls { display:flex; flex-wrap:wrap; gap:12px; margin:12px 0; }
+.history-controls label { display:grid; grid-template-columns:minmax(0,1fr); flex:1 1 240px; gap:5px; min-width:0; max-width:100%; }
+.history-controls select,.history-controls input { width:100%; min-width:0; }
+#progress-segments { overflow-wrap:anywhere; }
+select,input,button { font:inherit; max-width:100%; }
+select,input { background:#17283a; color:#e4eef8; border:1px solid #647889; padding:7px; border-radius:5px; }
+button { background:#453621; color:#ffe3a0; border:1px solid #ad8e52; border-radius:5px; padding:8px; cursor:pointer; }
+button:disabled { opacity:.5; cursor:default; }
+button:focus-visible,select:focus-visible,input:focus-visible { outline:2px solid #addbe8; outline-offset:2px; }
+.stream-value { font-size:26px; font-variant-numeric:tabular-nums; margin:10px 0; }
+.stream-value small { font-size:11px; line-height:1.7; }
+.level-unknown { stroke:#91a8bb; stroke-dasharray:2 5; opacity:.5; }

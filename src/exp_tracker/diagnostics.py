@@ -19,6 +19,35 @@ from .diagnostic_progress import progress
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
 
 
+def operation(value,runtime,now):
+    """Only this HTTP process's coordinator can establish current activity."""
+    if not runtime:
+        return dict(state='previous_unfinished_run' if value.get('unfinished_run_count') else 'coordinator_stopped')
+    result=dict(runtime)
+    if runtime['state']=='running' and (now-datetime.fromisoformat(runtime['updated_at'])).total_seconds()>runtime['expected_completion_seconds']:
+        result['state']='capture_delayed'
+    elif runtime['state']=='waiting' and (now-datetime.fromisoformat(runtime['next_due_at'])).total_seconds()>2:
+        result['state']='capture_delayed'
+    return result
+
+
+def rotation_link(previous, current):
+    """Check recorded lifecycle evidence; an arbitrary UUID change is never enough."""
+    if not previous or not current: return False
+    before=json.loads(previous['configuration_json']); after=json.loads(current['configuration_json'])
+    summary=json.loads(previous['summary_json']) if previous['summary_json'] else {}
+    same=('coordinator','coordinator_instance','source_identity','source_kind','interval',
+          'requirements_sha256','experimental_neural_level','neural_level_preprocessing','timing_mode')
+    return (after.get('start_reason')=='scheduled_rotation' and after.get('previous_run_id')==previous['run_id']
+        and summary.get('completion_reason')=='scheduled_rotation' and summary.get('next_run_id')==current['run_id']
+        and summary.get('attempts')==60 and summary.get('interrupted') is False
+        and after.get('coordinator')=='multi_alpha_v1'
+        and isinstance(after.get('coordinator_instance'),str) and bool(re.fullmatch(r'[0-9a-f]{32}',after['coordinator_instance']))
+        and isinstance(after.get('source_identity'),str) and bool(re.fullmatch(r'[0-9a-f]{64}',after['source_identity']))
+        and all(before.get(k)==after.get(k) for k in same)
+        and all(previous[k]==current[k] for k in ('streamer_id','character_id','session_id')))
+
+
 def coverage(observations, total):
     """Bounded read-only summary; overlapping proposal categories are explicit."""
     unique = lambda value: value.get('classification') == 'unique_proposal'
@@ -66,7 +95,8 @@ class Diagnostics:
             raise ValueError('Invalid diagnostic run ID')
         payload = encoded(configuration)
         interval = configuration.get('interval')
-        if configuration.get('type') != 'configuration' or type(interval) not in (int, float) or not 5 <= interval <= 300:
+        fast=configuration.get('offline_fast_test') is True and configuration.get('source_kind')=='file'
+        if configuration.get('type') != 'configuration' or type(interval) not in (int, float) or not (3 if fast else 5) <= interval <= 300:
             raise ValueError('Expected bounded shadow configuration')
         streamer = self.store._channel(channel)
         existing = self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?', (run_id,)).fetchone()
@@ -77,6 +107,12 @@ class Diagnostics:
         session = self.store._open_session(streamer['id'])
         if not session or session['character_id'] != streamer['selected_character_id']:
             raise ValueError('Explicitly select a character and start a session first')
+        if configuration.get('start_reason')=='scheduled_rotation':
+            previous=self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?',(configuration.get('previous_run_id'),)).fetchone()
+            candidate=dict(run_id=run_id,configuration_json=payload,streamer_id=streamer['id'],character_id=session['character_id'],session_id=session['id'])
+            if not rotation_link(previous,candidate) or self.db.execute(
+                    'SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?',(previous['run_id'],)).fetchone()[0]!=60:
+                raise ValueError('Scheduled rotation needs a finalized matching 60-attempt predecessor')
         self.db.execute('''INSERT INTO diagnostic_runs
             (run_id,streamer_id,character_id,session_id,created_at,configuration_json)
             VALUES (?,?,?,?,?,?)''', (run_id, streamer['id'], session['character_id'], session['id'], utc(), payload))
@@ -85,6 +121,12 @@ class Diagnostics:
     def begin(self, run_id, channel, configuration):
         with self.store._transaction():
             return self._begin(run_id, channel, configuration)
+
+    def rotate(self, previous, following, channel, summary, configuration):
+        """Finalize + bind the successor atomically; log flush alone proves neither."""
+        with self.store._transaction():
+            self._append(previous,summary)
+            return self._begin(following,channel,configuration)
 
     def _append(self, run_id, record):
         payload = encoded(record)
@@ -107,6 +149,9 @@ class Diagnostics:
             if received is not None and timestamp(received) is None:
                 raise ValueError('Invalid receipt timestamp')
             source = record.get('source')
+            configuration=json.loads(run['configuration_json'])
+            if configuration.get('offline_fast_test') and (not isinstance(source,dict) or source.get('kind')!='file'):
+                raise ValueError('Offline fast-test evidence must be local video')
             channel = self.db.execute('SELECT login FROM streamers WHERE id=?', (run['streamer_id'],)).fetchone()[0]
             if not isinstance(source, dict) or source.get('kind') not in ('file', 'twitch') or (
                     source.get('kind') == 'twitch' and str(source.get('channel', '')).lower() != channel):
@@ -135,8 +180,8 @@ class Diagnostics:
             if run['summary_json'] is not None or index != last + 1:
                 raise ValueError('Attempt order must be contiguous within an unfinished run')
             self.db.execute('''INSERT INTO diagnostic_attempts
-                (run_id,attempt_index,attempted_at,received_at,recorded_at,payload_json) VALUES (?,?,?,?,?,?)''',
-                (run_id, index, timestamp(record['attempted_at']), timestamp(received), utc(), payload))
+                (run_id,attempt_index,attempted_at,received_at,recorded_at,payload_json,session_id) VALUES (?,?,?,?,?,?,?)''',
+                (run_id, index, timestamp(record['attempted_at']), timestamp(received), utc(), payload,run['session_id']))
         return True
 
     def append(self, run_id, record):
@@ -167,23 +212,66 @@ class Diagnostics:
         return dict(run_id=run_id, session_id=binding['session_id'], character_id=binding['character_id'],
                     inserted_records=inserted, source_sha256=hashlib.sha256(data).hexdigest(), trusted=False)
 
-    def snapshot(self, channel, *, now=None, active_runs=None):
+    def sessions(self,channel,*,before=None,limit=30):
+        streamer=self.store._channel(channel)
+        if type(limit) is not int or not 1<=limit<=50 or before is not None and (type(before) is not int or before<1):
+            raise ValueError('Invalid session page')
+        rows=list(self.db.execute('''SELECT s.*,c.label FROM sessions s JOIN characters c ON c.id=s.character_id
+            WHERE s.streamer_id=? AND s.id<? ORDER BY s.id DESC LIMIT ?''',(streamer['id'],before or 2**63-1,limit+1)))
+        return dict(sessions=[dict(r) for r in rows[:limit]],next_before=rows[limit-1]['id'] if len(rows)>limit else None,trusted=False)
+
+    def runs(self,channel,session_id,*,before=None,limit=30):
+        streamer=self.store._channel(channel)
+        if type(session_id) is not int or not self.db.execute('SELECT 1 FROM sessions WHERE id=? AND streamer_id=?',(session_id,streamer['id'])).fetchone():
+            raise ValueError('Unknown channel session')
+        if type(limit) is not int or not 1<=limit<=50 or before is not None and (type(before) is not int or before<1):
+            raise ValueError('Invalid run page')
+        rows=list(self.db.execute('SELECT rowid,* FROM diagnostic_runs WHERE session_id=? AND rowid<? ORDER BY rowid DESC LIMIT ?',
+            (session_id,before or 2**63-1,limit+1)))
+        values=[]
+        for row in rows[:limit]:
+            config=json.loads(row['configuration_json']); summary=json.loads(row['summary_json']) if row['summary_json'] else {}
+            values.append(dict(run_id=row['run_id'],created_at=row['created_at'],source_kind=config.get('source_kind') if config.get('source_kind') in ('file','twitch') else None,
+                completion_reason=summary.get('completion_reason') if summary.get('completion_reason') in ('scheduled_rotation','bounded_complete','stop_condition','operator_interrupted') else None,
+                start_reason=config.get('start_reason') if config.get('start_reason') in ('scheduled_rotation','process_start') else None,
+                status='interrupted' if summary.get('interrupted') else 'completed' if summary else 'unfinished',
+                attempts=self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?',(row['run_id'],)).fetchone()[0]))
+        return dict(runs=values,next_before=rows[limit-1]['rowid'] if len(rows)>limit else None,trusted=False)
+
+    def snapshot(self, channel, *, now=None, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None):
         now = now or datetime.now(timezone.utc)
         with self.store._transaction():
-            return self._snapshot(channel, now=now, active_runs=active_runs)
+            return self._snapshot(channel, now=now, active_runs=active_runs,session_id=session_id,run_id=run_id,before=before,start=start,end=end)
 
-    def _snapshot(self, channel, *, now, active_runs=None):
+    def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None):
         state = self.store._state(channel, as_of=now)
         selected = next((c for c in state['characters'] if c['id'] == state['selected_character_id']), None)
         session = state['session']
-        run = self.db.execute('''SELECT rowid,* FROM diagnostic_runs WHERE session_id=?
-            ORDER BY rowid DESC LIMIT 1''', (session['id'],)).fetchone() if session else None
+        historical=any(v is not None for v in (session_id,run_id,before,start,end))
+        if session_id is not None:
+            if type(session_id) is not int or session_id<1: raise ValueError('Invalid session')
+            found=self.db.execute('SELECT * FROM sessions WHERE id=? AND streamer_id=(SELECT id FROM streamers WHERE login=?)',(session_id,state['channel'])).fetchone()
+            if not found: raise ValueError('Unknown channel session')
+            session=dict(found)
+            selected=next(c for c in state['characters'] if c['id']==session['character_id'])
+        if before is not None and (type(before) is not int or not 1<=before<2**63): raise ValueError('Invalid history cursor')
+        for name,value in [('start',start),('end',end)]:
+            if value is not None and timestamp(value) is None: raise ValueError(f'Invalid {name} timestamp')
+        start=timestamp(start);end=timestamp(end)
+        if start and end and (start>=end or (datetime.fromisoformat(end)-datetime.fromisoformat(start)).total_seconds()>31*86400):
+            raise ValueError('History window must increase and span at most 31 days')
+        if run_id is not None and (not session or not self.db.execute('SELECT 1 FROM diagnostic_runs WHERE run_id=? AND session_id=?',(run_id,session['id'])).fetchone()):
+            raise ValueError('Unknown session run')
+        run = self.db.execute('SELECT rowid,* FROM diagnostic_runs WHERE session_id=?'+(' AND run_id=?' if run_id else '')+
+            ' ORDER BY rowid DESC LIMIT 1', (session['id'],run_id) if run_id else (session['id'],)).fetchone() if session else None
         result = dict(trusted=False, storage='sqlite_diagnostics', served_at=utc(now), log_status='ready',
             channel=state['channel'], selected_character=selected, session=session,
             source_status='waiting' if session else 'unconfigured', run_status='waiting', run_id=None,
             age_seconds=None, stale=False, interval_seconds=None, stale_after_seconds=45, poll_seconds=2,
             observations=[], truncated=False, mixed_channels=False, latest_reading=None,
             trusted_state=state)
+        result.update(historical=historical or bool(session and session['ended_at']),
+            history=dict(session_id=session['id'] if session else None,run_id=run_id,before=before,start=start,end=end,next_before=None))
         table, sha = community_table()
         result['requirements_table'] = dict(version=table['version'], sha256=sha,
             status=table['status'], agreeing_levels=[1, 89], disputed_levels=[90, 99],
@@ -196,19 +284,35 @@ class Diagnostics:
             result['percentage_progress'] = progress([],now=now)
             return result
         configuration = json.loads(run['configuration_json'])
-        rows = list(self.db.execute('''SELECT a.*, r.configuration_json, r.summary_json FROM diagnostic_attempts a
-            JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?
-            ORDER BY a.id DESC LIMIT ?''', (session['id'], MAX_ROWS + 1)))
+        where=['a.session_id=?' if self.store.schema_version>=4 else 'r.session_id=?']
+        values=[session['id']]
+        for condition,value in [('a.run_id=?',run_id),('a.id<?',before),('a.attempted_at>=?',start),('a.attempted_at<?',end)]:
+            if value is not None: where.append(condition);values.append(value)
+        rows = list(self.db.execute('SELECT a.*,r.configuration_json,r.summary_json FROM diagnostic_attempts a '
+            'JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE '+' AND '.join(where)+' ORDER BY a.id DESC LIMIT ?',(*values,MAX_ROWS+1)))
         result['truncated'] = len(rows) > MAX_ROWS
+        if result['truncated']: result['history']['next_before']=rows[MAX_ROWS-1]['id']
         rows = list(reversed(rows[:MAX_ROWS]))
         observations = []
         previous = None
+        links={}
         for row in rows:
             payload = json.loads(row['payload_json'])
             value = observation(payload)  # Same HTTP allowlist as the log viewer.
             value['grammar_recovery'] = propose_full_exp(value['raw_text'])
             value['interpretations'] = interpret_exp(value['raw_text'])
-            value['interval_seconds'] = json.loads(row['configuration_json'])['interval']
+            config=json.loads(row['configuration_json'])
+            if config.get('timing_mode')=='simulated': value['timing_mode']='simulated'
+            value['interval_seconds'] = config['interval']
+            value['rotation_from']=None
+            if config.get('start_reason')=='scheduled_rotation':
+                if row['run_id'] not in links:
+                    prior=self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?',(config.get('previous_run_id'),)).fetchone()
+                    current_run=self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?',(row['run_id'],)).fetchone()
+                    links[row['run_id']]=prior['run_id'] if rotation_link(prior,current_run) else None
+                value['rotation_from']=links[row['run_id']]
+            value['source_identity']=config.get('source_identity') if re.fullmatch(r'[0-9a-f]{64}',str(config.get('source_identity'))) else None
+            value['coordinator_instance']=config.get('coordinator_instance') if re.fullmatch(r'[0-9a-f]{32}',str(config.get('coordinator_instance'))) else None
             value.update(assigned_channel=state['channel'], character_id=selected['id'], session_id=session['id'],
                          run_interrupted=bool(row['summary_json'] and json.loads(row['summary_json']).get('interrupted')))
             localization = payload.get('localization')
@@ -223,12 +327,14 @@ class Diagnostics:
                          timestamp_ordered=previous is None or when > previous)
             previous = max(previous, when) if previous else when
             observations.append(value)
-        total = self.db.execute('''SELECT COUNT(*) FROM diagnostic_attempts a
-            JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?''', (session['id'],)).fetchone()[0]
+        total = self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE session_id=?' if self.store.schema_version>=4 else
+            'SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?', (session['id'],)).fetchone()[0]
         result['coverage'] = coverage(observations, total)
+        if result['historical']: result['coverage']['scope']='selected_history_page'
         interval = configuration['interval']
         summary = json.loads(run['summary_json']) if run['summary_json'] else None
         result.update(run_id=run['run_id'], observations=observations, interval_seconds=interval,
+            source_kind=configuration.get('source_kind') if configuration.get('source_kind') in ('file','twitch') else (observations[-1]['source_kind'] if observations else None),
             stale_after_seconds=max(45, 3 * interval),
             run_status=('interrupted' if summary.get('interrupted') else 'completed') if summary else 'unfinished')
         if observations:
@@ -248,18 +354,24 @@ class Diagnostics:
         if active_runs is not None and result['run_status']=='unfinished' and run['run_id'] in active_runs:
             result['run_status']='active'
         result['percentage_progress'] = progress(observations,now=now,stale_after_seconds=result['stale_after_seconds'],current_run_id=run['run_id'])
+        if result['historical']:
+            result['percentage_progress']['history_scope']='selected_history_page'
+            result['percentage_progress']['current_pace']=None
+            result['percentage_progress']['current_segment']=None
+            result['percentage_progress']['reason']='historical_window_not_current'
         return result
 
-    def directory(self, cache, *, now=None, active_runs=None):
+    def directory(self, cache, *, now=None, active_runs=None,coordinator_status=None):
         """Cache compact cards by committed revision; never retain full histories."""
         now = now or datetime.now(timezone.utc)
         cards = []
         with self.store._transaction():
+            latest='SELECT MAX(id) FROM diagnostic_attempts WHERE session_id=se.id' if self.store.schema_version>=4 else (
+                'SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id WHERE dr.session_id=se.id')
             heads = list(self.db.execute('''SELECT s.login,s.selected_character_id,se.id AS session_id,
                 r.run_id,r.summary_json,
                 (SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=se.id AND summary_json IS NULL) AS unfinished_count,
-                (SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id
-                 WHERE dr.session_id=se.id) AS last_attempt_id
+                ('''+latest+''') AS last_attempt_id
                 FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
                 LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
                 ORDER BY s.login LIMIT 26'''))
@@ -282,6 +394,7 @@ class Diagnostics:
                             break
                     point = p['latest_percentage']
                     card = dict(channel=snap['channel'],character=snap['selected_character'],session=snap['session'],
+                        source_kind=snap.get('source_kind'),
                         source_status=snap['source_status'],run_status=snap['run_status'],run_id=snap['run_id'],
                         reasons=last.get('reasons',[]),
                         last_attempt_at=last.get('received_at') or last.get('attempted_at'),
@@ -306,6 +419,7 @@ class Diagnostics:
                     card['pace']=None
                 if card['run_status']=='unfinished' and active_runs is not None and card['run_id'] in active_runs:
                     card['run_status']='active'
+                card['operation']=operation(card,(coordinator_status or {}).get(card['channel']),now)
                 cards.append(card)
             allowed = {head['login'] for head in heads[:25]}
             for key in list(cache):

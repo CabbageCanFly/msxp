@@ -12,7 +12,7 @@ import sqlite3
 
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition
-from .schema import MIGRATION_2, MIGRATION_3, STATEMENTS, VERSION
+from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, STATEMENTS, VERSION
 from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
@@ -40,8 +40,9 @@ class Store:
             with self._transaction():
                 version = self.db.execute("PRAGMA user_version").fetchone()[0]
                 if read_only:
-                    if version != VERSION:
+                    if version not in (3,VERSION):
                         raise ValueError(f"unsupported schema version {version}; initialize/migrate with the tracking CLI first")
+                    self.schema_version=version
                     return
                 if version == 0:
                     if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
@@ -57,9 +58,14 @@ class Store:
                     for statement in MIGRATION_3:
                         self.db.execute(statement)
                     version = 3
+                if version == 3:
+                    for statement in MIGRATION_4:
+                        self.db.execute(statement)
+                    version = 4
                 if version != VERSION:
                     raise ValueError(f"unsupported schema version {version}")
                 self.db.execute(f"PRAGMA user_version={VERSION}")
+                self.schema_version=version
             self.db.execute("PRAGMA journal_mode=WAL")
         except Exception:
             self.db.close()

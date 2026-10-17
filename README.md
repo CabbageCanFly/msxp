@@ -4,10 +4,13 @@ Independent, free, MIT-licensed feasibility prototype. This contains local OCR,
 acquisition, SQLite tracking and a localhost OBS overlay, not a hosted service.
 No accounts, cloud resources or secrets are required for offline tests.
 
-The **[multi-stream local alpha](docs/multi-alpha.md)** runs 2–5 explicit assignments
+The **[multi-stream local alpha](docs/multi-alpha.md)** runs 2–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and
 separately gated experimental percentage progress. Start with the offline
 two-video example; neural/grammar values never contribute to trusted EXP totals.
+The [continuous mode and history guide](docs/continuous-alpha.md) covers safe
+60-attempt rotation, explicit offline fast testing, archived session browsing,
+SQLite backups and measured capacity limits.
 
 The **[single-stream local alpha](docs/local-alpha.md)** connects explicit character
 selection and shadow capture to separate SQLite diagnostics and a real-data
@@ -70,7 +73,8 @@ existing SQLite state. Start with an existing demo database:
 Start-Process 'http://127.0.0.1:8765/overlay/demo'
 ```
 
-The database must already use schema 3. The linked guide covers creating a demo,
+The read-only server supports schemas 3 and 4; writer initialization migrates to 4.
+The linked guide covers creating a demo,
 explicitly migrating old databases, saved real OCR state and timed synthetic
 updates. HTTP never creates/migrates databases or writes tracking state.
 Use a **500 × 160** OBS Browser Source for the compact, transparent overlay.

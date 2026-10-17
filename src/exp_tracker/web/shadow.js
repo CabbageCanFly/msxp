@@ -5,6 +5,9 @@ const compact = new Intl.NumberFormat("en-US", {notation: "compact", maximumFrac
 const svgNS = "http://www.w3.org/2000/svg";
 const dashboardChannel = /^\/dashboard\/([A-Za-z0-9_]{1,25})$/.exec(globalThis.location?.pathname ?? "")?.[1];
 const endpoint = dashboardChannel ? `/dev/api/streams/${encodeURIComponent(dashboardChannel)}/diagnostics` : "/dev/api/shadow";
+let historyQuery = dashboardChannel ? globalThis.location?.search || "" : "";
+let pollTimer=null,activeController=null,pollSequence=0;
+const operationLabels={running:"Capturing",waiting:"Waiting for next capture",capture_delayed:"Capture delayed",capture_failing:"Capture failing",stopped:"Coordinator stopped",coordinator_stopped:"Coordinator stopped",previous_unfinished_run:"Previous unfinished run · activity unknown",historical_session:"Historical session"};
 
 function element(tag, text) {
   const node = document.createElement(tag);
@@ -59,7 +62,7 @@ function renderCoverage() {
   const holder = document.getElementById("coverage"), counts = snapshot?.coverage;
   holder.hidden = !counts;
   if (!counts) return;
-  document.getElementById("coverage-scope").textContent = `${counts.session_attempts} session attempts; counts below cover the latest ${counts.summarized_attempts} (limit ${counts.history_limit}). Categories overlap; not an accuracy score.`;
+  document.getElementById("coverage-scope").textContent = `${counts.session_attempts} session attempts; counts below cover ${snapshot?.historical?'this page of':'the latest'} ${counts.summarized_attempts} (limit ${counts.history_limit}). Categories overlap; not an accuracy score.`;
   const labels = [["Acquired frames", "acquired_frames"], ["Unique HUDs", "unique_huds"],
     ["Original strict EXP pairs", "strict_full_pairs"], ["Additional full EXP proposals", "recovered_full_exp"],
     ["Original percentage-only", "strict_percentage_only"], ["Recovered percentages (overlap)", "recovered_percentages"],
@@ -93,7 +96,8 @@ function drawTimeline(rows, interval, percentage = false) {
     svg.append(node);
     return node;
   }
-  const levelBreaks = points.filter((point, i) => i && point.row.visual_level != null && points[i-1].row.visual_level != null && point.row.visual_level !== points[i-1].row.visual_level);
+  const levelBreaks = points.filter((point, i) => i && point.row.visual_level!=null && points[i-1].row.visual_level!=null && point.row.visual_level !== points[i-1].row.visual_level);
+  const uncertainLevels=points.filter((point,i)=>i && (point.row.visual_level==null || points[i-1].row.visual_level==null));
   const cadences = [...new Set(points.map(p=>p.row.interval_seconds ?? interval).filter(n=>n))];
   const cadenceNote = cadences.length ? `Recorded cadence${cadences.length>1?"s":""}: ${cadences.join(" / ")}s.` : "Expected cadence unavailable.";
   document.getElementById(percentage ? "percentage-note" : "chart-note").textContent = `${points.length} timestamped attempts · ${gaps.length} sampling gaps · ${missingTimes} without usable timestamps. ${cadenceNote}${percentage ? ` ${levelBreaks.length} observed visual-level changes; unknown levels do not establish continuity. Hover points for exact percentage and visual level.` : ""}`;
@@ -115,6 +119,7 @@ function drawTimeline(rows, interval, percentage = false) {
     shape("text", {x: 4, y: 158}).textContent = percentage ? low.toFixed(2)+"%" : compact.format(low);
   }
   if (percentage) for (const point of levelBreaks) shape("line", {x1:x(point.time),x2:x(point.time),y1:20,y2:180,class:"level-break"}, "Visual level changed; no continuity or automatic level-up is inferred");
+  if (percentage) for (const point of uncertainLevels) shape('line',{x1:x(point.time),x2:x(point.time),y1:20,y2:180,class:'level-unknown'},'Visual level unavailable; same-level continuity unknown');
   for (const point of points) {
     const row = point.row, px = x(point.time);
     const value = valueOf(row);
@@ -143,23 +148,29 @@ function renderStatus() {
   const age = snapshot?.age_seconds == null ? null : snapshot.age_seconds + (performance.now() - receivedAt) / 1000;
   const delayed = snapshot?.stale || age > (snapshot?.stale_after_seconds ?? 45);
   document.getElementById("age").textContent = age == null ? "No reading time" : `${Math.floor(age)}s ago${delayed ? " · OLD LOG" : " · local age only"}`;
+  if(snapshot?.historical) document.getElementById('age').textContent=`Archived · ${displayTime(snapshot.observations.at(-1) ?? {})}`;
   const notices = [];
   if (requestError) notices.push("Viewer disconnected · showing cached UNVERIFIED diagnostics");
   if (snapshot?.log_status === "missing") notices.push("Configured log not found yet; waiting for the capture writer");
   if (snapshot?.log_status === "unavailable") notices.push("Configured diagnostic file unavailable");
   if (snapshot?.incomplete_tail) notices.push("Trailing write incomplete; only completed lines shown");
   if (snapshot?.malformed_lines) notices.push(`${snapshot.malformed_lines} malformed lines; no repair attempted`);
-  if (snapshot?.truncated) notices.push("Bounded recent history only; earlier content omitted");
-  if (delayed) notices.push("Updates old/delayed; capture activity is not established");
+  if (snapshot?.truncated) notices.push(snapshot.storage==='sqlite_diagnostics'?"Bounded page; earlier attempts available":"Bounded recent history only; earlier content omitted");
+  if(snapshot?.historical) notices.push('Historical selection · original timestamps · no current pace');
+  if (delayed && !snapshot?.historical) notices.push("Updates old/delayed; capture activity is not established");
   if (snapshot?.storage === "sqlite_diagnostics") {
     const latest = snapshot.latest_reading;
     const age = latest ? latest.age_seconds + (performance.now() - receivedAt) / 1000 : null;
     document.getElementById("candidate-age").textContent = age == null ? "No complete diagnostic values in this session" :
       `Candidate ${Math.floor(age)}s old · ${latest.stale || age > snapshot.stale_after_seconds ? "STALE" : "local age only"} · broadcast freshness unknown`;
+    if(snapshot.historical && latest) document.getElementById('candidate-age').textContent=`Historical reading · ${displayTime(latest.observation)} · UNVERIFIED`;
   }
   document.getElementById("notice").textContent = notices.join(" · ") || "Read-only UNVERIFIED diagnostics · local delivery does not prove source freshness";
   const runLabel=requestError && snapshot?.run_status==="active" ? "previously active; current activity unknown" : snapshot?.run_status || "waiting";
   document.getElementById("run-status").textContent = `Run: ${runLabel} · UNVERIFIED${snapshot?.unfinished_run_count ? ` · ${snapshot.unfinished_run_count} unfinished database run(s); activity established only when marked active` : ""}`;
+  if(snapshot?.operation) document.getElementById("run-status").textContent=
+    `${requestError?"Capture activity unknown · cached values":operationLabels[snapshot.operation.state] ?? "Activity unknown"} · Run: ${runLabel}`;
+  if(snapshot?.operation) document.getElementById('source-status').textContent=requestError?'Capture activity unknown':operationLabels[snapshot.operation.state] ?? 'Activity unknown';
   renderProgress();
 }
 function renderProgress() {
@@ -179,7 +190,7 @@ function renderProgress() {
   document.getElementById("progress-segment").textContent = segment ?
     `Recent segment: ${segment.start_percentage}% → ${segment.end_percentage}% · ${segment.readings} attempts / ${segment.span_seconds.approximate.toFixed(3)}s · visual level ${segment.level}. Strict full ${segment.evidence_counts.strict_full}, strict percentage-only ${segment.evidence_counts.strict_percentage_only}, recovered ${segment.evidence_counts.grammar_recovered}. No missing intermediate attempts.` :
     `No current eligible segment: ${reason(data.reason)}. Individual percentage points remain visible.`;
-  const pace = !stale && !requestError ? data.current_pace : null;
+  const pace = !snapshot?.historical && !stale && !requestError ? data.current_pace : null;
   document.getElementById("progress-pace").textContent = pace ?
     `EXPERIMENTAL / UNVERIFIED recent pace: ${pace.value.approximate.toFixed(2)} percentage points/hour` :
     `Percentage pace unavailable: ${requestError?"viewer disconnected":stale?"updates old/stopped":reason(segment?.pace_reason ?? data.reason)} (requires ≥3 comparable readings spanning ≥30s)`;
@@ -193,14 +204,25 @@ function renderProgress() {
   const historical = (data.segments ?? []).filter(s=>s.pace).at(-1);
   document.getElementById("progress-history").textContent = historical && (!pace || historical.last_event_id!==segment?.last_event_id) ?
     `Historical qualifying segment (not current): ${historical.difference_percentage_points} pp over ${historical.span_seconds.approximate.toFixed(3)}s / ${historical.readings} attempts; strict ${historical.evidence_counts.strict_full+historical.evidence_counts.strict_percentage_only}, recovered ${historical.evidence_counts.grammar_recovered}. Recorded pace ${historical.pace.value.approximate.toFixed(2)} pp/hour · EXPERIMENTAL / UNVERIFIED · ended ${historical.end}` : "";
+  document.getElementById("progress-segments").replaceChildren(...(data.segments ?? []).map(s=>{
+    const p=element('p',`${s.start} → ${s.end}: ${s.start_percentage}% → ${s.end_percentage}% (${s.difference_percentage_points} pp), level ${s.level}, ${s.readings} readings. ${s.pace?`Historical/experimental pace ${s.pace.value.approximate.toFixed(2)} pp/hour`:reason(s.pace_reason)}.`);
+    if(s.end_reason) p.append(element('small',`Boundary: ${reason(s.end_reason)}`));
+    if(s.estimated_exp) p.append(element('small',`Historical UNVERIFIED estimated EXP ranges (${s.requirement.status}): `+
+      Object.entries(s.estimated_exp.hypotheses).map(([rule,bounds])=>`${reason(rule)} ${bounds.lower.approximate.toFixed(1)} to ${bounds.upper.approximate.toFixed(1)}`).join(' · ')+'. Display quantization only; not earned totals.'));
+    return p;
+  }));
 }
 function render() {
   const rows = snapshot?.observations || [];
   const persisted = snapshot?.storage === "sqlite_diagnostics";
   document.getElementById("directory-link").hidden = !persisted;
   document.getElementById("persisted").hidden = !persisted;
+  document.getElementById("history-controls").hidden=!persisted;
+  document.getElementById("older-attempts").disabled=!snapshot?.history?.next_before;
+  if(persisted) document.getElementById("history-note").textContent=
+    `${snapshot.historical?"ARCHIVED selection · historical pace only":"Current session · latest page"} · ${rows.length} attempts${snapshot.truncated?" · earlier attempts available":""}. Original UTC timestamps; no interpolation or retiming.`;
   if (persisted) {
-    document.getElementById("page-title").textContent = "Local streamer dashboard";
+    document.getElementById("page-title").textContent = snapshot.historical ? "Streamer history" : "Local streamer dashboard";
     document.getElementById("assignment").textContent = snapshot.selected_character?.label ?? "Select a character using the tracking CLI";
     document.getElementById("session").textContent = snapshot.session ?
       `${snapshot.selected_character.label} · session ${snapshot.session.id} · started ${snapshot.session.started_at}` : "Start a session using the tracking CLI";
@@ -217,7 +239,7 @@ function render() {
     holder.hidden = !card;
     holder.replaceChildren(...(card ? [element("small", "Last attempt's text hypothesis; timestamp/age shown above"), card] : []));
   }
-  document.getElementById("channel").textContent = snapshot?.mixed_channels ? "Mixed sources — see rows" : snapshot?.channel ? `ttv/${snapshot.channel}` : "Local video / channel unavailable";
+  document.getElementById("channel").textContent = snapshot?.mixed_channels ? "Mixed sources — see rows" : snapshot?.channel ? `${snapshot.source_kind==='file'?'Local video · ':snapshot.source_kind==='twitch'?'ttv/':''}${snapshot.channel}` : "Local video / channel unavailable";
   document.getElementById("source-status").textContent = snapshot?.source_status || "Waiting for diagnostics";
   document.getElementById("run-status").textContent = `Run: ${snapshot?.run_status || "waiting"} · UNVERIFIED${snapshot?.unfinished_run_count ? ` · ${snapshot.unfinished_run_count} unfinished database run(s); activity established only when marked active` : ""}`;
   document.getElementById("count").textContent = `(${rows.length} · UNVERIFIED)`;
@@ -229,6 +251,8 @@ function render() {
     if ((!row.candidate && !row.percentage_only_candidate) || !row.fresh_at_capture) tr.className = "rejected-row";
     const when = element("td", `#${row.index ?? "—"}`);
     when.append(element("small", displayTime(row)), element("small", row.channel ? `ttv/${row.channel}` : "Source unspecified"));
+    if(row.actual_interval_seconds!=null) when.append(element('small',`Actual interval ${row.actual_interval_seconds.toFixed(2)}s / requested ${row.interval_seconds}s · skipped ${row.skipped_deadlines ?? 0}`));
+    if(row.coordinator_attempt_seconds!=null) when.append(element('small',`Capture + OCR ${row.coordinator_attempt_seconds.toFixed(2)}s · scheduling delay ${row.scheduler_delay_seconds?.toFixed(2) ?? 'unknown'}s${row.timing_mode==='simulated'?' · SIMULATED':''}`));
     const status = element("td", row.status);
     status.append(element("small", `Neural: ${row.neural_status ?? "not available"}`), element("small", row.fresh_at_capture ? "Fresh at local capture" : "Not fresh / unavailable at capture"), element("small", "UNVERIFIED"));
     const value = element("td");
@@ -271,23 +295,28 @@ function render() {
   renderStatus();
 }
 async function poll() {
+  clearTimeout(pollTimer);activeController?.abort();
+  const sequence=++pollSequence;
   let controller, timer;
   try {
     if (document.hidden) return;
     controller = new AbortController();
+    activeController=controller;
     timer = setTimeout(() => controller.abort(), 5000);
-    const response = await fetch(endpoint, {cache: "no-store", signal: controller.signal});
+    const selection=historyQuery;
+    const response = await fetch(endpoint+selection, {cache: "no-store", signal: controller.signal});
     if (!response.ok) throw new Error("Viewer unavailable");
-    snapshot = await response.json();
+    const data=await response.json();
+    if(sequence!==pollSequence || selection!==historyQuery) return;
+    snapshot = data;
     receivedAt = performance.now();
     requestError = false;
     render();
   } catch {
-    requestError = true;
-    renderStatus();
+    if(sequence===pollSequence) { requestError = true;renderStatus(); }
   } finally {
     clearTimeout(timer);
-    setTimeout(poll, document.hidden ? 10000 : 2000);
+    if(sequence===pollSequence) pollTimer=setTimeout(poll, document.hidden ? 10000 : 2000);
   }
 }
 poll();
@@ -296,3 +325,51 @@ document.getElementById("show-recovered").addEventListener("change", () => {
   drawTimeline(snapshot?.observations || [], snapshot?.interval_seconds);
   drawTimeline(snapshot?.observations || [], snapshot?.interval_seconds, true);
 });
+
+let sessionCursor=null,runCursor=null;
+async function loadHistory(kind,older=false) {
+  if(!dashboardChannel) return;
+  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),5000);
+  try {
+    const params=new URLSearchParams();
+    if(kind==='runs') params.set('session',document.getElementById('history-session').value || snapshot?.session?.id || '');
+    const cursor=kind==='runs'?runCursor:sessionCursor;
+    if(older && cursor) params.set('before',cursor);
+    const response=await fetch(`/dev/api/streams/${encodeURIComponent(dashboardChannel)}/${kind}?${params}`,{cache:'no-store',signal:controller.signal});
+    if(!response.ok) throw new Error();
+    const data=await response.json(), select=document.getElementById(kind==='runs'?'history-run':'history-session');
+    if(!older) { const option=element('option',kind==='runs'?'All runs in session':'Current session');option.value='';select.replaceChildren(option); }
+    for(const item of data[kind]) {
+      const option=element('option',kind==='runs'?`${item.created_at} · ${item.status} · ${item.attempts} attempts · ${item.run_id.slice(0,8)}`:
+        `${item.label} · session ${item.id} · ${item.started_at}${item.ended_at?' · closed':' · open'}`);
+      option.value=String(kind==='runs'?item.run_id:item.id);select.append(option);
+    }
+    if(kind==='runs') runCursor=data.next_before;else sessionCursor=data.next_before;
+    document.getElementById(kind==='runs'?'more-runs':'more-sessions').hidden=!data.next_before;
+  } catch { document.getElementById('history-note').textContent='History list unavailable; saved selection remains unchanged.'; }
+  finally { clearTimeout(timer); }
+}
+function selectHistory(params) {
+  historyQuery=params.toString()?`?${params}`:'';
+  globalThis.history?.replaceState(null,'',globalThis.location.pathname+historyQuery);
+  snapshot=null;render();poll();
+}
+document.getElementById('browse-history').addEventListener('click',()=>loadHistory('sessions'));
+document.getElementById('more-sessions').addEventListener('click',()=>loadHistory('sessions',true));
+document.getElementById('history-session').addEventListener('change',()=>loadHistory('runs'));
+document.getElementById('more-runs').addEventListener('click',()=>loadHistory('runs',true));
+document.getElementById('apply-history').addEventListener('click',()=>{
+  const params=new URLSearchParams();
+  for(const [id,key] of [['history-session','session'],['history-run','run'],['history-start','start'],['history-end','end']]) {
+    let value=document.getElementById(id).value;
+    if(value) { if(key==='start'||key==='end') value+='Z'; params.set(key,value); }
+  }
+  selectHistory(params);
+});
+document.getElementById('older-attempts').addEventListener('click',()=>{
+  if(!snapshot?.history?.next_before) return;
+  const params=new URLSearchParams(historyQuery);params.set('before',snapshot.history.next_before);
+  if(snapshot.session) params.set('session',snapshot.session.id);
+  selectHistory(params);
+});
+document.getElementById('current-history').addEventListener('click',()=>selectHistory(new URLSearchParams()));

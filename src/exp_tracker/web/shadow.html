@@ -27,6 +27,22 @@
       <p class="muted">Assignment is explicit, not inferred from pixels. Candidate values never update trusted EXP totals. Level evidence remains separate; neither visual recognizer verifies a complete tile or character identity.</p>
     </section>
     <p id="notice" role="status" aria-live="polite">Loading diagnostic log…</p>
+    <section id="history-controls" class="panel" hidden aria-label="Read-only historical browsing">
+      <h2>History</h2>
+      <button id="browse-history" type="button">Browse sessions</button>
+      <button id="more-sessions" type="button" hidden>Older sessions</button>
+      <div class="history-controls">
+        <label>Character session <select id="history-session"><option value="">Current session</option></select></label>
+        <label>Diagnostic run <select id="history-run"><option value="">All runs in session</option></select></label>
+        <button id="more-runs" type="button" hidden>Older runs</button>
+        <label>From (UTC) <input id="history-start" type="datetime-local"></label>
+        <label>Until (UTC, exclusive) <input id="history-end" type="datetime-local"></label>
+      </div>
+      <button id="apply-history" type="button">View selection</button>
+      <button id="older-attempts" type="button" disabled>Earlier attempts</button>
+      <button id="current-history" type="button">Return to current</button>
+      <p id="history-note" role="status" class="muted">Up to 120 attempts per page. Filters use original attempt timestamps; no values are retimed.</p>
+    </section>
     <section id="experimental-progress" class="panel" hidden aria-label="Experimental percentage progress">
       <h2>Experimental percentage progress · UNVERIFIED</h2>
       <p id="progress-latest"></p>
@@ -36,6 +52,7 @@
       <p id="progress-bounds" class="muted"></p>
       <p id="progress-exp" class="muted"></p>
       <p id="progress-history" class="muted"></p>
+      <details><summary>Segments in this page</summary><div id="progress-segments"></div></details>
       <p class="muted">Based on displayed percentages and local capture timestamps. One value per attempt; unique grammar proposals may contribute only when continuity gates pass. No trusted EXP totals, identity verification, automatic level-ups or ETA. Zero displayed change does not prove zero gain. Bounds describe display precision, not OCR accuracy.</p>
     </section>
     <section id="coverage" class="panel" hidden aria-label="Diagnostic coverage, not accuracy">
@@ -68,7 +85,7 @@
       <div class="table-wrap"><table><thead><tr><th scope="col">Attempt / time (UTC)</th><th scope="col">Recognition</th><th scope="col">Raw model text / saved pair</th><th scope="col">Visual level / provisional requirement</th><th scope="col">Saved nearest half-up (original table)</th><th scope="col">Saved truncation (original table)</th><th scope="col">Evidence / disagreements</th></tr></thead><tbody id="readings"></tbody></table></div>
       <p id="empty">No completed observations yet.</p>
     </section>
-    <footer>Private diagnostic view · polls every 2 seconds while visible · latest 120 attempts only. Numeric output and arithmetic agreement do not prove correctness. No raw logs, images or playback URLs are served.</footer>
+    <footer>Private diagnostic view · polls every 2 seconds while visible · up to 120 attempts per page. Numeric output and arithmetic agreement do not prove correctness. No raw logs, images or playback URLs are served.</footer>
     <noscript>JavaScript is required to poll and inspect this diagnostic view.</noscript>
   </main>
 </body>

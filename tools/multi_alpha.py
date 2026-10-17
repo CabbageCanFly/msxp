@@ -4,6 +4,7 @@ import argparse
 from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 import importlib.util
+import hashlib
 import json
 import math
 import os
@@ -29,7 +30,7 @@ def private(path):
     return shadow.private_path(Path(path))
 
 
-def load_config(path):
+def load_config(path, *, offline_fast_test=False):
     path = private(path)
     if path.stat().st_size > 32768:
         raise ValueError('Configuration exceeds 32 KiB')
@@ -37,8 +38,8 @@ def load_config(path):
     if not isinstance(value, dict) or set(value) - {'database', 'port', 'streams'}:
         raise ValueError('Expected database, port and streams configuration')
     streams = value.get('streams')
-    if not isinstance(streams, list) or not 2 <= len(streams) <= 5:
-        raise ValueError('Configure 2..5 explicit stream assignments')
+    if not isinstance(streams, list) or not 2 <= len(streams) <= 25:
+        raise ValueError('Configure 2..25 explicit stream assignments')
     database = private(value.get('database', 'private/multi-alpha/tracking.sqlite3'))
     port = value.get('port', 8765)
     if type(port) is not int or not 0 <= port <= 65535:
@@ -57,10 +58,12 @@ def load_config(path):
         seen.add(channel.lower())
         if row.get('source') not in ('file', 'twitch'):
             raise ValueError('Source must be file or twitch')
+        if offline_fast_test and row['source'] != 'file':
+            raise ValueError('Offline fast testing requires ALL sources to be local video')
         for key in ('authorized', 'experimental_neural_level', 'save_crops'):
             if key in row and type(row[key]) is not bool:
                 raise ValueError(f'{key} must be an explicit boolean')
-        for key, default, low, high in [('count',3,1,60), ('interval',15,5,300), ('start',0,0,86400),
+        for key, default, low, high in [('count',3,1,60), ('interval',15,3 if offline_fast_test else 5,300), ('start',0,0,86400),
                 ('timeout',20,1,30), ('max_age',15,1,30), ('ocr_timeout',10,1,30)]:
             n = row.get(key, default)
             if type(n) not in (int,float) or not math.isfinite(n) or not low <= n <= high or key=='count' and type(n) is not int:
@@ -122,6 +125,9 @@ def initialize(database, streams, say=print):
             session = store.start_session(row['channel'], expected_character_id=character)
             row.update(character_id=character, session_id=session)
             say(f"Selected {row['channel']} / {row['character']!r} / session {session}")
+            unfinished = store.db.execute('SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=? AND summary_json IS NULL',(session,)).fetchone()[0]
+            if unfinished:
+                say(f"{row['channel']}: preserved {unfinished} previous unfinished run(s); activity unknown. Starting a NEW run; progress will not bridge the restart.")
 
 
 def options(row, database, output):
@@ -135,26 +141,49 @@ def options(row, database, output):
     return shadow.parser().parse_args(argv)
 
 
-def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep):
+def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
+             continuous=False, max_attempts=None, stop_after_seconds=None, rotate=None,
+             activity=None, simulated=False):
     """No queue: one due-time per lane, rotating ties, elapsed slots skipped."""
     started, wall = clock(), datetime.now(timezone.utc)
     for lane in lanes:
-        lane.update(due=started, attempts=0, frames=0, commits=0, stopped=False, interrupted=False, skipped=0)
+        lane.update(due=started, attempts=0, run_attempts=0, frames=0, commits=0, stopped=False,
+                    interrupted=False, skipped=0, capture_failures=0, ocr_failures=0, last_started=None,
+                    elapsed_total=0,elapsed_count=0,duration_total=0,max_delay=0)
+        if activity is not None:
+            activity[lane['channel']]=dict(state='waiting',run_id=lane['run_id'],updated_at=utc(),
+                next_due_at=utc(wall),requested_interval_seconds=lane['args'].interval)
     turn = 0
     try:
         while True:
-            pending = [i for i,lane in enumerate(lanes) if not lane['stopped'] and lane['attempts'] < lane['args'].count]
+            pending = [i for i,lane in enumerate(lanes) if not lane['stopped'] and
+                (lane['attempts'] < (max_attempts if continuous else lane['args'].count)
+                 if not continuous or max_attempts is not None else True)]
             if not pending: break
             index = min(pending, key=lambda i: (lanes[i]['due'], (i-turn)%len(lanes)))
             lane = lanes[index]
+            if stop_after_seconds is not None and max(clock(),lane['due'])-started >= stop_after_seconds:
+                break
             sleep(max(0, lane['due']-clock()))
             while lane['due']+lane['args'].interval <= clock():
                 lane['due'] += lane['args'].interval
                 lane['skipped'] += 1
             requested = utc(wall+timedelta(seconds=lane['due']-started))
             delay = max(0, clock()-lane['due'])
-            number = lane['attempts']+1
+            if lane['run_attempts']==60:
+                try:
+                    if rotate is None: raise ValueError('Continuous scheduling requires a rotation operation')
+                    rotate(lane)
+                    lane['run_attempts']=0
+                except (OSError,sqlite3.Error,ValueError):
+                    lane.update(stopped=True,interrupted=True,persistence_failed=True)
+                    continue
+            number = lane['run_attempts']+1
             seek = lane['args'].start+clock()-started if lane['source'].kind=='file' else None
+            attempt_start=clock()
+            if activity is not None:
+                activity[lane['channel']]=dict(state='running',run_id=lane['run_id'],updated_at=utc(),
+                    expected_completion_seconds=lane['args'].timeout+lane['args'].ocr_timeout+15)
             try:
                 record = perform(lane, number, seek)
             except KeyboardInterrupt:
@@ -166,9 +195,22 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep):
                 record = dict(type='attempt', trusted=False, current=False, index=number,
                     attempted_at=utc(), status='capture_failed', reasons=['capture_process_failed'],
                     source=dict(kind=lane['source'].kind, channel=lane['channel'] if lane['source'].kind=='twitch' else None))
-            record.update(requested_at=requested, scheduler_delay_seconds=delay)
-            lane['attempts'] = number
+            elapsed=None if lane['last_started'] is None else attempt_start-lane['last_started']
+            record.update(requested_at=None if simulated else requested, scheduler_delay_seconds=delay,
+                timing_mode='simulated' if simulated else 'real',
+                actual_interval_seconds=elapsed,skipped_deadlines=lane['skipped'],
+                coordinator_attempt_seconds=max(0,clock()-attempt_start))
+            if simulated: record['simulated_scheduler_seconds']=attempt_start-started
+            lane['last_started']=attempt_start
+            if elapsed is not None:
+                lane['elapsed_total']+=elapsed;lane['elapsed_count']+=1
+            lane['duration_total']+=record['coordinator_attempt_seconds']
+            lane['max_delay']=max(lane['max_delay'],delay)
+            lane['run_attempts']=number
+            lane['attempts'] += 1
             lane['frames'] += record.get('received_at') is not None
+            lane['capture_failures'] += record.get('status')=='capture_failed'
+            lane['ocr_failures'] += record.get('status') in ('recognition_failed','malformed_or_unavailable','unavailable')
             try:
                 emit(lane, record)
             except (OSError, sqlite3.Error, ValueError):
@@ -180,9 +222,15 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep):
                 lane['due'] += lane['args'].interval
                 lane['skipped'] += 1
             turn = (index+1)%len(lanes)
+            if activity is not None:
+                done=lane['stopped'] or (lane['attempts']>=max_attempts if continuous and max_attempts is not None else lane['attempts']>=lane['args'].count if not continuous else False)
+                activity[lane['channel']]=dict(state='stopped' if done else 'capture_failing' if record.get('status')=='capture_failed' else 'waiting',
+                    run_id=lane['run_id'],updated_at=utc(),next_due_at=utc(wall+timedelta(seconds=lane['due']-started)),
+                    skipped_deadlines=lane['skipped'],requested_interval_seconds=lane['args'].interval,
+                    actual_interval_seconds=elapsed)
     except KeyboardInterrupt:
         for lane in lanes:
-            if lane['attempts'] < lane['args'].count:
+            if continuous or lane['attempts'] < lane['args'].count:
                 lane['interrupted'] = True
         return True
     return False
@@ -194,10 +242,20 @@ def main(argv=None):
     cli.add_argument('--check', action='store_true', help='Validate capture configuration without connecting or writing')
     cli.add_argument('--replay', action='append', default=[], metavar='CHANNEL=PRIVATE_LOG')
     cli.add_argument('--exit-after-capture', action='store_true')
+    cli.add_argument('--continuous',action='store_true',help='Continue until Ctrl+C, rotating each channel at 60 attempts')
+    cli.add_argument('--max-attempts',type=int,help='Continuous-mode stop condition, per channel (not per run)')
+    cli.add_argument('--stop-after-seconds',type=float,help='Stop scheduling new work after real monotonic elapsed time')
+    cli.add_argument('--offline-fast-test',action='store_true',help='Explicit local-video-only interval floor of 3 seconds')
     args = cli.parse_args(argv)
     httpd = thread = None
     try:
-        database, port, streams = load_config(args.config)
+        if args.max_attempts is not None and (not args.continuous or not 1<=args.max_attempts<=1000000):
+            raise ValueError('--max-attempts requires continuous mode and 1..1000000 attempts')
+        if args.stop_after_seconds is not None and (not args.continuous or not math.isfinite(args.stop_after_seconds) or args.stop_after_seconds<=0):
+            raise ValueError('--stop-after-seconds requires continuous mode and positive finite seconds')
+        if args.replay and (args.continuous or args.offline_fast_test):
+            raise ValueError('Historical replay cannot use continuous/fast-test capture settings')
+        database, port, streams = load_config(args.config,offline_fast_test=args.offline_fast_test)
         mappings = {}
         if args.replay:
             if args.check:
@@ -211,8 +269,9 @@ def main(argv=None):
         lanes = []
         for row in streams:
             opts = options(row, database, directory/row['channel']/'capture.jsonl')
+            if args.continuous: opts.count=60
             if not args.replay:
-                source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True)
+                source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
                 lanes.append({**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes})
         if not args.replay:
             configure_tesseract()
@@ -245,15 +304,27 @@ def main(argv=None):
                 directory.mkdir(parents=True, exist_ok=False)
                 with closing(ResourceMonitor(sample_interval=.05, scope='multi-alpha coordinator, HTTP and sequential capture/OCR children')) as monitor, Store(database) as store:
                     diagnostic = Diagnostics(store)
-                    handles = []
+                    handles = {}
+                    instance=uuid.uuid4().hex
                     try:
-                        for lane, binding in zip(lanes, streams):
-                            lane.update(character_id=binding['character_id'], session_id=binding['session_id'], run_id=uuid.uuid4().hex)
+                        def open_run(lane, run_id, previous=None):
+                            lane['run_id']=run_id
+                            if previous:
+                                lane['args'].output=directory/lane['channel']/run_id/'capture.jsonl'
                             lane['args'].output.parent.mkdir(parents=True, exist_ok=False)
-                            lane['log'] = lane['args'].output.open('x', encoding='utf-8'); handles.append(lane['log'])
+                            lane['log'] = lane['args'].output.open('x', encoding='utf-8'); handles[lane['channel']]=lane['log']
                             header = shadow.configuration(lane['args'], lane['table_bytes'], lane['table'], lane['run_id'])
-                            header.update(coordinator=APP, source_kind=lane['source'].kind)
+                            source=lane['source']
+                            identity=(source.kind, str(Path(source.value).resolve()) if source.kind=='file' else source.value)
+                            header.update(coordinator=APP,coordinator_instance=instance,
+                                source_identity=hashlib.sha256(json.dumps(identity).encode()).hexdigest(),
+                                source_kind=source.kind,start_reason='scheduled_rotation' if previous else 'process_start',
+                                previous_run_id=previous,offline_fast_test=args.offline_fast_test,timing_mode='real')
                             lane['log'].write(json.dumps(header)+'\n'); lane['log'].flush()
+                            return header
+                        for lane, binding in zip(lanes, streams):
+                            lane.update(character_id=binding['character_id'], session_id=binding['session_id'])
+                            header=open_run(lane,uuid.uuid4().hex)
                             binding = diagnostic.begin(lane['run_id'], lane['channel'], header)
                             if (binding['character_id'],binding['session_id']) != (lane['character_id'],lane['session_id']):
                                 raise ValueError('Startup assignment changed; no capture started')
@@ -275,19 +346,44 @@ def main(argv=None):
                                     if record['type']=='attempt':
                                         print(report_attempt(record, committed, database=database, channel=lane['channel'],
                                             neural_enabled=lane['args'].experimental_neural_level).replace('#',lane['channel']+' #',1),flush=True)
-                            interrupted = schedule(lanes, lambda lane,n,seek: shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek),emit)
+                            def rotate(lane):
+                                previous=lane['run_id']; following=uuid.uuid4().hex
+                                summary=dict(type='summary',trusted=False,attempts=60,interrupted=False,
+                                    completion_reason='scheduled_rotation',next_run_id=following)
+                                old=lane['log']
+                                old.write(json.dumps(summary)+'\n');old.flush()
+                                header=open_run(lane,following,previous)
+                                try:
+                                    diagnostic.rotate(previous,following,lane['channel'],summary,header)
+                                finally:
+                                    old.close()
+                                httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(following)
+                                print(f"{lane['channel']}: scheduled rotation after 60 committed attempts; session {lane['session_id']} retained",flush=True)
+                            scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate) if args.continuous else {}
+                            interrupted = schedule(lanes, lambda lane,n,seek: shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek),emit,
+                                activity=httpd.coordinator_status,**scheduler_options)
                             for lane in lanes:
                                 try:
-                                    emit(lane,dict(type='summary',trusted=False,attempts=lane['attempts'],interrupted=lane['interrupted'],skipped_deadlines=lane['skipped']))
+                                    emit(lane,dict(type='summary',trusted=False,attempts=lane['run_attempts'],interrupted=lane['interrupted'],skipped_deadlines=lane['skipped'],
+                                        scheduling=dict(requested_interval_seconds=lane['args'].interval,
+                                            actual_mean_interval_seconds=lane['elapsed_total']/lane['elapsed_count'] if lane['elapsed_count'] else None,
+                                            mean_attempt_seconds=lane['duration_total']/lane['attempts'] if lane['attempts'] else None,
+                                            max_delay_seconds=lane['max_delay'],total_attempts_this_process=lane['attempts'],
+                                            capture_failures=lane['capture_failures'],ocr_failures=lane['ocr_failures'],committed_attempts=lane['commits']),
+                                        completion_reason='operator_interrupted' if lane['interrupted'] else 'stop_condition' if args.continuous else 'bounded_complete'))
                                 except (OSError,ValueError,sqlite3.Error):
                                     print(f"{lane['channel']}: final SQLite summary NOT committed; inspect private logs",flush=True)
                                 httpd.active_run_ids.discard(lane['run_id'])
+                                httpd.coordinator_status[lane['channel']]=dict(state='stopped',run_id=lane['run_id'],updated_at=utc())
                             print('Capture stopped. UNVERIFIED diagnostics only. Resources: '+json.dumps(monitor.snapshot()),flush=True)
                             for lane in lanes:
-                                print(f"{lane['channel']}: {lane['frames']}/{lane['attempts']} frames, {lane['commits']} SQLite attempt commits; skipped deadlines={lane['skipped']}",flush=True)
+                                print(f"{lane['channel']}: {lane['frames']}/{lane['attempts']} frames, {lane['commits']} SQLite attempt commits; skipped deadlines={lane['skipped']}; capture failures={lane['capture_failures']}, OCR failures={lane['ocr_failures']}",flush=True)
+                                if lane['elapsed_count']: print(f"{lane['channel']}: requested {lane['args'].interval:.3f}s / actual mean start-to-start {lane['elapsed_total']/lane['elapsed_count']:.3f}s; mean work {lane['duration_total']/lane['attempts']:.3f}s",flush=True)
+                                if lane['skipped']: print(f"{lane['channel']}: requested {lane['args'].interval}s cadence NOT sustained; inspect actual_interval_seconds and stage durations",flush=True)
                     finally:
                         httpd.active_run_ids.clear()
-                        for handle in handles: handle.close()
+                        httpd.coordinator_status.clear()
+                        for handle in handles.values(): handle.close()
             if not args.exit_after_capture and not interrupted:
                 print('Capture is NOT running; localhost viewer remains open. Ctrl+C closes it.',flush=True)
                 while thread.is_alive(): thread.join(.5)

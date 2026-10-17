@@ -33,7 +33,7 @@ def multi(tmp_path,monkeypatch):
     now=[0.0];calls=[]
     original=module.schedule
     def sleep(seconds): now[0]+=seconds
-    monkeypatch.setattr(module,'schedule',lambda lanes,perform,emit:original(lanes,perform,emit,clock=lambda:now[0],sleep=sleep))
+    monkeypatch.setattr(module,'schedule',lambda lanes,perform,emit,**kw:original(lanes,perform,emit,clock=lambda:now[0],sleep=sleep,simulated=True,**kw))
     def capture(args,source,requirements,index,**kwargs):
         calls.append((args.tracking_channel,index,now[0]));now[0]+=1
         return record(index)
@@ -166,7 +166,7 @@ def test_interrupt_closes_coherent_runs_and_stops_further_jobs(multi,monkeypatch
 
 
 @pytest.mark.parametrize('change',[
-    {'streams':[]},{'port':-1},{'streams':[{}]*6},{'extra':'x'}])
+    {'streams':[]},{'port':-1},{'streams':[{}]*26},{'extra':'x'}])
 def test_bad_configuration_never_creates_database(multi,change):
     _,path,config,_,_=multi
     config.update(change);path.write_text(json.dumps(config))
@@ -203,3 +203,88 @@ def test_mid_run_character_switch_stops_only_that_lane(multi,monkeypatch):
         assert Diagnostics(store).snapshot('alpha')['observations']==[]
         assert len(Diagnostics(store).snapshot('beta')['observations'])==2
         assert store.db.execute("SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id JOIN streamers s ON s.id=r.streamer_id WHERE s.login='alpha'").fetchone()[0]==0
+
+
+def test_continuous_multiple_rotations_persist_real_runs_without_real_waiting(multi):
+    module,path,config,calls,_=multi
+    config['streams'][1]['interval']=25
+    path.write_text(json.dumps(config))
+    assert main(multi,'--continuous','--max-attempts','125')==0
+    assert len(calls)==250
+    with Store(path.parent/'shared.sqlite3',read_only=True) as store:
+        runs=list(store.db.execute('SELECT * FROM diagnostic_runs ORDER BY rowid'))
+        assert len(runs)==6 and len({r['run_id'] for r in runs})==6
+        assert sorted(store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?',(r['run_id'],)).fetchone()[0] for r in runs)==[5,5,60,60,60,60]
+        summaries=[json.loads(r['summary_json']) for r in runs]
+        assert sum(s['completion_reason']=='scheduled_rotation' for s in summaries)==4
+        for r in runs:
+            rows=list(store.db.execute('SELECT attempt_index,payload_json FROM diagnostic_attempts WHERE run_id=? ORDER BY attempt_index',(r['run_id'],)))
+            assert [row[0] for row in rows]==list(range(1,len(rows)+1))
+            assert all(json.loads(row[1])['timing_mode']=='simulated' and json.loads(row[1])['requested_at'] is None for row in rows)
+        ids={c:store.state(c)['session']['id'] for c in ('alpha','beta')}
+        for c in ids:
+            assert not Diagnostics(store).snapshot(c)['percentage_progress']['current_pace']
+        assert store.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==0
+    assert main(multi,'--continuous','--max-attempts','1')==0
+    with Store(path.parent/'shared.sqlite3',read_only=True) as store:
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==252
+        assert {c:store.state(c)['session']['id'] for c in ids}==ids
+        configs=[json.loads(r[0]) for r in store.db.execute('SELECT configuration_json FROM diagnostic_runs ORDER BY rowid DESC LIMIT 2')]
+        assert all(r['start_reason']=='process_start' and r['previous_run_id'] is None for r in configs)
+
+
+def test_fast_test_is_explicit_and_never_allowed_for_twitch(multi):
+    _,path,config,_,_=multi
+    for row in config['streams']: row['interval']=3
+    path.write_text(json.dumps(config))
+    assert main(multi,'--check')==1
+    assert main(multi,'--offline-fast-test','--check')==0
+    assert main(multi,'--offline-fast-test')==0
+    config['streams'][1].update(source='twitch',authorized=True)
+    path.write_text(json.dumps(config))
+    assert main(multi,'--offline-fast-test','--check')==1
+
+
+def test_25_assignments_and_monotonic_stop_condition(multi):
+    _,path,config,calls,_=multi
+    template=config['streams'][0]
+    config['streams']=[{**template,'channel':f'source_{i}','character':f'Character {i}'} for i in range(25)]
+    path.write_text(json.dumps(config))
+    assert main(multi,'--continuous','--stop-after-seconds','26')==0
+    assert len(calls)==26 and len({c[0] for c in calls})==25
+    with Store(path.parent/'shared.sqlite3',read_only=True) as store:
+        assert store.db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0]==25
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==26
+
+
+def test_continuous_interrupt_finalizes_and_does_not_run_more_jobs(multi,monkeypatch):
+    module,path,_,calls,_=multi
+    original=module.shadow.capture_attempt
+    def capture(*args,**kw):
+        if len(calls)==121: raise KeyboardInterrupt
+        return original(*args,**kw)
+    monkeypatch.setattr(module.shadow,'capture_attempt',capture)
+    assert main(multi,'--continuous')==130
+    with Store(path.parent/'shared.sqlite3',read_only=True) as store:
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==122
+        assert not store.db.execute('SELECT 1 FROM diagnostic_runs WHERE summary_json IS NULL').fetchone()
+
+
+def test_continuous_overload_rotates_despite_isolated_failed_captures(multi,monkeypatch):
+    module,path,config,calls,clock=multi
+    original=module.shadow.capture_attempt
+    config['streams'][1]['interval']=8;path.write_text(json.dumps(config))
+    def capture(args,*rest,**kw):
+        result=original(args,*rest,**kw);clock[0]+=20
+        if args.tracking_channel=='beta' and result['index']%3==0:raise OSError('private path/URL not for HTTP')
+        return result
+    monkeypatch.setattr(module.shadow,'capture_attempt',capture)
+    assert main(multi,'--continuous','--max-attempts','125')==0
+    assert len(calls)==250 and {r[0] for r in calls}=={'alpha','beta'}
+    with Store(path.parent/'shared.sqlite3',read_only=True) as store:
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_runs').fetchone()[0]==6
+        for channel in ('alpha','beta'):
+            rows=Diagnostics(store).snapshot(channel)['observations']
+            assert any(r['skipped_deadlines']>0 for r in rows)
+            assert all(r['actual_interval_seconds'] is None or r['actual_interval_seconds']>=20 for r in rows)
+        assert any(r['status']=='capture_failed' for r in Diagnostics(store).snapshot('beta')['observations'])

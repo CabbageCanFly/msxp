@@ -50,3 +50,14 @@ test('empty, interrupted and stale values stay explicit; labels are literal text
   await vm.runInContext('pollDirectory()',p.context);
   assert.deepEqual(urls,['/dev/api/streams']);assert.equal(p.timers.at(-1).delay,2000);
 });
+
+test('local videos and coordinator runtime are explicit; unfinished rows never imply a running worker',()=>{
+  const p=page();
+  p.render({served_at:'2026-01-01T00:00:00Z',streams:[card({source_kind:'file',operation:{state:'waiting',next_due_at:'2026-01-01T00:00:15Z'}})]});
+  assert.match(text(p.elements.streams.children[0]),/Video · alpha.*Waiting for next capture/);
+  assert.ok(!text(p.elements.streams.children[0]).includes('ttv/alpha'));
+  p.context.performance.now=()=>20000;vm.runInContext('renderDirectory()',p.context);
+  assert.match(text(p.elements.streams.children[0]),/Capture delayed/);
+  p.render({streams:[card({operation:{state:'coordinator_stopped'},run_status:'unfinished'})]});
+  assert.match(text(p.elements.streams.children[0]),/Coordinator stopped.*activity unknown/);
+});

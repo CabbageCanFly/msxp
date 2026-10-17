@@ -13,7 +13,7 @@ class Element {
 }
 function page(pathname = "/dev/shadow") {
   const elements = {}, timers = [];
-  const context = vm.createContext({Intl, Date, BigInt, AbortController, location: {pathname}, performance: {now: () => 0},
+  const context = vm.createContext({Intl, Date, BigInt, AbortController, URLSearchParams, location: {pathname}, performance: {now: () => 0},
     document: {hidden: false, getElementById: id => elements[id] ??= new Element(),
       createElement: tag => new Element(tag), createElementNS: (ns, tag) => new Element(tag)},
     fetch: () => new Promise(() => {}), setTimeout: (callback, delay) => { timers.push({callback, delay}); return timers.length; },
@@ -270,7 +270,8 @@ test("percentage chart keeps gaps, stale values and visual level boundaries with
   assert.equal(nodes.filter(node=>node.attributes.class==='stale').length,1);
   assert.equal(nodes.filter(node=>node.attributes.class==='gap').length,1);
   assert.equal(nodes.filter(node=>node.attributes.class==='rejected').length,1);
-  assert.ok(nodes.filter(node=>node.tag==='line').every(node=>['axis','level-break'].includes(node.attributes.class)));
+  assert.equal(nodes.filter(node=>node.attributes.class==='level-unknown').length,1);
+  assert.ok(nodes.filter(node=>node.tag==='line').every(node=>['axis','level-break','level-unknown'].includes(node.attributes.class)));
 });
 
 test("neural level is a separate unverified comparison and never supplies the chart level", () => {
@@ -282,4 +283,25 @@ test("neural level is a separate unverified comparison and never supplies the ch
   assert.ok(visual.children.some(node=>node.textContent.includes('RapidOCR EXPERIMENTAL / UNVERIFIED: 51')));
   const point=p.elements['percentage-timeline'].children.find(node=>node.attributes.class==='sample');
   assert.match(point.children[0].textContent,/visual level unavailable/);
+});
+
+test('history navigation uses bounded API filters and does not relabel archived pace as current',async()=>{
+  const p=page('/dashboard/synthetic');
+  p.render(state({storage:'sqlite_diagnostics',historical:true,selected_character:{label:'Previous character'},
+    session:{id:1,started_at:'2026-01-01'},history:{next_before:99},
+    percentage_progress:{latest_percentage:null,latest_movement:null,current_segment:null,current_pace:{value:{approximate:99}},
+      stale:false,age_seconds:0,segments:[]}}));
+  assert.equal(p.elements['page-title'].textContent,'Streamer history');
+  assert.match(p.elements['history-note'].textContent,/ARCHIVED/);
+  assert.equal(p.elements['older-attempts'].disabled,false);
+  assert.match(p.elements['progress-pace'].textContent,/unavailable/);
+  const urls=[];
+  p.context.fetch=async url=>{urls.push(url);return {ok:true,json:async()=>({sessions:[{id:1,label:'Previous character',started_at:'2026-01-01',ended_at:'2026-01-02'}],next_before:null})};};
+  await vm.runInContext("loadHistory('sessions')",p.context);
+  assert.equal(urls[0],'/dev/api/streams/synthetic/sessions?');
+  assert.match(p.elements['history-session'].children[1].textContent,/Previous character.*closed/);
+  p.elements['history-session'].value='1';
+  p.context.fetch=async url=>{urls.push(url);return {ok:true,json:async()=>state({storage:'sqlite_diagnostics',historical:true,selected_character:{label:'Previous character'},session:{id:1,started_at:'2026-01-01'},history:{}})};};
+  await vm.runInContext("selectHistory(new URLSearchParams('session=1&before=99'));poll()",p.context);
+  assert.ok(urls.at(-1).includes('session=1&before=99'));
 });

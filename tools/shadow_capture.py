@@ -314,11 +314,13 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
                 wall_seconds=clock() - started)
 
 
-def prepare(args, *, allow_missing_video=False):
+def prepare(args, *, allow_missing_video=False, offline_fast_test=False):
     """Shared offline preflight. No database writes or remote connections."""
     if not 1 <= args.count <= 60:
         raise ValueError('count must be 1..60')
-    for name, low, high in [('interval', 5, 300), ('timeout', 1, 30), ('max_age', 1, 30),
+    if offline_fast_test and (args.channel or not args.file):
+        raise ValueError('Offline fast testing requires a local video, never Twitch')
+    for name, low, high in [('interval', 3 if offline_fast_test else 5, 300), ('timeout', 1, 30), ('max_age', 1, 30),
                             ('ocr_timeout', 1, 30), ('start', 0, 86400)]:
         value = getattr(args, name)
         if not math.isfinite(value) or not low <= value <= high:

@@ -1,5 +1,10 @@
 # Minimal durable tracking
 
+Diagnostic-only follow-up: [continuous history and backup](continuous-alpha.md).
+Schema 4 adds indexed diagnostic session lookup without changing trusted tables,
+gains or validation. Writer initialization migrates transactionally; HTTP can
+still read schema 3 without modifying frozen databases.
+
 Follow-up: [real OCR integration verification](ocr-sqlite-verification.md) covers
 private-crop replay, local capture and profile setup. The later
 [short OCR interruption policy](accounting.md) recovers endpoint gains while

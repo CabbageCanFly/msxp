@@ -20,6 +20,21 @@ def row(index, percentage='33.00', **changes):
     return value
 
 
+def test_only_explicit_clean_rotation_can_extend_one_segment():
+    a=row(59,source_identity='a'*64,coordinator_instance='b'*32)
+    b=row(60,'33.01',source_identity='a'*64,coordinator_instance='b'*32)
+    c=row(1,'33.02',received_at=(NOW+timedelta(seconds=900)).isoformat(),
+        run_id='next',event_id='next:1',rotation_from='run',source_identity='a'*64,coordinator_instance='b'*32)
+    result=progress([a,b,c],now=NOW+timedelta(seconds=900),current_run_id='next')
+    assert len(result['segments'])==1 and result['current_pace']
+    assert result['current_segment']['run_ids']==['run','next']
+    for change in ({'rotation_from':None},{'coordinator_instance':'c'*32},{'source_identity':'d'*64},{'index':2}):
+        other={**c,**change}
+        assert len(progress([a,b,other],now=NOW+timedelta(seconds=900))['segments'])==2
+    c['timing_mode']='simulated'
+    assert progress([a,b,c],now=NOW+timedelta(seconds=900))['comparisons'][-1]['reason']=='simulated_timing_not_real_progress'
+
+
 def run(rows, **kwargs):
     return progress(rows,now=NOW+timedelta(seconds=120),stale_after_seconds=200,**kwargs)
 

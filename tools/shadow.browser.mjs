@@ -6,12 +6,14 @@ import {join, resolve, sep} from "node:path";
 import {setTimeout as delay} from "node:timers/promises";
 
 const url = new URL(process.argv[2] || "http://127.0.0.1:8765/dev/shadow");
+// Chromium's native date input uses an inline data image; it makes no network call.
+const localRequest=request=>new URL(request).protocol==='data:' || new URL(request).origin===url.origin;
 assert.equal(url.hostname, "127.0.0.1");
 const dashboard = /^\/dashboard\/([A-Za-z0-9_]{1,25})$/.exec(url.pathname);
 const isDirectory = url.pathname === '/streams';
 assert.ok(url.pathname === "/dev/shadow" || dashboard || isDirectory);
 const endpoint = isDirectory ? '/dev/api/streams' : dashboard ? `/dev/api/streams/${dashboard[1]}/diagnostics` : '/dev/api/shadow';
-const expected = await (await fetch(new URL(endpoint, url))).json();
+const expected = await (await fetch(new URL(endpoint+url.search, url))).json();
 assert.ok(isDirectory ? expected.streams.length > 0 : expected.observations.length > 0, "Use a populated opt-in local diagnostic server");
 const output = resolve(process.argv[3] || "artifacts/shadow-view");
 assert.ok(["artifacts", "private"].some(root => output.startsWith(resolve(root) + sep)), "Screenshots must stay private/ or artifacts/");
@@ -108,7 +110,7 @@ try {
   assert.ok(await evaluate(`performance.getEntriesByType("resource").filter(r => r.name.includes(${JSON.stringify(endpoint)})).length >= 2`));
   const apiMilliseconds = await evaluate(`performance.getEntriesByType("resource").filter(r => r.name.includes(${JSON.stringify(endpoint)})).map(r => r.duration)`);
   const metrics = (await command("Performance.getMetrics")).metrics;
-  await evaluate('globalThis.fetch = () => new Promise(() => {})');
+  await evaluate('globalThis.browserOriginalFetch=globalThis.fetch;globalThis.fetch = () => new Promise(() => {})');
   const measurements = [];
   async function screenshot(name, width, height) {
     await command("Emulation.setDeviceMetricsOverride", {width,height,deviceScaleFactor:1,mobile:width<650});
@@ -135,6 +137,35 @@ try {
   } else {
   await screenshot("test-shadow-desktop", 1440, 2000);
   await screenshot("test-shadow-mobile", 390, 1200);
+  if(dashboard && expected.history) {
+    await evaluate("globalThis.fetch=globalThis.browserOriginalFetch;document.getElementById('browse-history').click()");
+    async function waitFor(expression) { for(let i=0;i<100;i++) { if(await evaluate(expression)) return; await delay(100); } assert.fail('Historical navigation timed out: '+expression); }
+    await waitFor("document.getElementById('history-session').options.length>1");
+    const ids=await evaluate("[...document.getElementById('history-session').options].map(o=>o.value).filter(Boolean)");
+    const historicalSession=ids.at(-1);
+    await evaluate(`document.getElementById('history-session').value=${JSON.stringify(historicalSession)};document.getElementById('history-session').dispatchEvent(new Event('change'))`);
+    await waitFor("document.getElementById('history-run').options.length>1");
+    await evaluate("document.getElementById('apply-history').click()");
+    await waitFor(`snapshot?.historical && String(snapshot.session.id)===${JSON.stringify(historicalSession)}`);
+    assert.equal(await evaluate('snapshot.percentage_progress.current_pace'),null);
+    await screenshot('historical-session-desktop',1440,2000);
+    await screenshot('historical-session-mobile',390,1400);
+    if(await evaluate('Boolean(snapshot.history.next_before)')) {
+      const old=await evaluate('snapshot.observations.map(r=>r.event_id)');
+      await evaluate("document.getElementById('older-attempts').click()");
+      await waitFor(`snapshot?.history?.before!=null && !${JSON.stringify(old)}.includes(snapshot.observations.at(-1)?.event_id)`);
+      assert.ok((await evaluate('snapshot.observations.map(r=>r.event_id)')).every(id=>!old.includes(id)));
+      await screenshot('historical-earlier-page',1440,1800);
+    }
+    const chosen=await evaluate("document.getElementById('history-run').options[1].value");
+    await evaluate(`document.getElementById('history-run').value=${JSON.stringify(chosen)};document.getElementById('apply-history').click()`);
+    await waitFor(`snapshot?.history?.run_id===${JSON.stringify(chosen)}`);
+    assert.ok(await evaluate(`snapshot.observations.every(r=>r.run_id===${JSON.stringify(chosen)})`));
+    await screenshot('historical-run',1440,1800);
+    await evaluate("document.getElementById('current-history').click()");
+    await waitFor(`snapshot && !snapshot.historical && snapshot.observations.at(-1)?.event_id===${JSON.stringify(expected.observations.at(-1).event_id)}`);
+    await evaluate('globalThis.fetch=()=>new Promise(()=>{})');
+  }
   if (expected.observations.some(row => row.interpretations)) {
     assert.equal(await evaluate('document.getElementById("show-recovered").checked'), false);
     assert.equal(await evaluate('document.querySelectorAll(".recovered-full, .recovered-percentage").length'),0);
@@ -167,10 +198,10 @@ try {
   assert.deepEqual([gaps.candidates,gaps.rejected,gaps.stale,gaps.gaps], [1,1,1,1]);
   await evaluate('snapshot=originalSnapshot; requestError=true; render()');
   await screenshot("cached-api-failure", 1440, 1400);
-  assert.ok(requests.every(request => new URL(request).origin === url.origin));
+  assert.ok(requests.every(localRequest),JSON.stringify(requests.filter(request=>!localRequest(request))));
   }
   assert.deepEqual(failures, []);
-  assert.ok(requests.every(request => new URL(request).origin === url.origin));
+  assert.ok(requests.every(localRequest),JSON.stringify(requests.filter(request=>!localRequest(request))));
   writeFileSync(join(output,"browser-measurements.json"),JSON.stringify({measurements,requests,
     observations:expected.observations?.length ?? null,streams:expected.streams?.length ?? null,apiMilliseconds,
     jsHeapUsedBytes:metrics.find(metric => metric.name === 'JSHeapUsedSize')?.value},null,2));
