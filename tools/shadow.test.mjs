@@ -112,3 +112,30 @@ test("big integers and unexpected text remain literal, without HTML injection", 
   assert.match(p.elements.readings.children[0].children[2].children[1].textContent, /9,223,372,036,854,775,807/);
   assert.ok(!source.includes("innerHTML"));
 });
+
+test("percentage-only has no absolute EXP and partial evidence is not plotted", () => {
+  const p = page();
+  p.render(state({observations:[observation(1,{candidate:null,raw_text:'[70.51%]',
+    percentage_only_candidate:{kind:'percentage_only',percentage:'70.51',percentage_bp:7051,trusted:false},
+    diagnostic_type:'percentage_only',status:'diagnostic_percentage_only',visual_level:63}),
+    observation(2,{candidate:null,partial_percentage_evidence:{percentage:'92.17'}})]}));
+  assert.match(p.elements.readings.children[0].children[2].children[1].textContent,/70.51% · percentage only · EXP unavailable/);
+  assert.equal(p.elements.timeline.children.filter(node=>node.attributes.class==='sample').length,0);
+  assert.equal(p.elements['percentage-timeline'].children.filter(node=>node.attributes.class==='sample').length,1);
+  const point=p.elements['percentage-timeline'].children.find(node=>node.attributes.class==='sample');
+  assert.match(point.children[0].textContent,/70.51%/);
+  assert.match(point.children[0].textContent,/visual level 63/);
+});
+
+test("percentage chart keeps gaps, stale values and visual level boundaries without joining points", () => {
+  const p = page();
+  p.render(state({observations:[observation(1,{visual_level:1}),
+    observation(2,{visual_level:2,fresh_at_capture:false,status:'stale_local_frame'}),
+    observation(5,{candidate:null})]}));
+  const nodes=p.elements['percentage-timeline'].children;
+  assert.equal(nodes.filter(node=>node.attributes.class==='level-break').length,1);
+  assert.equal(nodes.filter(node=>node.attributes.class==='stale').length,1);
+  assert.equal(nodes.filter(node=>node.attributes.class==='gap').length,1);
+  assert.equal(nodes.filter(node=>node.attributes.class==='rejected').length,1);
+  assert.ok(nodes.filter(node=>node.tag==='line').every(node=>['axis','level-break'].includes(node.attributes.class)));
+});

@@ -16,13 +16,14 @@ aside { background: #293025; border-left: 3px solid #dcba65; padding: 14px; font
 .panel { margin-top: 18px; }
 #notice { font-size: 12px; color: #dfc38e; min-height: 20px; }
 .chart-wrap, .table-wrap { overflow-x: auto; }
-#timeline { width: 100%; min-width: 600px; height: 230px; display: block; }
-#timeline text { fill: #b8c9d8; font-size: 11px; }
-#timeline .axis { stroke: #3d536a; stroke-width: 1; }
-#timeline .gap { fill: #ae8d4d; opacity: .13; }
-#timeline .sample { fill: #7bd4c0; }
-#timeline .stale { fill: #e9ba70; }
-#timeline .rejected { stroke: #ee9d9b; stroke-width: 2; }
+.chart-wrap svg { width: 100%; min-width: 600px; height: 230px; display: block; }
+.chart-wrap text { fill: #b8c9d8; font-size: 11px; }
+.chart-wrap .axis { stroke: #3d536a; stroke-width: 1; }
+.chart-wrap .gap { fill: #ae8d4d; opacity: .13; }
+.chart-wrap .sample { fill: #7bd4c0; }
+.chart-wrap .stale { fill: #e9ba70; }
+.chart-wrap .rejected { stroke: #ee9d9b; stroke-width: 2; }
+.chart-wrap .level-break { stroke: #d4b0f5; stroke-dasharray: 3 4; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 11px; color: #7bd4c0; }
 .legend .old { color: #e9ba70; }
 .legend .failed { color: #ee9d9b; }

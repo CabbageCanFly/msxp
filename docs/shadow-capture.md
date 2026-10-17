@@ -57,6 +57,11 @@ still apply. Access denial remains a failure; no bypass or browser launching.
 - Unchanged strict complete-pair parser supplies `candidate`. Loose token diagnostics
   are retained separately and never rescue malformed punctuation/digits. Raw text,
   scores, model timings and all visual Tesseract attempts remain in JSONL.
+- Additive diagnostic fields distinguish `full_exp_pair`, `percentage_only` and
+  `unavailable`. A whole `[70.51%]` yields `percentage_only_candidate` and status
+  `diagnostic_percentage_only`, with `candidate: null`; it cannot feed EXP-based
+  level inference. Already-supported partial percentage evidence is separately
+  marked incomplete, never rescued. See [formats, replay and level-51 findings](percentage-only-level51.md).
 - Visual Tesseract level and full nearest-half-up/truncation arithmetic level sets
   remain separate. Agreement, conflict, ambiguous sets, missing evidence and visual
   levels outside the supplied table are explicit. Arithmetic uses no visual level

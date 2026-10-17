@@ -48,11 +48,20 @@ def test_no_silent_hud_selection(shadow, frame, count, reason):
     assert result['neural'] is None and result['candidate'] is None and not result['trusted']
 
 
-@pytest.mark.parametrize('text', ['17[50.00%1', '1750.00%]', '17[5.000%]', 'EXP?', '0[50.00%]'])
+@pytest.mark.parametrize('text', ['17[50.00%1', '1750.00%]', '17[5.000%]', 'EXP?', '0[50.00%]',
+                                 '0.85%1', '[70.63%1', '170 57%1'])
 def test_malformed_values_remain_raw_not_candidates(shadow, frame, text):
     result = analyze(shadow, frame, text)
     assert result['candidate'] is None and result['neural']['text'] == text
+    assert result['percentage_only_candidate'] is None
     assert result['level_evidence']['hypotheses']['nearest_half_up']['status'] == 'unavailable'
+
+
+def test_partial_percentage_retained_without_completing_malformed_exp(shadow, frame):
+    result = analyze(shadow, frame, '689.,965[92.17%]')
+    assert result['partial_percentage_evidence']['percentage'] == '92.17'
+    assert result['candidate'] is None and result['percentage_only_candidate'] is None
+    assert result['diagnostic_type'] == 'unavailable' and not result['trusted']
 
 
 def test_zero_retains_all_compatible_levels(shadow, frame):

@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 
 from exp_tracker.metrics import ResourceMonitor
 from exp_tracker.video import CaptureError, Source, VideoSession
+from exp_tracker.shadow_types import parse_percentage_only, partial_percentage
 from adaptive_hud import locate, level_reading
 from analyze_temporal_ocr import complete_pair
 from benchmark_rapidocr import context_box, interpret
@@ -81,6 +82,7 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
     """No value reuse. Even completed stale work is explicitly ineligible/current=false."""
     result = dict(status='unavailable', trusted=False, current=False, reasons=[], timings={},
                   candidate=None, visual_level=None, visual_attempts=[], neural=None,
+                  diagnostic_type='unavailable', percentage_only_candidate=None, partial_percentage_evidence=None,
                   visual_status='not_run', neural_status='not_run',
                   localization=None, level_evidence=level_evidence(None, None, requirements))
 
@@ -132,6 +134,14 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
     if result['neural'] is not None:
         result['parsed_diagnostic'] = interpret(result['neural']['text'])
         result['candidate'] = complete_pair(result['neural']['text'])
+        if result['candidate'] is not None:
+            result['diagnostic_type'] = 'full_exp_pair'
+        else:
+            result['percentage_only_candidate'] = parse_percentage_only(result['neural']['text'])
+            if result['percentage_only_candidate'] is not None:
+                result['diagnostic_type'] = 'percentage_only'
+            else:
+                result['partial_percentage_evidence'] = partial_percentage(result['parsed_diagnostic']['percentage'])
     if not fresh():
         return result
     started = clock()
@@ -148,7 +158,9 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
     if not fresh():
         return result
     result['current'] = True  # Local delivery age only, never broadcast/source freshness.
-    result['status'] = 'diagnostic_pair' if result['candidate'] is not None else 'malformed_or_unavailable'
+    result['status'] = ('diagnostic_pair' if result['candidate'] is not None else
+                        'diagnostic_percentage_only' if result['percentage_only_candidate'] is not None else
+                        'malformed_or_unavailable')
     if result['candidate'] is None:
         result['reasons'].append('strict_pair_unavailable')
     if visual is None:
@@ -206,6 +218,7 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
                                          basis='local_decoder_receipt_only'),
                           reasons=[], timings={}, source_bytes=0,
                           candidate=None, visual_level=None, neural=None, localization=None,
+                          diagnostic_type='unavailable', percentage_only_candidate=None, partial_percentage_evidence=None,
                           visual_status='not_run', neural_status='not_run',
                           level_evidence=level_evidence(None, None, requirements))
             session = None

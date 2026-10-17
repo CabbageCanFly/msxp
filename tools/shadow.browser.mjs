@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, openSync, closeSync} from "node:fs";
-import {join, resolve} from "node:path";
+import {join, resolve, sep} from "node:path";
 import {setTimeout as delay} from "node:timers/promises";
 
 const url = new URL(process.argv[2] || "http://127.0.0.1:8765/dev/shadow");
@@ -10,7 +10,8 @@ assert.equal(url.hostname, "127.0.0.1");
 assert.equal(url.pathname, "/dev/shadow");
 const expected = await (await fetch(new URL("/dev/api/shadow", url))).json();
 assert.ok(expected.observations.length > 0, "Use an opt-in server with a completed shadow log");
-const output = resolve("artifacts/shadow-view");
+const output = resolve(process.argv[3] || "artifacts/shadow-view");
+assert.ok(["artifacts", "private"].some(root => output.startsWith(resolve(root) + sep)), "Screenshots must stay private/ or artifacts/");
 mkdirSync(output, {recursive: true});
 const browser = process.env.BROWSER_BIN || ["C:/Program Files/Google/Chrome/Application/chrome.exe",
   "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "/usr/bin/chromium"].find(existsSync);
@@ -70,6 +71,7 @@ try {
     assert.equal(displayed[index].raw, row.raw_text ?? "—");
     assert.equal(displayed[index].visual, String(row.visual_level ?? "—"));
     if (row.candidate) assert.equal(displayed[index].pair, `${new Intl.NumberFormat('en-US').format(BigInt(row.candidate.exp))} EXP [${row.candidate.percentage}%]`);
+    if (row.percentage_only_candidate) assert.match(displayed[index].pair, /percentage only.*EXP unavailable/);
     assert.equal(displayed[index].nearest, `${row.hypotheses.nearest_half_up.status} · ${row.hypotheses.nearest_half_up.levels.join(', ') || 'no candidates'}`);
   });
   await delay(2300);
@@ -86,13 +88,14 @@ try {
       gaps:document.querySelectorAll('#timeline .gap').length,
       rejected:document.querySelectorAll('#timeline .rejected').length,
       stale:document.querySelectorAll('#timeline .stale').length,
+      percentageCandidates:document.querySelectorAll('#percentage-timeline .sample').length,
       notice:document.getElementById('notice').textContent})`);
     assert.ok(measured.pageWidth <= width, `${name}: page overflow`);
     const shot = await command("Page.captureScreenshot", {format:"png", captureBeyondViewport:false});
     writeFileSync(join(output, `${name}.png`), Buffer.from(shot.data, "base64"));
     measurements.push({name, ...measured});
   }
-  await screenshot("test-shadow-desktop", 1440, 1400);
+  await screenshot("test-shadow-desktop", 1440, 2000);
   await screenshot("test-shadow-mobile", 390, 1200);
   await evaluate('globalThis.originalSnapshot = snapshot');
   await evaluate('snapshot = {...originalSnapshot,observations:[],log_status:"missing",age_seconds:null,stale:false,channel:null}; render()');

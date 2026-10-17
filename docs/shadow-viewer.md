@@ -39,8 +39,10 @@ remain intact. No new live capture was performed for this milestone.
 The page shows source channel, completed attempts, raw model text, the saved strict
 pair, visual level and raw visual passes, both saved arithmetic candidate sets,
 their statuses, disagreement codes and UTC timestamps. Missing visual levels
-remain missing; neither arithmetic hypothesis fills them. Values are not reparsed,
-punctuation is not repaired and no arithmetic is rerun or selected.
+remain missing; neither arithmetic hypothesis fills them. Saved full pairs and
+arithmetic are not reparsed or recomputed. Complete percentage-only raw strings in
+legacy logs may be strictly typed for display, explicitly marked as a legacy raw
+parse; punctuation is never repaired. See [percentage-only diagnostics](percentage-only-level51.md).
 Integer EXP travels as decimal text so the browser can display int64 values exactly.
 
 The timeline uses **points only**, with no lines/interpolation or computed gains.
@@ -50,6 +52,12 @@ these can reflect capture timing variability or missed attempts, not proven game
 gaps. Unknown timestamps are not invented or plotted; their count and table rows
 remain visible. Missing/malformed completed lines break the readable evidence.
 The vertical axis uses approximate compact labels; table values remain exact.
+
+A separate percentage timeline shows full pairs and strictly complete `[70.51%]`
+fields, never reconstructed absolute EXP. It uses exact values in tooltips and a
+fixed 0–100% axis, with no connecting lines. Visual levels and known adjacent level
+changes are identified; missing levels never establish continuity. Existing partial
+percentage evidence from malformed fields is table-only and explicitly incomplete.
 
 Recorded `current` means fresh **at local capture**, not fresh now or authenticated
 at the broadcaster. The header's current age uses the latest available receipt time,

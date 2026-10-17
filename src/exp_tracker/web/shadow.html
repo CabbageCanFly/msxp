@@ -25,6 +25,12 @@
       <p id="chart-note" class="muted"></p>
       <div class="legend"><span>● Candidate</span><span class="old">◆ Stale / not fresh at capture</span><span class="failed">× Rejected / failed</span><span>▧ Sampling gap</span></div>
     </section>
+    <section class="panel" aria-labelledby="percentage-title">
+      <h2 id="percentage-title">Unverified percentage timeline</h2>
+      <p class="muted">Full pairs and complete percentage-only fields only. Points do not establish continuous progress or a shared character/level. Partial malformed evidence is not plotted.</p>
+      <div class="chart-wrap"><svg id="percentage-timeline" viewBox="0 0 960 230" role="img" aria-label="Exact observed percentages, missing readings and level boundaries"></svg></div>
+      <p id="percentage-note" class="muted"></p>
+    </section>
     <section class="panel" aria-labelledby="readings-title">
       <h2 id="readings-title">Recent attempts <span id="count">0</span></h2>
       <p class="muted">Oldest to newest in file order. Saved candidates and raw model strings are separate; dashes mean unavailable. All rows remain UNVERIFIED.</p>

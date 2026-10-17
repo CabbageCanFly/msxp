@@ -10,11 +10,13 @@ from pathlib import Path
 import re
 import stat
 
+from .shadow_types import parse_percentage_only, partial_percentage
+
 MAX_BYTES = 512 * 1024
 MAX_LINE = 64 * 1024
 MAX_LINES = 512
 MAX_ROWS = 120
-STATUSES = {'diagnostic_pair', 'malformed_or_unavailable', 'stale_local_frame',
+STATUSES = {'diagnostic_pair', 'diagnostic_percentage_only', 'malformed_or_unavailable', 'stale_local_frame',
             'capture_failed', 'recognition_failed', 'unavailable'}
 REASONS = {'missing_hud', 'multiple_huds', 'local_receipt_age_exceeded', 'strict_pair_unavailable',
            'visual_level_unavailable', 'visual_level_failed', 'visual_unavailable', 'conflict',
@@ -74,12 +76,23 @@ def observation(row):
     visual = row.get('visual_level')
     reasons = row.get('reasons') if isinstance(row.get('reasons'), list) else []
     attempts = row.get('visual_attempts') if isinstance(row.get('visual_attempts'), list) else []
+    only = parse_percentage_only(text) if pair is None else None
+    supplied = row.get('percentage_only_candidate')
+    invalid_only = supplied is not None and supplied != only
+    if invalid_only:
+        only = None
+    parsed = row.get('parsed_diagnostic') if isinstance(row.get('parsed_diagnostic'), dict) else {}
+    partial = partial_percentage(parsed.get('percentage')) if pair is None and only is None else None
     return dict(index=row.get('index') if type(row.get('index')) is int and 1 <= row['index'] <= 10000 else None,
                 channel=channel, source_kind=source.get('kind') if source.get('kind') in ('file', 'twitch') else 'unknown',
                 attempted_at=timestamp(row.get('attempted_at')), received_at=timestamp(row.get('received_at')),
                 status=row.get('status') if row.get('status') in STATUSES else 'unknown_status',
                 reasons=[reason for reason in reasons[:32] if isinstance(reason, str) and reason in REASONS],
                 candidate=pair, candidate_invalid=candidate is not None and pair is None,
+                diagnostic_type='full_exp_pair' if pair is not None else 'percentage_only' if only else 'unavailable',
+                percentage_only_candidate=only, percentage_only_invalid=invalid_only,
+                percentage_only_origin='saved' if supplied is not None else 'legacy_raw_parse' if only else None,
+                partial_percentage_evidence=partial,
                 raw_text=raw_text(text), raw_text_redacted=text is not None and raw_text(text) is None,
                 visual_level=visual if type(visual) is int and 1 <= visual <= 200 else None,
                 visual_status=row.get('visual_status') if row.get('visual_status') in ('available', 'unavailable', 'failed', 'not_run') else 'unknown',

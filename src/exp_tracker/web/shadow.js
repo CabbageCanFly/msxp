@@ -33,8 +33,8 @@ function timelineData(rows, interval) {
   }
   return {points, gaps, missingTimes: rows.length - points.length};
 }
-function drawTimeline(rows, interval) {
-  const svg = document.getElementById("timeline");
+function drawTimeline(rows, interval, percentage = false) {
+  const svg = document.getElementById(percentage ? "percentage-timeline" : "timeline");
   svg.replaceChildren();
   const {points, gaps, missingTimes} = timelineData(rows, interval);
   function shape(tag, attributes, title) {
@@ -44,26 +44,31 @@ function drawTimeline(rows, interval) {
     svg.append(node);
     return node;
   }
-  document.getElementById("chart-note").textContent = `${points.length} timestamped attempts · ${gaps.length} sampling gaps · ${missingTimes} without usable timestamps. ${interval ? `Expected cadence ${interval}s.` : "Expected cadence unavailable."}`;
+  const levelBreaks = points.filter((point, i) => i && point.row.visual_level != null && points[i-1].row.visual_level != null && point.row.visual_level !== points[i-1].row.visual_level);
+  document.getElementById(percentage ? "percentage-note" : "chart-note").textContent = `${points.length} timestamped attempts · ${gaps.length} sampling gaps · ${missingTimes} without usable timestamps. ${interval ? `Expected cadence ${interval}s.` : "Expected cadence unavailable."}${percentage ? ` ${levelBreaks.length} observed visual-level changes; unknown levels do not establish continuity. Hover points for exact percentage and visual level.` : ""}`;
   if (!points.length) { shape("text", {x: 40, y: 105}).textContent = "Waiting for timestamped attempts"; return; }
-  const times = points.map(point => point.time), values = points.filter(p => p.row.candidate).map(p => Number(p.row.candidate.exp));
-  const left = Math.min(...times), right = Math.max(...times), low = Math.min(...values), high = Math.max(...values);
+  const valueOf = row => percentage ? row.candidate?.percentage ?? row.percentage_only_candidate?.percentage ?? null : row.candidate?.exp ?? null;
+  const times = points.map(point => point.time), values = points.map(p => valueOf(p.row)).filter(value => value !== null).map(Number);
+  const left = Math.min(...times), right = Math.max(...times), low = percentage ? 0 : Math.min(...values), high = percentage ? 100 : Math.max(...values);
   const x = time => 80 + (time - left) / (right - left || 1) * 850;
   const y = value => high === low ? 95 : 155 - (value - low) / (high - low) * 115;
   for (const [start, end] of gaps) shape("rect", {x: x(start), y: 20, width: x(end) - x(start), height: 160, class: "gap"}, "Unobserved sampling gap; no values inferred");
   shape("line", {x1: 80, x2: 930, y1: 180, y2: 180, class: "axis"});
   if (values.length) {
-    shape("text", {x: 4, y: 43}).textContent = compact.format(high);
-    shape("text", {x: 4, y: 158}).textContent = compact.format(low);
+    shape("text", {x: 4, y: 43}).textContent = percentage ? "100.00%" : compact.format(high);
+    shape("text", {x: 4, y: 158}).textContent = percentage ? "0.00%" : compact.format(low);
   }
+  if (percentage) for (const point of levelBreaks) shape("line", {x1:x(point.time),x2:x(point.time),y1:20,y2:180,class:"level-break"}, "Visual level changed; no continuity or automatic level-up is inferred");
   for (const point of points) {
     const row = point.row, px = x(point.time);
-    const label = `#${row.index ?? "?"} ${displayTime(row)} · ${row.status}`;
-    if (row.candidate) {
-      const py = y(Number(row.candidate.exp));
-      if (row.fresh_at_capture && row.status === "diagnostic_pair")
-        shape("circle", {cx: px, cy: py, r: 4, class: "sample"}, `${label} · UNVERIFIED ${exactExp(row.candidate.exp)} EXP`);
-      else shape("path", {d: `M${px} ${py-5}l5 5-5 5-5-5Z`, class: "stale"}, label);
+    const value = valueOf(row);
+    const label = `#${row.index ?? "?"} ${displayTime(row)} · ${row.status} · visual level ${row.visual_level ?? "unavailable"}`;
+    const detail = value === null ? label : `${label} · UNVERIFIED ${percentage ? value+"%" : exactExp(value)+" EXP"}`;
+    if (value !== null) {
+      const py = y(Number(value));
+      if (row.fresh_at_capture && (row.status === "diagnostic_pair" || percentage && row.percentage_only_candidate && ["diagnostic_percentage_only", "malformed_or_unavailable"].includes(row.status)))
+        shape("circle", {cx: px, cy: py, r: 4, class: "sample"}, detail);
+      else shape("path", {d: `M${px} ${py-5}l5 5-5 5-5-5Z`, class: "stale"}, detail);
     } else shape("path", {d: `M${px-4} 168l8 8m0-8-8 8`, class: "rejected"}, label);
   }
   shape("text", {x: 80, y: 211}).textContent = new Date(left).toISOString().slice(11, 19) + " UTC";
@@ -93,25 +98,29 @@ function render() {
   const entries = rows.map(row => {
     const tr = element("tr");
     tr.dataset.status = row.status;
-    if (!row.candidate || !row.fresh_at_capture) tr.className = "rejected-row";
+    if ((!row.candidate && !row.percentage_only_candidate) || !row.fresh_at_capture) tr.className = "rejected-row";
     const when = element("td", `#${row.index ?? "—"}`);
     when.append(element("small", displayTime(row)), element("small", row.channel ? `ttv/${row.channel}` : "Source unspecified"));
     const status = element("td", row.status);
     status.append(element("small", `Neural: ${row.neural_status ?? "not available"}`), element("small", row.fresh_at_capture ? "Fresh at local capture" : "Not fresh / unavailable at capture"), element("small", "UNVERIFIED"));
     const value = element("td");
     value.append(element("code", row.raw_text_redacted ? "[Non-numeric diagnostic text redacted]" : row.raw_text ?? "—"),
-      element("span", row.candidate ? `${exactExp(row.candidate.exp)} EXP [${row.candidate.percentage}%]` : "No complete saved pair"));
+      element("span", row.candidate ? `${exactExp(row.candidate.exp)} EXP [${row.candidate.percentage}%]` : row.percentage_only_candidate ? `${row.percentage_only_candidate.percentage}% · percentage only · EXP unavailable` : "No complete saved pair"));
+    if (row.percentage_only_origin === "legacy_raw_parse") value.append(element("small", "Percentage-only syntax parsed for display from legacy raw text"));
+    if (row.partial_percentage_evidence) value.append(element("small", `Partial only: ${row.partial_percentage_evidence.percentage}% · not a complete observation`));
     const visual = element("td", row.visual_level ?? "—");
     visual.append(element("small", `Visual: ${row.visual_status ?? "unavailable"}`));
     if (row.visual_attempts?.length) visual.append(element("small", `Raw passes: ${row.visual_attempts.map(text => text ?? "[redacted]").join(" / ")}`));
     const evidence = element("td", row.relation ?? "Unavailable");
     evidence.append(element("small", row.reasons?.join(", ") || "No additional reason codes"));
     if (row.candidate_invalid) evidence.append(element("small", "Saved candidate invalid; not repaired"));
+    if (row.percentage_only_invalid) evidence.append(element("small", "Percentage-only candidate contradicts raw syntax; not repaired"));
     tr.append(when, status, value, visual, element("td", levels(row.hypotheses?.nearest_half_up)), element("td", levels(row.hypotheses?.truncate)), evidence);
     return tr;
   });
   document.getElementById("readings").replaceChildren(...entries);
   drawTimeline(rows, snapshot?.interval_seconds);
+  drawTimeline(rows, snapshot?.interval_seconds, true);
   renderStatus();
 }
 async function poll() {
