@@ -6,7 +6,7 @@ from PIL import Image
 import pytest
 
 from exp_tracker.twitch_probe import inspect_thumbnail, main, thumbnail_url
-from exp_tracker.twitch_probe import StreamAvailability,helix
+from exp_tracker.twitch_probe import MAX_STREAM_PAGES,StreamAvailability,helix
 
 
 def test_only_official_https_thumbnail_host():
@@ -96,3 +96,74 @@ def test_helix_encodes_multiple_logins_and_bounds_response(monkeypatch):
         return Response()
     monkeypatch.setattr('exp_tracker.twitch_probe.urlopen',open)
     assert helix('streams',dict(user_login=['alpha','beta']), 'client','token',timeout=3)==dict(data=[])
+
+
+def paginated_cache(monkeypatch,pages):
+    monkeypatch.setenv('TWITCH_CLIENT_ID','private-client');monkeypatch.setenv('TWITCH_ACCESS_TOKEN','private-token')
+    calls=[]
+    def fetch(endpoint,params,client,token,**kwargs):
+        assert endpoint=='streams' and kwargs==dict(timeout=3)
+        calls.append(params)
+        page=pages[len(calls)-1]
+        if isinstance(page,Exception):raise page
+        return page
+    return StreamAvailability(enabled=True,fetch=fetch,clock=lambda:0),calls
+
+
+def test_live_channel_with_cursor_and_empty_final_page_checks_offline_and_caches(monkeypatch):
+    cache,calls=paginated_cache(monkeypatch,[
+        dict(data=[dict(user_login='telfer1',type='live')],pagination=dict(cursor='next')),
+        dict(data=[],pagination={})])
+    result=cache.snapshot(['telfer1','shiphtur'])
+    assert result['telfer1']['status']=='live' and result['shiphtur']['status']=='offline'
+    assert calls==[dict(user_login=['shiphtur','telfer1'],first=100),
+                   dict(user_login=['shiphtur','telfer1'],first=100,after='next')]
+    assert cache.snapshot(['shiphtur','telfer1'])==result and len(calls)==2
+
+
+@pytest.mark.parametrize('failure,reason',[
+    (dict(data=[],pagination=dict(cursor='next')),'pagination_repeated_cursor'),
+    (dict(data=[dict(user_login='unexpected',type='live')]),'api_unavailable'),
+    (dict(data=None),'api_unavailable'),
+    (HTTPError('secret',401,'secret',{},None),'credentials_rejected'),
+    (HTTPError('secret',503,'secret',{},None),'api_error'),
+    (HTTPError('secret',429,'secret',{'Retry-After':'120'},None),'rate_limited'),
+    (URLError('secret'),'api_unavailable'),
+])
+def test_incomplete_pagination_preserves_verified_live_and_leaves_rest_unknown(monkeypatch,failure,reason):
+    cache,calls=paginated_cache(monkeypatch,[
+        dict(data=[dict(user_login='alpha',type='live')],pagination=dict(cursor='next')),failure])
+    result=cache.snapshot(['alpha','beta'])
+    assert len(calls)==2
+    assert result['alpha']['status']=='live' and result['alpha']['reason'] is None
+    assert result['beta']['status']=='unknown' and result['beta']['reason']==reason
+    assert 'secret' not in str(result)
+    assert cache.next_check==(120 if reason=='rate_limited' else 60)
+
+
+def test_page_limit_is_unknown_not_offline_and_retains_live(monkeypatch):
+    cache,calls=paginated_cache(monkeypatch,[dict(data=[dict(user_login='alpha',type='live')],
+        pagination=dict(cursor=f'page-{i}')) for i in range(MAX_STREAM_PAGES)])
+    result=cache.snapshot(['alpha','beta'])
+    assert len(calls)==MAX_STREAM_PAGES
+    assert result['alpha']['status']=='live'
+    assert result['beta']['status']=='unknown' and result['beta']['reason']=='pagination_limit'
+
+
+def test_all_requested_channels_live_does_not_follow_unnecessary_cursor(monkeypatch):
+    cache,calls=paginated_cache(monkeypatch,[dict(data=[dict(user_login=c,type='live') for c in ('alpha','beta')],
+        pagination=dict(cursor='unneeded'))])
+    assert all(r['status']=='live' for r in cache.snapshot(['alpha','beta']).values())
+    assert len(calls)==1
+
+
+def test_rate_limit_backoff_does_not_extend_partial_live_freshness(monkeypatch):
+    cache,calls=paginated_cache(monkeypatch,[
+        dict(data=[dict(user_login='alpha',type='live')],pagination=dict(cursor='next')),
+        HTTPError('secret',429,'secret',{'Retry-After':'120'},None)])
+    now=datetime(2026,1,1,tzinfo=timezone.utc)
+    assert cache.snapshot(['alpha','beta'],now=now)['alpha']['status']=='live'
+    assert cache.next_check==120
+    expired=cache.snapshot(['alpha','beta'],now=now+timedelta(seconds=61))
+    assert expired['alpha']['status']=='unknown' and expired['alpha']['last_known_status']=='live'
+    assert len(calls)==2

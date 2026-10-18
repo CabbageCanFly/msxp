@@ -22,6 +22,7 @@ from .models import Region
 from .recognition import recognize
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_STREAM_PAGES = 3
 
 
 def thumbnail_url(template: str, width: int, height: int) -> str:
@@ -60,25 +61,38 @@ class StreamAvailability:
                 elif not client or not token:reason='missing_credentials'
                 elif channels:
                     try:
-                        response=self.fetch('streams',dict(user_login=list(channels),first=100),client,token,timeout=3)
-                        data=response['data']
-                        if not isinstance(data,list) or len(data)>25 or response.get('pagination',{}).get('cursor'):
-                            raise ValueError('Incomplete stream status response')
-                        for row in data:
-                            if row.get('user_login') not in channels or row.get('type')!='live':
-                                raise ValueError('Unexpected stream status response')
-                            live.add(row['user_login'])
+                        params=dict(user_login=list(channels),first=100);seen=set()
+                        for _ in range(MAX_STREAM_PAGES):
+                            response=self.fetch('streams',params.copy(),client,token,timeout=3)
+                            data=response['data']
+                            if not isinstance(data,list) or len(data)>25:
+                                raise ValueError('Invalid stream status response')
+                            page=set()
+                            for row in data:
+                                if row.get('user_login') not in channels or row.get('type')!='live':
+                                    raise ValueError('Unexpected stream status response')
+                                page.add(row['user_login'])
+                            live.update(page)
+                            if len(live)==len(channels):break  # No unresolved channel needs another request.
+                            cursor=response.get('pagination',{}).get('cursor','')
+                            if not isinstance(cursor,str) or len(cursor)>2048:
+                                raise ValueError('Invalid pagination cursor')
+                            if not cursor:break
+                            if cursor in seen:
+                                reason='pagination_repeated_cursor';break
+                            seen.add(cursor);params['after']=cursor
+                        else:reason='pagination_limit'
                     except HTTPError as error:
                         reason='credentials_rejected' if error.code==401 else 'rate_limited' if error.code==429 else 'api_error'
                         if error.code==429:
                             try:delay=max(60,min(900,int(error.headers.get('Retry-After','60'))))
                             except (TypeError,ValueError):pass
                     except (OSError,ValueError,TypeError,KeyError,AttributeError,URLError):reason='api_unavailable'
-                self.results={c:dict(status='unknown' if reason else 'live' if c in live else 'offline',
-                    reason=reason,checked_at=now.isoformat(),source='twitch_helix_get_streams',
-                    valid_until=datetime.fromtimestamp(now.timestamp()+delay,timezone.utc).isoformat(),
+                self.results={c:dict(status='live' if c in live else 'unknown' if reason else 'offline',
+                    reason=None if c in live else reason,checked_at=now.isoformat(),source='twitch_helix_get_streams',
+                    valid_until=datetime.fromtimestamp(now.timestamp()+(60 if c in live else delay),timezone.utc).isoformat(),
                     last_known_status=(self.results.get(c,{}).get('last_known_status') if self.results.get(c,{}).get('status')=='unknown'
-                        else self.results.get(c,{}).get('status')) if reason else None) for c in channels}
+                        else self.results.get(c,{}).get('status')) if reason and c not in live else None) for c in channels}
                 self.next_check=self.clock()+delay
             result={c:dict(self.results.get(c,dict(status='unknown',reason='awaiting_batch',checked_at=None,
                 valid_until=None,source='twitch_helix_get_streams'))) for c in channels}

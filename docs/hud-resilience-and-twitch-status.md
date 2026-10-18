@@ -93,13 +93,19 @@ up to 25 configured Twitch sources, explicitly requests `first=100` (the API
 default is only 20), and caches results for 60s. Local test-video assignments are
 not probed. Checks are demand-driven by public API polling, not another scheduler.
 
-One shared lock prevents concurrent refreshes. Transport timeout is 3s and JSON
-is limited to 256 KiB. An empty successful response means the configured login
-was not listed as broadcasting; this is not authentication of account/character
-identity. Missing credentials, malformed/incomplete responses, HTTP errors,
-expired/rejected tokens and expired cached results are **unknown**, never offline.
+One shared lock prevents concurrent refreshes. Pagination follows `after`, with
+at most three requests per refresh, a 3s transport timeout and 256 KiB JSON limit
+per page. All requested channels confirmed live stops pagination early. Repeated
+or invalid cursors, the page limit and later-page failures retain confirmed live
+channels but leave unresolved channels **unknown**. Only reaching a terminal page
+allows an absent channel to be reported offline. Worst-case request time can now
+approach 9s; this affects an HTTP refresh, not capture scheduling. Missing credentials,
+HTTP errors, rejected tokens and expired cached results never establish offline
+status. This is not authentication of account/character identity.
 429 retries respect a bounded 60–900s Retry-After. Tokens are not automatically
 renewed; correct the server environment and restart when rejected.
+Backoff does not extend a confirmed live result's 60s freshness; it becomes unknown
+if it expires before another request is permitted.
 
 The public `twitch` metadata includes check/expiry times, safe reason and any
 recent-capture disagreement. UI examples include **Twitch live · Capture
