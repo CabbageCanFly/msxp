@@ -12,15 +12,16 @@ const verifyLevelUp=databaseArgument==='--verify-level-up';
 const verifyWindows=databaseArgument==='--verify-windows';
 const verifyRolling=databaseArgument==='--verify-rolling';
 const verifyHistorical=databaseArgument==='--verify-historical';
+const verifyResilience=databaseArgument==='--verify-resilience';
 const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
-const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical?null:databaseArgument;
+const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
 let fixture=null,fixtureCommand=null;
-if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical){
+if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience){
   const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyResilience?['--resilience']:verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
   let buffer='',waiting=null;const messages=[];
   fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
   const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
@@ -88,7 +89,41 @@ try {
   await detail.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   await overlay.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   const observed=[];
-  if(verifyHistorical){
+  if(verifyResilience){
+    assert.equal(original.player.twitch.status,'live');
+    const initial=original.player.responsive_pace.estimates.exp_per_hour.value.approximate;
+    for(const action of ['gap','recover','pause','restart','finish']){
+      await fixtureCommand(action);const actual=await api('/api/players/'+channel);observed.push(actual);
+      await detail.wait(`data?.player?.responsive_pace?.presentation?.state===${JSON.stringify(actual.player.responsive_pace.presentation.state)}`);
+      await overlay.wait(`data?.player?.responsive_pace?.presentation?.state===${JSON.stringify(actual.player.responsive_pace.presentation.state)}`);
+      await board.wait(`data?.players?.find(p=>p.channel===${JSON.stringify(channel)})?.responsive_pace?.presentation?.state===${JSON.stringify(actual.player.responsive_pace.presentation.state)}`);
+      await detail.wait(`data?.player?.activity?.state===${JSON.stringify(actual.player.activity.state)}`);
+      await overlay.wait(`data?.player?.activity?.state===${JSON.stringify(actual.player.activity.state)}`);
+      const pace=actual.player.responsive_pace;
+      if(action==='gap'){
+        assert.equal(pace.presentation.state,'aging');assert.equal(pace.estimates.exp_per_hour.value.approximate,initial);
+        assert.ok(pace.presentation.estimates.exp_per_hour.value.approximate<initial);
+        assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/HUD unreadable/);
+      }else if(action==='recover'){
+        assert.equal(pace.presentation.state,'observed');assert.ok(pace.readings>6);
+      }else if(action==='pause'){
+        assert.equal(pace.presentation.state,'paused');assert.equal(await overlay.evaluate('document.getElementById("rate").textContent'),'—');
+      }else if(action==='restart'){
+        assert.equal(pace.presentation.state,'historical');assert.equal(actual.player.display_level.value,66);
+      }else{
+        assert.equal(actual.player.activity.state,'capture_interrupted');
+        assert.match(await overlay.evaluate('document.getElementById("status").textContent'),/Capture stopped/);
+      }
+      await screenshot(detail,`resilience-${action}-desktop`,1100,1050);
+      if(action==='gap' || action==='recover')await screenshot(detail,`resilience-${action}-mobile`,390,1200);
+      await screenshot(overlay,`resilience-${action}-overlay`,500,160);
+    }
+    const cards=await api('/api/players');
+    assert.equal(cards.players.find(p=>p.channel==='shiphtur').twitch.status,'offline');
+    assert.equal(cards.players.find(p=>p.channel==='shiphtur').reading,null);
+    await screenshot(board,'resilience-homepage',1440,1050);
+    for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+  }else if(verifyHistorical){
     const stages=[];
     await detail.evaluate('[...document.querySelectorAll(".bar-hit")].at(-1).focus()');
     await detail.wait('tip && !tip.hidden');

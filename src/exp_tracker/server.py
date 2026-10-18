@@ -1,7 +1,7 @@
 """Local read-only state API and OBS overlay: python -m exp_tracker.server --db PATH."""
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -16,6 +16,7 @@ from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
 from .diagnostics import Diagnostics, operation
 from .product import player,history,refresh,PRODUCT_ROWS
+from .twitch_probe import StreamAvailability
 
 
 WEB = Path(__file__).with_name("web")
@@ -36,6 +37,26 @@ CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
 
 class Handler(BaseHTTPRequestHandler):
+    def broadcasts(self,players):
+        # Query only compact latest source metadata; no history projection per card.
+        with Store(self.server.database,read_only=True) as store:
+            rows=store.db.execute('''SELECT s.login,r.configuration_json AS config,
+                (SELECT payload_json FROM diagnostic_attempts WHERE run_id=r.run_id ORDER BY attempt_index DESC LIMIT 1) AS payload
+                FROM streamers s LEFT JOIN diagnostic_runs r ON r.rowid=(
+                    SELECT rowid FROM diagnostic_runs WHERE streamer_id=s.id ORDER BY rowid DESC LIMIT 1)
+                ORDER BY s.login LIMIT 25''').fetchall()
+        channels=[r['login'] for r in rows if (json.loads(r['config'] or '{}').get('source_kind') or
+            json.loads(r['payload'] or '{}').get('source',{}).get('kind'))=='twitch']
+        now=datetime.now(timezone.utc)
+        statuses=self.server.twitch_availability.snapshot(channels,now=now)
+        for value in players:
+            value['twitch']=statuses.get(value['channel'],dict(status='not_applicable' if value['source_kind']=='file' else 'unknown',reason='source_unavailable'))
+            status=value['twitch']
+            status['capture_disagreement']=bool(status['status']=='offline' and value.get('latest_attempt_at') and status.get('checked_at')
+                and datetime.fromisoformat(value['latest_attempt_at'])>=datetime.fromisoformat(status['checked_at'])-timedelta(seconds=60)
+                and value['latest_attempt_status']!='capture_failed')
+        return [refresh(p,now=now,activity=p.get('activity')) for p in players]
+
     def log_message(self, format, *args):
         if not getattr(self.server, 'quiet', False):
             super().log_message(format, *args)
@@ -74,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif path=='/api/players':
                     with self.server.directory_lock,Store(self.server.database,read_only=True) as store:
                         data=Diagnostics(store).directory(self.server.directory_cache,active_runs=self.server.active_run_ids.copy(),coordinator_status=self.server.coordinator_status.copy())
-                    self.reply(200,dict(players=[r['player'] for r in data['streams']],served_at=data['served_at'],truncated=data['truncated'],experimental=True,poll_seconds=2))
+                    self.reply(200,dict(players=self.broadcasts([r['player'] for r in data['streams']]),served_at=data['served_at'],truncated=data['truncated'],experimental=True,poll_seconds=2))
                 else:
                     channel=(product_api[1] if product_api else product_history[1] if product_history else product_page[2]).lower()
                     if not CHANNEL.fullmatch(channel):self.reply(400,{'error':'invalid_channel'});return
@@ -98,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
                             snap=Diagnostics(store).snapshot(channel,now=now,limit=PRODUCT_ROWS)
                             activity=operation(snap,self.server.coordinator_status.get(channel),now)
                             value=refresh(player(snap,now=now),now=now,activity=activity)
-                            self.reply(200,dict(player=value,history=history(snap),truncated=snap['truncated'],served_at=utc(now),experimental=True,poll_seconds=2))
+                            self.reply(200,dict(player=self.broadcasts([value])[0],history=history(snap),truncated=snap['truncated'],served_at=utc(now),experimental=True,poll_seconds=2))
                         else:
                             self.reply(200,(WEB/('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html')).read_bytes(),'text/html')
             except ValueError as error:
@@ -202,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
     do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = reject_write
 
 
-def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False):
+def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False):
     database = Path(database).resolve()
     with Store(database, read_only=True):
         pass  # Validate without creating, migrating or changing journal mode.
@@ -217,6 +238,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.directory_lock = threading.Lock()
     server.history_cache={}
     server.history_lock=threading.Lock()
+    server.twitch_availability=StreamAvailability(enabled=twitch_status)
     return server
 
 
@@ -226,12 +248,13 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--shadow-log", type=Path, help="Opt in to /dev/shadow for one private/artifacts JSONL; read-only")
     parser.add_argument('--diagnostic-dashboard', action='store_true', help='Enable the experimental homepage, live overlay and advanced SQLite diagnostics')
+    parser.add_argument('--twitch-status',action='store_true',help='Opt in to cached Helix live status using server environment credentials')
     args = parser.parse_args(argv)
     if not 0 <= args.port <= 65535:
         parser.error("port must be 0..65535")
     try:
         with create_server(args.db, port=args.port, shadow_log=args.shadow_log,
-                           diagnostic_dashboard=args.diagnostic_dashboard) as server:
+                           diagnostic_dashboard=args.diagnostic_dashboard,twitch_status=args.twitch_status) as server:
             print(f'Database: {server.database}', flush=True)
             print('Read-only HTTP server; capture is NOT started by this command.', flush=True)
             print(f"Local read-only server: http://127.0.0.1:{server.server_port}/overlay/CHANNEL", flush=True)

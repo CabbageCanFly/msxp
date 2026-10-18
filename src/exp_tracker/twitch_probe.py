@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import threading
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
@@ -31,11 +32,60 @@ def thumbnail_url(template: str, width: int, height: int) -> str:
     return url
 
 
-def helix(endpoint: str, params: dict, client_id: str, token: str) -> dict:
-    request = Request("https://api.twitch.tv/helix/" + endpoint + "?" + urlencode(params),
+def helix(endpoint: str, params: dict, client_id: str, token: str, *, timeout=15) -> dict:
+    request = Request("https://api.twitch.tv/helix/" + endpoint + "?" + urlencode(params,doseq=True),
                       headers={"Client-Id": client_id, "Authorization": "Bearer " + token})
-    with urlopen(request, timeout=15) as response:
-        return json.load(response)
+    with urlopen(request, timeout=timeout) as response:
+        payload=response.read(262145)
+        if len(payload)>262144:raise ValueError('Helix response exceeds byte limit')
+        return json.loads(payload)
+
+
+class StreamAvailability:
+    """Opt-in, process-local Get Streams cache; never evidence of capture health."""
+    def __init__(self, *, enabled=False, fetch=None, clock=time.monotonic):
+        self.enabled=enabled;self.fetch=fetch or helix;self.clock=clock
+        self.lock=threading.Lock();self.next_check=0;self.results={}
+
+    def snapshot(self,channels,*,now=None):
+        channels=tuple(sorted(set(channels)))
+        if len(channels)>25 or any(not re.fullmatch(r'[a-z0-9_]{1,25}',c) for c in channels):
+            raise ValueError('Bounded configured Twitch logins required')
+        now=now or datetime.now(timezone.utc)
+        with self.lock:
+            if self.clock()>=self.next_check:
+                reason=None;live=set();delay=60
+                client,token=os.environ.get('TWITCH_CLIENT_ID'),os.environ.get('TWITCH_ACCESS_TOKEN')
+                if not self.enabled:reason='not_enabled'
+                elif not client or not token:reason='missing_credentials'
+                elif channels:
+                    try:
+                        response=self.fetch('streams',dict(user_login=list(channels),first=100),client,token,timeout=3)
+                        data=response['data']
+                        if not isinstance(data,list) or len(data)>25 or response.get('pagination',{}).get('cursor'):
+                            raise ValueError('Incomplete stream status response')
+                        for row in data:
+                            if row.get('user_login') not in channels or row.get('type')!='live':
+                                raise ValueError('Unexpected stream status response')
+                            live.add(row['user_login'])
+                    except HTTPError as error:
+                        reason='credentials_rejected' if error.code==401 else 'rate_limited' if error.code==429 else 'api_error'
+                        if error.code==429:
+                            try:delay=max(60,min(900,int(error.headers.get('Retry-After','60'))))
+                            except (TypeError,ValueError):pass
+                    except (OSError,ValueError,TypeError,KeyError,AttributeError,URLError):reason='api_unavailable'
+                self.results={c:dict(status='unknown' if reason else 'live' if c in live else 'offline',
+                    reason=reason,checked_at=now.isoformat(),source='twitch_helix_get_streams',
+                    valid_until=datetime.fromtimestamp(now.timestamp()+delay,timezone.utc).isoformat(),
+                    last_known_status=(self.results.get(c,{}).get('last_known_status') if self.results.get(c,{}).get('status')=='unknown'
+                        else self.results.get(c,{}).get('status')) if reason else None) for c in channels}
+                self.next_check=self.clock()+delay
+            result={c:dict(self.results.get(c,dict(status='unknown',reason='awaiting_batch',checked_at=None,
+                valid_until=None,source='twitch_helix_get_streams'))) for c in channels}
+            for status in result.values():
+                if status['status'] in ('live','offline') and now>datetime.fromisoformat(status['valid_until']):
+                    status.update(last_known_status=status['status'],status='unknown',reason='stale_check')
+            return result
 
 
 def inspect_thumbnail(payload: bytes, regions: dict[str, Region] | None = None) -> dict:

@@ -23,6 +23,10 @@ and game-like, with useful approximate information even when some readings fail.
   raw debugging details or hiding missing data behind zero.
 - Keep recent pace stable with a transparent short rolling sample. Exclude unknown
   intervals from its gain and time; retain visibly aged rates during interruptions.
+- A separately labeled no-new-gain presentation rate may ease during unreadable
+  HUDs, then pause. Keep the sampled rate and missing coverage intact internally.
+- Twitch broadcast status and local capture health are separate facts. Unknown
+  API status never means offline; an old reading never proves active capture.
 - Favor game-like orange EXP bars on fixed time axes, with a secondary level-%
   chart. Missing coverage is unknown, never a zero bar or invented daily/session total.
 - Call partial-coverage sums “EXP tracked”, with captured coverage in secondary

@@ -17,6 +17,9 @@ The [rolling history update](docs/rolling-exp-history.md) adds 24-hour orange ba
 and EXP tracked from eligible captured intervals, with unknown periods left empty.
 The [completed-capture update](docs/historical-player-usability.md) retains dated
 summaries, readable full numbers and inspectable chart tooltips.
+The [HUD resilience update](docs/hud-resilience-and-twitch-status.md) keeps recent
+pace useful through unreadable frames and adds optional official Twitch status,
+separate from capture health.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

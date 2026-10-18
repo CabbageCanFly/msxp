@@ -14,6 +14,7 @@ WINDOWS=(5,10,15,30)
 PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
 PACE_MIN_SECONDS=5
 PACE_TREND_SECONDS=300
+PACE_UNREADABLE_GRACE_SECONDS=20
 OBSERVED_MAX_GAP_SECONDS=60
 OBSERVED_MAX_MISSING=2
 
@@ -51,7 +52,7 @@ def _last_connected_pace(snapshot, display_level):
             readings=len(points),span_seconds=rational(elapsed),coverage_seconds=rational(elapsed),interruptions=0,
             estimates=calculated,basis=basis,history_basis='last_connected_segment',
             evidence_counts={kind:sum(p['evidence']==kind for p in points) for kind in ('strict_full','strict_percentage_only','grammar_recovered')},
-            policy='responsive_pace_v2',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
+            policy='responsive_pace_v3',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
             trusted=False,reason=data['reason'])
     return None
 
@@ -63,7 +64,8 @@ def responsive_pace(snapshot, display_level):
     if not reference:return None
     # Review decisions already carry the causal as-of clock from snapshot().
     completed=[]
-    points,_,_,_=observed_sequence(snapshot,now=datetime.fromisoformat(reference),completed=completed)
+    points,_,_,_=observed_sequence(snapshot,now=datetime.fromisoformat(reference),completed=completed,
+        max_gap_seconds=PACE_TREND_SECONDS,max_missing=100)
     retained=False
     if snapshot.get('run_status') in ('completed','interrupted') and (len(points)<3 or
             (datetime.fromisoformat(points[-1]['timestamp'])-datetime.fromisoformat(points[0]['timestamp'])).total_seconds()<30):
@@ -127,8 +129,9 @@ def responsive_pace(snapshot, display_level):
         readings=len(ids),span_seconds=rational(elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))),
         coverage_seconds=rational(elapsed),interruptions=len(groups)-1,estimates=calculated,basis=basis,
         evidence_counts={kind:sum(reading(r)['evidence']==kind for r in rows if r['event_id'] in ids) for kind in ('strict_full','strict_percentage_only','grammar_recovered')},
-        policy='responsive_pace_v2',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
-        trusted=False,retained_history=retained,reason=data['reason'])
+        policy='responsive_pace_v3',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
+        trusted=False,retained_history=retained,aging_allowed=last['event_id'] in allowed and snapshot.get('run_id',rows[-1]['run_id'])==rows[-1]['run_id'],
+        reason=data['reason'])
 
 
 def level_events(rows):
@@ -221,7 +224,7 @@ def reading(row):
         simulated=row.get('timing_mode')=='simulated',trusted=False)
 
 
-def observed_sequence(snapshot, *, now,completed=None):
+def observed_sequence(snapshot, *, now,completed=None,max_gap_seconds=OBSERVED_MAX_GAP_SECONDS,max_missing=OBSERVED_MAX_MISSING):
     """Endpoint comparisons across short disclosed holes, never connected pace/gains."""
     points=[];holes=[];previous=None;pending=[];last=None;break_reason='baseline'
     reviews={r['event_id']:r for r in snapshot['percentage_progress']['percentage_reviews']}
@@ -244,7 +247,7 @@ def observed_sequence(snapshot, *, now,completed=None):
                 # Missing indices and sampling delays are disclosed, bounded holes.
                 if edge not in (None,'sampling_gap','missing_attempt','level_changed'):hard=edge
                 elif context['level'] is not None and last and context['level']!=last['level']:hard='level_changed'
-                elif edge=='sampling_gap' and (when-datetime.fromisoformat(previous['timestamp'])).total_seconds()>OBSERVED_MAX_GAP_SECONDS:hard='gap_exceeds_limit'
+                elif edge=='sampling_gap' and (when-datetime.fromisoformat(previous['timestamp'])).total_seconds()>max_gap_seconds:hard='gap_exceeds_limit'
         except (TypeError,ValueError,KeyError):hard='timestamp_unavailable_or_out_of_order'
         level=level_evidence(row)
         unsafe=(not valid_time or row.get('timestamp_ordered') is False or row.get('timing_mode')=='simulated'
@@ -266,7 +269,7 @@ def observed_sequence(snapshot, *, now,completed=None):
             elapsed=(when-datetime.fromisoformat(last['timestamp'])).total_seconds()
             absent=(context['index']-previous['index']-1) if previous and context['run_id']==previous['run_id'] else 0
             absent=max(0,absent)+sum(h['missing_indices'] for h in pending)
-            if len(pending)+absent>OBSERVED_MAX_MISSING or elapsed>OBSERVED_MAX_GAP_SECONDS:hard='gap_exceeds_limit'
+            if len(pending)+absent>max_missing or elapsed>max_gap_seconds:hard='gap_exceeds_limit'
             if point['bp']<last['bp'] or point['bp']-last['bp']>=1000:
                 hard='unresolved_numerical_continuity';usable=False
             if row.get('frame_sha256') and row['frame_sha256']==last.get('frame_sha256'):
@@ -286,7 +289,7 @@ def observed_sequence(snapshot, *, now,completed=None):
         elif allowed_missing and last:
             pending.append(dict(event_id=row['event_id'],missing_indices=max(0,context['index']-previous['index']-1)
                 if previous and context['run_id']==previous['run_id'] else 0))
-            if len(pending)+sum(h['missing_indices'] for h in pending)>OBSERVED_MAX_MISSING or (when-datetime.fromisoformat(last['timestamp'])).total_seconds()>OBSERVED_MAX_GAP_SECONDS:
+            if len(pending)+sum(h['missing_indices'] for h in pending)>max_missing or (when-datetime.fromisoformat(last['timestamp'])).total_seconds()>max_gap_seconds:
                 if completed is not None and points:completed.append((points,holes,pending,break_reason))
                 points=[];holes=[];pending=[];last=None;break_reason='gap_exceeds_limit'
         previous=context
@@ -445,12 +448,36 @@ def refresh(value,*,now=None,activity=None):
     now=now or datetime.now(timezone.utc);value=deepcopy(value)
     latest=value['reading'];age=(now-datetime.fromisoformat(latest['timestamp'])).total_seconds() if latest else None
     value['age_seconds']=max(0,age) if age is not None else None
+    value['latest_attempt_age_seconds']=(now-datetime.fromisoformat(value['latest_attempt_at'])).total_seconds() if value.get('latest_attempt_at') else None
     value['stale']=age is None or age<0 or age>value['stale_after_seconds'] or not latest['fresh_at_capture']
     value['activity']=activity or dict(state='coordinator_stopped')
     pace=value.get('responsive_pace')
     if pace:
         pace['age_seconds']=max(0,(now-datetime.fromisoformat(pace['end'])).total_seconds())
         if value['stale'] or latest and latest['simulated'] or value.get('capture_lifecycle') in ('completed','interrupted'):pace['active']=False
+        running=value['activity']['state'] in ('running','waiting','capture_delayed','capture_failing')
+        offline=value.get('twitch',{}).get('status')=='offline'
+        aging=bool(running and not offline and not pace['active'] and pace.get('aging_allowed'))
+        expired=running and not offline and pace['age_seconds']>=PACE_TREND_SECONDS
+        seconds=Fraction(str(pace['age_seconds']))
+        covered=Fraction(pace['coverage_seconds']['numerator'],pace['coverage_seconds']['denominator'])
+        factor=covered/(covered+max(Fraction(0),seconds-PACE_UNREADABLE_GRACE_SECONDS)) if aging else Fraction(1)
+        shown=deepcopy(pace['estimates'])
+        if expired:shown=estimates(None,None,0)
+        elif aging:
+            shown['eta']=None
+            for key in ('exp_per_hour','percentage_per_hour'):
+                rate=shown[key]
+                if not rate:continue
+                rate['value']=rational(Fraction(rate['value']['numerator'],rate['value']['denominator'])*factor)
+                for bounds in rate.get('hypotheses',{}).values():
+                    for end in ('lower','upper'):
+                        v=bounds[end];bounds[end]=rational(Fraction(v['numerator'],v['denominator'])*factor)
+        elif not pace['active'] or not running or offline:shown['eta']=None
+        pace['presentation']=dict(state='paused' if expired else 'aging' if aging else 'observed' if pace['active'] and running and not offline else 'historical',
+            can_age=aging,grace_seconds=PACE_UNREADABLE_GRACE_SECONDS,pause_after_seconds=PACE_TREND_SECONDS,
+            factor=rational(factor),estimates=shown,assumption='no_new_gain_since_last_observed_interval' if aging else None,
+            contributes_to_progress=False)
     level=value.get('display_level')
     if level:
         level['age_seconds']=max(0,(now-datetime.fromisoformat(level['timestamp'])).total_seconds())

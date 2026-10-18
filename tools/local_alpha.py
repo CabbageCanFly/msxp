@@ -100,6 +100,7 @@ def parser():
     cli.add_argument('--db', type=Path, help='Default: private/local-alpha/live/CHANNEL.sqlite3')
     cli.add_argument('--file', type=Path, help='Offline local video instead of Twitch; no network capture')
     cli.add_argument('--port', type=int, default=8765)
+    cli.add_argument('--twitch-status',action='store_true',help='Opt in to cached Helix live status with server environment credentials')
     cli.add_argument('--exit-after-capture', action='store_true', help='Close HTTP after the bounded trial (useful for offline checks)')
     defaults = shadow_capture.parser()
     for name, kind in [('count', int), ('interval', float), ('start', float), ('timeout', float),
@@ -153,7 +154,7 @@ def main(argv=None):
         with Store(database, read_only=True) as store:
             saved = Diagnostics(store).snapshot(args.channel)
         say(f'Saved history: {len(saved["observations"])} recent attempts; latest={latest_status(saved["latest_reading"])}')
-        httpd = create_server(database, port=args.port, diagnostic_dashboard=True)
+        httpd = create_server(database, port=args.port, diagnostic_dashboard=True,twitch_status=args.twitch_status)
         httpd.quiet = True
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         thread.start()

@@ -23,6 +23,11 @@ still compares displayed percentage change, explicitly labeled as level progress
 
 ## Recent pace
 
+The [HUD resilience follow-up](hud-resilience-and-twitch-status.md) introduces
+`responsive_pace_v3`: a bounded longer unreadable context for presentation-only
+pooling and a separate no-new-gain aging display. The v2 results below remain the
+historical record; strict windows, chart gains and trusted accounting are unchanged.
+
 `responsive_pace_v2` remains a read-only consumer projection:
 
 - Two eligible readings with at least five captured seconds can seed a first rate.

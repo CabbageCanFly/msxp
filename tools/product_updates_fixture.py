@@ -146,6 +146,61 @@ def historical_trial(database,port):
             finally:http.shutdown();thread.join(2)
 
 
+def resilience_trial(database,port):
+    """Frozen actual observations; simulated coordinator/Helix evidence, no network."""
+    import os
+    import exp_tracker.server as server_module
+    import exp_tracker.diagnostics as diagnostic_module
+    from exp_tracker.twitch_probe import StreamAvailability
+    root=Path('private/multi-alpha/runs/20261018T070644Z-33a2d9e1')
+    records={c:[json.loads(s) for s in (root/c/'capture.jsonl').read_text().splitlines()] for c in ('telfer1','shiphtur')}
+    class ReviewClock(datetime):
+        at=None
+        @classmethod
+        def now(cls,tz=None):return cls.at
+    server_module.datetime=diagnostic_module.datetime=ReviewClock
+    os.environ['TWITCH_CLIENT_ID']=os.environ['TWITCH_ACCESS_TOKEN']='synthetic-fixture-only'
+    with Store(database) as store:
+        d=Diagnostics(store);last=0
+        for c,rows in records.items():
+            store.add_channel(c);cid=store.add_character(c,'Saved review');store.select_character(c,cid);store.start_session(c)
+            d.begin(rows[0]['run_id'],c,rows[0])
+        def load(stop):
+            nonlocal last
+            for c,rows in records.items():
+                for row in rows[1:]:
+                    if row['type']=='attempt' and last<row['index']<=stop:d.append(rows[0]['run_id'],row)
+            last=stop
+            ReviewClock.at=max(datetime.fromisoformat(r.get('received_at') or r['attempted_at'])
+                for rows in records.values() for r in rows if r['type']=='attempt' and r['index']==stop)+timedelta(seconds=3)
+        load(10)
+        with create_server(database,port=port,diagnostic_dashboard=True) as http:
+            http.quiet=True
+            http.twitch_availability=StreamAvailability(enabled=True,
+                fetch=lambda *a,**kw:dict(data=[dict(user_login='telfer1',type='live')]),clock=lambda:ReviewClock.at.timestamp())
+            def running():
+                for c,rows in records.items():
+                    http.active_run_ids.add(rows[0]['run_id'])
+                    http.coordinator_status[c]=dict(state='waiting',updated_at=ReviewClock.at.isoformat(),
+                        next_due_at=(ReviewClock.at+timedelta(seconds=20)).isoformat(),requested_interval_seconds=20)
+            running();thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+            print(json.dumps(dict(ready=True,helix='mocked',coordinator='simulated_saved_replay')),flush=True)
+            try:
+                for command in sys.stdin:
+                    action=command.strip()
+                    if action=='gap':load(13);running()
+                    elif action=='recover':load(19);running()
+                    elif action=='pause':ReviewClock.at+=timedelta(seconds=320);running()
+                    elif action=='restart':http.active_run_ids.clear();http.coordinator_status.clear()
+                    elif action=='finish':
+                        for c,rows in records.items():d.append(rows[0]['run_id'],rows[-1])
+                        http.active_run_ids.clear();http.coordinator_status.clear()
+                    else:raise ValueError('Bounded resilience commands only')
+                    assert not store.db.execute('select 1 from observations').fetchone()
+                    print(json.dumps(dict(stage=action,as_of=ReviewClock.at.isoformat())),flush=True)
+            finally:http.shutdown();thread.join(2)
+
+
 def main():
     cli=argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--directory',type=Path,required=True)
@@ -155,12 +210,16 @@ def main():
     cli.add_argument('--windows',action='store_true',help='Saved fixed-window/60-attempt rotation review')
     cli.add_argument('--rolling',action='store_true',help='Actual new Telfer1 runs and existing character history, as-of replay')
     cli.add_argument('--historical',action='store_true',help='Actual completed 90-attempt two-stream trial, as-of clock')
+    cli.add_argument('--resilience',action='store_true',help='Actual unreadable-HUD replay, mocked Helix and coordinator activity')
     args=cli.parse_args()
     directory=args.directory.resolve()
     if not any(directory.is_relative_to(Path(p).resolve()) for p in ('private','artifacts')):
         raise ValueError('Private test directory required')
     database=directory/'updates.sqlite3'
     if database.exists():raise ValueError('Never overwrite an existing database')
+    if args.resilience:
+        resilience_trial(database,args.port)
+        return
     if args.historical:
         historical_trial(database,args.port)
         return

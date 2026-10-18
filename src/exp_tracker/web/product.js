@@ -68,7 +68,7 @@ function levelTitle(p) {
 function earlyText(p) {
   if(p.responsive_pace) {
     const pace=publicPace(p),e=pace.estimates;
-    const rate=e.exp_per_hour?`~${expText(e.exp_per_hour.value.approximate)} EXP/hour`:`~${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`;
+    const rate=e.exp_per_hour?`~${expText(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`~${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`:'Pace paused';
     return `${rate} · ${pace.label}`;
   }
   const early=p.early_pace;
@@ -80,9 +80,21 @@ function earlyText(p) {
 function publicPace(p) {
   const pace=p.responsive_pace;if(!pace)return null;
   const age=pace.age_seconds+(performance.now()-receivedAt)/1000;
-  const active=pace.active && !current(p).stale && !failed;
-  return {active,age,label:active?(pace.tentative?'first estimate':'recent trend'):`last estimated ${ageText(age)}`,
-    estimates:active?pace.estimates:{...pace.estimates,eta:null},source:pace};
+  const policy=pace.presentation;
+  const active=pace.active && !current(p).stale && !failed && (!policy || policy.state==='observed');
+  let estimates=active?pace.estimates:{...pace.estimates,eta:null},aging=policy?.can_age;
+  const expired=policy?.state==='paused' || aging && age>=policy.pause_after_seconds;
+  if(expired)estimates={exp_per_hour:null,percentage_per_hour:null,eta:null};
+  else if(aging) {
+    const coverage=pace.coverage_seconds.approximate,factor=coverage/(coverage+Math.max(0,age-policy.grace_seconds));
+    estimates={...estimates};
+    for(const key of ['exp_per_hour','percentage_per_hour'])if(estimates[key]) {
+      const rate=estimates[key];estimates[key]={...rate,value:{...rate.value,approximate:rate.value.approximate*factor},
+        hypotheses:Object.fromEntries(Object.entries(rate.hypotheses??{}).map(([rule,b])=>[rule,Object.fromEntries(Object.entries(b).map(([end,v])=>[end,{...v,approximate:v.approximate*factor}]))]))};
+    }
+  }
+  return {active,age,aging:aging && !expired,label:expired?'Pace paused':failed?`last estimated ${ageText(age)}`:aging?'HUD unreadable · easing pace':active?(pace.tentative?'first estimate':'recent trend'):`last estimated ${ageText(age)}`,
+    estimates,source:pace};
 }
 function current(p) {
   const age=p.age_seconds==null?null:p.age_seconds+(performance.now()-receivedAt)/1000;
@@ -109,19 +121,32 @@ function windowNote(p) {
   if(w?.state==='unavailable')return 'Gathering a fresh comparison';
   return `Building ${windowMinutes}m history`;
 }
-function statusText(p) {
+function captureText(p) {
   const s=current(p),state=p.activity?.state;
   if(failed)return 'Updates delayed';
   if(state==='capture_finished' || state==='stopped' && p.activity.completion==='completed')return 'Capture finished';
   if(state==='capture_interrupted')return 'Capture stopped';
   if(['coordinator_stopped','previous_unfinished_run','historical_session'].includes(state) && s.stale)return p.reading?`Last tracked ${ageText(s.age)}`:'Capture paused';
   if(!p.reading)return p.latest_attempt_status==='capture_failed'?'Capture unavailable':'Waiting for EXP';
+  const attemptAge=p.latest_attempt_age_seconds==null?null:p.latest_attempt_age_seconds+(performance.now()-receivedAt)/1000;
+  if(attemptAge!=null && attemptAge>=0 && attemptAge<=p.stale_after_seconds && p.latest_attempt_at!==p.reading.timestamp &&
+      ['malformed_or_unavailable','unavailable'].includes(p.latest_attempt_status) && ['waiting','running'].includes(state))return 'HUD unreadable';
   if(s.stale)return 'Updates delayed';
   if(p.percentage_state?.public_eligible===false && p.percentage_state?.pending_since)return 'Verifying EXP change';
   if(p.latest_attempt_status==='capture_failed')return 'Waiting for the next reading';
   if(state==='stopped' && p.activity.completion)return ({completed:'Capture complete',interrupted:'Capture interrupted',failed:'Capture stopped'})[p.activity.completion] ?? 'Capture paused';
   return ({running:'Updating',waiting:'Tracking',capture_delayed:'Updates running behind',capture_failing:'Capture interrupted',
     stopped:'Capture paused',coordinator_stopped:'Capture paused',previous_unfinished_run:'Capture stopped'})[state] ?? 'Capture paused';
+}
+function statusText(p) {
+  let status=p.twitch?.status;
+  const now=Date.parse(data?.served_at ?? data?.player?.latest_attempt_at)+(performance.now()-receivedAt);
+  if(p.twitch?.valid_until && now>Date.parse(p.twitch.valid_until))status='unknown';
+  const capture=captureText(p);
+  if(status==='live')return `Twitch live · ${p.latest_attempt_status==='capture_failed'?'Capture unavailable':capture}`;
+  if(status==='offline')return `Twitch offline · ${p.twitch.capture_disagreement?'Recent capture differs':capture}`;
+  if(status==='unknown' && p.latest_attempt_status==='capture_failed')return `Live status unknown · Capture unavailable`;
+  return capture;
 }
 function etaText(value) { if(!value)return '—';const m=Math.max(5,Math.ceil(value.seconds.approximate/300)*5);if(m<60)return `~${m}m`;if(m<1440)return `~${Math.floor(m/60)}h ${m%60}m`;return `~${Math.floor(m/1440)}d ${Math.floor(m%1440/60)}h`; }
 function rateTitle(rate) {
@@ -201,8 +226,8 @@ function renderPlayer() {
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';
   el('rate').dataset.paused=String(!!pace && !pace.active);
   if(view==='overlay') {
-    if(pace && !pace.active && !failed && !p.percentage_state?.pending_since && !['capture_finished','capture_interrupted','historical_session','stopped','coordinator_stopped'].includes(p.activity?.state))el('status').textContent=`Last estimate ${ageText(pace.age)}`;
-    el('rate-label').textContent=pace && !pace.active?'Last EXP / hour':'EXP / hour';
+    if(pace && !pace.active && !failed && !p.twitch && !p.percentage_state?.pending_since && !['capture_finished','capture_interrupted','historical_session','stopped','coordinator_stopped'].includes(p.activity?.state))el('status').textContent=`Last estimate ${ageText(pace.age)}`;
+    el('rate-label').textContent=pace?.aging?'Recent EXP / hour':pace && !pace.active?'Last EXP / hour':'EXP / hour';
     el('rate').title=pace?`${pace.label}; ${pace.source.readings} readings / ${Math.round(pace.source.span_seconds.approximate)}s. ${rateTitle(m?.exp_per_hour)}`:el('rate').title;
   }
   if(view==='player') {
@@ -217,7 +242,7 @@ function renderPlayer() {
     el('early-value').title=pace?`${pace.source.start} – ${pace.source.end}; ${(pace.source.coverage_seconds ?? pace.source.span_seconds).approximate}s of comparable captured intervals. Missing intervals supply neither gain nor elapsed time. ${rateTitle(m?.exp_per_hour)}`:early?.segment?`${early.segment.start} – ${early.segment.end}; ${early.segment.readings} readings. ${rateTitle(early.estimates?.exp_per_hour)} Historical value: ${early.estimates?.exp_per_hour?.value.approximate ?? early.estimates?.percentage_per_hour?.value.approximate} ${early.estimates?.exp_per_hour?'EXP/h':'pp/h'}. Bounds exclude OCR errors.`:'';
     el('rate-label').textContent=m?.exp_per_hour?'EXP / hour':'% / hour';
     if(!m?.exp_per_hour && m?.percentage_per_hour)amount('rate',`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`,`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`);
-    el('early-note').textContent=pace?.active?(pace.source.interruptions?'Short gaps excluded':'') :pace?(['capture_finished','capture_interrupted','historical_session','coordinator_stopped'].includes(p.activity?.state)?'Saved trend':'Waiting for the next reading'):'Building history';
+    el('early-note').textContent=pace?.aging?'No new gain assumed while the HUD is unreadable':pace?.active?(pace.source.interruptions?'Short gaps excluded':'') :pace?(['capture_finished','capture_interrupted','historical_session','coordinator_stopped'].includes(p.activity?.state)?'Saved trend':'Waiting for the next reading'):'Building history';
     el('early-note').hidden=!el('early-note').textContent;
     el('level-note').textContent=lastKnown(p)?`Level last seen ${ageText(p.display_level.age_seconds+(performance.now()-receivedAt)/1000)}`:'';
     el('level-note').hidden=!lastKnown(p);

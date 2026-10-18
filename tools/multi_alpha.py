@@ -248,6 +248,7 @@ def main(argv=None):
     cli.add_argument('--replay', action='append', default=[], metavar='CHANNEL=PRIVATE_LOG')
     cli.add_argument('--exit-after-capture', action='store_true')
     cli.add_argument('--continuous',action='store_true',help='Continue until Ctrl+C, rotating each channel at 60 attempts')
+    cli.add_argument('--twitch-status',action='store_true',help='Opt in to cached official live status; requires local Twitch API environment credentials')
     cli.add_argument('--max-attempts',type=int,help='Continuous-mode stop condition, per channel (not per run)')
     cli.add_argument('--stop-after-seconds',type=float,help='Stop scheduling new work after real monotonic elapsed time')
     cli.add_argument('--offline-fast-test',action='store_true',help='Explicit local-video-only interval floor of 3 seconds')
@@ -292,7 +293,7 @@ def main(argv=None):
         if not args.replay: print(f'Private capture logs: {directory}',flush=True)
         with ownership(database):
             initialize(database, streams)
-            httpd = create_server(database, port=port, diagnostic_dashboard=True)
+            httpd = create_server(database, port=port, diagnostic_dashboard=True,twitch_status=args.twitch_status)
             httpd.quiet = True
             httpd.active_run_ids = set()
             thread = threading.Thread(target=httpd.serve_forever, daemon=True)

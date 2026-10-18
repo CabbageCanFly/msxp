@@ -52,9 +52,12 @@ def test_new_pace_and_bars_do_not_cross_hard_boundaries(tracking,boundary):
         return
     if boundary=='long_outage':
         for i in (4,5,6):append(d,i,None,status='capture_failed',received_at=None,current=False)
-        for i in (7,8):append(d,i,f'[34.{i:02}%]')
-        result=get(d,105);assert result['responsive_pace']['readings']==2
-        assert result['responsive_pace']['start']==(NOW+timedelta(seconds=90)).isoformat()
+        # Presentation smoothing now permits short holes, but never a >5-minute gap.
+        for i,seconds in ((7,350),(8,365)):
+            stamp=(NOW+timedelta(seconds=seconds)).isoformat()
+            append(d,i,f'[34.{i:02}%]',attempted_at=stamp,received_at=stamp)
+        result=get(d,365);assert result['responsive_pace']['readings']==2
+        assert result['responsive_pace']['start']==(NOW+timedelta(seconds=350)).isoformat()
         return
     if boundary=='level':
         neural=dict(text='65',level=65,status='numeric_candidate',score=.99)

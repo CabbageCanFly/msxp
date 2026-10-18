@@ -35,6 +35,43 @@ test('cached failures and advancing ages preserve values but suppress rates and 
   p.context.performance.now=()=>50000;p.run('renderPlayer()');assert.equal(p.elements.rate.textContent,'—');assert.equal(p.elements.exp.textContent,'71.4K');assert.equal(p.elements.status.textContent,'Updates delayed');
   p.context.performance.now=()=>0;p.run('failed=true;renderPlayer()');assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements.card.dataset.stale,'true');
 });
+
+test('unreadable HUD ages presentation only, pauses after five minutes and never ranks the estimate',()=>{
+  const p=page(),base=player();
+  base.latest_attempt_status='malformed_or_unavailable';
+  base.responsive_pace={active:false,tentative:false,age_seconds:60,end:'2026-01-01T00:00:00Z',readings:11,
+    span_seconds:{approximate:200},coverage_seconds:{approximate:200},estimates:base.estimates,
+    presentation:{can_age:true,state:'aging',grace_seconds:20,pause_after_seconds:300}};
+  p.render(base);assert.equal(p.elements.rate.textContent,'~1.67K');assert.equal(p.elements.eta.textContent,'—');
+  assert.match(p.run('earlyText(data.player)'),/HUD unreadable/);
+  p.run('failed=true;renderPlayer()');assert.equal(p.elements.rate.textContent,'~1.67K');
+  p.run('failed=false');
+  const board=page('board');board.context.sample=base;
+  assert.equal(board.run('metricValue(sample,"exp_hour")'),null);
+  p.context.performance.now=()=>240000;p.run('renderPlayer()');
+  assert.equal(p.elements.rate.textContent,'—');assert.match(p.run('earlyText(data.player)'),/Pace paused/);
+  p.context.performance.now=()=>0;base.responsive_pace.presentation={state:'historical',can_age:false};
+  base.activity={state:'capture_finished'};p.render(base);
+  assert.equal(p.elements.rate.textContent,'~2K');assert.equal(p.elements.status.textContent,'Capture finished');
+});
+
+test('official live/offline and unknown status stay separate from capture and expire',()=>{
+  const p=page();
+  p.render(player({reading:null,latest_attempt_status:'capture_failed',twitch:{status:'live'}}));
+  assert.equal(p.elements.status.textContent,'Twitch live · Capture unavailable');
+  p.render(player({reading:null,latest_attempt_status:'capture_failed',twitch:{status:'offline'}}));
+  assert.equal(p.elements.status.textContent,'Twitch offline · Capture unavailable');
+  p.render(player({reading:null,latest_attempt_status:'capture_failed',twitch:{status:'unknown'}}));
+  assert.equal(p.elements.status.textContent,'Live status unknown · Capture unavailable');
+  p.render(player({twitch:{status:'offline',capture_disagreement:true}}));
+  assert.equal(p.elements.status.textContent,'Twitch offline · Recent capture differs');
+  p.render(player({twitch:{status:'live'},stale:true,age_seconds:60,latest_attempt_status:'malformed_or_unavailable',
+    latest_attempt_at:'2026-01-01T00:01:00Z',latest_attempt_age_seconds:1}));
+  assert.equal(p.elements.status.textContent,'Twitch live · HUD unreadable');
+  p.render(player({reading:null,latest_attempt_status:'capture_failed',twitch:{status:'live',valid_until:'2026-01-01T00:01:00Z'}}));
+  p.run('data.served_at="2026-01-01T00:00:00Z"');p.context.performance.now=()=>61000;p.run('renderPlayer()');
+  assert.equal(p.elements.status.textContent,'Live status unknown · Capture unavailable');
+});
 test('unavailable rates are not ranked as zero and equal eligible values share rank',()=>{
   const p=page('board'),eligible={eligible:true,estimates:player().estimates,difference_percentage_points:'0.20'};
   p.context.fixtures=[player({channel:'b',windows:{5:eligible}}),player({channel:'a',windows:{5:eligible}}),player({channel:'c',estimates:{}})];
