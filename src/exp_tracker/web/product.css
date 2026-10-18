@@ -66,6 +66,7 @@
 .history-chart .trend { stroke:#bfdc59; stroke-width:2; opacity:.7; }
 .player-stats { grid-template-columns:repeat(2,minmax(0,1fr)); padding-top:8px; padding-bottom:10px; }
 .player-stats strong { font-size:20px; }
+.player-stats [data-paused="true"] { opacity:.7; }
 .product .level .level-note { display:block; margin:2px 0 0; font-size:8px; letter-spacing:0; }
 .live-overlay #level[data-last-known="true"] { border-style:dashed; }
 @media(max-width:650px) { .early-pace { margin-left:14px; margin-right:14px; } }

@@ -14,6 +14,8 @@ WINDOWS=(5,10,15,30)
 PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
 PACE_MIN_SECONDS=5
 PACE_TREND_SECONDS=120
+OBSERVED_MAX_GAP_SECONDS=60
+OBSERVED_MAX_MISSING=2
 
 
 def responsive_pace(snapshot, display_level):
@@ -143,6 +145,100 @@ def reading(row):
         simulated=row.get('timing_mode')=='simulated',trusted=False)
 
 
+def observed_sequence(snapshot, *, now):
+    """Endpoint comparisons across short disclosed holes, never connected pace/gains."""
+    points=[];holes=[];previous=None;pending=[];last=None;break_reason='baseline'
+    reviews={r['event_id']:r for r in snapshot['percentage_progress']['percentage_reviews']}
+    for row in project(snapshot['observations']):
+        point,invalid=percentage_point(row);decision=reviews[row['event_id']]
+        stamp=row.get('received_at') or row.get('attempted_at')
+        # Context placeholders test ownership/order only; never supply a numeric endpoint.
+        context=dict(channel=row.get('assigned_channel') or row.get('channel'),source_channel=row.get('channel'),
+            source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),
+            character_id=row.get('character_id'),session_id=row.get('session_id'),run_id=row.get('run_id'),
+            index=row.get('index'),coordinator_instance=row.get('coordinator_instance'),timestamp=stamp,
+            interval_seconds=row.get('interval_seconds',15),level=(row.get('experimental_level') or {}).get('value'))
+        hard=None;valid_time=False
+        try:
+            when=datetime.fromisoformat(stamp)
+            if when.utcoffset() is None or when>now:hard='timestamp_unavailable_or_future'
+            else:valid_time=True
+            if valid_time and previous:
+                edge=boundary(previous,context,row)
+                # Missing indices and sampling delays are disclosed, bounded holes.
+                if edge not in (None,'sampling_gap','missing_attempt','level_changed'):hard=edge
+                elif context['level'] is not None and last and context['level']!=last['level']:hard='level_changed'
+                elif edge=='sampling_gap' and (when-datetime.fromisoformat(previous['timestamp'])).total_seconds()>OBSERVED_MAX_GAP_SECONDS:hard='gap_exceeds_limit'
+        except (TypeError,ValueError,KeyError):hard='timestamp_unavailable_or_out_of_order'
+        level=level_evidence(row)
+        unsafe=(not valid_time or row.get('timestamp_ordered') is False or row.get('timing_mode')=='simulated'
+                or row.get('status')=='stale_local_frame' or row.get('crop_suspect') is True
+                or row.get('candidate_invalid') or row.get('percentage_only_invalid')
+                or level['status']=='conflict' or (row.get('hud_count') or 0)>1)
+        if unsafe:hard='ambiguous_or_unsafe_evidence'
+        if decision.get('break_before'):hard=decision['break_before']
+        usable=bool(not unsafe and point and invalid is None and decision['progress_eligible'])
+        # Only absent numeric evidence may be skipped; a readable but quarantined
+        # number or an unresolved level is a hard boundary, never a hole to bridge.
+        missing=not point and not row.get('candidate') and not row.get('percentage_only_candidate')
+        allowed_missing=not unsafe and missing and (row.get('status')=='capture_failed' or
+            row.get('fresh_at_capture') and row.get('hud_count')==1 or
+            row.get('status')=='unavailable' and row.get('hud_count')==0 and row.get('reasons')==['missing_hud']
+            and row.get('local_age_seconds') is not None and row['local_age_seconds']<=15)
+        if not usable and not allowed_missing:hard=hard or decision['reason'] or invalid or 'unusable_observation'
+        if usable and last and hard is None:
+            elapsed=(when-datetime.fromisoformat(last['timestamp'])).total_seconds()
+            absent=(context['index']-previous['index']-1) if previous and context['run_id']==previous['run_id'] else 0
+            absent=max(0,absent)+sum(h['missing_indices'] for h in pending)
+            if len(pending)+absent>OBSERVED_MAX_MISSING or elapsed>OBSERVED_MAX_GAP_SECONDS:hard='gap_exceeds_limit'
+            if point['bp']<last['bp'] or point['bp']-last['bp']>=1000:
+                hard='unresolved_numerical_continuity';usable=False
+            if row.get('frame_sha256') and row['frame_sha256']==last.get('frame_sha256'):
+                hard='duplicate_source_frame';usable=False
+        if hard:
+            points=[];holes=[];pending=[];last=None;break_reason=hard
+        if usable:
+            if last:
+                missing_indices=max(0,context['index']-previous['index']-1) if previous and context['run_id']==previous['run_id'] else 0
+                if pending or missing_indices or boundary(last,point|{'interval_seconds':context['interval_seconds']},row)=='sampling_gap':
+                    holes.append(dict(start=last['timestamp'],end=point['timestamp'],
+                        event_ids=[h['event_id'] for h in pending],missing_attempts=missing_indices+sum(h['missing_indices'] for h in pending),
+                        unavailable_attempts=len(pending),elapsed_seconds=elapsed))
+            point.update(interval_seconds=context['interval_seconds'],frame_sha256=row.get('frame_sha256'))
+            points.append(point);last=point;pending=[]
+        elif allowed_missing and last:
+            pending.append(dict(event_id=row['event_id'],missing_indices=max(0,context['index']-previous['index']-1)
+                if previous and context['run_id']==previous['run_id'] else 0))
+            if len(pending)+sum(h['missing_indices'] for h in pending)>OBSERVED_MAX_MISSING or (when-datetime.fromisoformat(last['timestamp'])).total_seconds()>OBSERVED_MAX_GAP_SECONDS:
+                points=[];holes=[];pending=[];last=None;break_reason='gap_exceeds_limit'
+        previous=context
+    return points,holes,pending,break_reason
+
+
+def observed_window(sequence, *, cutoff, end):
+    points,holes,pending,reason=sequence
+    points=[p for p in points if cutoff<=datetime.fromisoformat(p['timestamp'])<=end]
+    result=dict(available=False,state='building_history',reason=reason,policy='observed_window_v1',
+        trusted=False,identity_verified=False,interpolated=False,pace=None,
+        max_gap_seconds=OBSERVED_MAX_GAP_SECONDS,max_missing_attempts=OBSERVED_MAX_MISSING)
+    if len(points)<3:return result
+    first,last=points[0],points[-1]
+    elapsed=elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))
+    if elapsed<30:return result
+    holes=[h for h in holes if datetime.fromisoformat(h['start'])>=datetime.fromisoformat(first['timestamp'])
+           and datetime.fromisoformat(h['end'])<=datetime.fromisoformat(last['timestamp'])]
+    diff=last['bp']-first['bp']
+    return dict(result,available=True,state='observed_endpoints',reason='partial_observation_not_complete_window',
+        level=last['level'],start=first['timestamp'],end=last['timestamp'],span_seconds=rational(elapsed),
+        first_event_id=first['event_id'],last_event_id=last['event_id'],
+        start_percentage=first['percentage'],end_percentage=last['percentage'],readings=len(points),
+        difference_percentage_points=f'{diff//100}.{diff%100:02}',interruptions=len(holes),holes=holes,
+        unavailable_attempts=sum(h['unavailable_attempts'] for h in holes),
+        missing_attempts=sum(h['missing_attempts'] for h in holes),pending_attempts=len(pending),
+        paused=bool(pending),age_seconds=0,
+        evidence_counts={kind:sum(p['evidence']==kind for p in points) for kind in ('strict_full','strict_percentage_only','grammar_recovered')})
+
+
 def window_comparisons(snapshot, *, now):
     """Observed endpoints inside a fixed window; never split an interval at its boundary."""
     rows=snapshot['observations'];data=snapshot['percentage_progress'];segment=data['current_segment']
@@ -155,6 +251,7 @@ def window_comparisons(snapshot, *, now):
             if row['event_id']==segment['first_event_id']:inside=True
             if inside:sequence.append((row,percentage_point(row)[0]))
             if row['event_id']==segment['last_event_id']:break
+    observed=observed_sequence(snapshot,now=now)
     result={}
     for minutes in WINDOWS:
         cutoff=end-timedelta(minutes=minutes)
@@ -163,6 +260,10 @@ def window_comparisons(snapshot, *, now):
             state='building_history',reason='insufficient_contiguous_coverage',readings=len(points),
             coverage_seconds=rational(Fraction(0)),coverage_fraction=rational(Fraction(0)),
             difference_percentage_points=None,estimates=estimates(None,None,0),trusted=False)
+        metric['eligibility_checks']=dict(active_connected_segment=segment is not None,
+            minimum_readings=len(points)>=3,minimum_span=False,ninety_percent_span=False,
+            left_endpoint_within_interval=False,latest_attempt_is_endpoint=False,
+            fresh=not data['stale'],reference_not_future=end<=now)
         if points:
             first,last=points[0][1],points[-1][1]
             a,b=datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp'])
@@ -171,6 +272,10 @@ def window_comparisons(snapshot, *, now):
                 coverage_fraction=rational(elapsed/(minutes*60)),
                 evidence_counts={kind:sum(p['evidence']==kind for _,p in points) for kind in ('strict_full','strict_percentage_only','grammar_recovered')})
             boundary=elapsed_seconds(cutoff,a)
+            metric['eligibility_checks'].update(minimum_span=elapsed>=30,
+                ninety_percent_span=elapsed>=Fraction(minutes*60*9,10),
+                left_endpoint_within_interval=boundary<=Fraction(str(points[0][0]['interval_seconds'])),
+                latest_attempt_is_endpoint=rows[-1]['event_id']==last['event_id'])
             complete=(len(points)>=3 and elapsed>=30 and elapsed>=Fraction(minutes*60*9,10)
                 and boundary<=Fraction(str(points[0][0]['interval_seconds']))
                 and rows[-1]['event_id']==last['event_id'])
@@ -185,6 +290,10 @@ def window_comparisons(snapshot, *, now):
         if reference is None or end>now or data['stale'] or segment is None:
             metric.update(eligible=False,state='stale' if data['stale'] else 'unavailable',
                 reason='future_timestamp' if end>now else data['reason'],estimates=estimates(None,None,0))
+        metric['observed']=observed_window(observed,cutoff=cutoff,end=end)
+        if metric['observed']['available']:
+            metric['observed']['paused'] |= bool(rows and (rows[-1].get('run_interrupted')
+                or snapshot.get('run_id',rows[-1]['run_id'])!=rows[-1]['run_id']))
         result[str(minutes)]=metric
     return result
 
@@ -254,6 +363,13 @@ def refresh(value,*,now=None,activity=None):
             metric.update(eligible=False,state='stale',reason='stale_or_simulated_reading',estimates=estimates(None,None,0))
     if value.get('early_pace') and (value['stale'] or latest and latest['simulated']):
         value['early_pace'].update(active=False,reason='stale_or_simulated_reading')
+    for metric in value.get('windows',{}).values():
+        if 'eligibility_checks' in metric:
+            metric['eligibility_checks']['fresh']=not value['stale'] and not (latest and latest['simulated'])
+        observed=metric.get('observed')
+        if observed and observed['available']:
+            observed['age_seconds']=max(0,(now-datetime.fromisoformat(observed['end'])).total_seconds())
+            observed['paused'] |= value['stale'] or bool(value.get('percentage_state') and not value['percentage_state']['public_eligible'])
     return value
 
 

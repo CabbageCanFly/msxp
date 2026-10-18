@@ -62,8 +62,16 @@ function current(p) {
   return {age,stale,metrics};
 }
 function selectedWindow(p) { return p.windows?.[String(windowMinutes)]; }
+function observedWindow(p) { const o=selectedWindow(p)?.observed;return o?.available?o:null; }
+function spanText(seconds) { const s=Math.floor(seconds);return s<60?`${s}s`:`${Math.floor(s/60)}m ${s%60}s`; }
 function windowNote(p) {
   const w=selectedWindow(p);
+  const o=observedWindow(p);
+  if(o) {
+    const age=o.age_seconds+(performance.now()-receivedAt)/1000;
+    const old=current(p).stale || failed || o.paused;
+    return `${spanText(o.span_seconds.approximate)} observed · ${o.readings} readings${o.interruptions?` · ${o.interruptions} interruption${o.interruptions===1?'':'s'}`:''}${old?` · last observed ${ageText(age)}`:w.eligible?' · complete comparison':' · partial history'}`;
+  }
   if(current(p).stale || failed)return 'Waiting for fresh readings';
   if(w?.eligible)return `Last ${windowMinutes} min · ${Math.round(w.coverage_seconds.approximate)}s observed · ${w.readings} readings`;
   if(w?.state==='unavailable')return 'Gathering a fresh comparison';
@@ -106,7 +114,7 @@ function entry({player:p,value,rank}) {
   bar.dataset.missing=String(!r);bar.dataset.recovered=String(r?.evidence==='grammar_recovered');
   const label=node('span','exp-label');label.title=expTitle(r);label.append(node('small','','EXP'),node('span','exp-number',displayedExp(r)),node('span','percentage',r?`[${r.percentage}%]`:'Waiting for EXP'));
   bar.append(progress,label);
-  section.append(bar,node('div','exp-detail',`${!selectedWindow(p)?.eligible && earlyText(p) || windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
+  section.append(bar,node('div','exp-detail',`${observedWindow(p)?`+${observedWindow(p).difference_percentage_points} pp · ${windowNote(p)}`:!selectedWindow(p)?.eligible && earlyText(p) || windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):sort==='movement'?`+${value.toFixed(2)}`:`~${compact.format(value)}`),
     node('small','score-label',sort==='level'?'last observed level':sort==='movement'?'percentage points':'estimated EXP / hour'));
   score.title=sort==='exp_hour'?rateTitle(s.metrics?.exp_per_hour):sort==='level'?levelTitle(p):'Displayed percentage change only; no exact earned EXP is inferred.';
@@ -140,8 +148,11 @@ function renderPlayer() {
   el('percentage').textContent=r?`${r.percentage}%`:'—';
   el('status').textContent=statusText(p);
   el('age').textContent=r?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp ?? '';
-  const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null;
-  el('movement').textContent=!s.stale && !failed && movement!=null?`+${movement} pp`:'—';
+  const observed=view==='player'?observedWindow(p):null;
+  const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):observed?.difference_percentage_points ?? (selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null);
+  el('movement').textContent=(observed || !s.stale && !failed) && movement!=null?`+${movement} pp`:'—';
+  el('movement').dataset.paused=String(!!observed && (observed.paused || s.stale || failed));
+  el('movement').title=observed?`${observed.start} – ${observed.end}; observed endpoint difference only. ${observed.unavailable_attempts} unavailable and ${observed.missing_attempts} missing attempts; no progress allocated inside gaps. Not used for ranking.`:'';
   el('rate').textContent=m?.exp_per_hour?`~${compact.format(m.exp_per_hour.value.approximate)}`:'—';el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Experimental displayed percentage points/hour; zero displayed change does not prove zero actual EXP.';
@@ -163,10 +174,10 @@ function renderPlayer() {
     el('level-note').textContent=lastKnown(p)?`Level last seen ${ageText(p.display_level.age_seconds+(performance.now()-receivedAt)/1000)}`:'';
     el('level-note').hidden=!lastKnown(p);
     el('level-note').title=levelTitle(p);
-    el('movement-label').textContent=`Last ${windowMinutes} min`;
+    el('movement-label').textContent=`Observed · last ${windowMinutes} min`;
     el('segment-note').textContent=windowNote(p);
-    el('segment-note').title='Window estimates need ≥90% uninterrupted same-level coverage. No missing progress is filled in.';
-    el('window-rate').textContent=selectedWindow(p)?.eligible && s.metrics?.exp_per_hour?`~${compact.format(s.metrics.exp_per_hour.value.approximate)}`:'Building history';
+    el('segment-note').title='Observed progress compares supported same-level endpoints across only short, disclosed gaps; it is not a complete-window measurement. Complete comparisons still need ≥90% uninterrupted coverage.';
+    el('window-rate').textContent=selectedWindow(p)?.eligible && s.metrics?.exp_per_hour?`~${compact.format(s.metrics.exp_per_hour.value.approximate)}`:observed?(s.stale || failed || observed.paused?'Paused':'Not complete yet'):'Building history';
     el('window-rate-label').textContent=`${windowMinutes} min EXP / hour`;
     el('pp-stat').hidden=!!m?.exp_per_hour || !m?.percentage_per_hour;
     el('eta-stat').hidden=!m?.eta;

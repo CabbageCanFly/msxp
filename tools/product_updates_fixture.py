@@ -15,18 +15,74 @@ from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.server import create_server
 
 
+def window_trial(database,port):
+    """Actual rotation logs, causal prefix clock; never retimes or recaptures sources."""
+    root=Path('private/multi-alpha/runs/20261018T005419Z-6d0af805')
+    logs={}
+    for channel in ('telfer1','shiphtur'):
+        paths=list((root/channel).rglob('capture.jsonl'))
+        logs[channel]=sorted(([json.loads(s) for s in p.read_text().splitlines()] for p in paths),
+            key=lambda records:next(r['attempted_at'] for r in records if r['type']=='attempt'))[:2]
+    import exp_tracker.server as server_module
+    import exp_tracker.diagnostics as diagnostic_module
+    class ReviewClock(datetime):
+        at=None
+        @classmethod
+        def now(cls,tz=None):return cls.at
+    server_module.datetime=diagnostic_module.datetime=ReviewClock
+    with Store(database) as store:
+        d=Diagnostics(store)
+        def stage(stop):
+            stamps=[]
+            for channel,runs in logs.items():
+                if stop==42:
+                    store.add_channel(channel);cid=store.add_character(channel,'Saved review')
+                    store.select_character(channel,cid);store.start_session(channel)
+                    d.begin(runs[0][0]['run_id'],channel,runs[0][0])
+                for number,records in enumerate(runs):
+                    if number and stop<=60:continue
+                    if number and stop==61:d.begin(records[0]['run_id'],channel,records[0])
+                    for r in records[1:]:
+                        ordinal=number*60+r.get('index',60)
+                        lower=0 if stop==42 else 42 if stop==61 else 61
+                        if r['type']=='attempt' and lower<ordinal<=stop:d.append(records[0]['run_id'],r)
+                        if r['type']=='summary' and number==0 and stop==61:d.append(records[0]['run_id'],r)
+                        if r['type']=='attempt' and ordinal<=stop and r.get('received_at'):stamps.append(datetime.fromisoformat(r['received_at']))
+            ReviewClock.at=max(stamps)
+            assert not store.db.execute('select 1 from observations').fetchone()
+        stage(42)
+        with create_server(database,port=port,diagnostic_dashboard=True) as http:
+            http.quiet=True;thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+            print(json.dumps(dict(ready=True,port=http.server_port)),flush=True)
+            try:
+                for expected,stop in (('advance',61),('finish',70)):
+                    command=next(sys.stdin,None)
+                    if command is None:break
+                    if command.strip()!=expected:raise ValueError('Ordered replay only')
+                    stage(stop);print(json.dumps(dict(stage=expected,as_of=ReviewClock.at.isoformat())),flush=True)
+                for command in sys.stdin:
+                    if command.strip()!='stale':raise ValueError('Replay complete')
+                    ReviewClock.at+=timedelta(seconds=90)
+                    print(json.dumps(dict(stage='stale',as_of=ReviewClock.at.isoformat())),flush=True)
+            finally:http.shutdown();thread.join(2)
+
+
 def main():
     cli=argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--directory',type=Path,required=True)
     cli.add_argument('--port',type=int,required=True)
     cli.add_argument('--usability',action='store_true',help='Saved two-stream trial, explicitly as-of replay clock')
     cli.add_argument('--level-up',action='store_true',help='Saved level-up trial; as-of replay, no source retiming')
+    cli.add_argument('--windows',action='store_true',help='Saved fixed-window/60-attempt rotation review')
     args=cli.parse_args()
     directory=args.directory.resolve()
     if not any(directory.is_relative_to(Path(p).resolve()) for p in ('private','artifacts')):
         raise ValueError('Private test directory required')
     database=directory/'updates.sqlite3'
     if database.exists():raise ValueError('Never overwrite an existing database')
+    if args.windows:
+        window_trial(database,args.port)
+        return
     logs={channel:Path('private/local-alpha/runs')/run/'capture.jsonl' for channel,run in (
         ('telfer1','telfer1-20261017T214539Z-620539d6'),('shiphtur','shiphtur-20261017T214659Z-eba94e1c'))}
     saved={c:[json.loads(s) for s in p.read_text().splitlines()] for c,p in logs.items()}

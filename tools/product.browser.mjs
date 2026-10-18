@@ -9,15 +9,16 @@ const [base='http://127.0.0.1:8765',directory,databaseArgument,channel='offline_
 const verifyQuarantine=databaseArgument==='--verify-quarantine';
 const verifyUsability=databaseArgument==='--verify-usability';
 const verifyLevelUp=databaseArgument==='--verify-level-up';
+const verifyWindows=databaseArgument==='--verify-windows';
 const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
-const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp?null:databaseArgument;
+const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
 let fixture=null,fixtureCommand=null;
-if(verifyUpdates || verifyUsability || verifyLevelUp){
+if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows){
   const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
   let buffer='',waiting=null;const messages=[];
   fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
   const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
@@ -73,19 +74,60 @@ try {
   const detail=await tab('/stream/'+channel,1440,1050);await detail.wait("typeof data!=='undefined' && !!data?.player");
   const recent=await detail.evaluate('({start:document.getElementById("history-chart").dataset.start,end:document.getElementById("history-chart").dataset.end,note:document.getElementById("history-note").textContent})');
   if(recent.start)assert.ok(Date.parse(recent.end)-Date.parse(recent.start)<=300000);
-  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 5 min');
-  if(!original.player.windows['5'].eligible)assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),'Building history');
+  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Observed · last 5 min');
+  if(!original.player.windows['5'].eligible)assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),original.player.windows['5'].observed?.available?'Not complete yet':'Building history');
   await screenshot(detail,'character-desktop',1440,1050);
   await screenshot(detail,'character-mobile',390,1200);
   await detail.evaluate('document.querySelectorAll("[data-window]")[2].click()');
-  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 15 min');
+  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Observed · last 15 min');
   await screenshot(detail,'character-15-minute',1440,1050);
   await detail.evaluate('document.querySelectorAll("[data-window]")[0].click()');
   await detail.command('Page.bringToFront');
   await detail.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   await overlay.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   const observed=[];
-  if(verifyLevelUp){
+  if(verifyWindows){
+    const batches=[];
+    for(const action of [null,'advance','finish']){
+      if(action)await fixtureCommand(action);
+      const actual=await api('/api/players/'+channel);batches.push(actual);
+      await detail.wait(`data?.player?.latest_attempt_at===${JSON.stringify(actual.player.latest_attempt_at)}`);
+      await overlay.wait(`data?.player?.latest_attempt_at===${JSON.stringify(actual.player.latest_attempt_at)}`);
+      await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.latest_attempt_at===${JSON.stringify(actual.player.latest_attempt_at)}`);
+      for(const minutes of [5,10,15,30]){
+        const o=actual.player.windows[String(minutes)].observed;assert.ok(o.available);
+        assert.equal(actual.player.windows[String(minutes)].eligible,false);
+        await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
+        assert.equal(await detail.evaluate('document.getElementById("movement").textContent'),`+${o.difference_percentage_points} pp`);
+        assert.match(await detail.evaluate('document.getElementById("segment-note").textContent'),/observed.*readings.*partial history/);
+        assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),'Not complete yet');
+        await board.evaluate(`document.querySelector('[data-window="${minutes}"]').click();document.querySelector('[data-sort="movement"]').click()`);
+        assert.equal(await board.evaluate(`document.querySelector('.entry[data-channel="${channel}"]').dataset.rank`),'');
+      }
+      if(action==='advance')await screenshot(detail,'observed-after-rotation',1100,1050);
+    }
+    assert.notEqual(batches[0].player.reading.event_id.split(':')[0],batches[1].player.reading.event_id.split(':')[0]);
+    for(const minutes of [5,10,15,30]){
+      await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
+      await screenshot(detail,`observed-${minutes}-minute-desktop`,1100,1050);
+      await screenshot(detail,`observed-${minutes}-minute-mobile`,390,1100);
+    }
+    await screenshot(board,'observed-homepage',1440,1050);
+    await screenshot(overlay,'observed-overlay',500,160);
+    await fixtureCommand('stale');
+    const stale=await api('/api/players/'+channel);assert.ok(stale.player.stale);
+    await detail.wait('data?.player?.stale===true');
+    await overlay.wait('data?.player?.stale===true');
+    for(const minutes of [5,10,15,30]){
+      await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
+      assert.match(await detail.evaluate('document.getElementById("segment-note").textContent'),/last observed/);
+      assert.equal(await detail.evaluate('document.getElementById("movement").dataset.paused'),'true');
+      assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),'Paused');
+    }
+    await screenshot(detail,'observed-stale',1100,1050);
+    for(const page of [detail,board,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+    observed.push(...batches.map(batch=>({reading:batch.player.reading,windows:batch.player.windows})));
+  }else if(verifyLevelUp){
     assert.equal(original.player.display_level.value,65);assert.equal(original.player.level_events.length,0);
     assert.equal((await fixtureCommand('levelup')).stage,'levelup');
     await detail.wait('data?.player?.display_level?.value===66');
@@ -122,7 +164,7 @@ try {
     await detail.wait('document.getElementById("early-value").textContent.includes("early estimate")');
     await overlay.wait(`data?.player?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
     await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
-    assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),'Building history');
+    assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),after.player.windows['5'].observed?.available?'Not complete yet':'Building history');
     await screenshot(detail,'early-pace-saved-trial',1100,1050);
     await screenshot(overlay,'early-pace-overlay',500,160);
     assert.equal((await fixtureCommand('finish')).stage,'finish');
@@ -142,7 +184,7 @@ try {
   if(verifyUpdates){
     const initialWindow=before.players.find(p=>p.channel==='synthetic_window');assert.equal(initialWindow.windows['5'].eligible,false);
     const windowPage=await tab('/stream/synthetic_window',1100,1050);await windowPage.wait('typeof data!=="undefined" && !!data?.player');
-    assert.equal(await windowPage.evaluate('document.getElementById("window-rate").textContent'),'Building history');
+    assert.equal(await windowPage.evaluate('document.getElementById("window-rate").textContent'),'Not complete yet');
     const advanceStarted=performance.now();assert.ok((await fixtureCommand('advance')).advanced);
     const after=await api('/api/players/'+channel),all=await api('/api/players');
     assert.notEqual(after.player.reading.event_id,original.player.reading.event_id);

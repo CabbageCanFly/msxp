@@ -9,6 +9,8 @@ for public UI work: useful estimates and graceful pauses, with rigorous evidence
 and detailed uncertainty retained in Advanced.
 The [responsive player experience](docs/responsive-player-experience.md) adds
 two-reading pace, aged estimates during pauses and level-aware progress history.
+The [observed-window update](docs/observed-progress-windows.md) shows useful partial
+5/10/15/30-minute progress separately from complete-window comparisons and rankings.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

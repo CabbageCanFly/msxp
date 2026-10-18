@@ -79,6 +79,28 @@ test('pace ranking changes with the selected window and never substitutes a shor
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>[r.player.channel,r.rank]))')),[['a',1],['b',null]]);
 });
 
+test('observed windows show real partial endpoints without ranking them or relabeling recent pace',()=>{
+  const p=page('player'),base=player();
+  const observed={available:true,difference_percentage_points:'0.55',span_seconds:{approximate:208},
+    readings:15,interruptions:1,unavailable_attempts:1,missing_attempts:0,age_seconds:1,paused:false};
+  base.windows=Object.fromEntries([5,10,15,30].map((m,i)=>[m,{eligible:false,observed:{...observed,difference_percentage_points:`${i}.55`}}]));
+  base.responsive_pace={active:true,tentative:false,readings:6,span_seconds:{approximate:75},age_seconds:1,estimates:base.estimates};
+  p.render(base);
+  for(let i=0;i<4;i++){
+    p.buttons[i].listeners.click();
+    assert.equal(p.elements.movement.textContent,`+${i}.55 pp`);
+    assert.match(p.elements['segment-note'].textContent,/3m 28s observed.*15 readings.*1 interruption.*partial history/);
+    assert.equal(p.elements['window-rate'].textContent,'Not complete yet');
+    assert.equal(p.elements.rate.textContent,'~2K');
+  }
+  p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"movement").map(r=>r.rank))')),[null]);
+  p.render({...base,stale:true});
+  assert.equal(p.elements.movement.textContent,'+3.55 pp');assert.equal(p.elements.movement.dataset.paused,'true');
+  assert.match(p.elements['segment-note'].textContent,/last observed/);
+  assert.equal(p.elements['window-rate'].textContent,'Paused');
+  p.run('failed=true;renderPlayer()');assert.match(p.elements['segment-note'].textContent,/last observed/);
+});
+
 test('withheld full EXP retains percentage and provisional level across product views',()=>{
   const p=page();p.render(player({reading:{exp:null,percentage:'45.09',bp:4509,evidence:'strict_full',
     exp_validity:{status:'invalid'},level:{value:65,status:'provisional_neural',visual:63,neural:65}}}));
