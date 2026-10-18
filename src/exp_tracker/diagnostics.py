@@ -246,7 +246,7 @@ class Diagnostics:
         with self.store._transaction():
             return self._snapshot(channel, now=now, active_runs=active_runs,session_id=session_id,run_id=run_id,before=before,start=start,end=end,limit=limit)
 
-    def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS):
+    def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS,_rows_only=False):
         if type(limit) is not int or not 1<=limit<=PRODUCT_ROWS:raise ValueError('Invalid history limit')
         state = self.store._state(channel, as_of=now)
         selected = next((c for c in state['characters'] if c['id'] == state['selected_character_id']), None)
@@ -331,6 +331,8 @@ class Diagnostics:
                          timestamp_ordered=previous is None or when > previous)
             previous = max(previous, when) if previous else when
             observations.append(value)
+        if _rows_only:
+            return observations  # Internal streaming history: reuse the exact sanitized decoder.
         total = self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE session_id=?' if self.store.schema_version>=4 else
             'SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?', (session['id'],)).fetchone()[0]
         observations=project(observations)
@@ -368,6 +370,11 @@ class Diagnostics:
             result['percentage_progress']['current_segment']=None
             result['percentage_progress']['reason']='historical_window_not_current'
         return result
+
+    def rolling_history(self,channel,*,now=None):
+        from .rolling_history import aggregate
+        with self.store._transaction():
+            return aggregate(self,channel,now=now or datetime.now(timezone.utc))
 
     def directory(self, cache, *, now=None, active_runs=None,coordinator_status=None):
         """Cache compact cards by committed revision; never retain full histories."""

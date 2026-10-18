@@ -8,6 +8,7 @@ const sorts={exp_hour:'Estimated pace over the selected window; community requir
   level:'Latest supported character levels. Hover for the reading time.',
   movement:'Displayed change within the selected window. Incomplete or interrupted coverage is not ranked.'};
 let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=5,chartMode='exp',bucketSeconds=60,pollTimer=null,activeController=null;
+let rollingData=null,rollingReceived=0,rollingRevision=null,rollingFailed=false,rollingController=null,rollingTimer=null;
 const el=id=>document.getElementById(id);
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
 function ageText(seconds) { if(seconds==null)return 'No reading yet';if(seconds<60)return `${Math.floor(seconds)}s ago`;if(seconds<3600)return `${Math.floor(seconds/60)}m ago`;if(seconds<86400)return `${Math.floor(seconds/3600)}h ago`;return `${Math.floor(seconds/86400)}d ago`; }
@@ -166,6 +167,11 @@ function renderPlayer() {
     el('rate').title=pace?`${pace.label}; ${pace.source.readings} readings / ${Math.round(pace.source.span_seconds.approximate)}s. ${rateTitle(m?.exp_per_hour)}`:el('rate').title;
   }
   if(view==='player') {
+    const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
+    el('tracked-exp').textContent=rolling?.tracked_exp?`~${expText(rolling.tracked_exp.approximate)}`:'—';
+    el('tracked-exp').title=rolling?`${rolling.start} – ${rolling.end}; selected character only. ${rolling.intervals} comparable intervals; ${Math.round(rolling.coverage_seconds.approximate)} captured seconds. Both direct OCR and percentage-based EXP estimates can contribute. Missing periods, losses and level transitions contribute no inferred gain. Not exact EXP earned today.`:'';
+    const rollingAge=(performance.now()-rollingReceived)/1000;
+    el('tracked-note').textContent=rollingFailed?(rolling?`Saved · updated ${ageText(rollingAge)}`:'History unavailable'):rolling?.status==='history_limit'?'History unavailable':rolling?(rolling.tracked_exp?`${spanText(rolling.coverage_seconds.approximate)} tracked`:'No comparable readings'):'Loading history';
     const early=p.early_pace,text=earlyText(p);
     el('early-value').textContent=pace?`${pace.label} · ${pace.source.readings} readings / ${Math.round(pace.source.span_seconds.approximate)}s`:text ?? (early?.segment?'Estimate paused':'Building comparable history');
     el('early-note').textContent=text?'Experimental current segment · separate from completed-window comparisons.':early?.segment?'Last eligible estimate retained for inspection; waiting for fresh, connected readings.':'Needs 3 supported same-level readings over 30s; interruptions restart the segment.';
@@ -188,7 +194,7 @@ function renderPlayer() {
   }
 }
 function bucketHistory(history,anchor,seconds) {
-  const range=({60:1800,300:7200,1800:21600})[seconds];
+  const range=({60:1800,300:7200,1800:86400})[seconds];
   if(!range || !Number.isFinite(anchor))return null;
   const step=seconds*1000,end=Math.ceil(anchor/step)*step,start=end-range*1000;
   const bins=Array.from({length:range/seconds},(_,i)=>({start:start+i*step,end:start+(i+1)*step,value:null,covered:0,intervals:0}));
@@ -213,7 +219,11 @@ function drawExpHistory() {
   const svg=el('history-chart');svg.replaceChildren();
   delete svg.dataset.start;delete svg.dataset.end;
   const rows=data?.history ?? [],anchor=Date.parse(data?.player?.latest_attempt_at ?? rows.at(-1)?.timestamp);
-  const chart=bucketHistory(rows,anchor,bucketSeconds);
+  const rolling=rollingData?.character_id===data?.player?.character?.id?rollingData:null;
+  const chart=bucketSeconds===1800 && rolling?{
+    start:Date.parse(rolling.start),end:Date.parse(rolling.end),seconds:1800,range:86400,
+    bins:rolling.buckets.map(b=>({...b,start:Date.parse(b.start),end:Date.parse(b.end),value:b.value?.approximate ?? null,covered:b.covered.approximate}))
+  }:bucketHistory(bucketSeconds===1800?[]:rows,bucketSeconds===1800?Date.parse(data?.served_at):anchor,bucketSeconds);
   if(!chart){el('history-note').textContent='Your next adventure starts here.';return;}
   const width=Math.max(300,Math.min(960,svg.clientWidth||960)),plotWidth=width-76;
   svg.setAttribute('viewBox',`0 0 ${width} 250`);svg.setAttribute('aria-label','EXP history in fixed time buckets; gaps are missing data, faded bars have partial coverage');
@@ -234,11 +244,15 @@ function drawExpHistory() {
       class:`exp-column ${bin.state}`,tabindex:0,role:'img','aria-label':title},title);
   }
   const ticks=width<600?3:5;
-  for(let i=0;i<ticks;i++)shape('text',{x:54+plotWidth*i/(ticks-1),y:235,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'})
-    .textContent=new Date(chart.start+(chart.end-chart.start)*i/(ticks-1)).toISOString().slice(11,16);
+  for(let i=0;i<ticks;i++){
+    const tick=new Date(chart.start+(chart.end-chart.start)*i/(ticks-1)).toISOString();
+    const attrs={x:54+plotWidth*i/(ticks-1),'text-anchor':i===0?'start':i===ticks-1?'end':'middle'};
+    shape('text',{...attrs,y:232}).textContent=tick.slice(11,16);
+    if(chart.range===86400)shape('text',{...attrs,y:248}).textContent=tick.slice(5,10);
+  }
   const count=chart.bins.filter(b=>b.value!=null).length;
-  el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?'30 min':chart.range/3600+' hours'} · UTC${current(data.player).stale?' · saved history':''}${count?'':' · building history'}`;
-  el('history-note').title='Only comparable same-level captured intervals contribute. Gains are spread uniformly within each such interval for visualization only, never across gaps. Faded bars have partial coverage; baseline dashes are unknown, not zero. At most 640 saved attempts are loaded; older coverage may be absent.';
+  el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?'30 min':chart.range/3600+' hours'} · UTC${current(data.player).stale || rollingFailed && bucketSeconds===1800?' · saved history':''}${count?'':' · building history'}`;
+  el('history-note').title='Only comparable same-level captured intervals contribute. Gains are spread uniformly within each such interval for visualization only, never across gaps. Faded bars have partial coverage; baseline dashes are unknown, not zero. The 24h view uses a separate server aggregation; shorter views load up to 640 recent attempts.';
 }
 function drawHistory() {
   document.querySelectorAll('[data-chart]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chart===chartMode)));
@@ -299,9 +313,27 @@ async function poll() {
   try {
     const response=await fetch(endpoint,{cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error();
     data=await response.json();receivedAt=requested;failed=false;
-    if(view==='board')renderBoard();else { renderPlayer();if(view==='player')drawHistory(); }
+    if(view==='board')renderBoard();else { renderPlayer();if(view==='player'){drawHistory();if(Array.isArray(data.history))pollRolling();} }
   } catch { failed=true;if(view==='board')renderBoard();else renderPlayer(); }
   finally { clearTimeout(timeout);activeController=null;pollTimer=setTimeout(poll,2000); }
+}
+
+async function pollRolling(force=false) {
+  if(view!=='player' || rollingController)return;
+  const revision=JSON.stringify([data?.player?.character?.id,data?.player?.latest_attempt_at]);
+  if(!force && rollingRevision===revision && performance.now()-rollingReceived<30000)return;
+  clearTimeout(rollingTimer);
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
+  rollingController=controller;
+  try {
+    const response=await fetch(`/api/players/${encodeURIComponent(channel)}/history`,{cache:'no-store',signal:controller.signal});
+    if(!response.ok)throw new Error('History unavailable');
+    const result=await response.json();
+    if(!Array.isArray(result.buckets) || result.buckets.length!==48)throw new Error('Invalid history');
+    if(result.character_id!==data?.player?.character?.id)return;
+    rollingData=result;rollingReceived=performance.now();rollingRevision=revision;rollingFailed=false;
+  } catch { rollingFailed=true; }
+  finally { clearTimeout(timeout);rollingController=null;renderPlayer();drawHistory();rollingTimer=setTimeout(()=>pollRolling(true),30000); }
 }
 document.addEventListener?.('visibilitychange',()=>{if(!document.hidden)poll();});
 globalThis.addEventListener?.('pageshow',poll);

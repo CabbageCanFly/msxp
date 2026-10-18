@@ -63,9 +63,12 @@ def _adjacent(before,row):
     except (TypeError,ValueError,KeyError): return False
 
 
-def project(rows):
+def project(rows, *, state=None):
     """Only past, adjacent observations corroborate a level; no lookahead or EXP-derived choice."""
     output=[]; recent=deque(maxlen=3); previous=None; established=None; established_at=None; neural_context=False; missing=0; corroborated_at=None
+    if state:
+        recent=state['recent'];previous=state['previous'];established=state['established'];established_at=state['established_at']
+        neural_context=state['neural_context'];missing=state['missing'];corroborated_at=state['corroborated_at']
     for original in rows:
         row=dict(original); visual=_visual(row); neural,score=_neural(row)
         fresh=(row.get('fresh_at_capture') is True and row.get('capture_acquired') is True
@@ -130,4 +133,7 @@ def project(rows):
         row['experimental_level']=evidence
         row['exp_validity']=consistency(full,selected)
         output.append(row); previous=row
+    if state is not None:
+        state.update(recent=recent,previous=previous,established=established,established_at=established_at,
+            neural_context=neural_context,missing=missing,corroborated_at=corroborated_at)
     return output

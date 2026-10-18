@@ -106,6 +106,7 @@ def test_v3_read_compatibility_and_v4_additive_migration_preserve_payloads(tmp_p
     with Store(path,read_only=True) as store:
         assert len(Diagnostics(store).snapshot('alpha')['observations'])==1
         assert store.schema_version==3
+        assert len(Diagnostics(store).rolling_history('alpha',now=NOW)['buckets'])==48
     assert before==path.read_bytes()
     with Store(path) as store:
         row=store.db.execute('SELECT payload_json,session_id FROM diagnostic_attempts').fetchone()

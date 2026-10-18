@@ -67,6 +67,46 @@ def window_trial(database,port):
             finally:http.shutdown();thread.join(2)
 
 
+def rolling_trial(database,port):
+    """Actual existing character/session payloads, two causal replay stages."""
+    with Store('private/local-alpha/live/telfer1.sqlite3',read_only=True) as source:
+        streamer=source._channel('telfer1')
+        character=source.db.execute('select * from characters where id=?',(streamer['selected_character_id'],)).fetchone()
+        runs=[dict(r) for r in source.db.execute('select * from diagnostic_runs where character_id=? order by rowid',(character['id'],))]
+        assert len({r['session_id'] for r in runs})==1
+        records={r['run_id']:[json.loads(a[0]) for a in source.db.execute('select payload_json from diagnostic_attempts where run_id=? order by attempt_index',(r['run_id'],))] for r in runs}
+    second='d747b5b42eef47bd843ce2fa4bf82748'
+    assert runs[-1]['run_id']==second and len(records[second])==10
+    import exp_tracker.server as server_module
+    import exp_tracker.diagnostics as diagnostic_module
+    class ReviewClock(datetime):
+        at=None
+        @classmethod
+        def now(cls,tz=None):return cls.at
+    server_module.datetime=diagnostic_module.datetime=ReviewClock
+    with Store(database) as store:
+        store.add_channel('telfer1');cid=store.add_character('telfer1',character['label'])
+        store.select_character('telfer1',cid);store.start_session('telfer1')
+        d=Diagnostics(store)
+        def load(run):
+            rid=run['run_id'];d.begin(rid,'telfer1',json.loads(run['configuration_json']))
+            for record in records[rid]:d.append(rid,record)
+            if run['summary_json']:d.append(rid,json.loads(run['summary_json']))
+            ReviewClock.at=max(datetime.fromisoformat(r.get('received_at') or r['attempted_at']) for r in records[rid])+timedelta(seconds=4)
+        for run in runs[:-1]:load(run)
+        with create_server(database,port=port,diagnostic_dashboard=True) as http:
+            http.quiet=True;thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+            print(json.dumps(dict(ready=True,port=http.server_port)),flush=True)
+            try:
+                for command in sys.stdin:
+                    if command.strip()=='advance':load(runs[-1])
+                    elif command.strip()=='expire':ReviewClock.at+=timedelta(days=2)
+                    else:raise ValueError('Ordered replay commands only')
+                    assert not store.db.execute('select 1 from observations').fetchone()
+                    print(json.dumps(dict(stage=command.strip(),as_of=ReviewClock.at.isoformat())),flush=True)
+            finally:http.shutdown();thread.join(2)
+
+
 def main():
     cli=argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--directory',type=Path,required=True)
@@ -74,12 +114,16 @@ def main():
     cli.add_argument('--usability',action='store_true',help='Saved two-stream trial, explicitly as-of replay clock')
     cli.add_argument('--level-up',action='store_true',help='Saved level-up trial; as-of replay, no source retiming')
     cli.add_argument('--windows',action='store_true',help='Saved fixed-window/60-attempt rotation review')
+    cli.add_argument('--rolling',action='store_true',help='Actual new Telfer1 runs and existing character history, as-of replay')
     args=cli.parse_args()
     directory=args.directory.resolve()
     if not any(directory.is_relative_to(Path(p).resolve()) for p in ('private','artifacts')):
         raise ValueError('Private test directory required')
     database=directory/'updates.sqlite3'
     if database.exists():raise ValueError('Never overwrite an existing database')
+    if args.rolling:
+        rolling_trial(database,args.port)
+        return
     if args.windows:
         window_trial(database,args.port)
         return

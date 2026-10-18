@@ -9,6 +9,7 @@ import re
 import sqlite3
 import sys
 import threading
+import time
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .store import STALE_AFTER_SECONDS, Store, utc
@@ -60,8 +61,9 @@ class Handler(BaseHTTPRequestHandler):
         diagnostic_api = re.fullmatch(r"/dev/api/streams/([^/]*)/diagnostics", path)
         history_api = re.fullmatch(r'/dev/api/streams/([^/]*)/(sessions|runs)',path)
         product_api=re.fullmatch(r'/api/players/([^/]*)',path)
+        product_history=re.fullmatch(r'/api/players/([^/]*)/history',path)
         product_page=re.fullmatch(r'/(stream|live/overlay)/([^/]*)',path)
-        if path in ('/','/streams','/api/players') or product_api or product_page or path in PRODUCT_ASSETS:
+        if path in ('/','/streams','/api/players') or product_api or product_history or product_page or path in PRODUCT_ASSETS:
             if not self.server.diagnostic_dashboard:
                 self.reply(404,{'error':'not_found'});return
             try:
@@ -74,11 +76,24 @@ class Handler(BaseHTTPRequestHandler):
                         data=Diagnostics(store).directory(self.server.directory_cache,active_runs=self.server.active_run_ids.copy(),coordinator_status=self.server.coordinator_status.copy())
                     self.reply(200,dict(players=[r['player'] for r in data['streams']],served_at=data['served_at'],truncated=data['truncated'],experimental=True,poll_seconds=2))
                 else:
-                    channel=(product_api[1] if product_api else product_page[2]).lower()
+                    channel=(product_api[1] if product_api else product_history[1] if product_history else product_page[2]).lower()
                     if not CHANNEL.fullmatch(channel):self.reply(400,{'error':'invalid_channel'});return
                     with Store(self.server.database,read_only=True) as store:
-                        store._channel(channel)
-                        if product_api:
+                        streamer=store._channel(channel)
+                        if product_history:
+                            now=datetime.now(timezone.utc)
+                            revision=store.db.execute('SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id '
+                                'WHERE '+('a.session_id IN (SELECT id FROM sessions WHERE streamer_id=? AND character_id=?)' if store.schema_version>=4 else 'r.streamer_id=? AND r.character_id=?'),
+                                (streamer['id'],streamer['selected_character_id'])).fetchone()[0]
+                            key=(streamer['selected_character_id'],revision)
+                            with self.server.history_lock:
+                                cached=self.server.history_cache.get(channel)
+                                if cached is None or cached[0]!=key or time.monotonic()-cached[1]>=30 or abs((now-datetime.fromisoformat(cached[2]['as_of'])).total_seconds())>=30:
+                                    value=Diagnostics(store).rolling_history(channel,now=now)
+                                    if len(self.server.history_cache)>=8:self.server.history_cache.pop(next(iter(self.server.history_cache)))
+                                    self.server.history_cache[channel]=(key,time.monotonic(),value)
+                                self.reply(200,dict(self.server.history_cache[channel][2],served_at=utc(now)))
+                        elif product_api:
                             now=datetime.now(timezone.utc)
                             snap=Diagnostics(store).snapshot(channel,now=now,limit=PRODUCT_ROWS)
                             activity=operation(snap,self.server.coordinator_status.get(channel),now)
@@ -200,6 +215,8 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.coordinator_status = {}
     server.directory_cache = {}
     server.directory_lock = threading.Lock()
+    server.history_cache={}
+    server.history_lock=threading.Lock()
     return server
 
 

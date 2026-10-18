@@ -445,6 +445,21 @@ def refresh(value,*,now=None,activity=None):
     return value
 
 
+def interval_gain(previous,row,value,connected):
+    """Shared public interval interpretation; history and rolling aggregation agree."""
+    if not connected or not previous or not value or row.get('crop_suspect') or value['bp']<previous['bp']:return None
+    gain=exp_change(previous['bp'],value['bp'],value['level']['value'])
+    if gain:
+        if all(p['evidence']=='strict_full' and p['exp'] is not None and p['exp_validity']['status']=='consistent' for p in (previous,value)):
+            if int(value['exp'])<int(previous['exp']):return None
+            gain['value']=rational(Fraction(int(value['exp'])-int(previous['exp'])))
+            gain['basis']='observed_exp_endpoints'
+        gain.update(start=previous['timestamp'],end=value['timestamp'],
+            first_event_id=previous['event_id'],last_event_id=value['event_id'],level=value['level']['value'])
+        if all(p['exp'] is not None and p['evidence']=='strict_full' for p in (previous,value)) and int(value['exp'])<int(previous['exp']):return None
+    return gain
+
+
 def history(snapshot):
     points=[]
     comparisons={c['event_id']:c for c in snapshot['percentage_progress']['comparisons']}
@@ -452,17 +467,8 @@ def history(snapshot):
     for row in snapshot['observations']:
         value=reading(row)
         comparison=comparisons.get(row['event_id'])
-        gain=None
         connected=bool(comparison and comparison['reason']=='contiguous_diagnostic_endpoints' and comparison['change'] in ('positive','zero'))
-        if connected and previous and value and not row.get('crop_suspect') and not previous_row.get('crop_suspect'):
-            gain=exp_change(previous['bp'],value['bp'],value['level']['value'])
-            if gain:
-                if all(p['evidence']=='strict_full' and p['exp'] is not None and p['exp_validity']['status']=='consistent' for p in (previous,value)) and int(value['exp'])>=int(previous['exp']):
-                    gain['value']=rational(Fraction(int(value['exp'])-int(previous['exp'])))
-                    gain['basis']='observed_exp_endpoints'
-                gain.update(start=previous['timestamp'],end=value['timestamp'],
-                    first_event_id=previous['event_id'],last_event_id=value['event_id'],level=value['level']['value'])
-                if all(p['exp'] is not None and p['evidence']=='strict_full' for p in (previous,value)) and int(value['exp'])<int(previous['exp']):gain=None
+        gain=interval_gain(previous,row,value,connected) if previous_row and not previous_row.get('crop_suspect') else None
         points.append(dict(event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'],percentage_review=row.get('percentage_review'),
             connect_previous=connected,gain=gain,
             reading=value,status=row['status'],fresh_at_capture=row['fresh_at_capture'],

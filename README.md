@@ -13,6 +13,8 @@ The [observed-window update](docs/observed-progress-windows.md) shows useful par
 5/10/15/30-minute progress separately from complete-window comparisons and rankings.
 The [gaming companion update](docs/gaming-companion-statistics.md) adds familiar
 EXP units, orange history bars, and a steadier recent pace with missing intervals excluded.
+The [rolling history update](docs/rolling-exp-history.md) adds 24-hour orange bars
+and EXP tracked from eligible captured intervals, with unknown periods left empty.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

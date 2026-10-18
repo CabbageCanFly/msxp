@@ -10,15 +10,16 @@ const verifyQuarantine=databaseArgument==='--verify-quarantine';
 const verifyUsability=databaseArgument==='--verify-usability';
 const verifyLevelUp=databaseArgument==='--verify-level-up';
 const verifyWindows=databaseArgument==='--verify-windows';
+const verifyRolling=databaseArgument==='--verify-rolling';
 const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
-const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows?null:databaseArgument;
+const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
 let fixture=null,fixtureCommand=null;
-if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows){
+if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling){
   const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
   let buffer='',waiting=null;const messages=[];
   fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
   const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
@@ -86,7 +87,45 @@ try {
   await detail.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   await overlay.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   const observed=[];
-  if(verifyWindows){
+  if(verifyRolling){
+    const stages=[];
+    for(const action of [null,'advance','expire']){
+      if(action)await fixtureCommand(action);
+      const actual=await api('/api/players/'+channel),rolling=await api('/api/players/'+channel+'/history');
+      await detail.wait(`data?.served_at===${JSON.stringify(actual.served_at)}`);
+      await detail.wait(`rollingData?.as_of===${JSON.stringify(rolling.as_of)}`,45);
+      assert.equal(rolling.buckets.length,48);
+      await detail.evaluate('document.querySelector("[data-bucket=\\"1800\\"]").click()');
+      const bounds=await detail.evaluate('({a:document.getElementById("history-chart").dataset.start,b:document.getElementById("history-chart").dataset.end})');
+      assert.equal(Date.parse(bounds.b)-Date.parse(bounds.a),86400000);
+      assert.ok(await detail.evaluate('document.querySelectorAll(".exp-column.missing").length>0'));
+      if(action==='expire'){
+        assert.equal(rolling.tracked_exp,null);
+        assert.equal(await detail.evaluate('document.getElementById("tracked-exp").textContent'),'—');
+        assert.equal(await detail.evaluate('document.querySelectorAll(".exp-column:not(.missing)").length'),0);
+      }else{
+        assert.ok(rolling.tracked_exp.approximate>0);
+        assert.equal(await detail.evaluate('document.getElementById("tracked-exp").textContent'),await detail.evaluate(`'~'+expText(${rolling.tracked_exp.approximate})`));
+        assert.ok(await detail.evaluate('document.querySelectorAll(".exp-column:not(.missing)").length>0'));
+      }
+      if(action==='advance'){
+        assert.ok(rolling.tracked_exp.approximate>stages[0].tracked_exp.approximate);
+        await screenshot(detail,'rolling-24h-desktop',1440,1200);await screenshot(detail,'rolling-24h-mobile',390,1400);
+        await overlay.wait(`data?.player?.latest_attempt_at===${JSON.stringify(actual.player.latest_attempt_at)}`);
+        await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.latest_attempt_at===${JSON.stringify(actual.player.latest_attempt_at)}`);
+        await screenshot(overlay,'rolling-overlay',500,160);
+      }
+      stages.push(rolling);
+    }
+    await screenshot(detail,'rolling-expired',1100,1100);
+    for(const seconds of [60,300]){
+      await detail.evaluate(`document.querySelector('[data-bucket="${seconds}"]').click()`);
+      const span=await detail.evaluate('Date.parse(document.getElementById("history-chart").dataset.end)-Date.parse(document.getElementById("history-chart").dataset.start)');
+      assert.equal(span,seconds===60?1800000:7200000);
+    }
+    for(const page of [detail,board,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+    writeFileSync(join(output,'rolling-stages.json'),JSON.stringify(stages,null,2));observed.push(...stages);
+  }else if(verifyWindows){
     const batches=[];
     for(const action of [null,'advance','finish']){
       if(action)await fixtureCommand(action);
@@ -115,7 +154,8 @@ try {
     }
     await screenshot(board,'observed-homepage',1440,1050);
     await screenshot(overlay,'observed-overlay',500,160);
-    for(const [seconds,span] of [[60,1800000],[300,7200000],[1800,21600000]]){
+    await detail.wait('rollingData?.buckets?.length===48');
+    for(const [seconds,span] of [[60,1800000],[300,7200000],[1800,86400000]]){
       await detail.evaluate(`document.querySelector('[data-bucket="${seconds}"]').click()`);
       const bounds=await detail.evaluate('({a:document.getElementById("history-chart").dataset.start,b:document.getElementById("history-chart").dataset.end})');
       assert.equal(Date.parse(bounds.b)-Date.parse(bounds.a),span);

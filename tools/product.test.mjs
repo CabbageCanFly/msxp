@@ -210,18 +210,36 @@ test('EXP bars split only valid captured intervals, conserve amounts, and preser
   assert.equal(p.run('bucketHistory(rows,anchor,5)'),null);
 });
 
-test('EXP history has fixed axes, responsive bars and no made-up 24-hour range',()=>{
+test('EXP history has fixed axes and the 24h view waits for aggregated history',()=>{
   const p=page('player');p.render(player());
   p.context.rows=[{connect_previous:true,gain:{start:'2026-01-01T00:00:00Z',end:'2026-01-01T00:00:15Z',value:{approximate:100}}}];
   p.run('data.history=rows;data.player.latest_attempt_at="2026-01-01T00:00:15Z";drawHistory()');
   assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column missing').length,29);
   assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column partial').length,1);
-  for(const [bucket,seconds] of [[60,1800],[300,7200],[1800,21600]]){
+  p.run('data.served_at="2026-01-01T00:00:15Z"');
+  for(const [bucket,seconds] of [[60,1800],[300,7200],[1800,86400]]){
     p.run(`bucketSeconds=${bucket};drawHistory()`);
     assert.equal(Date.parse(p.elements['history-chart'].dataset.end)-Date.parse(p.elements['history-chart'].dataset.start),seconds*1000);
   }
   p.elements['history-chart'].clientWidth=340;p.run('drawHistory()');
   assert.equal(p.elements['history-chart'].attributes.viewBox,'0 0 340 250');
+});
+
+test('24h summary and bars use the server total, retain zero, and age cached failures',()=>{
+  const p=page('player');p.render(player());
+  p.context.rolling={start:'2025-12-31T00:01:00+00:00',end:'2026-01-01T00:01:00+00:00',as_of:'2026-01-01T00:01:00+00:00',
+    tracked_exp:{approximate:12345},coverage_seconds:{approximate:120},intervals:8,status:'ready',
+    buckets:Array.from({length:48},(_,i)=>({start:new Date(Date.UTC(2025,11,31,0,1)+i*1800e3).toISOString(),end:new Date(Date.UTC(2025,11,31,0,1)+(i+1)*1800e3).toISOString(),
+      value:i===47?{approximate:12345}:null,covered:{approximate:i===47?120:0},state:i===47?'partial':'missing'}))};
+  p.run('rollingData=rolling;bucketSeconds=1800;renderPlayer();drawHistory()');
+  assert.equal(p.elements['tracked-exp'].textContent,'~12.3K');assert.match(p.elements['tracked-note'].textContent,/2m 0s tracked/);
+  assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column missing').length,47);
+  p.context.performance.now=()=>35000;p.run('rollingFailed=true;renderPlayer()');
+  assert.equal(p.elements['tracked-exp'].textContent,'~12.3K');assert.match(p.elements['tracked-note'].textContent,/Saved.*35s ago/);
+  p.run('rollingData.tracked_exp={approximate:0};renderPlayer()');assert.equal(p.elements['tracked-exp'].textContent,'~0');
+  p.run('data.player.character.id=2;renderPlayer();drawHistory()');
+  assert.equal(p.elements['tracked-exp'].textContent,'—');assert.equal(p.elements['tracked-exp'].title,'');
+  assert.ok(!p.elements['history-chart'].children.some(n=>n.attributes.class==='exp-column partial'));
 });
 
 test('public progress uses EXP with percentage fallback and exact provenance in the tooltip',()=>{
@@ -231,4 +249,19 @@ test('public progress uses EXP with percentage fallback and exact provenance in 
   p.render(base);assert.equal(p.elements.movement.textContent,'+2.33K EXP');assert.match(p.elements.movement.title,/0.14 percentage points/);
   delete base.windows[5].observed.estimated_exp;p.render(base);assert.equal(p.elements.movement.textContent,'+0.14%');
   assert.equal(p.run('expText(1234567890)'),'1.23B');assert.equal(p.run('expText(45)'),'45');
+});
+
+test('history polling is separate, bounded to one request, and invalidated by new attempts',async()=>{
+  const calls=[];let resolveHistory;
+  const p=page('player',url=>{calls.push(url);return new Promise(ok=>{if(url.endsWith('/history'))resolveHistory=ok;});});
+  p.render(player({latest_attempt_at:'first'}));
+  const pending=p.run('pollRolling()');await p.run('pollRolling(true)');
+  assert.equal(calls.filter(u=>u.endsWith('/history')).length,1);
+  resolveHistory({ok:false});await pending;
+  assert.equal(p.elements['tracked-exp'].textContent,'—');assert.equal(p.elements['tracked-note'].textContent,'History unavailable');
+  const success=p.run('pollRolling()');
+  resolveHistory({ok:true,json:async()=>({status:'ready',buckets:Array.from({length:48},()=>({value:null,covered:{approximate:0}})),tracked_exp:null,coverage_seconds:{approximate:0},intervals:0})});
+  await success;const count=calls.length;await p.run('pollRolling()');assert.equal(calls.length,count);
+  p.run('data.player.latest_attempt_at="next";pollRolling()');assert.equal(calls.length,count+1);
+  assert.ok(p.timers.includes(30000));
 });

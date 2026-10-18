@@ -22,11 +22,14 @@ def boundary(before,point,row):
         'sampling_gap' if elapsed>min(120,Fraction(str(before['interval_seconds']))*Fraction(3,2)) else None)
 
 
-def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS):
+def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
     """Separate eligible captures corroborate a baseline, not statistical independence or cause."""
     if type(confirmation_seconds) is not int or not 1<=confirmation_seconds<=60:raise ValueError('Confirmation span must be 1..60 seconds')
     anchor=pending=previous=None
     seen=set();result=[];quarantined_at=None
+    if state:
+        anchor=state['anchor'];pending=state['pending'];previous=state['previous']
+        seen=state['seen'];quarantined_at=state['quarantined_at']
     def record(value):
         nonlocal quarantined_at
         if value['public_eligible']:quarantined_at=None
@@ -109,6 +112,7 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS):
             value.update(pending_since=pending['since'].isoformat(),
                 confirmation_deadline=(pending['since']+timedelta(seconds=confirmation_seconds)).isoformat())
         previous=point;record(value)
+    if state is not None:state.update(anchor=anchor,pending=pending,previous=previous,seen=seen,quarantined_at=quarantined_at)
     if result and result[-1]['verification_deadline'] and now>datetime.fromisoformat(result[-1]['verification_deadline']):
         result[-1].update(status='unresolved_numerical_continuity',reason='confirmation_expired')
     return result

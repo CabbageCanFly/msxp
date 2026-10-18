@@ -21,6 +21,8 @@ and game-like, with useful approximate information even when some readings fail.
   intervals from its gain and time; retain visibly aged rates during interruptions.
 - Favor game-like orange EXP bars on fixed time axes, with a secondary level-%
   chart. Missing coverage is unknown, never a zero bar or invented daily/session total.
+- Call partial-coverage sums “EXP tracked”, with captured coverage in secondary
+  detail. A rolling 24-hour view follows the real clock even when capture stops.
 - Celebrate corroborated level-ups. Begin a new level-specific trend, leave gaps
   open and never invent cross-level gains or character identity.
 - Reserve visible warnings for changes that affect interpretation: unresolved large

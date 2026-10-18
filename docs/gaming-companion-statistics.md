@@ -62,13 +62,13 @@ requirement. It retains direct-EXP versus percentage-derived provenance. No gain
 interval is emitted across missing observations, quarantines, losses, level-ups,
 session boundaries or unvalidated run transitions.
 
-The client offers fixed UTC-aligned views:
+The client offers fixed-duration UTC views:
 
 | Time per bar | Axis span |
 |---|---|
 | 1 minute (default) | Last 30 minutes |
 | 5 minutes | Last 2 hours |
-| 30 minutes | Last 6 hours |
+| 30 minutes | Last 24 hours (server-aggregated; see follow-up) |
 
 Axes end at the boundary enclosing the latest real attempt, not at a stretched
 first-to-last reading. Stale captures remain saved history. For visualization
@@ -84,15 +84,14 @@ actual comparable zero-change interval; displayed zero does not prove zero actua
 EXP beneath percentage precision. Focusable bars have time/value/coverage labels.
 The **Level %** button preserves the existing guarded line chart and window controls.
 
-The existing API loads at most **640 attempts** from one selected session. It
+The recent-observation API loads at most **640 attempts** from one selected session. It
 does not guarantee coverage of those entire chart axes (at 13s cadence, about 2h18m;
-at the 3s offline floor, about 32m). Absent older portions stay unknown. No 24-hour
-button, daily total or session average is fabricated.
+at the 3s offline floor, about 32m). Absent older portions stay unknown.
 
-24-hour history needs a separate bounded time-range/paginated or server-aggregated
-query, with enough preceding level/quarantine context and explicit session boundaries.
-It must report captured coverage and missing intervals; that alone would still not
-establish exact all-day earned EXP across losses, level-ups or unsampled time.
+The [rolling-history follow-up](rolling-exp-history.md) now supplies a separate
+bounded, causal server aggregation for the 24h view and EXP tracked summary.
+That view follows current UTC instead of the latest attempt. It preserves unknown
+periods and never establishes exact all-day earnings, daily totals or session averages.
 
 ## Actual saved evidence and validation
 
