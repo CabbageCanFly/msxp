@@ -46,8 +46,8 @@ function fitAmounts() {
 }
 function movementText(summary) { return summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate)} EXP`:summary?.difference_percentage_points!=null?`+${summary.difference_percentage_points}%`:'—'; }
 function displayedExp(r,full=false) {
-  return r?.exp!=null?(r.evidence==='grammar_recovered'?'≈ ':'')+expText(r.exp,full):
-    r?.estimated_exp?`≈${expText(r.estimated_exp.value.approximate,full)}`:'—';
+  return r?.exp!=null?(r.evidence==='grammar_recovered'?'~ ':'')+expText(r.exp,full):
+    r?.estimated_exp?`~${expText(r.estimated_exp.value.approximate,full)}`:'—';
 }
 function expTitle(r) {
   if(r?.estimated_exp) {
@@ -285,7 +285,7 @@ function drawExpHistory() {
     shape('rect',{x:left,y:bin.state==='missing'?205:200-height,width:w,height:bin.state==='missing'?2:height,rx:2,
       class:`exp-column ${bin.state}`},title);
     inspect(shape('rect',{x:left,y:25,width:w,height:183,fill:'transparent',class:'bar-hit'}),`bar:${bin.start}:${bin.end}`,
-      `${localTime(bin.start)}\n${bin.value==null?'No reading':`≈${expText(bin.value,true)} EXP`}\n${chart.seconds/60} min bucket · ${bin.state==='missing'?'No coverage':bin.state==='partial'?`Partial coverage · ${spanText(bin.covered)} captured`:'Complete coverage'}`);
+      `${localTime(bin.start)}\n${bin.value==null?'No reading':`~${expText(bin.value,true)} EXP`}\n${chart.seconds/60} min bucket · ${bin.state==='missing'?'No coverage':bin.state==='partial'?`Partial coverage · ${spanText(bin.covered)} captured`:'Complete coverage'}`);
   }
   const ticks=width<600?3:5;
   for(let i=0;i<ticks;i++){

@@ -209,7 +209,7 @@ function renderProgress() {
   const estimate = !stale && !requestError ? segment?.estimated_exp : null;
   document.getElementById("progress-exp").textContent = estimate ?
     `UNVERIFIED estimated EXP range · community-provisional requirement ${nf.format(segment.requirement.to_next)}: `+
-      Object.entries(estimate.hypotheses).map(([rule,bounds])=>`${reason(rule)} ≈ ${bounds.lower.approximate.toFixed(1)} to ${bounds.upper.approximate.toFixed(1)} EXP`).join(" · ")+". Not an earned-EXP total." :
+      Object.entries(estimate.hypotheses).map(([rule,bounds])=>`${reason(rule)} ~ ${bounds.lower.approximate.toFixed(1)} to ${bounds.upper.approximate.toFixed(1)} EXP`).join(" · ")+". Not an earned-EXP total." :
     `Estimated EXP unavailable: ${stale?"stale observations":reason(segment?.requirement?.status ?? "stable visual level required")}. Percentages are never converted to absolute current EXP.`;
   const historical = (data.segments ?? []).filter(s=>s.pace).at(-1);
   document.getElementById("progress-history").textContent = historical && (!pace || historical.last_event_id!==segment?.last_event_id) ?

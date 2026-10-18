@@ -28,7 +28,7 @@ test('overlay updates percentage-only without borrowing absolute EXP; recovered 
   p.render(player({reading:{exp:null,percentage:'6.00',bp:600,evidence:'strict_percentage_only',level:{value:60,status:'single_reader'}}}));
   assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.progress.value,6);assert.equal(p.elements.level.textContent,'Lv. 60');
   p.render(player({reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'grammar_recovered',level:{value:null,status:'conflict',visual:54,neural:64}}}));
-  assert.match(p.elements.exp.textContent,/^≈/);assert.equal(p.elements.level.textContent,'Lv. —');assert.match(p.elements.level.title,/54 \/ 64/);
+  assert.match(p.elements.exp.textContent,/^~/);assert.equal(p.elements.level.textContent,'Lv. —');assert.match(p.elements.level.title,/54 \/ 64/);
 });
 test('cached failures and advancing ages preserve values but suppress rates and ETA',()=>{
   const p=page();p.render(player());assert.equal(p.elements.rate.textContent,'~2K');assert.equal(p.elements.eta.textContent,'~15m');
@@ -113,7 +113,7 @@ test('percentage-derived EXP is explicitly approximate and leaves direct OCR int
   const p=page(),r={exp:null,percentage:'67.72',bp:6772,evidence:'strict_percentage_only',level:{value:65,status:'provisional_neural'},
     estimated_exp:{value:{approximate:1069917.0836},level_evidence:{value:65},requirement:{version:'synthetic'},
       hypotheses:{nearest_half_up:{min:1069839,max:1069996,count:158},truncate:{min:1069918,max:1070075,count:158}}}};
-  p.render(player({reading:r}));assert.equal(p.elements.exp.textContent,'≈1.07M');assert.match(p.elements.exp.title,/not read directly by OCR/);
+  p.render(player({reading:r}));assert.equal(p.elements.exp.textContent,'~1.07M');assert.match(p.elements.exp.title,/not read directly by OCR/);
   p.render(player({reading:{...r,exp:'1069917',estimated_exp:null,evidence:'strict_full'}}));
   assert.equal(p.elements.exp.textContent,'1.07M');assert.match(p.elements.exp.title,/original strict OCR/);
   p.render(player({reading:{...r,estimated_exp:null,level:{value:null,status:'conflict'}}}));assert.equal(p.elements.exp.textContent,'—');

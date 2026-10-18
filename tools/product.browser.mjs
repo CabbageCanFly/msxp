@@ -328,9 +328,9 @@ try {
     for(const page of [board,detail,overlay,windowPage])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     assert.equal(await detail.evaluate('document.getElementById("exp").textContent'),'—');
     assert.equal(await overlay.evaluate('document.getElementById("percentage").textContent'),'67.72%');
-    assert.equal(await windowPage.evaluate('document.getElementById("exp").textContent'),'≈1.07M');
+    assert.equal(await windowPage.evaluate('document.getElementById("exp").textContent'),'~1.07M');
     const estimatedOverlay=await tab('/live/overlay/synthetic_window',500,160);await estimatedOverlay.wait('typeof data!=="undefined" && !!data?.player');
-    assert.equal(await estimatedOverlay.evaluate('document.getElementById("exp").textContent'),'≈1.07M');
+    assert.equal(await estimatedOverlay.evaluate('document.getElementById("exp").textContent'),'~1.07M');
     await screenshot(board,'homepage-updated',1440,1050);await screenshot(estimatedOverlay,'overlay-million-estimate-synthetic',500,160);
     await screenshot(windowPage,'eligible-five-minute-control',1100,1050);
     if(verifyQuarantine){
