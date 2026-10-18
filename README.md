@@ -51,7 +51,10 @@ changes, confirms small losses with separate eligible captures and preserves raw
 The [live usability update](docs/live-usability.md) retains separately timestamped
 last-known levels and exposes early segment pace without relaxing fixed-window coverage.
 
-The **[multi-stream local alpha](docs/multi-alpha.md)** runs 2–25 explicit assignments
+Manage assignments with the [private roster CLI](docs/streamer-roster.md): add, disable,
+re-enable and inspect without deleting history; changes apply on controlled restart.
+
+The **[multi-stream local alpha](docs/multi-alpha.md)** runs 1–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and
 separately gated experimental percentage progress. Start with the offline
 two-video example; neural/grammar values never contribute to trusted EXP totals.

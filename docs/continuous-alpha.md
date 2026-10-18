@@ -1,6 +1,6 @@
 # Continuous local tracking and history
 
-The multi-alpha coordinator supports **2–25 explicit assignments**, bounded mode
+The multi-alpha coordinator supports **1–25 explicit assignments**, bounded mode
 and opt-in continuous capture. One acquisition/OCR job runs at a time, with one
 shared database and localhost server. All neural/grammar evidence and percentage
 progress remain **EXPERIMENTAL / UNVERIFIED**. No OCR rule/model, EXP requirement,
@@ -34,7 +34,7 @@ connects or writes. Twitch still requires explicit per-assignment `authorized:tr
 
 For **local videos only**, `--offline-fast-test` explicitly lowers the interval
 floor to three seconds. Normal defaults/range remain 15s / 5–300s. It rejects the
-entire configuration if any source is Twitch, including an authorized source.
+entire configuration if any enabled source is Twitch, including an authorized source.
 
 ```powershell
 # Existing private smoke config requests 3s and 8s; preserve it and its output DB.
@@ -49,7 +49,7 @@ entire configuration if any source is Twitch, including an authorized source.
 | Development workload | Suggested requested interval |
 |---|---|
 | Virtual-clock rollover | Simulated; no real waiting |
-| Single-video investigation | 3–5s with explicit fast mode; bounded multi-alpha requires at least two assignments, or use the existing standalone runner at >=5s |
+| Single-video investigation | 3–5s with explicit fast mode; multi-alpha now supports one active assignment |
 | Two videos | Start at 8–10s, then inspect achieved cadence |
 | Permitted Twitch trial | 15–30s initially |
 | Continuous operation | Capacity-dependent; never assume the request is achieved |
@@ -235,3 +235,5 @@ Changed files: `tools/multi_alpha.py`, `shadow_capture.py`,
 `test_backup_database.py`; `tools/shadow.test.mjs`, `streams.test.mjs`,
 `shadow.browser.mjs`; `README.md`, `docs/multi-alpha.md`, `tracking.md`, `design.md`,
 and this guide.
+
+Roster changes: see [streamer-roster.md](streamer-roster.md) for atomic CLI edits, disabled assignments and controlled restart.

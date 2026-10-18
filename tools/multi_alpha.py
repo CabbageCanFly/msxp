@@ -34,19 +34,28 @@ def load_config(path, *, offline_fast_test=False):
     path = private(path)
     if path.stat().st_size > 32768:
         raise ValueError('Configuration exceeds 32 KiB')
-    value = json.loads(path.read_text(encoding='utf-8'))
+    value = json.loads(path.read_text(encoding='utf-8-sig'))
+    database, port, streams = validate_config(value, offline_fast_test=offline_fast_test)
+    active = [row for row in streams if row.get('enabled', True)]
+    if not active:
+        raise ValueError('No enabled assignments; enable a streamer or use the read-only server')
+    return database, port, active
+
+
+def validate_config(value, *, offline_fast_test=False):
+    """Validate all assignments, including disabled ones; never initialize SQLite."""
     if not isinstance(value, dict) or set(value) - {'database', 'port', 'streams'}:
         raise ValueError('Expected database, port and streams configuration')
     streams = value.get('streams')
-    if not isinstance(streams, list) or not 2 <= len(streams) <= 25:
-        raise ValueError('Configure 2..25 explicit stream assignments')
+    if not isinstance(streams, list) or not 0 <= len(streams) <= 25:
+        raise ValueError('Configure at most 25 explicit stream assignments')
     database = private(value.get('database', 'private/multi-alpha/tracking.sqlite3'))
     port = value.get('port', 8765)
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError('port must be 0..65535')
     result, seen = [], set()
     for row in streams:
-        allowed = {'channel', 'character', 'source', 'file', 'start', 'interval', 'count', 'authorized',
+        allowed = {'channel', 'character', 'source', 'file', 'start', 'interval', 'count', 'authorized', 'enabled',
                    'experimental_neural_level', 'save_crops', 'timeout', 'max_age', 'ocr_timeout', 'quality'}
         if not isinstance(row, dict) or set(row) - allowed:
             raise ValueError('Unknown stream configuration field')
@@ -58,9 +67,9 @@ def load_config(path, *, offline_fast_test=False):
         seen.add(channel.lower())
         if row.get('source') not in ('file', 'twitch'):
             raise ValueError('Source must be file or twitch')
-        if offline_fast_test and row['source'] != 'file':
+        if offline_fast_test and row.get('enabled', True) and row['source'] != 'file':
             raise ValueError('Offline fast testing requires ALL sources to be local video')
-        for key in ('authorized', 'experimental_neural_level', 'save_crops'):
+        for key in ('authorized', 'experimental_neural_level', 'save_crops', 'enabled'):
             if key in row and type(row[key]) is not bool:
                 raise ValueError(f'{key} must be an explicit boolean')
         for key, default, low, high in [('count',3,1,60), ('interval',15,3 if offline_fast_test else 5,300), ('start',0,0,86400),
@@ -70,6 +79,10 @@ def load_config(path, *, offline_fast_test=False):
                 raise ValueError(f'{key} must be bounded to {low}..{high}')
         if row['source'] == 'file' and (not isinstance(row.get('file'), str) or not row['file']):
             raise ValueError('Local video needs an explicit file path')
+        if 'quality' in row:
+            if not isinstance(row['quality'], str):
+                raise ValueError('quality must be a named rendition')
+            shadow.Source('twitch', channel, row['quality']).streamlink_command()
         result.append({**row, 'channel': channel.lower()})
     return database, port, result
 
@@ -107,7 +120,7 @@ def ownership(database):
             release()
 
 
-def initialize(database, streams, say=print):
+def check_assignments(database, streams):
     # Inspect every existing selection before making any assignment changes.
     if database.exists():
         with Store(database, read_only=True) as store:
@@ -117,6 +130,10 @@ def initialize(database, streams, say=print):
                     label = store.db.execute('SELECT label FROM characters WHERE id=?', (found[0],)).fetchone()[0]
                     if label != row['character']:
                         raise ValueError(f"Character mismatch for {row['channel']}: selected {label!r}; requested {row['character']!r}. Use explicit administration.")
+
+
+def initialize(database, streams, say=print):
+    check_assignments(database, streams)
     with Store(database) as store:
         for row in streams:
             store.add_channel(row['channel'])

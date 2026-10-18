@@ -3,7 +3,7 @@
 Current follow-up: [continuous capture, safe rotation, fast offline testing and
 historical browsing](continuous-alpha.md). The finite workflow below remains supported.
 
-One coordinator runs **2–25 explicit assignments**, one capture/OCR job at a time,
+One coordinator runs **1–25 explicit assignments**, one capture/OCR job at a time,
 one shared SQLite database and one localhost HTTP server. All neural and
 grammar-derived evidence remains **EXPERIMENTAL / UNVERIFIED**. Trusted Store
 accounting, the OBS overlay, models, grammar policy and requirement dataset are
@@ -74,7 +74,7 @@ For saved evidence, prepare a separate private configuration with `telfer1` and
 .\.venv\Scripts\python tools/multi_alpha.py --config private/multi-alpha/replay-config.json --replay 'telfer1=private/local-alpha/runs/telfer1-20261017T073930Z-986495bd/capture.jsonl' --replay 'niru=private/shadow-neural-level/replay-02/viewer-stream-b.jsonl'
 ```
 
-Exactly one log per configured channel is required. Replay does not connect or
+Exactly one log per enabled configured channel is required. Replay does not connect or
 run OCR; repeated identical replay is idempotent. Source/channel and bound
 character/session checks prevent reassignment. Historical data stays stale.
 
@@ -235,3 +235,5 @@ Exact public changed-file scope:
 
 No Store/schema, production recognizer/guard, accounting/statistics, EXP table,
 grammar rules/model weights, OBS overlay or leaderboard files were changed.
+
+Roster changes: see [streamer-roster.md](streamer-roster.md) for atomic CLI edits, disabled assignments and controlled restart.
