@@ -4,16 +4,17 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../src/exp_tracker/web/product.js',import.meta.url),'utf8');
 class Element {
-  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};}
+  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={};}
   append(...c){this.children.push(...c);}replaceChildren(...c){this.children=c;}
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v){(this.listeners??={})[k]=v;}
+  getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
 }
 function page(view='overlay',fetcher=()=>new Promise(()=>{})){
   const elements={},timers=[],events={};
   const buttons=[5,10,15,30].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const context=vm.createContext({Intl,Date,BigInt,AbortController,performance:{now:()=>0},
-    location:{pathname:view==='overlay'?'/live/overlay/alpha':'/stream/alpha',origin:'http://127.0.0.1:8765'},
-    navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{body:{dataset:{view}},hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
+    location:{pathname:view==='overlay'?'/live/overlay/alpha':'/stream/alpha',origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
+    navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
       querySelectorAll:selector=>selector==='[data-window]'?buttons:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
@@ -47,7 +48,7 @@ test('window buttons use only eligible window metrics; overlay keeps its existin
   const p=page('player'),base=player();
   base.windows={5:{eligible:true,estimates:base.estimates,difference_percentage_points:'0.20',readings:21,coverage_seconds:{approximate:300}},
     10:{eligible:false,state:'building_history',estimates:{}}};
-  p.render(base);assert.equal(p.elements.movement.textContent,'+0.20%');assert.equal(p.elements.rate.textContent,'~2K');
+  p.render(base);assert.equal(p.elements.movement.textContent,'+0.20%');assert.equal(p.elements.rate.textContent,'~2,000');
   p.buttons[1].listeners.click();assert.equal(p.elements.movement.textContent,'—');assert.equal(p.elements.rate.textContent,'—');
   assert.match(p.elements['segment-note'].textContent,/Building 10m history/);
   assert.equal(p.buttons[1].attributes['aria-pressed'],'true');
@@ -91,7 +92,7 @@ test('observed windows show real partial endpoints without ranking them or relab
     assert.equal(p.elements.movement.textContent,`+${i}.55%`);
     assert.match(p.elements['segment-note'].textContent,/3m 28s.*15 readings.*1 short gap.*partial history/);
     assert.equal(p.elements['window-rate'].textContent,'Not complete yet');
-    assert.equal(p.elements.rate.textContent,'~2K');
+    assert.equal(p.elements.rate.textContent,'~2,000');
   }
   p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"movement").map(r=>r.rank))')),[null]);
   p.render({...base,stale:true});
@@ -133,7 +134,7 @@ test('polling continues in background, refreshes on return, and never overlaps a
 test('owned activity and completion stay distinct from cached API failures and stale values',()=>{
   const p=page();
   for(const [activity,text] of [[{state:'running'},'Updating'],[{state:'waiting'},'Tracking'],
-    [{state:'stopped',completion:'completed'},'Capture complete'],[{state:'stopped',completion:'interrupted'},'Capture interrupted']]){
+    [{state:'stopped',completion:'completed'},'Capture finished'],[{state:'stopped',completion:'interrupted'},'Capture interrupted']]){
     p.render(player({activity}));assert.equal(p.elements.status.textContent,text);
   }
   p.render(player({activity:{state:'running'},stale:true}));assert.equal(p.elements.status.textContent,'Updates delayed');
@@ -171,10 +172,10 @@ test('early segment pace is visible before a complete window and becomes paused 
 test('responsive pace has one current rate, retains an explicitly aged rate after gaps, and never ranks it',()=>{
   const p=page('player'),base=player();
   base.responsive_pace={active:true,tentative:true,age_seconds:0,readings:2,span_seconds:{approximate:15},estimates:{...base.estimates,eta:null}};
-  p.render(base);assert.equal(p.elements.rate.textContent,'~2K');assert.match(p.elements['early-value'].textContent,/first estimate.*2 readings \/ 15s/);
+  p.render(base);assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/first estimate.*2 readings \/ 15s/);
   assert.equal(p.elements['window-rate'].textContent,'Building history');
   p.render({...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}});
-  assert.equal(p.elements.rate.textContent,'~2K');assert.match(p.elements['early-value'].textContent,/last estimated 35s ago/);
+  assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/last estimated 35s ago/);
   assert.equal(p.elements.rate.dataset.paused,'true');assert.equal(p.elements['eta-stat'].hidden,true);
   p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[null]);
 });
@@ -232,10 +233,10 @@ test('24h summary and bars use the server total, retain zero, and age cached fai
     buckets:Array.from({length:48},(_,i)=>({start:new Date(Date.UTC(2025,11,31,0,1)+i*1800e3).toISOString(),end:new Date(Date.UTC(2025,11,31,0,1)+(i+1)*1800e3).toISOString(),
       value:i===47?{approximate:12345}:null,covered:{approximate:i===47?120:0},state:i===47?'partial':'missing'}))};
   p.run('rollingData=rolling;bucketSeconds=1800;renderPlayer();drawHistory()');
-  assert.equal(p.elements['tracked-exp'].textContent,'~12.3K');assert.match(p.elements['tracked-note'].textContent,/2m 0s tracked/);
+  assert.equal(p.elements['tracked-exp'].textContent,'~12,345');assert.match(p.elements['tracked-note'].textContent,/2m 0s tracked/);
   assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column missing').length,47);
   p.context.performance.now=()=>35000;p.run('rollingFailed=true;renderPlayer()');
-  assert.equal(p.elements['tracked-exp'].textContent,'~12.3K');assert.match(p.elements['tracked-note'].textContent,/Saved.*35s ago/);
+  assert.equal(p.elements['tracked-exp'].textContent,'~12,345');assert.match(p.elements['tracked-note'].textContent,/Saved.*35s ago/);
   p.run('rollingData.tracked_exp={approximate:0};renderPlayer()');assert.equal(p.elements['tracked-exp'].textContent,'~0');
   p.run('data.player.character.id=2;renderPlayer();drawHistory()');
   assert.equal(p.elements['tracked-exp'].textContent,'—');assert.equal(p.elements['tracked-exp'].title,'');
@@ -246,7 +247,7 @@ test('public progress uses EXP with percentage fallback and exact provenance in 
   const p=page('player'),base=player({windows:{5:{eligible:false,observed:{available:true,
     difference_percentage_points:'0.14',estimated_exp:{value:{approximate:2329.7904},requirement:{version:'synthetic'}},
     span_seconds:{approximate:45},readings:4,interruptions:0,age_seconds:1}}}});
-  p.render(base);assert.equal(p.elements.movement.textContent,'+2.33K EXP');assert.match(p.elements.movement.title,/0.14 percentage points/);
+  p.render(base);assert.equal(p.elements.movement.textContent,'+2,330 EXP');assert.match(p.elements.movement.title,/0.14 percentage points/);
   delete base.windows[5].observed.estimated_exp;p.render(base);assert.equal(p.elements.movement.textContent,'+0.14%');
   assert.equal(p.run('expText(1234567890)'),'1.23B');assert.equal(p.run('expText(45)'),'45');
 });
@@ -264,4 +265,32 @@ test('history polling is separate, bounded to one request, and invalidated by ne
   await success;const count=calls.length;await p.run('pollRolling()');assert.equal(calls.length,count);
   p.run('data.player.latest_attempt_at="next";pollRolling()');assert.equal(calls.length,count+1);
   assert.ok(p.timers.includes(30000));
+});
+
+test('wide values retain whole numbers; measured overflow uses compact text and restores on resize',()=>{
+  const p=page('player');p.render(player({windows:{5:{eligible:true,estimates:player().estimates,coverage_seconds:{approximate:300},readings:21}}}));
+  assert.equal(p.elements.exp.textContent,'71,441 EXP');assert.equal(p.elements.rate.textContent,'~2,000');
+  p.elements.exp.clientWidth=80;p.elements.exp.scrollWidth=130;p.run('renderPlayer()');
+  assert.equal(p.elements.exp.textContent,'71.4K');assert.match(p.elements.exp.title,/71,441/);
+  p.elements.exp.clientWidth=300;p.run('renderPlayer()');assert.equal(p.elements.exp.textContent,'71,441 EXP');
+  assert.equal(p.run('expText(12345.678,true)'),'12,346');
+});
+
+test('completed/stopped capture labels take precedence over stale data but not API failures',()=>{
+  const p=page('player');
+  p.render(player({stale:true,activity:{state:'capture_finished'}}));assert.equal(p.elements.status.textContent,'Capture finished');
+  p.render(player({stale:true,age_seconds:480,activity:{state:'coordinator_stopped'}}));assert.equal(p.elements.status.textContent,'Last tracked 8m ago');
+  p.run('failed=true;renderPlayer()');assert.equal(p.elements.status.textContent,'Updates delayed');
+});
+
+test('chart inspection supports focus, touch, Escape and viewport bounds without HTML injection',()=>{
+  const p=page('player');p.context.mark=new Element('circle');
+  p.run('inspect(mark,"sample","No reading\\n<not HTML>")');
+  p.context.mark.listeners.focus();
+  assert.equal(p.run('tip.textContent'),'No reading\n<not HTML>');assert.equal(p.run('tip.hidden'),false);
+  assert.equal(p.context.mark.attributes['aria-label'],'No reading\n<not HTML>');
+  assert.ok(parseFloat(p.run('tip.style.left'))>=8);
+  p.events.keydown({key:'Escape'});assert.equal(p.run('tip.hidden'),true);
+  p.context.mark.listeners.pointerdown({pointerType:'touch'});assert.equal(p.run('tip.hidden'),false);
+  p.context.mark.listeners.pointerdown({pointerType:'touch'});assert.equal(p.run('tip.hidden'),true);
 });

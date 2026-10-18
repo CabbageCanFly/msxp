@@ -11,15 +11,16 @@ const verifyUsability=databaseArgument==='--verify-usability';
 const verifyLevelUp=databaseArgument==='--verify-level-up';
 const verifyWindows=databaseArgument==='--verify-windows';
 const verifyRolling=databaseArgument==='--verify-rolling';
+const verifyHistorical=databaseArgument==='--verify-historical';
 const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
-const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling?null:databaseArgument;
+const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
 let fixture=null,fixtureCommand=null;
-if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling){
+if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical){
   const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
   let buffer='',waiting=null;const messages=[];
   fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
   const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
@@ -87,7 +88,77 @@ try {
   await detail.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   await overlay.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   const observed=[];
-  if(verifyRolling){
+  if(verifyHistorical){
+    const stages=[];
+    await detail.evaluate('[...document.querySelectorAll(".bar-hit")].at(-1).focus()');
+    await detail.wait('tip && !tip.hidden');
+    const oldTip=await detail.evaluate('({key:tipKey,text:tip.textContent})');
+    for(const action of ['finish','age']){
+      await fixtureCommand(action);
+      const actual=await api('/api/players/'+channel);stages.push(actual);
+      await detail.wait(`data?.served_at===${JSON.stringify(actual.served_at)}`);
+      await board.wait(`data?.served_at===${JSON.stringify(actual.served_at)}`);
+      await overlay.wait(`data?.served_at===${JSON.stringify(actual.served_at)}`);
+      if(action==='finish'){
+        await detail.wait(`tipKey===${JSON.stringify(oldTip.key)} && tip.textContent!==${JSON.stringify(oldTip.text)}`);
+        assert.equal(await detail.evaluate('tip.hidden'),false);
+      }
+      await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.capture_lifecycle==='completed'`);
+      assert.equal(await detail.evaluate('document.getElementById("status").textContent'),'Capture finished');
+      if(action==='age')assert.equal(await board.evaluate('data.players.every(p=>p.stale && p.age_seconds>4600)'),true);
+      assert.equal(actual.player.responsive_pace.active,false);
+      for(const minutes of [5,10,15,30]){
+        await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
+        assert.ok(actual.player.windows[String(minutes)].observed.available);
+        assert.equal(actual.player.windows[String(minutes)].eligible,false);
+        assert.notEqual(await detail.evaluate('document.getElementById("movement").textContent'),'—');
+        assert.match(await detail.evaluate('document.getElementById("segment-note").textContent'),/readings.*last updated/);
+      }
+    }
+    await detail.wait('rollingData?.buckets?.length===48');
+    await screenshot(detail,'historical-desktop',1440,1200);await screenshot(board,'historical-homepage',1440,1000);
+    async function tooltip(selector,touch=false){
+      await detail.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`);await delay(100);
+      const bounds=await detail.evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);
+      if(touch){
+        await detail.command('Emulation.setTouchEmulationEnabled',{enabled:true});
+        await detail.command('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[bounds]});
+        await detail.command('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+      }else {await detail.command('Input.dispatchMouseEvent',{type:'mouseMoved',x:0,y:0});await detail.command('Input.dispatchMouseEvent',{type:'mouseMoved',...bounds});}
+      try {await detail.wait('tip && !tip.hidden');}catch(error){
+        writeFileSync(join(output,'tooltip-failure.json'),JSON.stringify(await detail.evaluate(`({bounds:${JSON.stringify(bounds)},target:document.elementFromPoint(${bounds.x},${bounds.y})?.outerHTML,tip:tip?.textContent,hidden:tip?.hidden})`),null,2));throw error;
+      }
+      assert.ok(await detail.evaluate('(()=>{const r=tip.getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'));
+      return detail.evaluate('tip.textContent');
+    }
+    assert.match(await tooltip('.bar-hit[data-tip-text*="Partial coverage"]'),/EXP\n1 min bucket/);
+    assert.match(await tooltip('.bar-hit[data-tip-text*="Complete coverage"]'),/Complete coverage/);
+    await screenshot(detail,'bar-tooltip-desktop',1440,1100);
+    const key=await detail.evaluate('tipKey');await delay(2500);
+    assert.equal(await detail.evaluate('tipKey'),key);assert.equal(await detail.evaluate('tip.hidden'),false);
+    await detail.evaluate('document.querySelector(".bar-hit").focus()');
+    await detail.wait('tip && !tip.hidden');
+    await detail.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
+    assert.equal(await detail.evaluate('tip.hidden'),true);
+    await delay(2500);assert.equal(await detail.evaluate('tip.hidden'),true);
+    await detail.evaluate('document.querySelector("[data-bucket=\\"1800\\"]").click()');
+    assert.match(await tooltip('.bar-hit[data-tip-text*="No reading"]'),/No reading/);
+    await detail.evaluate('document.querySelector("[data-chart=percentage]").click()');
+    assert.match(await tooltip('circle[data-tip-key]'),/Lv\. 57 · \d+\.\d{2}%\n[\d,]+ EXP/);
+    await screenshot(detail,'point-tooltip-desktop',1440,1100);
+    assert.match(await tooltip('path[data-tip-key]'),/Reading unavailable/);
+    await screenshot(detail,'historical-mobile',390,1200);
+    await detail.evaluate('document.querySelector("[data-chart=exp]").click();document.querySelector("[data-bucket=\\"60\\"]").click()');
+    assert.match(await tooltip('.bar-hit[data-tip-text*="Partial coverage"]',true),/Partial coverage/);
+    await screenshot(detail,'bar-tooltip-mobile',390,1200);
+    const other=await tab('/stream/telfer1',1440,1100);await other.wait("typeof data!=='undefined' && data?.player?.capture_lifecycle==='completed'");
+    assert.match(await other.evaluate('document.getElementById("exp").textContent'),/EXP|K/);
+    await screenshot(other,'telfer-historical-desktop',1440,1100);
+    await overlay.wait("data?.player?.capture_lifecycle==='completed'");await screenshot(overlay,'historical-overlay',500,160);
+    for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+    writeFileSync(join(output,'historical-stages.json'),JSON.stringify(stages,null,2));observed.push(...stages);
+    writeFileSync(join(output,'chart-cost.json'),JSON.stringify(await detail.evaluate('Array.from({length:10},()=>{const start=performance.now();drawHistory();return performance.now()-start})')));
+  }else if(verifyRolling){
     const stages=[];
     for(const action of [null,'advance','expire']){
       if(action)await fixtureCommand(action);

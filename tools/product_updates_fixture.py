@@ -107,6 +107,45 @@ def rolling_trial(database,port):
             finally:http.shutdown();thread.join(2)
 
 
+def historical_trial(database,port):
+    root=Path('private/multi-alpha/runs/20261018T043432Z-c0b93f52')
+    records={c:[[json.loads(s) for s in p.read_text().splitlines()] for p in sorted((root/c).rglob('capture.jsonl'),key=lambda p:len(p.parts))] for c in ('telfer1','shiphtur')}
+    import exp_tracker.server as server_module
+    import exp_tracker.diagnostics as diagnostic_module
+    class ReviewClock(datetime):
+        at=None
+        @classmethod
+        def now(cls,tz=None):return cls.at
+    server_module.datetime=diagnostic_module.datetime=ReviewClock
+    with Store(database) as store:
+        d=Diagnostics(store)
+        for channel,logs in records.items():
+            store.add_channel(channel);cid=store.add_character(channel,'Saved review')
+            store.select_character(channel,cid);store.start_session(channel)
+            assert len(logs)==2
+            for n,log in enumerate(logs):
+                d.begin(log[0]['run_id'],channel,log[0])
+                for row in log[1:]:
+                    if n==0 or row['type']=='attempt' and row['index']<=28:d.append(log[0]['run_id'],row)
+        ReviewClock.at=max(datetime.fromisoformat(row['received_at']) for logs in records.values() for row in logs[1] if row['type']=='attempt' and row['index']==28)+timedelta(seconds=4)
+        with create_server(database,port=port,diagnostic_dashboard=True) as http:
+            http.quiet=True;thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+            print(json.dumps(dict(ready=True)),flush=True)
+            try:
+                for command in sys.stdin:
+                    action=command.strip()
+                    if action=='finish':
+                        for logs in records.values():
+                            for row in logs[1][1:]:
+                                if row['type']=='summary' or row['index']>28:d.append(logs[1][0]['run_id'],row)
+                        ReviewClock.at=max(datetime.fromisoformat(row['received_at']) for logs in records.values() for row in logs[1] if row['type']=='attempt')+timedelta(seconds=4)
+                    elif action=='age':ReviewClock.at+=timedelta(minutes=78)
+                    else:raise ValueError('finish then age only')
+                    assert not store.db.execute('select 1 from observations').fetchone()
+                    print(json.dumps(dict(stage=action,as_of=ReviewClock.at.isoformat())),flush=True)
+            finally:http.shutdown();thread.join(2)
+
+
 def main():
     cli=argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--directory',type=Path,required=True)
@@ -115,12 +154,16 @@ def main():
     cli.add_argument('--level-up',action='store_true',help='Saved level-up trial; as-of replay, no source retiming')
     cli.add_argument('--windows',action='store_true',help='Saved fixed-window/60-attempt rotation review')
     cli.add_argument('--rolling',action='store_true',help='Actual new Telfer1 runs and existing character history, as-of replay')
+    cli.add_argument('--historical',action='store_true',help='Actual completed 90-attempt two-stream trial, as-of clock')
     args=cli.parse_args()
     directory=args.directory.resolve()
     if not any(directory.is_relative_to(Path(p).resolve()) for p in ('private','artifacts')):
         raise ValueError('Private test directory required')
     database=directory/'updates.sqlite3'
     if database.exists():raise ValueError('Never overwrite an existing database')
+    if args.historical:
+        historical_trial(database,args.port)
+        return
     if args.rolling:
         rolling_trial(database,args.port)
         return

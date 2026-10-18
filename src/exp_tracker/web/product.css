@@ -17,9 +17,10 @@
 .product progress::-moz-progress-bar,.live-overlay progress::-moz-progress-bar { background:#a9d633; }
 .poll-note { color:#c9b18e; font-size:11px; }
 .product .entry .exp-label { color:#fff; }
+.product .entry .exp-number { min-width:0; white-space:nowrap; }
 .player-reading { display:flex; align-items:center; gap:18px; padding:28px 25px 12px; }
 .player-reading .level { min-width:75px; padding:13px 8px; }
-.player-reading .exp-section { flex:1; }
+.player-reading .exp-section { flex:1; min-width:0; }
 .player-reading .exp-bar { height:34px; }
 .player-reading .exp-label { font-size:16px; gap:8px; }
 .player-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:20px 25px; gap:12px; }
@@ -90,5 +91,12 @@
 .history-chart .exp-column.partial { opacity:.55; }
 .history-chart .exp-column.missing { fill:#a99175; opacity:.3; stroke:none; }
 .history-chart .exp-column:focus { outline:2px solid #fff0ba; opacity:1; }
+.product[data-view="player"] :is(#exp,#rate,#movement,#tracked-exp,#window-rate) { white-space:nowrap; overflow-wrap:normal; }
+.player-reading #exp { min-width:0; }
+.chart-tooltip { position:fixed; z-index:20; width:max-content; max-width:min(280px,calc(100vw - 16px)); box-sizing:border-box; padding:10px 13px; background:#302519; border:1px solid #c29451; border-radius:8px; color:#fff0d3; font:12px/1.6 system-ui,sans-serif; white-space:pre-line; overflow-wrap:anywhere; pointer-events:none; box-shadow:0 5px 18px #0008; }
+.history-chart [data-tip-key] { cursor:crosshair; }
+.history-chart [data-tip-key]:focus-visible { outline:2px solid #f4c47c; }
+.history-chart :is(.gap,.trend,.chart-grid) { pointer-events:none; }
+.history-chart circle.sample { stroke:transparent; stroke-width:12px; }
 .recent-card [data-paused="true"] { opacity:.65; }
 @media(max-width:650px) { .companion-cards { margin:0 14px 12px; gap:8px; } .companion-cards > div { flex-basis:120px; } .companion-cards .early-pace { flex-basis:100%; } .companion-cards strong,.companion-cards #eta { font-size:24px; } .comparison-details { margin-left:14px; margin-right:14px; } .chart-modes button { font-size:11px; padding:6px 10px; } }

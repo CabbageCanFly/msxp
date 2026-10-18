@@ -24,7 +24,10 @@ MAX_REPLAY_BYTES = 4 * 1024 * 1024
 def operation(value,runtime,now):
     """Only this HTTP process's coordinator can establish current activity."""
     if not runtime:
-        return dict(state='previous_unfinished_run' if value.get('unfinished_run_count') else 'coordinator_stopped')
+        return dict(state='capture_finished' if value.get('run_status')=='completed' else
+            'capture_interrupted' if value.get('run_status')=='interrupted' else
+            'historical_session' if value.get('historical') else
+            'previous_unfinished_run' if value.get('unfinished_run_count') else 'coordinator_stopped')
     result=dict(runtime)
     if runtime['state']=='running' and (now-datetime.fromisoformat(runtime['updated_at'])).total_seconds()>runtime['expected_completion_seconds']:
         result['state']='capture_delayed'

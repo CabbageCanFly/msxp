@@ -62,7 +62,22 @@ def responsive_pace(snapshot, display_level):
     reference=next((r.get('received_at') or r.get('attempted_at') for r in reversed(rows)),None)
     if not reference:return None
     # Review decisions already carry the causal as-of clock from snapshot().
-    points,_,_,_=observed_sequence(snapshot,now=datetime.fromisoformat(reference))
+    completed=[]
+    points,_,_,_=observed_sequence(snapshot,now=datetime.fromisoformat(reference),completed=completed)
+    retained=False
+    if snapshot.get('run_status') in ('completed','interrupted') and (len(points)<3 or
+            (datetime.fromisoformat(points[-1]['timestamp'])-datetime.fromisoformat(points[0]['timestamp'])).total_seconds()<30):
+        chain={snapshot.get('run_id',rows[-1]['run_id'])}
+        for row in reversed(rows):
+            if row['run_id'] in chain and row.get('rotation_from'):chain.add(row['rotation_from'])
+        for candidate,_,_,_ in reversed(completed):
+            if (len(candidate)>=3 and candidate[-1]['run_id'] in chain
+                    and all(candidate[-1].get(k)==rows[-1].get(k) for k in ('source_kind','source_identity','character_id','session_id'))
+                    and candidate[-1]['source_channel']==rows[-1].get('channel')
+                    and (not display_level or candidate[-1]['level']==display_level['value'])
+                    and (datetime.fromisoformat(reference)-datetime.fromisoformat(candidate[-1]['timestamp'])).total_seconds()<=PACE_TREND_SECONDS
+                    and (datetime.fromisoformat(candidate[-1]['timestamp'])-datetime.fromisoformat(candidate[0]['timestamp'])).total_seconds()>=30):
+                points=candidate;retained=True;break
     allowed={p['event_id'] for p in points}
     edges=[];comp={c['event_id']:c for c in data['comparisons']}
     for before,after in zip(rows,rows[1:]):
@@ -113,7 +128,7 @@ def responsive_pace(snapshot, display_level):
         coverage_seconds=rational(elapsed),interruptions=len(groups)-1,estimates=calculated,basis=basis,
         evidence_counts={kind:sum(reading(r)['evidence']==kind for r in rows if r['event_id'] in ids) for kind in ('strict_full','strict_percentage_only','grammar_recovered')},
         policy='responsive_pace_v2',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
-        trusted=False,reason=data['reason'])
+        trusted=False,retained_history=retained,reason=data['reason'])
 
 
 def level_events(rows):
@@ -206,7 +221,7 @@ def reading(row):
         simulated=row.get('timing_mode')=='simulated',trusted=False)
 
 
-def observed_sequence(snapshot, *, now):
+def observed_sequence(snapshot, *, now,completed=None):
     """Endpoint comparisons across short disclosed holes, never connected pace/gains."""
     points=[];holes=[];previous=None;pending=[];last=None;break_reason='baseline'
     reviews={r['event_id']:r for r in snapshot['percentage_progress']['percentage_reviews']}
@@ -257,6 +272,7 @@ def observed_sequence(snapshot, *, now):
             if row.get('frame_sha256') and row['frame_sha256']==last.get('frame_sha256'):
                 hard='duplicate_source_frame';usable=False
         if hard:
+            if completed is not None and points:completed.append((points,holes,pending,break_reason))
             points=[];holes=[];pending=[];last=None;break_reason=hard
         if usable:
             if last:
@@ -271,6 +287,7 @@ def observed_sequence(snapshot, *, now):
             pending.append(dict(event_id=row['event_id'],missing_indices=max(0,context['index']-previous['index']-1)
                 if previous and context['run_id']==previous['run_id'] else 0))
             if len(pending)+sum(h['missing_indices'] for h in pending)>OBSERVED_MAX_MISSING or (when-datetime.fromisoformat(last['timestamp'])).total_seconds()>OBSERVED_MAX_GAP_SECONDS:
+                if completed is not None and points:completed.append((points,holes,pending,break_reason))
                 points=[];holes=[];pending=[];last=None;break_reason='gap_exceeds_limit'
         previous=context
     return points,holes,pending,break_reason
@@ -323,7 +340,8 @@ def window_comparisons(snapshot, *, now):
             if row['event_id']==segment['first_event_id']:inside=True
             if inside:sequence.append((row,percentage_point(row)[0]))
             if row['event_id']==segment['last_event_id']:break
-    observed=observed_sequence(snapshot,now=now)
+    completed=[]
+    observed=observed_sequence(snapshot,now=now,completed=completed)
     result={}
     for minutes in WINDOWS:
         cutoff=end-timedelta(minutes=minutes)
@@ -363,6 +381,19 @@ def window_comparisons(snapshot, *, now):
             metric.update(eligible=False,state='stale' if data['stale'] else 'unavailable',
                 reason='future_timestamp' if end>now else data['reason'],estimates=estimates(None,None,0))
         metric['observed']=observed_window(observed,cutoff=cutoff,end=end)
+        if not metric['observed']['available'] and snapshot.get('run_status') in ('completed','interrupted'):
+            chain={snapshot.get('run_id',rows[-1]['run_id'])} if rows else set()
+            for row in reversed(rows):
+                if row['run_id'] in chain and row.get('rotation_from'):chain.add(row['rotation_from'])
+            supported=next((r['experimental_level']['value'] for r in reversed(rows) if r.get('experimental_level',{}).get('value') is not None),None)
+            for prior in reversed(completed):
+                if prior[0][-1]['run_id'] not in chain or prior[0][-1]['level']!=supported:continue
+                if any(prior[0][-1].get(k)!=rows[-1].get(k) for k in ('source_kind','source_identity','character_id','session_id')) or prior[0][-1]['source_channel']!=rows[-1].get('channel'):continue
+                saved=observed_window(prior,cutoff=cutoff,end=end)
+                if saved['available']:
+                    metric['observed']=dict(saved,paused=True,historical=True,
+                        ended_before_latest=True,reason='retained_comparable_history')
+                    break
         if metric['observed']['available']:
             metric['observed']['paused'] |= bool(rows and (rows[-1].get('run_interrupted')
                 or snapshot.get('run_id',rows[-1]['run_id'])!=rows[-1]['run_id']))
@@ -396,6 +427,7 @@ def player(snapshot,*,now=None):
         percentage_state=decision,display_level=display_level,level_events=level_events(rows),
         source_kind=snapshot.get('source_kind'),reading=latest,latest_attempt_at=(rows[-1].get('received_at') or rows[-1].get('attempted_at')) if rows else None,
         latest_attempt_status=rows[-1]['status'] if rows else 'waiting',
+        capture_lifecycle=snapshot.get('run_status','waiting'),
         stale_after_seconds=snapshot['stale_after_seconds'],movement=movement,
         segment=dict(start=segment['start'],end=segment['end'],readings=segment['readings'],span_seconds=segment['span_seconds'],
             difference_percentage_points=segment['difference_percentage_points'],evidence_counts=segment['evidence_counts']) if usable else None,
@@ -418,7 +450,7 @@ def refresh(value,*,now=None,activity=None):
     pace=value.get('responsive_pace')
     if pace:
         pace['age_seconds']=max(0,(now-datetime.fromisoformat(pace['end'])).total_seconds())
-        if value['stale'] or latest and latest['simulated']:pace['active']=False
+        if value['stale'] or latest and latest['simulated'] or value.get('capture_lifecycle') in ('completed','interrupted'):pace['active']=False
     level=value.get('display_level')
     if level:
         level['age_seconds']=max(0,(now-datetime.fromisoformat(level['timestamp'])).total_seconds())

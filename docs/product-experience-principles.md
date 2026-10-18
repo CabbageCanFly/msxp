@@ -15,8 +15,12 @@ and game-like, with useful approximate information even when some readings fail.
   an old reading or rate look freshly observed. Missing values are not zero.
 - Start tentative pace promptly from defensible endpoints, then use more recent
   connected evidence. Keep early estimates separate from complete-window rankings.
-- Prefer familiar EXP units with consistent K/M/B formatting. Percentage changes
-  remain a fallback; exact values, conversion assumptions and provenance belong in tooltips.
+- Prefer full comma-separated EXP numbers where the component fits them; use K/M/B
+  for genuinely compact spaces. Do not add fractional precision to approximate values.
+  Percentage changes remain a fallback; conversion assumptions belong in tooltips.
+- Keep useful completed-capture summaries dated, with their actual observed span.
+  Chart values should be inspectable by pointer, keyboard and touch without exposing
+  raw debugging details or hiding missing data behind zero.
 - Keep recent pace stable with a transparent short rolling sample. Exclude unknown
   intervals from its gain and time; retain visibly aged rates during interruptions.
 - Favor game-like orange EXP bars on fixed time axes, with a secondary level-%
