@@ -24,6 +24,9 @@ summaries, readable full numbers and inspectable chart tooltips.
 The [HUD resilience update](docs/hud-resilience-and-twitch-status.md) keeps recent
 pace useful through unreadable frames and adds optional official Twitch status,
 separate from capture health.
+The [recent pace pooling update](docs/responsive-pace-pooling.md) retains valid
+intervals across matching-level reacquisition, expires old samples and shows
+sampled time separately from gaps.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

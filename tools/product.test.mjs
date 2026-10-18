@@ -100,13 +100,42 @@ test('recent graph excludes distant runs, spans actual points, and retains gaps 
   p.context.points=[point('2026-01-01T00:00:00Z'),point('2026-01-01T00:06:00Z'),point('2026-01-01T00:06:15Z',101)];
   p.run('chartMode="percentage";data.history=points;drawHistory()');
   assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:06:00.000Z');
-  assert.match(p.elements['history-note'].textContent,/2 readings.*15s displayed/);
+  // The fixture's level-64 points are gaps on the level-60 player, not readings.
+  assert.match(p.elements['history-note'].textContent,/0 readings.*2 unavailable.*15s displayed/);
   p.buttons[1].listeners.click();assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:00:00.000Z');
   assert.ok(p.elements['history-chart'].children.some(n=>n.attributes.class==='gap'));
   assert.ok(!p.elements['history-chart'].children.some(n=>n.tag==='polyline'));
   p.elements['history-chart'].clientWidth=340;p.run('drawHistory()');
   assert.equal(p.elements['history-chart'].attributes.viewBox,'0 0 340 230');
   assert.equal(p.elements['history-chart'].children.filter(n=>n.tag==='text' && n.attributes.y==='218').length,3);
+});
+
+test('pooled pace discloses sampled seconds and separate sequences, not the whole extent',()=>{
+  const p=page('player'),base=player();
+  base.responsive_pace={active:true,tentative:false,age_seconds:1,start:'2026-01-01T00:00:00Z',end:'2026-01-01T00:04:00Z',
+    readings:11,span_seconds:{approximate:240},coverage_seconds:{approximate:179.75},interruptions:1,estimates:base.estimates};
+  p.render(base);
+  assert.match(p.elements['early-value'].textContent,/recent trend.*11 readings \/ 180s sampled.*2 sequences/);
+  assert.match(p.elements.rate.title,/180s sampled/);
+  assert.doesNotMatch(p.elements['early-value'].textContent,/240s/);
+  base.responsive_pace.tentative=true;base.responsive_pace.readings=2;base.responsive_pace.interruptions=0;
+  base.responsive_pace.coverage_seconds.approximate=15;
+  p.render(base);assert.match(p.elements['early-value'].textContent,/first estimate.*2 readings \/ 15s sampled.*1 sequence$/);
+});
+
+test('percentage chart counts numerical points separately from missing and unknown-level attempts',()=>{
+  const p=page('player');p.render(player());
+  p.context.points=[
+    {event_id:'a',timestamp:'2026-01-01T00:00:00Z',level:{value:60},reading:{bp:590,percentage:'5.90',evidence:'strict_full'}},
+    {event_id:'b',timestamp:'2026-01-01T00:00:15Z',level:{value:null},reading:null},
+    {event_id:'c',timestamp:'2026-01-01T00:00:30Z',level:{value:null},reading:{bp:591,percentage:'5.91',evidence:'strict_full'}},
+    {event_id:'d',timestamp:'2026-01-01T00:00:45Z',level:{value:60},reading:{bp:592,percentage:'5.92',evidence:'strict_full'}}];
+  p.run('chartMode="percentage";data.history=points;drawHistory()');
+  assert.match(p.elements['history-note'].textContent,/2 readings.*2 unavailable.*45s displayed/);
+  const shapes=p.elements['history-chart'].children;
+  assert.equal(shapes.filter(n=>n.tag==='circle').length,2);
+  assert.equal(shapes.filter(n=>n.tag==='path').length,2);
+  assert.equal(shapes.filter(n=>n.tag==='line').length,0);
 });
 
 test('pace ranking changes with the selected window and never substitutes a short segment rate',()=>{

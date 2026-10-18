@@ -75,6 +75,12 @@ try {
   assert.equal(await overlay.evaluate('getComputedStyle(document.body).backgroundColor'),'rgba(0, 0, 0, 0)');
   await screenshot(overlay,'overlay-before-stale',500,160);
   const detail=await tab('/stream/'+channel,1440,1050);await detail.wait("typeof data!=='undefined' && !!data?.player");
+  if(original.player.responsive_pace){
+    const pace=original.player.responsive_pace;
+    const sample=`${pace.readings} readings / ${Math.round((pace.coverage_seconds ?? pace.span_seconds).approximate)}s sampled`;
+    assert.ok((await detail.evaluate('document.getElementById("early-value").textContent')).includes(sample));
+    assert.ok((await detail.evaluate('document.getElementById("early-value").textContent')).includes(`${(pace.interruptions ?? 0)+1} sequence`));
+  }
   const recent=await detail.evaluate('({start:document.getElementById("history-chart").dataset.start,end:document.getElementById("history-chart").dataset.end,note:document.getElementById("history-note").textContent})');
   if(recent.start)assert.equal(Date.parse(recent.end)-Date.parse(recent.start),1800000);
   assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 5 min');
@@ -84,6 +90,13 @@ try {
   await detail.evaluate('document.querySelectorAll("[data-window]")[2].click()');
   assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 15 min');
   await screenshot(detail,'character-15-minute',1440,1050);
+  await detail.evaluate('document.querySelector("[data-chart=percentage]").click()');
+  const numerical=await detail.evaluate('document.querySelectorAll("#history-chart circle").length');
+  const unavailable=await detail.evaluate('document.querySelectorAll("#history-chart path.missing").length');
+  assert.ok((await detail.evaluate('document.getElementById("history-note").textContent')).includes(`${numerical} readings`));
+  if(unavailable)assert.ok((await detail.evaluate('document.getElementById("history-note").textContent')).includes(`${unavailable} unavailable`));
+  await screenshot(detail,'character-percentage-count',1440,1200);
+  await detail.evaluate('document.querySelector("[data-chart=exp]").click()');
   await detail.evaluate('document.querySelectorAll("[data-window]")[0].click()');
   await detail.command('Page.bringToFront');
   await detail.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');

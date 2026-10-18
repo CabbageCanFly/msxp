@@ -77,6 +77,10 @@ function earlyText(p) {
   const rate=e.exp_per_hour?`~${expText(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`~${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`:null;
   return rate?`${rate} · early estimate · ${segment.readings} readings / ${Math.round(segment.span_seconds.approximate)}s`:null;
 }
+function paceSample(pace) {
+  const covered=(pace.coverage_seconds ?? pace.span_seconds).approximate,sequences=(pace.interruptions ?? 0)+1;
+  return `${pace.readings} readings / ${Math.round(covered)}s sampled · ${sequences} sequence${sequences===1?'':'s'}`;
+}
 function publicPace(p) {
   const pace=p.responsive_pace;if(!pace)return null;
   const age=pace.age_seconds+(performance.now()-receivedAt)/1000;
@@ -225,10 +229,10 @@ function renderPlayer() {
   el('eta').textContent=etaText(m?.eta);el('eta').title=m?.eta?'Provisional same-level percentage estimate at the last reading, not a countdown. Both quantization hypotheses require positive pace.':'Building positive, comparable history';
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';
   el('rate').dataset.paused=String(!!pace && !pace.active);
+  if(pace)el('rate').title=`${pace.label}; ${paceSample(pace.source)}. ${rateTitle(m?.exp_per_hour)}`;
   if(view==='overlay') {
     if(pace && !pace.active && !failed && !p.twitch && !p.percentage_state?.pending_since && !['capture_finished','capture_interrupted','historical_session','stopped','coordinator_stopped'].includes(p.activity?.state))el('status').textContent=`Last estimate ${ageText(pace.age)}`;
     el('rate-label').textContent=pace?.aging?'Recent EXP / hour':pace && !pace.active?'Last EXP / hour':'EXP / hour';
-    el('rate').title=pace?`${pace.label}; ${pace.source.readings} readings / ${Math.round(pace.source.span_seconds.approximate)}s. ${rateTitle(m?.exp_per_hour)}`:el('rate').title;
   }
   if(view==='player') {
     const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
@@ -237,7 +241,7 @@ function renderPlayer() {
     const rollingAge=(performance.now()-rollingReceived)/1000;
     el('tracked-note').textContent=rollingFailed?(rolling?`Saved · updated ${ageText(rollingAge)}`:'History unavailable'):rolling?.status==='history_limit'?'History unavailable':rolling?(rolling.tracked_exp?`${spanText(rolling.coverage_seconds.approximate)} tracked`:'No comparable readings'):'Loading history';
     const early=p.early_pace,text=earlyText(p);
-    el('early-value').textContent=pace?`${pace.label} · ${pace.source.readings} readings / ${Math.round(pace.source.span_seconds.approximate)}s`:text ?? (early?.segment?'Estimate paused':'Building comparable history');
+    el('early-value').textContent=pace?`${pace.label} · ${paceSample(pace.source)}`:text ?? (early?.segment?'Estimate paused':'Building comparable history');
     el('early-note').textContent=text?'Experimental current segment · separate from completed-window comparisons.':early?.segment?'Last eligible estimate retained for inspection; waiting for fresh, connected readings.':'Needs 3 supported same-level readings over 30s; interruptions restart the segment.';
     el('early-value').title=pace?`${pace.source.start} – ${pace.source.end}; ${(pace.source.coverage_seconds ?? pace.source.span_seconds).approximate}s of comparable captured intervals. Missing intervals supply neither gain nor elapsed time. ${rateTitle(m?.exp_per_hour)}`:early?.segment?`${early.segment.start} – ${early.segment.end}; ${early.segment.readings} readings. ${rateTitle(early.estimates?.exp_per_hour)} Historical value: ${early.estimates?.exp_per_hour?.value.approximate ?? early.estimates?.percentage_per_hour?.value.approximate} ${early.estimates?.exp_per_hour?'EXP/h':'pp/h'}. Bounds exclude OCR errors.`:'';
     el('rate-label').textContent=m?.exp_per_hour?'EXP / hour':'% / hour';
@@ -376,7 +380,8 @@ function drawPercentageHistory() {
     shape('text',{x:60+plotWidth*i/(ticks-1),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=new Date(time).toISOString().slice(11,19);
   }
   svg.dataset.start=new Date(first).toISOString();svg.dataset.end=new Date(last).toISOString();
-  el('history-note').textContent=`${level!=null?'Lv. '+level+' · ':''}${points.length} readings · ${Math.round((last-first)/1000)}s displayed · UTC${current(data.player).stale?' · saved history':''}`;
+  const readable=points.filter(visible).length,unavailable=points.length-readable;
+  el('history-note').textContent=`${level!=null?'Lv. '+level+' · ':''}${readable} readings${unavailable?` · ${unavailable} unavailable`:''} · ${Math.round((last-first)/1000)}s displayed · UTC${current(data.player).stale?' · saved history':''}`;
   el('history-note').title=`Last ${windowMinutes} min. Lines join only comparable same-level endpoints, not observed intermediate activity. Other levels and full history remain in Advanced.`;
 }
 async function poll() {

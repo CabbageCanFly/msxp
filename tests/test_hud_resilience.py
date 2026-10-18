@@ -38,7 +38,10 @@ def test_unreadable_gaps_age_only_presentation_and_recover_without_fake_gain(tra
         assert shown['state']=='paused' and shown['estimates']['exp_per_hour'] is None
     else:
         assert shown['state']=='aging' and shown['assumption']=='no_new_gain_since_last_observed_interval'
-        assert shown['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(rate*200/(200+max(0,gap-20)))
+        # The rolling pool expires whole old edges while unreadable time advances.
+        covered=200 if gap<=60 else 120
+        assert pace['coverage_seconds']['approximate']==covered
+        assert shown['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(rate*covered/(covered+max(0,gap-20)))
     before=store.state('alpha',as_of=NOW+timedelta(seconds=end))
     index=11+gap//20
     at(d,index+1,end+20,'[34.00%]');at(d,index+2,end+40,'[34.02%]')

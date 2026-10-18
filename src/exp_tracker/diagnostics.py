@@ -2,7 +2,7 @@
 
 import argparse
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -396,7 +396,11 @@ class Diagnostics:
             for head in heads[:25]:
                 key = tuple(head)
                 cached = cache.get(head['login'])
-                if cached is None or cached[0] != key:
+                pace=cached[1]['player'].get('responsive_pace') if cached else None
+                # Expire rolling intervals even when no new SQLite revision arrives.
+                pace_due=bool(pace and not pace.get('retained_history') and
+                    datetime.fromisoformat(pace['start'])<now-timedelta(seconds=pace['trend_seconds']))
+                if cached is None or cached[0] != key or pace_due:
                     snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS)
                     p = snap['percentage_progress']
                     last = snap['observations'][-1] if snap['observations'] else {}

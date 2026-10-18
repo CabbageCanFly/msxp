@@ -96,12 +96,17 @@ def test_small_integer_decrease_is_not_a_zero_gain_bar_or_a_smoothed_gain(tracki
     assert not (get(d,15)['responsive_pace'] or {}).get('active')
 
 
-def test_missing_capture_does_not_age_endpoints_out_of_the_held_rate(tracking):
+def test_missing_capture_expires_old_intervals_without_adding_gain_or_time(tracking):
     _,_,d=tracking
     for i in range(1,22):append(d,i,f'[33.{i if i<21 else 70:02}%]')
     before=get(d,300)['responsive_pace']
     append(d,22,None,status='capture_failed',received_at=None,current=False)
     held=get(d,315)['responsive_pace']
     assert not held['active'] and held['age_seconds']==15
-    assert held['estimates']['exp_per_hour']==before['estimates']['exp_per_hour']
-    assert held['coverage_seconds']==before['coverage_seconds'] and held['start']==before['start']
+    assert held['start']==(NOW+timedelta(seconds=15)).isoformat()
+    assert held['coverage_seconds']['approximate']==285 and held['readings']==20
+    assert held['end']==before['end']
+    assert held['estimates']['percentage_per_hour']['value']['approximate']==pytest.approx(.68*3600/285)
+    later=get(d,330)['responsive_pace']
+    assert later['start']==(NOW+timedelta(seconds=30)).isoformat()
+    assert later['coverage_seconds']['approximate']==270 and later['end']==before['end']

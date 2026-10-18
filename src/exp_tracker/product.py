@@ -5,7 +5,7 @@ from datetime import datetime,timedelta,timezone
 from fractions import Fraction
 
 from .diagnostic_progress import percentage_point,rational,quantization_pace,elapsed_seconds,difference_bounds
-from .diagnostic_evidence import project
+from .diagnostic_evidence import project,full_reading,consistency
 from .diagnostic_percentage import boundary
 from .exp_requirements import requirement
 from .exp_consistency import MODES, assess
@@ -52,20 +52,21 @@ def _last_connected_pace(snapshot, display_level):
             readings=len(points),span_seconds=rational(elapsed),coverage_seconds=rational(elapsed),interruptions=0,
             estimates=calculated,basis=basis,history_basis='last_connected_segment',
             evidence_counts={kind:sum(p['evidence']==kind for p in points) for kind in ('strict_full','strict_percentage_only','grammar_recovered')},
-            policy='responsive_pace_v3',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
+            policy='responsive_pace_v4',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
             trusted=False,reason=data['reason'])
     return None
 
 
-def responsive_pace(snapshot, display_level):
+def responsive_pace(snapshot, display_level, *, now=None):
     """Pool captured intervals inside recent safe context; holes supply no gain/time."""
     rows=snapshot['observations'];data=snapshot['percentage_progress']
     reference=next((r.get('received_at') or r.get('attempted_at') for r in reversed(rows)),None)
     if not reference:return None
+    now=now or datetime.fromisoformat(reference)
     # Review decisions already carry the causal as-of clock from snapshot().
     completed=[]
     points,_,_,_=observed_sequence(snapshot,now=datetime.fromisoformat(reference),completed=completed,
-        max_gap_seconds=PACE_TREND_SECONDS,max_missing=100)
+        max_gap_seconds=PACE_TREND_SECONDS,max_missing=100,pace_reacquisition=True)
     retained=False
     if snapshot.get('run_status') in ('completed','interrupted') and (len(points)<3 or
             (datetime.fromisoformat(points[-1]['timestamp'])-datetime.fromisoformat(points[0]['timestamp'])).total_seconds()<30):
@@ -92,14 +93,18 @@ def responsive_pace(snapshot, display_level):
         if all(p['exp'] is not None and p['evidence']=='strict_full' for p in (a,b)) and int(b['exp'])<int(a['exp']):
             edges.clear();continue  # A visible integer decrease cannot be smoothed into gains.
         edges.append((a,b))
-    if edges:
-        # Failed attempts must not advance the rate's sample or change a held value.
+    cutoff=now-timedelta(seconds=PACE_TREND_SECONDS)
+    recent=[(a,b) for a,b in edges if datetime.fromisoformat(a['timestamp'])>=cutoff]
+    expired=bool(edges and not recent)
+    if expired:
+        # Keep a dated historical trend for stopped captures; never a current pool.
         cutoff=datetime.fromisoformat(edges[-1][1]['timestamp'])-timedelta(seconds=PACE_TREND_SECONDS)
-        edges=[(a,b) for a,b in edges if datetime.fromisoformat(a['timestamp'])>=cutoff]
+        retained=True
+    edges=recent if not expired else [(a,b) for a,b in edges if datetime.fromisoformat(a['timestamp'])>=cutoff]
     elapsed=sum((elapsed_seconds(datetime.fromisoformat(a['timestamp']),datetime.fromisoformat(b['timestamp'])) for a,b in edges),Fraction(0))
     if elapsed<PACE_MIN_SECONDS:
         old=_last_connected_pace(snapshot,display_level)
-        if old:old['active']=False
+        if old:old.update(active=False,retained_history=True,recent_pool_expired=True)
         return old
     groups=[]
     for a,b in edges:
@@ -122,15 +127,16 @@ def responsive_pace(snapshot, display_level):
             basis='observed_exp_endpoints'
     ids={p['event_id'] for pair in edges for p in pair}
     tentative=len(ids)<3 or elapsed<30
-    active=bool(rows[-1]['event_id']==last['event_id'] and not rows[-1].get('run_interrupted')
+    active=bool(not expired and rows[-1]['event_id']==last['event_id'] and not rows[-1].get('run_interrupted')
         and snapshot.get('run_id',rows[-1]['run_id'])==rows[-1]['run_id'])
     if tentative or not active:calculated['eta']=None
     return dict(active=active,tentative=tentative,level=last['level']['value'],start=first['timestamp'],end=last['timestamp'],
         readings=len(ids),span_seconds=rational(elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))),
         coverage_seconds=rational(elapsed),interruptions=len(groups)-1,estimates=calculated,basis=basis,
         evidence_counts={kind:sum(reading(r)['evidence']==kind for r in rows if r['event_id'] in ids) for kind in ('strict_full','strict_percentage_only','grammar_recovered')},
-        policy='responsive_pace_v3',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
-        trusted=False,retained_history=retained,aging_allowed=last['event_id'] in allowed and snapshot.get('run_id',rows[-1]['run_id'])==rows[-1]['run_id'],
+        policy='responsive_pace_v4',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
+        trusted=False,retained_history=retained,recent_pool_expired=expired,
+        aging_allowed=not expired and last['event_id'] in allowed and snapshot.get('run_id',rows[-1]['run_id'])==rows[-1]['run_id'],
         reason=data['reason'])
 
 
@@ -224,9 +230,10 @@ def reading(row):
         simulated=row.get('timing_mode')=='simulated',trusted=False)
 
 
-def observed_sequence(snapshot, *, now,completed=None,max_gap_seconds=OBSERVED_MAX_GAP_SECONDS,max_missing=OBSERVED_MAX_MISSING):
+def observed_sequence(snapshot, *, now,completed=None,max_gap_seconds=OBSERVED_MAX_GAP_SECONDS,max_missing=OBSERVED_MAX_MISSING,
+                      pace_reacquisition=False):
     """Endpoint comparisons across short disclosed holes, never connected pace/gains."""
-    points=[];holes=[];previous=None;pending=[];last=None;break_reason='baseline'
+    points=[];holes=[];previous=None;pending=[];last=None;break_reason='baseline';seen_frames=set()
     reviews={r['event_id']:r for r in snapshot['percentage_progress']['percentage_reviews']}
     for row in project(snapshot['observations']):
         point,invalid=percentage_point(row);decision=reviews[row['event_id']]
@@ -264,6 +271,22 @@ def observed_sequence(snapshot, *, now,completed=None,max_gap_seconds=OBSERVED_M
             row.get('fresh_at_capture') and row.get('hud_count')==1 or
             row.get('status')=='unavailable' and row.get('hud_count')==0 and row.get('reasons')==['missing_hud']
             and row.get('local_age_seconds') is not None and row['local_age_seconds']<=15)
+        # Pace may retain earlier intervals while the SAME neural level reacquires
+        # confirmation. This frame is still excluded, and windows keep their policy.
+        if (pace_reacquisition and last and not unsafe and point and invalid=='visual_level_unavailable'
+                and level['status']=='pending' and level['reason']=='neural_confirmation_pending'
+                and level.get('neural')==last['level'] and level.get('visual') in (None,last['level'])
+                and decision['public_eligible'] and not decision.get('break_before')
+                and 0<=point['bp']-last['bp']<1000
+                and consistency(full_reading(row),last['level'])['status']!='invalid'):
+            allowed_missing=True
+        if (pace_reacquisition and last and level['status']=='pending'
+                and any(level.get(k) not in (None,last['level']) for k in ('visual','neural'))):
+            hard='level_reacquisition_conflict';allowed_missing=False
+        frame=row.get('frame_sha256')
+        if pace_reacquisition and frame and frame in seen_frames:
+            hard='duplicate_source_frame';usable=False;allowed_missing=False
+        if frame:seen_frames.add(frame)
         if not usable and not allowed_missing:hard=hard or decision['reason'] or invalid or 'unusable_observation'
         if usable and last and hard is None:
             elapsed=(when-datetime.fromisoformat(last['timestamp'])).total_seconds()
@@ -440,7 +463,7 @@ def player(snapshot,*,now=None):
     result['early_pace']=dict(active=bool(usable and progress['current_pace']),reason=progress['reason'],
         segment=historical,estimates=estimates(historical,historical['pace'],int(Fraction(historical['end_percentage'])*100)) if historical else estimates(None,None,0),
         label='EXPERIMENTAL / UNVERIFIED; early segment estimate, not a completed window')
-    result['responsive_pace']=responsive_pace(snapshot,display_level)
+    result['responsive_pace']=responsive_pace(snapshot,display_level,now=now)
     return refresh(result,now=now)
 
 
@@ -458,7 +481,7 @@ def refresh(value,*,now=None,activity=None):
         running=value['activity']['state'] in ('running','waiting','capture_delayed','capture_failing')
         offline=value.get('twitch',{}).get('status')=='offline'
         aging=bool(running and not offline and not pace['active'] and pace.get('aging_allowed'))
-        expired=running and not offline and pace['age_seconds']>=PACE_TREND_SECONDS
+        expired=running and not offline and (pace['age_seconds']>=PACE_TREND_SECONDS or pace.get('recent_pool_expired'))
         seconds=Fraction(str(pace['age_seconds']))
         covered=Fraction(pace['coverage_seconds']['numerator'],pace['coverage_seconds']['denominator'])
         factor=covered/(covered+max(Fraction(0),seconds-PACE_UNREADABLE_GRACE_SECONDS)) if aging else Fraction(1)
