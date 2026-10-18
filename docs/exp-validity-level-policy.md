@@ -1,5 +1,10 @@
 # EXP validity and provisional level context
 
+Follow-up: [whole-pair numerical veto and level evidence v3](numerical-windows-eta.md)
+supersede the unconditional percentage-retention description below when recent
+independently corroborated level evidence contradicts the entire pair. These
+earlier saved-run results remain historical.
+
 One read-time projection now supplies the product pages and SQLite diagnostic
 dashboard. Raw OCR, saved parser candidates, Tesseract/neural outputs and database
 payloads are unchanged. No trusted ingestion, schema migration or level-up handling.

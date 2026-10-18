@@ -125,9 +125,10 @@ class Handler(BaseHTTPRequestHandler):
                                 self.reply(200,dict(self.server.history_cache[channel][2],served_at=utc(now)))
                         elif product_api:
                             now=datetime.now(timezone.utc)
-                            snap=Diagnostics(store).snapshot(channel,now=now,limit=PRODUCT_ROWS)
+                            diagnostics=Diagnostics(store)
+                            snap=diagnostics.snapshot(channel,now=now,limit=PRODUCT_ROWS)
                             activity=operation(snap,self.server.coordinator_status.get(channel),now)
-                            value=refresh(player(snap,now=now),now=now,activity=activity)
+                            value=refresh(player(snap,now=now,recent_snapshot=diagnostics.recent_snapshot(channel,now=now)),now=now,activity=activity)
                             self.reply(200,dict(player=self.broadcasts([value])[0],history=history(snap),truncated=snap['truncated'],served_at=utc(now),experimental=True,poll_seconds=2))
                         else:
                             self.reply(200,(WEB/('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html')).read_bytes(),'text/html')

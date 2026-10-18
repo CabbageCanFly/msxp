@@ -13,15 +13,16 @@ const verifyWindows=databaseArgument==='--verify-windows';
 const verifyRolling=databaseArgument==='--verify-rolling';
 const verifyHistorical=databaseArgument==='--verify-historical';
 const verifyResilience=databaseArgument==='--verify-resilience';
+const verifyNumerical=databaseArgument==='--verify-numerical-windows';
 const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
-const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience?null:databaseArgument;
+const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
 let fixture=null,fixtureCommand=null;
-if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience){
+if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical){
   const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyResilience?['--resilience']:verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyNumerical?['--numerical-windows']:verifyResilience?['--resilience']:verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
   let buffer='',waiting=null;const messages=[];
   fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
   const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
@@ -76,7 +77,7 @@ try {
   await screenshot(overlay,'overlay-before-stale',500,160);
   const detail=await tab('/stream/'+channel,1440,1050);await detail.wait("typeof data!=='undefined' && !!data?.player");
   if(original.player.responsive_pace){
-    const pace=original.player.responsive_pace;
+    const pace=original.player.recent_windows?.['5']?.pace ?? original.player.responsive_pace;
     const sample=`${pace.readings} readings / ${Math.round((pace.coverage_seconds ?? pace.span_seconds).approximate)}s ${pace.interval_counts?'elapsed':'sampled'}`;
     assert.ok((await detail.evaluate('document.getElementById("early-value").textContent')).includes(sample));
     if(!pace.interval_counts || pace.interruptions)assert.ok((await detail.evaluate('document.getElementById("early-value").textContent')).includes(`${(pace.interruptions ?? 0)+1} sequence`));
@@ -102,6 +103,40 @@ try {
   await detail.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   await overlay.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   const observed=[];
+  if(verifyNumerical){
+    await detail.command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
+    const top=await detail.evaluate('document.querySelector(".companion-cards").getBoundingClientRect().top');
+    for(const action of [null,'reject','recover','next','stale']){
+      if(action)await fixtureCommand(action);
+      const actual=await api('/api/players/'+channel);observed.push(actual);
+      await detail.wait(`data?.player?.latest_attempt_at===${JSON.stringify(actual.player.latest_attempt_at)} && data?.served_at===${JSON.stringify(actual.served_at)}`);
+      await overlay.wait(`data?.player?.latest_attempt_at===${JSON.stringify(actual.player.latest_attempt_at)} && data?.served_at===${JSON.stringify(actual.served_at)}`);
+      assert.equal(await detail.evaluate('document.querySelectorAll(".companion-cards > div").length'),4);
+      assert.equal(await detail.evaluate('document.getElementById("eta-stat").hidden'),false);
+      assert.equal(await detail.evaluate('!!document.getElementById("level-note")'),false);
+      assert.equal(await detail.evaluate('document.querySelector(".companion-cards").getBoundingClientRect().top'),top);
+      if(action==='reject'){
+        assert.equal(actual.player.reading.percentage,'37.51');
+        const advanced=await api('/dev/api/streams/'+channel+'/diagnostics');
+        assert.equal(advanced.observations.at(-1).exp_validity.whole_pair_rejected,true);
+      }
+      if(action==='recover')assert.equal(actual.player.reading.percentage,'37.69');
+      for(const minutes of [5,10,15,30,60]){
+        await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
+        const w=actual.player.recent_windows[String(minutes)];
+        assert.equal(await detail.evaluate('document.getElementById("movement").textContent'),w.available?'+'+Math.round(w.gain.approximate).toLocaleString('en-US')+' EXP':'—');
+        const pace=w.pace ?? w.last_observed_pace;assert.ok(pace);
+        assert.equal(await detail.evaluate('document.getElementById("rate").textContent'),'~'+Math.round(pace.estimates.exp_per_hour.value.approximate).toLocaleString('en-US'));
+        assert.equal(await detail.evaluate('document.getElementById("eta-stat").hidden'),false);
+      }
+      if(action==='stale')assert.equal(await detail.evaluate('document.getElementById("eta").textContent'),'—');
+      await screenshot(detail,`numerical-${action ?? 'initial'}-desktop`,1440,1050);
+      if(action==='reject' || action==='recover')await screenshot(detail,`numerical-${action}-mobile`,390,1200);
+      await detail.command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
+      await screenshot(overlay,`numerical-${action ?? 'initial'}-overlay`,500,160);
+      assert.equal(await detail.evaluate('performance.getEntriesByType("navigation").length'),1);
+    }
+  }
   if(verifyResilience){
     assert.equal(original.player.twitch.status,'live');
     const initial=original.player.responsive_pace.estimates.exp_per_hour.value.approximate;

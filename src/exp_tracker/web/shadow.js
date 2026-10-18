@@ -271,7 +271,7 @@ function render() {
     const value = element("td");
     value.append(element("code", row.raw_text_redacted ? "[Non-numeric diagnostic text redacted]" : row.raw_text ?? "—"),
       element("span", row.candidate ? `${row.exp_validity?.status==='invalid'?'WITHHELD original saved pair: ':''}${exactExp(row.candidate.exp)} EXP [${row.candidate.percentage}%]` : row.percentage_only_candidate ? `${row.percentage_only_candidate.percentage}% · percentage only · EXP unavailable` : "No complete saved pair"));
-    if(row.exp_validity) value.append(element('small',`Read-time full EXP: ${row.exp_validity.status} · ${reason(row.exp_validity.reason)}. Percentage retained independently; arithmetic agreement does not verify digits.`));
+    if(row.exp_validity) value.append(element('small',`Read-time full EXP: ${row.exp_validity.status} · ${reason(row.exp_validity.reason)}. ${row.exp_validity.whole_pair_rejected?'Whole EXP/percentage pair WITHHELD using recent corroborated level context.':'Percentage retained independently; arithmetic agreement does not verify digits.'}`));
     if (row.percentage_only_origin === "legacy_raw_parse") value.append(element("small", "Percentage-only syntax parsed for display from legacy raw text"));
     if (row.partial_percentage_evidence) value.append(element("small", `Partial only: ${row.partial_percentage_evidence.percentage}% · not a complete observation`));
     if (!row.candidate && !row.percentage_only_candidate) {

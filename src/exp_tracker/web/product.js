@@ -67,7 +67,7 @@ function levelTitle(p) {
 }
 function earlyText(p) {
   if(p.responsive_pace) {
-    const pace=publicPace(p),e=pace.estimates;
+    const pace=publicPace(p);if(!pace)return null;const e=pace.estimates;
     const rate=e.exp_per_hour?`~${expText(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`~${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`:'Pace paused';
     return `${rate} · ${pace.label}`;
   }
@@ -83,10 +83,14 @@ function paceSample(pace) {
   return `${pace.readings} readings / ${Math.round(covered)}s sampled · ${sequences} sequence${sequences===1?'':'s'}`;
 }
 function publicPace(p) {
-  const pace=p.responsive_pace;if(!pace)return null;
+  const recent=p.recent_windows?.[String(windowMinutes)];
+  if(view==='player' && recent?.status==='history_limit')return null;
+  const compatible=p.responsive_pace?.level==null || p.responsive_pace.level===(p.reading?.level?.value ?? p.display_level?.value);
+  const pace=view==='player' && recent?(recent.pace ?? recent.last_observed_pace ?? (windowMinutes===5 && compatible?p.responsive_pace:null)):p.responsive_pace;
+  if(!pace)return null;
   const age=pace.age_seconds+(performance.now()-receivedAt)/1000;
   const policy=pace.presentation;
-  const active=pace.active && !current(p).stale && !failed && (!policy || policy.state==='observed');
+  const active=pace.active && !(view==='player' && recent && !recent.pace) && !current(p).stale && !failed && (!policy || policy.state==='observed');
   let estimates=active?pace.estimates:{...pace.estimates,eta:null};
   const expired=policy?.state==='paused' || policy?.running && age>=(policy.expire_after_seconds ?? policy.pause_after_seconds);
   if(expired)estimates={exp_per_hour:null,percentage_per_hour:null,eta:null};
@@ -103,15 +107,16 @@ function current(p) {
   return {age,stale,metrics};
 }
 function selectedWindow(p) { return p.windows?.[String(windowMinutes)]; }
-function observedWindow(p) { const o=selectedWindow(p)?.observed;return o?.available?o:null; }
+function observedWindow(p) { const o=p.recent_windows?.[String(windowMinutes)]?.observed ?? selectedWindow(p)?.observed;return o?.available?o:null; }
 function spanText(seconds) { const s=Math.floor(seconds);return s<60?`${s}s`:`${Math.floor(s/60)}m ${s%60}s`; }
 function windowNote(p) {
+  if(p.recent_windows?.[String(windowMinutes)]?.status==='history_limit')return 'Recent history unavailable';
   const w=selectedWindow(p);
   const o=observedWindow(p);
   if(o) {
     const age=o.age_seconds+(performance.now()-receivedAt)/1000;
     const old=current(p).stale || failed || o.paused;
-    return `${spanText(o.span_seconds.approximate)} · ${o.readings} readings${o.interruptions?` · ${o.interruptions} short gap${o.interruptions===1?'':'s'}`:''}${old?` · last updated ${ageText(age)}`:w.eligible?' · complete window':' · partial history'}`;
+    return `${spanText((o.coverage_seconds ?? o.span_seconds).approximate)} · ${o.readings} readings${o.interruptions?` · ${o.interruptions+1} sequences`:''}${old?` · last updated ${ageText(age)}`:w?.eligible?' · complete window':' · partial history'}`;
   }
   if(current(p).stale || failed)return 'Waiting for fresh readings';
   if(w?.eligible)return `Last ${windowMinutes} min · ${Math.round(w.coverage_seconds.approximate)}s observed · ${w.readings} readings`;
@@ -147,7 +152,7 @@ function statusText(p) {
 }
 function etaText(value) { if(!value)return '—';const m=Math.max(5,Math.ceil(value.seconds.approximate/300)*5);if(m<60)return `~${m}m`;if(m<1440)return `~${Math.floor(m/60)}h ${m%60}m`;return `~${Math.floor(m/1440)}d ${Math.floor(m%1440/60)}h`; }
 function rateTitle(rate) {
-  if(!rate)return view==='overlay'?'Building comparable history; estimates require three readings across at least 30 seconds.':`Building ${windowMinutes}-minute history; at least 90% contiguous coverage, with no interpolation.`;
+  if(!rate)return 'Needs two supported readings and a positive, comparable elapsed interval. Recent pace includes time between valid endpoints; complete-window rankings remain separate.';
   return `Experimental estimate, not earned EXP. ${Object.entries(rate.hypotheses).map(([rule,b])=>`${rule}: ${numbers.format(Math.round(b.lower.approximate))}–${numbers.format(Math.round(b.upper.approximate))} EXP/h`).join('; ')}. Community requirement ${rate.requirement.version}; quantization bounds exclude OCR errors.`;
 }
 function metricValue(p,key) {
@@ -196,7 +201,7 @@ function renderBoard() {
 function renderPlayer() {
   const p=data?.player,r=p?.reading;
   if(!p) { el('status').textContent=failed?'Tracker unavailable':'Waiting for EXP';return; }
-  const s=current(p),pace=publicPace(p),m=pace?.estimates ?? s.metrics;
+  const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (view==='player' && p.recent_windows?null:s.metrics);
   if(view==='overlay') { el('streamer').textContent=sourceText(p);el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
   else { el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=sourceText(p); }
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
@@ -209,7 +214,7 @@ function renderPlayer() {
   el('status').textContent=statusText(p);
   el('age').textContent=r?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp ?? '';
   const observed=view==='player'?observedWindow(p):null;
-  const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):observed?.difference_percentage_points ?? (selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null);
+  const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):observed?.difference_percentage_points ?? (!p.recent_windows && selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null);
   const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);
   el('movement').textContent=(observed || !s.stale && !failed) && movement!=null?movementText(summary):'—';
   amount('movement',el('movement').textContent==='—'?'—':summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate,true)} EXP`:el('movement').textContent,el('movement').textContent);
@@ -219,7 +224,7 @@ function renderPlayer() {
   amount('rate',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate,true)}`:'—',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate)}`:'—');el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Experimental displayed percentage points/hour; zero displayed change does not prove zero actual EXP.';
-  el('eta').textContent=etaText(m?.eta);el('eta').title=m?.eta?'Provisional same-level percentage estimate at the last reading, not a countdown. Both quantization hypotheses require positive pace.':'Building positive, comparable history';
+  el('eta').textContent=etaText(m?.eta);el('eta').title=m?.eta?'Uses the selected supported same-level rate and provisional requirement at the last reading, not a countdown.':'Building positive, comparable history';
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';
   el('rate').dataset.paused=String(!!pace && !pace.active);
   if(pace)el('rate').title=`${pace.label}; ${paceSample(pace.source)}. ${rateTitle(m?.exp_per_hour)}`;
@@ -241,18 +246,16 @@ function renderPlayer() {
     if(!m?.exp_per_hour && m?.percentage_per_hour)amount('rate',`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`,`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`);
     el('early-note').textContent=pace?.active?(pace.source.interruptions?'Unsafe intervals excluded':'') :pace?(['capture_finished','capture_interrupted','historical_session','coordinator_stopped'].includes(p.activity?.state)?'Saved trend':'Waiting for the next reading'):'Building history';
     el('early-note').hidden=!el('early-note').textContent;
-    el('level-note').textContent=lastKnown(p)?`Level last seen ${ageText(p.display_level.age_seconds+(performance.now()-receivedAt)/1000)}`:'';
-    el('level-note').hidden=!lastKnown(p);
-    el('level-note').title=levelTitle(p);
     el('movement-label').textContent=`${observed?.historical || s.stale && ['completed','interrupted'].includes(p.capture_lifecycle)?'Saved':'Last'} ${windowMinutes} min`;
     el('segment-note').textContent=windowNote(p);
-    el('segment-note').title='Observed progress compares supported same-level endpoints across only short, disclosed gaps; it is not a complete-window measurement. Complete comparisons still need ≥90% uninterrupted coverage.';
+    el('segment-note').title='Sums supported same-level endpoint intervals inside this real time window, including elapsed unreadable captures. Separate runs contribute independent intervals, never a difference across restart. Complete comparisons still need ≥90% uninterrupted coverage.';
     el('window-rate').textContent=selectedWindow(p)?.eligible && s.metrics?.exp_per_hour?`~${expText(s.metrics.exp_per_hour.value.approximate)}`:observed?(s.stale || failed || observed.paused?'Paused':'Not complete yet'):'Building history';
     if(selectedWindow(p)?.eligible && s.metrics?.exp_per_hour)amount('window-rate',`~${expText(s.metrics.exp_per_hour.value.approximate,true)}`,el('window-rate').textContent);
     else {delete el('window-rate').dataset.fullNumber;delete el('window-rate').dataset.compactNumber;}
     el('window-rate-label').textContent=`${windowMinutes} min EXP / hour`;
     el('pp-stat').hidden=!!m?.exp_per_hour || !m?.percentage_per_hour;
-    el('eta-stat').hidden=!m?.eta;
+    el('eta-stat').hidden=false;
+    el('eta-note').textContent=m?.eta?(pace?.source.tentative?`Early estimate · ${pace.source.readings} readings`:`At your ${windowMinutes} min pace`):pace && !pace.active?'Waiting for fresh readings':'Building positive history';
     document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
     fitAmounts();
   }
@@ -412,7 +415,7 @@ globalThis.addEventListener?.('pageshow',poll);
 if(view==='board')globalThis.addEventListener?.('resize',renderBoard);
 if(view==='board') document.querySelectorAll('[data-sort]').forEach(button=>button.addEventListener('click',()=>{sort=button.dataset.sort;if(sort in sorts)renderBoard();}));
 document.querySelectorAll('[data-window]').forEach(button=>button.addEventListener('click',()=>{
-  const minutes=Number(button.dataset.window);if(![5,10,15,30].includes(minutes))return;windowMinutes=minutes;
+  const minutes=Number(button.dataset.window);if(![5,10,15,30,60].includes(minutes))return;windowMinutes=minutes;
   if(view==='board')renderBoard();else if(data?.player){renderPlayer();drawHistory();}
 }));
 if(view==='player') {

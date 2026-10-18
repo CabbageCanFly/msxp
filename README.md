@@ -16,7 +16,7 @@ two-reading pace, aged estimates during pauses and level-aware progress history.
 The [observed-window update](docs/observed-progress-windows.md) shows useful partial
 5/10/15/30-minute progress separately from complete-window comparisons and rankings.
 The [gaming companion update](docs/gaming-companion-statistics.md) adds familiar
-EXP units, orange history bars, and a steadier recent pace with missing intervals excluded.
+EXP units, orange history bars, and a steadier recent pace.
 The [rolling history update](docs/rolling-exp-history.md) adds 24-hour orange bars
 and EXP tracked from eligible captured intervals, with unknown periods left empty.
 The [completed-capture update](docs/historical-player-usability.md) retains dated
@@ -32,6 +32,9 @@ pace through longer outages and adds bounded, separately recorded level context.
 The [endpoint pace policy](docs/endpoint-exp-pace.md) supersedes the old no-gap
 restriction: validated cumulative endpoints include elapsed gap time, and narrowly
 corroborated `X` punctuation can supply separately labeled experimental evidence.
+The [numerical/window update](docs/numerical-windows-eta.md) rejects contradictory
+whole pairs using recent level evidence, fixes slow-cadence level confirmation,
+and supplies saved 5–60-minute card statistics with stable next-level estimates.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

@@ -15,6 +15,8 @@ and game-like, with useful approximate information even when some readings fail.
   an old reading or rate look freshly observed. Missing values are not zero.
 - Start tentative pace promptly from defensible endpoints, then use more eligible
   recent evidence. Keep early estimates separate from complete-window rankings.
+- One selected recent period should control both pace and tracked progress. Keep
+  four stable summary cards; unavailable next-level estimates use a placeholder.
 - Prefer full comma-separated EXP numbers where the component fits them; use K/M/B
   for genuinely compact spaces. Do not add fractional precision to approximate values.
   Percentage changes remain a fallback; conversion assumptions belong in tooltips.

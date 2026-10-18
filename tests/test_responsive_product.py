@@ -14,7 +14,8 @@ def test_two_reading_rate_is_tentative_and_separate_from_fixed_windows(tracking)
     assert pace['active'] and pace['tentative'] and pace['readings']==2
     assert pace['span_seconds']['approximate']==15
     assert pace['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(179739.84)
-    assert pace['estimates']['eta'] is None
+    # Two independently supported endpoints may now show a tentative ETA.
+    assert pace['estimates']['eta'] and pace['tentative']
     assert not p['windows']['5']['eligible'] and p['estimates']['exp_per_hour'] is None
     assert not store.db.execute('SELECT 1 FROM observations').fetchone()
 
@@ -103,7 +104,10 @@ def test_level_event_needs_distinct_new_frames_and_never_crosses_session_or_rest
     for i in (2,3,4):append(d,i,'[0.01%]',visual_level=65,neural_level=neural,frame_sha256='a'*64)
     assert get(d,45)['level_events']==[]
     append(d,5,'[0.02%]',visual_level=65,neural_level=neural,frame_sha256='b'*64)
-    assert len(get(d,60)['level_events'])==1
+    # Duplicate source frames break confirmation; require two new fresh frames.
+    assert get(d,60)['level_events']==[]
+    append(d,6,'[0.03%]',visual_level=65,neural_level=neural,frame_sha256='c'*64)
+    assert len(get(d,75)['level_events'])==1
     store.end_session('alpha',at=NOW+timedelta(seconds=61));store.start_session('alpha',at=NOW+timedelta(seconds=62))
     assert get(d,63)['responsive_pace'] is None and get(d,63)['level_events']==[]
 

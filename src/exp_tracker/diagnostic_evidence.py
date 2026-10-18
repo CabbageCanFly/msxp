@@ -9,11 +9,13 @@ from .exp_consistency import MODES, assess
 from .exp_requirements import requirement
 from .shadow_grammar import interpret_exp
 
-POLICY = 'experimental_level_v2'
+POLICY = 'experimental_level_v3'
 # A seed-quality gate, not calibrated correctness; repetition and corroboration are mandatory.
 NEURAL_SEED_SCORE = .90
 CONTEXT_SECONDS = 120
 CONTEXT_CONFLICTS = 2
+# Evidence expires by actual elapsed time, not an ideal sequential-worker cadence.
+CONFIRM_GAP_SECONDS = 120
 
 
 def full_reading(row):
@@ -59,7 +61,7 @@ def _adjacent(before,row):
         rotated=(row.get('rotation_from')==before.get('run_id') and before.get('index')==60 and row.get('index')==1
             and row.get('source_identity') is not None and row.get('source_identity')==before.get('source_identity')
             and row.get('coordinator_instance') is not None and row.get('coordinator_instance')==before.get('coordinator_instance'))
-        return (a.utcoffset() is not None and b.utcoffset() is not None and 0<elapsed<=min(120,1.5*before.get('interval_seconds',15))
+        return (a.utcoffset() is not None and b.utcoffset() is not None and 0<elapsed<=CONFIRM_GAP_SECONDS
             and all(before.get(k)==row.get(k) for k in ('assigned_channel','channel','source_kind','character_id','session_id','source_identity'))
             and (before.get('run_id')==row.get('run_id') and row.get('index')==before.get('index',0)+1 or rotated)
             and (not before.get('run_interrupted') or before.get('run_id')==row.get('run_id')))
@@ -77,11 +79,13 @@ def project(rows, *, state=None, allow_context=True):
         context_frames=state.get('context_frames',context_frames)
     for original in rows:
         row=dict(original); visual=_visual(row); neural,score=_neural(row)
+        frame=row.get('frame_sha256')
         fresh=(row.get('fresh_at_capture') is True and row.get('capture_acquired') is True
             and row.get('status') in ('diagnostic_pair','diagnostic_percentage_only','malformed_or_unavailable')
             and row.get('hud_count')==1 and row.get('timestamp_ordered') is not False
             and row.get('timing_mode')!='simulated' and bool(row.get('received_at'))
-            and (row.get('neural_level') or {}).get('source_complete') is not False)
+            and (row.get('neural_level') or {}).get('source_complete') is not False
+            and not row.get('crop_suspect') and (not frame or frame not in context_frames))
         adjacent=bool(previous and _adjacent(previous,row))
         if not adjacent or not fresh:
             recent.clear(); established=None; neural_context=False; missing=0; corroborated_at=None
@@ -141,7 +145,6 @@ def project(rows, *, state=None, allow_context=True):
         evidence.update(value=selected,status=status,reason=reason,temporal_samples=len(recent))
         # Context never seeds itself or renews its own expiry. Two supported reader
         # observations establish the hypothesis; arithmetic can only corroborate it.
-        frame=row.get('frame_sha256')
         safe=(fresh and not row.get('crop_suspect') and (claimed is None or neural is not None)
             and not row.get('candidate_invalid') and not row.get('percentage_only_invalid')
             and (not frame or frame not in context_frames))
@@ -153,6 +156,12 @@ def project(rows, *, state=None, allow_context=True):
                     or neural not in (None,anchor['value']) and score>=NEURAL_SEED_SCORE
                     or selected not in (None,anchor['value'])):
                 anchor=None;context_conflicts=0
+        # A recent independently reader-supported level may veto a WHOLE pair,
+        # even when this frame cannot establish a level. It never repairs digits.
+        pair_check=consistency(full,anchor['value']) if anchor and anchor['samples']>=2 and safe else None
+        veto=bool(pair_check and pair_check['status']=='invalid')
+        if veto:
+            pair_check.update(whole_pair_rejected=True,level_context={k:anchor[k] for k in ('value','timestamp','event_id','samples')})
         strong=safe and selected is not None and status in ('agreement','provisional_neural')
         strong=strong and (status=='agreement' or score is not None and score>=NEURAL_SEED_SCORE)
         if strong and consistency(full,selected)['status']!='invalid':
@@ -181,7 +190,7 @@ def project(rows, *, state=None, allow_context=True):
                 evidence.update(value=selected,status='contextual',reason='recent_corroborated_level',
                     contextual=True,strict_window_eligible=False)
         row['experimental_level']=evidence
-        row['exp_validity']=consistency(full,selected)
+        row['exp_validity']=pair_check if veto else consistency(full,selected)
         output.append(row); previous=row
     if state is not None:
         state.update(recent=recent,previous=previous,established=established,established_at=established_at,

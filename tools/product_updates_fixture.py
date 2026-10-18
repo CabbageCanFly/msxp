@@ -204,6 +204,60 @@ def resilience_trial(database,port):
             finally:http.shutdown();thread.join(2)
 
 
+def numerical_window_trial(database,port):
+    """Saved #21 failure, causal SQLite commits and an explicitly simulated clock."""
+    root=Path('private/multi-alpha/runs/20261018T185429Z-fdb644c0')
+    saved={c:sorted(([json.loads(s) for s in p.read_text().splitlines()] for p in (root/c).rglob('capture.jsonl')),
+        key=lambda records:next(r['attempted_at'] for r in records if r['type']=='attempt')) for c in ('telfer1','shiphtur')}
+    target=next(records for records in saved['telfer1'] if records[0]['run_id']=='096543bcaabb45f18f07f30eebc4111e')
+    import exp_tracker.server as server_module
+    import exp_tracker.diagnostics as diagnostic_module
+    class Clock(datetime):
+        at=None
+        @classmethod
+        def now(cls,tz=None):return cls.at
+    server_module.datetime=diagnostic_module.datetime=Clock
+    with Store(database) as store:
+        d=Diagnostics(store)
+        for channel,runs in saved.items():
+            store.add_channel(channel);cid=store.add_character(channel,'Saved review');store.select_character(channel,cid)
+            store.start_session(channel,at=datetime.fromisoformat(runs[0][1]['attempted_at']))
+        def stage(index):
+            Clock.at=datetime.fromisoformat(next(r['received_at'] for r in target if r.get('type')=='attempt' and r['index']==index))
+            for channel,runs in saved.items():
+                for records in runs:
+                    attempts=[r for r in records if r['type']=='attempt']
+                    eligible=[r for r in attempts if datetime.fromisoformat(r.get('received_at') or r['attempted_at'])<=Clock.at]
+                    if not eligible:continue
+                    d.begin(records[0]['run_id'],channel,records[0])
+                    for r in eligible:d.append(records[0]['run_id'],r)
+                    if len(eligible)==len(attempts):
+                        for r in records:
+                            if r['type']=='summary':d.append(records[0]['run_id'],r)
+            assert not store.db.execute('select 1 from observations').fetchone()
+        stage(20)
+        with create_server(database,port=port,diagnostic_dashboard=True) as http:
+            http.quiet=True
+            def activity():
+                http.active_run_ids.clear()
+                for channel in saved:
+                    run=store.db.execute('select run_id from diagnostic_runs where streamer_id=(select id from streamers where login=?) order by rowid desc limit 1',(channel,)).fetchone()[0]
+                    http.active_run_ids.add(run)
+                    http.coordinator_status[channel]=dict(state='waiting',updated_at=Clock.at.isoformat(),next_due_at=(Clock.at+timedelta(seconds=20)).isoformat(),requested_interval_seconds=20)
+            activity();thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+            print(json.dumps(dict(ready=True,clock='simulated_as_of',port=http.server_port)),flush=True)
+            try:
+                for expected,index in (('reject',21),('recover',22),('next',23),('stale',None)):
+                    command=next(sys.stdin,None)
+                    if command is None:break
+                    if command.strip()!=expected:raise ValueError('Ordered replay only')
+                    if index:stage(index)
+                    else:Clock.at+=timedelta(seconds=400)
+                    activity();print(json.dumps(dict(stage=expected,as_of=Clock.at.isoformat())),flush=True)
+                for _ in sys.stdin:raise ValueError('Replay complete')
+            finally:http.shutdown();thread.join(2)
+
+
 def main():
     cli=argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--directory',type=Path,required=True)
@@ -214,6 +268,7 @@ def main():
     cli.add_argument('--rolling',action='store_true',help='Actual new Telfer1 runs and existing character history, as-of replay')
     cli.add_argument('--historical',action='store_true',help='Actual completed 90-attempt two-stream trial, as-of clock')
     cli.add_argument('--resilience',action='store_true',help='Actual unreadable-HUD replay, mocked Helix and coordinator activity')
+    cli.add_argument('--numerical-windows',action='store_true',help='Saved wrong-pair veto and selected-window card replay')
     args=cli.parse_args()
     directory=args.directory.resolve()
     if not any(directory.is_relative_to(Path(p).resolve()) for p in ('private','artifacts')):
@@ -228,6 +283,9 @@ def main():
         return
     if args.rolling:
         rolling_trial(database,args.port)
+        return
+    if args.numerical_windows:
+        numerical_window_trial(database,args.port)
         return
     if args.windows:
         window_trial(database,args.port)

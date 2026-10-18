@@ -37,7 +37,8 @@ def test_telfer_defects_are_not_repaired_into_known_answers():
     assert out[2]['exp_validity']['status']=='invalid'
     data=progress(rows,now=NOW+timedelta(seconds=60))
     decisions=data['percentage_reviews']
-    assert decisions[2]['status']=='pending_exp_decrease' and not decisions[2]['public_eligible']
+    # The whole-pair arithmetic veto now precedes percentage-decrease review.
+    assert decisions[2]['reason']=='arithmetic_pair_veto' and not decisions[2]['public_eligible']
     assert not decisions[3]['progress_eligible']
     assert percentage_point(out[3])[0] is None
     assert out[4]['experimental_level']['value']==67

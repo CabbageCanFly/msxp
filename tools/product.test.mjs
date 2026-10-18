@@ -11,7 +11,7 @@ class Element {
 }
 function page(view='overlay',fetcher=()=>new Promise(()=>{})){
   const elements={},timers=[],events={};
-  const buttons=[5,10,15,30].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
+  const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const context=vm.createContext({Intl,Date,BigInt,AbortController,performance:{now:()=>0},
     location:{pathname:view==='overlay'?'/live/overlay/alpha':'/stream/alpha',origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
     navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
@@ -173,7 +173,7 @@ test('observed windows show real partial endpoints without ranking them or relab
   for(let i=0;i<4;i++){
     p.buttons[i].listeners.click();
     assert.equal(p.elements.movement.textContent,`+${i}.55%`);
-    assert.match(p.elements['segment-note'].textContent,/3m 28s.*15 readings.*1 short gap.*partial history/);
+    assert.match(p.elements['segment-note'].textContent,/3m 28s.*15 readings.*2 sequences.*partial history/);
     assert.equal(p.elements['window-rate'].textContent,'Not complete yet');
     assert.equal(p.elements.rate.textContent,'~2,000');
   }
@@ -238,7 +238,7 @@ test('last-known level is labeled separately and never supplies missing EXP or p
     p.render(player({display_level:saved,estimates:{},reading:{exp:null,percentage:'90.78',bp:9078,level:{value:null,status:'conflict'}}}));
     assert.equal(p.elements.level.textContent,'Lv. 65');assert.match(p.elements.level.title,/Last-known.*40s ago/);
     assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.rate.textContent,'—');
-    if(view==='player')assert.match(p.elements['level-note'].textContent,/Level last seen/);
+    if(view==='player')assert.equal(p.elements['level-note'],undefined);
   }
 });
 
@@ -259,8 +259,48 @@ test('responsive pace has one current rate, retains an explicitly aged rate afte
   assert.equal(p.elements['window-rate'].textContent,'Building history');
   p.render({...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}});
   assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/last observed 35s ago/);
-  assert.equal(p.elements.rate.dataset.paused,'true');assert.equal(p.elements['eta-stat'].hidden,true);
+  assert.equal(p.elements.rate.dataset.paused,'true');assert.equal(p.elements['eta-stat'].hidden,false);
   p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[null]);
+});
+
+test('selected SQLite window controls gain, rate and tentative ETA while four cards stay present',()=>{
+  const p=page('player'),base=player();
+  base.responsive_pace={active:true,age_seconds:0,readings:2,span_seconds:{approximate:20},estimates:base.estimates};
+  base.recent_windows=Object.fromEntries([5,10,15,30,60].map((minutes,i)=>[minutes,{status:'ready',available:true,
+    pace:{...base.responsive_pace,tentative:i===0,estimates:{...base.estimates,exp_per_hour:{...base.estimates.exp_per_hour,value:{approximate:(i+1)*1000}}}},
+    observed:{available:true,difference_percentage_points:'0.10',span_seconds:{approximate:20},coverage_seconds:{approximate:20},
+      readings:2,age_seconds:0,interruptions:0,unavailable_attempts:0,missing_attempts:0,estimated_exp:{value:{approximate:(i+1)*100},requirement:{version:'test'}}}}]));
+  p.render(base);
+  for(let i=0;i<5;i++){
+    p.buttons[i].listeners.click();
+    assert.equal(p.elements.rate.textContent,'~'+((i+1)*1000).toLocaleString('en-US'));
+    assert.equal(p.elements.movement.textContent,`+${(i+1)*100} EXP`);
+    assert.equal(p.elements['eta-stat'].hidden,false);
+    assert.equal(p.elements.eta.textContent,'~15m');
+    assert.equal(p.elements['window-rate'].textContent,'Not complete yet');
+  }
+  p.buttons[0].listeners.click();assert.match(p.elements['eta-note'].textContent,/Early estimate.*2 readings/);
+  base.recent_windows[5].pace.active=false;p.render(base);
+  assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements['eta-stat'].hidden,false);
+  assert.match(p.elements['eta-note'].textContent,/Waiting for fresh/);
+  assert.equal(p.elements['level-note'],undefined);
+  base.recent_windows[5]={status:'history_limit',available:false,observed:{available:false}};
+  base.windows={5:{eligible:true,estimates:base.estimates,coverage_seconds:{approximate:300},readings:21}};
+  p.render(base);assert.equal(p.elements.rate.textContent,'—');assert.equal(p.elements.movement.textContent,'—');
+  assert.equal(p.elements['segment-note'].textContent,'Recent history unavailable');
+});
+
+test('selected historical rate is dated, has no current gain or ETA, and never falls back to a different window',()=>{
+  const p=page('player'),base=player();
+  base.responsive_pace={active:true,age_seconds:0,level:60,readings:2,span_seconds:{approximate:20},estimates:base.estimates};
+  base.recent_windows={60:{status:'ready',available:false,observed:{available:false},last_observed_pace:{
+    ...base.responsive_pace,active:false,age_seconds:400,estimates:{...base.estimates,exp_per_hour:{...base.estimates.exp_per_hour,value:{approximate:6000}}}}}};
+  p.render(base);p.buttons[4].listeners.click();
+  assert.equal(p.elements.rate.textContent,'~6,000');assert.equal(p.elements.movement.textContent,'—');
+  assert.match(p.elements['early-value'].textContent,/last observed 6m ago/);
+  assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements['eta-stat'].hidden,false);
+  delete base.recent_windows[60].last_observed_pace;p.render(base);
+  assert.equal(p.elements.rate.textContent,'—');
 });
 
 test('current-level chart separates level-up, missing samples and quarantine; only guarded edges get lines',()=>{

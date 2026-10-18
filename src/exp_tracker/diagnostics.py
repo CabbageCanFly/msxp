@@ -379,6 +379,12 @@ class Diagnostics:
         with self.store._transaction():
             return aggregate(self,channel,now=now or datetime.now(timezone.utc))
 
+    def recent_snapshot(self,channel,*,now):
+        from .rolling_history import recent_snapshot
+        if self.db.in_transaction:return recent_snapshot(self,channel,now=now)
+        with self.store._transaction():
+            return recent_snapshot(self,channel,now=now)
+
     def directory(self, cache, *, now=None, active_runs=None,coordinator_status=None):
         """Cache compact cards by committed revision; never retain full histories."""
         now = now or datetime.now(timezone.utc)
@@ -396,11 +402,13 @@ class Diagnostics:
             for head in heads[:25]:
                 key = tuple(head)
                 cached = cache.get(head['login'])
-                pace=cached[1]['player'].get('responsive_pace') if cached else None
+                paces=([cached[1]['player'].get('responsive_pace')]+[w.get('pace') for w in cached[1]['player']['recent_windows'].values()]) if cached else []
                 # Expire rolling intervals even when no new SQLite revision arrives.
-                pace_due=bool(pace and not pace.get('retained_history') and
-                    datetime.fromisoformat(pace['start'])<now-timedelta(seconds=pace['trend_seconds']))
-                if cached is None or cached[0] != key or pace_due:
+                pace_due=any(pace and not pace.get('retained_history') and
+                    datetime.fromisoformat(pace['start'])<now-timedelta(seconds=pace['trend_seconds']) for pace in paces)
+                history_due=bool(cached and any(w['available'] for w in cached[1]['player']['recent_windows'].values())
+                    and (now-datetime.fromisoformat(cached[1]['recent_as_of'])).total_seconds()>=10)
+                if cached is None or cached[0] != key or pace_due or history_due:
                     snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS)
                     p = snap['percentage_progress']
                     last = snap['observations'][-1] if snap['observations'] else {}
@@ -427,7 +435,8 @@ class Diagnostics:
                         movement=p['latest_movement'],progress_reason=p['reason'],pace=p['current_pace'],
                         stale_after_seconds=snap['stale_after_seconds'],history_limit=PRODUCT_ROWS,
                         history_truncated=snap['truncated'],trusted=False)
-                    card['player']=player(snap,now=now)
+                    card['player']=player(snap,now=now,recent_snapshot=self.recent_snapshot(head['login'],now=now))
+                    card['recent_as_of']=now.isoformat()
                     card['unfinished_run_count'] = snap['unfinished_run_count']
                     cache[head['login']] = (key,card)
                 card = deepcopy(cache[head['login']][1])

@@ -38,6 +38,8 @@ def elapsed_seconds(a, b):
 
 def percentage_point(row, *, include_recovered=True):
     """One percentage per immutable attempt; don't trust supplied proposal objects."""
+    if row.get('exp_validity',{}).get('whole_pair_rejected'):
+        return None, 'arithmetic_pair_veto'
     if row.get('candidate_invalid') or row.get('percentage_only_invalid'):
         return None, 'candidate_contradiction'
     interpreted = interpret_exp(row.get('raw_text'))
