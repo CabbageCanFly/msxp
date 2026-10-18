@@ -128,7 +128,7 @@ function drawTimeline(rows, interval, percentage = false) {
     shape("text", {x: 4, y: 158}).textContent = percentage ? low.toFixed(2)+"%" : compact.format(low);
   }
   if (percentage) for (const point of levelBreaks) shape("line", {x1:x(point.time),x2:x(point.time),y1:20,y2:180,class:"level-break"}, "Visual level changed; no continuity or automatic level-up is inferred");
-  if (percentage) for (const point of uncertainLevels) shape('line',{x1:x(point.time),x2:x(point.time),y1:20,y2:180,class:'level-unknown'},'Visual level unavailable; same-level continuity unknown');
+  if (percentage) for (const point of uncertainLevels) shape('line',{x1:x(point.time),x2:x(point.time),y1:170,y2:180,class:'level-unknown'},'Visual level unavailable; same-level continuity unknown');
   for (const point of points) {
     const row = point.row, px = x(point.time);
     const value = valueOf(row);

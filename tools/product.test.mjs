@@ -124,3 +124,24 @@ test('pending percentage holds prior values, removes pace, and expires despite a
   assert.equal(p.elements.rate.textContent,'—');p.context.performance.now=()=>91000;p.run('renderPlayer()');
   assert.equal(p.elements.status.textContent,'Updates delayed');assert.equal(p.elements.percentage.textContent,'5.90%');
 });
+
+test('last-known level is labeled separately and never supplies missing EXP or pace',()=>{
+  for(const view of ['player','overlay']) {
+    const p=page(view),saved={value:65,timestamp:'2026-01-01T00:00:00Z',age_seconds:40,last_known:true,
+      evidence:{value:65,status:'provisional_neural',reason:'repeated_neural_with_strict_arithmetic'}};
+    p.render(player({display_level:saved,estimates:{},reading:{exp:null,percentage:'90.78',bp:9078,level:{value:null,status:'conflict'}}}));
+    assert.equal(p.elements.level.textContent,'Lv. 65†');assert.match(p.elements.level.title,/Last-known.*40s ago/);
+    assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.rate.textContent,'—');
+    if(view==='overlay')assert.match(p.elements.status.textContent,/last-known Lv/);
+  }
+});
+
+test('early segment pace is visible before a complete window and becomes paused on stale or failed API',()=>{
+  const p=page('player'),base=player();
+  base.early_pace={active:true,segment:{...base.segment,start:'start',end:'end'},estimates:base.estimates};
+  p.render(base);assert.match(p.elements['early-value'].textContent,/~2K EXP\/hour.*early estimate.*3 readings \/ 30s/);
+  assert.equal(p.elements.rate.textContent,'—');assert.match(p.elements['segment-note'].textContent,/Building 5m/);
+  p.context.performance.now=()=>50000;p.run('renderPlayer()');assert.equal(p.elements['early-value'].textContent,'Estimate paused');
+  assert.match(p.elements['early-value'].title,/Historical value/);
+  p.context.performance.now=()=>0;p.run('failed=true;renderPlayer()');assert.equal(p.elements['early-value'].textContent,'Estimate paused');
+});

@@ -131,13 +131,22 @@ def player(snapshot,*,now=None):
         if value and row.get('timestamp_ordered') is not False and value['timestamp']:
             when=datetime.fromisoformat(value['timestamp'])
             if when<=now and (latest is None or when>datetime.fromisoformat(latest['timestamp'])): latest=value
+    # Display context never enters reading(), numerical checks or progress inputs.
+    display_level=None
+    for row in rows:
+        level=level_evidence(row);stamp=row.get('received_at')
+        if (stamp and datetime.fromisoformat(stamp)<=now and row.get('timestamp_ordered') is not False
+                and row.get('fresh_at_capture') and row.get('capture_acquired') and row.get('hud_count')==1
+                and level['value'] is not None and level['status'] in ('agreement','provisional_neural')):
+            display_level=dict(value=level['value'],timestamp=stamp,event_id=row['event_id'],
+                evidence=level,display_only=True,trusted=False)
     progress=snapshot['percentage_progress'];segment=progress['current_segment']
     usable=bool(latest and segment and segment['last_event_id']==latest['event_id'] and rows and rows[-1]['event_id']==latest['event_id'])
     movement=progress.get('latest_movement') if usable else None
     movement=movement if movement and movement.get('change') in ('positive','zero') else None
     decision=progress.get('percentage_state')
     result=dict(channel=snapshot['channel'],character=snapshot['selected_character'],session_id=(snapshot['session'] or {}).get('id'),
-        percentage_state=decision,
+        percentage_state=decision,display_level=display_level,
         source_kind=snapshot.get('source_kind'),reading=latest,latest_attempt_at=(rows[-1].get('received_at') or rows[-1].get('attempted_at')) if rows else None,
         latest_attempt_status=rows[-1]['status'] if rows else 'waiting',
         stale_after_seconds=snapshot['stale_after_seconds'],movement=movement,
@@ -145,6 +154,10 @@ def player(snapshot,*,now=None):
             difference_percentage_points=segment['difference_percentage_points'],evidence_counts=segment['evidence_counts']) if usable else None,
         estimates=estimates(segment,progress['current_pace'],latest['bp']) if usable else estimates(None,None,0),
         windows=window_comparisons(snapshot,now=now),trusted=False,experimental=True)
+    historical=next((s for s in reversed(progress['segments']) if s['pace']),None)
+    result['early_pace']=dict(active=bool(usable and progress['current_pace']),reason=progress['reason'],
+        segment=historical,estimates=estimates(historical,historical['pace'],int(Fraction(historical['end_percentage'])*100)) if historical else estimates(None,None,0),
+        label='EXPERIMENTAL / UNVERIFIED; early segment estimate, not a completed window')
     return refresh(result,now=now)
 
 
@@ -154,6 +167,10 @@ def refresh(value,*,now=None,activity=None):
     value['age_seconds']=max(0,age) if age is not None else None
     value['stale']=age is None or age<0 or age>value['stale_after_seconds'] or not latest['fresh_at_capture']
     value['activity']=activity or dict(state='coordinator_stopped')
+    level=value.get('display_level')
+    if level:
+        level['age_seconds']=max(0,(now-datetime.fromisoformat(level['timestamp'])).total_seconds())
+        level['last_known']=(level['timestamp']!=value['latest_attempt_at'] or level['age_seconds']>value['stale_after_seconds'])
     decision=value.get('percentage_state')
     deadline=(decision.get('verification_deadline') or decision.get('confirmation_deadline')) if decision else None
     if decision and not decision['public_eligible'] and deadline and now>datetime.fromisoformat(deadline):
@@ -163,6 +180,8 @@ def refresh(value,*,now=None,activity=None):
         value['estimates']=estimates(None,None,0)
         for metric in value.get('windows',{}).values():
             metric.update(eligible=False,state='stale',reason='stale_or_simulated_reading',estimates=estimates(None,None,0))
+    if value.get('early_pace') and (value['stale'] or latest and latest['simulated']):
+        value['early_pace'].update(active=False,reason='stale_or_simulated_reading')
     return value
 
 

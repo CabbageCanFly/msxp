@@ -25,8 +25,21 @@ function expTitle(r) {
   return r?.exp_validity?.status==='invalid'?'Absolute EXP withheld: inconsistent with level and percentage under both display hypotheses':r?.exp==null?'Absolute EXP unavailable; level or requirement unresolved':r.evidence==='grammar_recovered'?'Unverified grammar-recovered proposal':'Original strict OCR candidate; unverified';
 }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
-function levelText(p) { const level=p.reading?.level;return level?.value==null?'—':`${level.value}${['single_reader','provisional_neural','recent_context'].includes(level.status)?'*':''}`; }
-function levelTitle(p) { const l=p.reading?.level;return l?.status==='conflict'?`Level readers disagree: ${l.visual} / ${l.neural}`:l?.status==='provisional_neural' || l?.status==='recent_context'?'Provisional level from recent visual evidence; readers and arithmetic remain unverified':l?.status==='single_reader'?'One OCR reader; unverified level':'OCR level evidence; unverified'; }
+function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
+function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l.age_seconds+(performance.now()-receivedAt)/1000>p.stale_after_seconds); }
+function levelText(p) { const level=displayLevel(p);return level?.value==null?'—':`${level.value}${lastKnown(p)?'†':['single_reader','provisional_neural','recent_context'].includes(level.status)?'*':''}`; }
+function levelTitle(p) {
+  const l=displayLevel(p),saved=p.display_level;
+  if(saved)return `${lastKnown(p)?'Last-known':'Recently supported'} level; ${ageText(saved.age_seconds+(performance.now()-receivedAt)/1000)}; ${saved.evidence.reason}; ${saved.timestamp}. Display only, not evidence for calculations; OCR remains unverified.`;
+  return l?.status==='conflict'?`Level readers disagree: ${l.visual} / ${l.neural}`:l?.value!=null?'Provisional OCR level; unverified':'Waiting for supported level evidence';
+}
+function earlyText(p) {
+  const early=p.early_pace;
+  if(!early?.active || current(p).stale || failed)return null;
+  const e=early.estimates,segment=early.segment;
+  const rate=e.exp_per_hour?`~${compact.format(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`~${e.percentage_per_hour.value.approximate.toFixed(2)} pp/hour`:null;
+  return rate?`${rate} · early estimate · ${segment.readings} readings / ${Math.round(segment.span_seconds.approximate)}s`:null;
+}
 function current(p) {
   const age=p.age_seconds==null?null:p.age_seconds+(performance.now()-receivedAt)/1000;
   const review=p.percentage_state;
@@ -61,7 +74,7 @@ function rateTitle(rate) {
   return `Experimental estimate, not earned EXP. ${Object.entries(rate.hypotheses).map(([rule,b])=>`${rule}: ${numbers.format(Math.round(b.lower.approximate))}–${numbers.format(Math.round(b.upper.approximate))} EXP/h`).join('; ')}. Community requirement ${rate.requirement.version}; quantization bounds exclude OCR errors.`;
 }
 function metricValue(p,key) {
-  if(key==='level')return p.reading?.level?.value ?? null;
+  if(key==='level')return displayLevel(p)?.value ?? null;
   if(current(p).stale || failed)return null;
   if(key==='exp_hour')return current(p).metrics?.exp_per_hour?.value.approximate ?? null;
   return selectedWindow(p)?.eligible?Number(selectedWindow(p).difference_percentage_points):null;
@@ -74,14 +87,14 @@ function ranked(players,key) {
 function entry({player:p,value,rank}) {
   const r=p.reading,s=current(p),row=node('li','entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale);row.dataset.state=s.stale || failed?'stale':['running','waiting'].includes(p.activity?.state)?'tracking':'paused';
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Unranked: insufficient data':`Experimental local rank ${rank}`);
-  const level=node('span','level');level.append(node('small','','LV.'),node('strong','',levelText(p)));level.title=levelTitle(p);
+  const level=node('span','level');level.append(node('small','','LV.'),node('strong','',levelText(p)));level.title=levelTitle(p);if(lastKnown(p))level.append(node('small','level-note','last known'));
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
   identity.append(name,node('span','channel',sourceText(p)),node('span','status',statusText(p)));
   const section=node('div','exp-section'),bar=node('div','exp-bar'),progress=node('progress');progress.max=100;progress.value=r?r.bp/100:0;progress.hidden=!r;progress.setAttribute('aria-label',`${p.character?.label ?? p.channel} observed EXP percentage`);
   bar.dataset.missing=String(!r);bar.dataset.recovered=String(r?.evidence==='grammar_recovered');
   const label=node('span','exp-label');label.title=expTitle(r);label.append(node('small','','EXP'),node('span','exp-number',displayedExp(r)),node('span','percentage',r?`[${r.percentage}%]`:'Waiting for EXP'));
   bar.append(progress,label);
-  section.append(bar,node('div','exp-detail',`${windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
+  section.append(bar,node('div','exp-detail',`${!selectedWindow(p)?.eligible && earlyText(p) || windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):sort==='movement'?`+${value.toFixed(2)}`:`~${compact.format(value)}`),
     node('small','score-label',sort==='level'?'last observed level':sort==='movement'?'percentage points':'estimated EXP / hour'));
   score.title=sort==='exp_hour'?rateTitle(s.metrics?.exp_per_hour):sort==='level'?levelTitle(p):'Displayed percentage change only; no exact earned EXP is inferred.';
@@ -107,20 +120,27 @@ function renderPlayer() {
   if(view==='overlay') { el('streamer').textContent=sourceText(p);el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(r?.evidence==='grammar_recovered'); }
   else { el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=sourceText(p); }
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
+  el('level').dataset.lastKnown=String(lastKnown(p));
   el('progress').value=r?r.bp/100:0;
   el('progress').hidden=!r;
   el('exp').textContent=displayedExp(r);el('exp').title=expTitle(r);
   el('percentage').textContent=r?`${r.percentage}%`:'—';
-  el('status').textContent=statusText(p);
+  el('status').textContent=statusText(p)+(view==='overlay' && lastKnown(p)?' · † last-known Lv':'');
   el('age').textContent=r?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp ?? '';
   const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null;
   el('movement').textContent=!s.stale && !failed && movement!=null?`+${movement} pp`:'—';
-  el('rate').textContent=m?.exp_per_hour?`~${compact.format(m.exp_per_hour.value.approximate)}`:'—';el('rate').title=rateTitle(m?.exp_per_hour);
+  el('rate').textContent=m?.exp_per_hour?`~${compact.format(m.exp_per_hour.value.approximate)}`:'—';el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Experimental displayed percentage points/hour; zero displayed change does not prove zero actual EXP.';
   el('eta').textContent=etaText(m?.eta);el('eta').title=m?.eta?'Provisional same-level percentage estimate at the last reading, not a countdown. Both quantization hypotheses require positive pace.':'Building positive, comparable history';
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';
   if(view==='player') {
+    const early=p.early_pace,text=earlyText(p);
+    el('early-value').textContent=text ?? (early?.segment?'Estimate paused':'Building comparable history');
+    el('early-note').textContent=text?'Experimental current segment · separate from completed-window comparisons.':early?.segment?'Last eligible estimate retained for inspection; waiting for fresh, connected readings.':'Needs 3 supported same-level readings over 30s; interruptions restart the segment.';
+    el('early-value').title=early?.segment?`${early.segment.start} – ${early.segment.end}; ${early.segment.readings} readings. ${rateTitle(early.estimates?.exp_per_hour)} Historical value: ${early.estimates?.exp_per_hour?.value.approximate ?? early.estimates?.percentage_per_hour?.value.approximate} ${early.estimates?.exp_per_hour?'EXP/h':'pp/h'}. Bounds exclude OCR errors.`:'';
+    el('level-note').textContent=lastKnown(p)?`Last-known level · ${ageText(p.display_level.age_seconds+(performance.now()-receivedAt)/1000)}`:'Provisional visual level';
+    el('level-note').title=levelTitle(p);
     el('movement-label').textContent=`Last ${windowMinutes} min`;
     el('segment-note').textContent=windowNote(p)+'. Window estimates need ≥90% uninterrupted same-level coverage and a first reading within one capture interval of the boundary. Local capture time; no missing progress is filled in.';
     document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
@@ -143,7 +163,7 @@ function drawHistory() {
   points.forEach((p,i)=>{
     const previous=points[i-1];
     if(previous && p.time-previous.time>previous.interval_seconds*1500) { gaps++;shape('rect',{x:x(previous.time),y:20,width:x(p.time)-x(previous.time),height:160,class:'gap'}); }
-    if(previous && (p.level.value==null || previous.level.value==null || p.level.value!==previous.level.value)) shape('line',{x1:x(p.time),x2:x(p.time),y1:20,y2:180,class:'boundary'},'Level context changed or unavailable');
+    if(previous && p.level.value!==previous.level.value) shape('line',{x1:x(p.time),x2:x(p.time),y1:p.level.value==null || previous.level.value==null?170:20,y2:180,class:'boundary'},'Level context changed or unavailable');
     if(p.reading) shape('circle',{cx:x(p.time),cy:y(p.reading.bp/100),r:4,class:p.reading.evidence==='grammar_recovered'?'recovered':'sample'},`${p.timestamp} · ${p.reading.percentage}% · ${p.reading.evidence}`);
     else shape('path',{d:`M${x(p.time)-3} 185l6 6m0-6-6 6`,class:'missing'},`${p.timestamp} · reading unavailable`);
   });

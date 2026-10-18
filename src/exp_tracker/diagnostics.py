@@ -28,7 +28,8 @@ def operation(value,runtime,now):
     result=dict(runtime)
     if runtime['state']=='running' and (now-datetime.fromisoformat(runtime['updated_at'])).total_seconds()>runtime['expected_completion_seconds']:
         result['state']='capture_delayed'
-    elif runtime['state']=='waiting' and (now-datetime.fromisoformat(runtime['next_due_at'])).total_seconds()>2:
+    # Sequential work can start a few seconds late without missing a capture slot.
+    elif runtime['state']=='waiting' and (now-datetime.fromisoformat(runtime['next_due_at'])).total_seconds()>max(2,min(15,runtime.get('requested_interval_seconds',15)/2)):
         result['state']='capture_delayed'
     return result
 

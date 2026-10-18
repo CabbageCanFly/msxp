@@ -7,15 +7,16 @@ import {setTimeout as delay} from 'node:timers/promises';
 
 const [base='http://127.0.0.1:8765',directory,databaseArgument,channel='offline_window']=process.argv.slice(2);
 const verifyQuarantine=databaseArgument==='--verify-quarantine';
+const verifyUsability=databaseArgument==='--verify-usability';
 const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
-const database=databaseArgument==='-' || verifyUpdates?null:databaseArgument;
+const database=databaseArgument==='-' || verifyUpdates || verifyUsability?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
 let fixture=null,fixtureCommand=null;
-if(verifyUpdates){
+if(verifyUpdates || verifyUsability){
   const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80'],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyUsability?['--usability']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
   let buffer='',waiting=null;const messages=[];
   fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
   const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
@@ -83,6 +84,31 @@ try {
   await detail.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   await overlay.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   const observed=[];
+  if(verifyUsability){
+    assert.equal(original.player.early_pace.active,false);
+    assert.equal((await fixtureCommand('advance')).stage,'advance');
+    const after=await api('/api/players/'+channel);
+    assert.equal(after.player.early_pace.active,true);assert.equal(after.player.windows['5'].eligible,false);
+    await detail.wait('document.getElementById("early-value").textContent.includes("early estimate")');
+    await overlay.wait(`data?.player?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
+    await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
+    assert.equal(await detail.evaluate('document.getElementById("rate").textContent'),'—');
+    await screenshot(detail,'early-pace-saved-trial',1100,1050);
+    await screenshot(overlay,'early-pace-overlay',500,160);
+    assert.equal((await fixtureCommand('finish')).stage,'finish');
+    await detail.wait('data?.player?.latest_attempt_status!=="diagnostic_percentage_only" && data?.player?.display_level?.last_known');
+    const final=await api('/api/players/'+channel);
+    assert.equal(final.player.display_level.value,65);assert.equal(final.player.reading.level.value,null);
+    assert.equal(final.player.early_pace.active,false);assert.equal(final.player.estimates.exp_per_hour,null);
+    await overlay.wait(`data?.player?.latest_attempt_at===${JSON.stringify(final.player.latest_attempt_at)}`);
+    await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.latest_attempt_at===${JSON.stringify(final.player.latest_attempt_at)}`);
+    assert.equal(await overlay.evaluate('document.getElementById("level").textContent'),'Lv. 65†');
+    for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+    await screenshot(detail,'last-known-saved-trial',1100,1050);await screenshot(detail,'last-known-mobile',390,1200);
+    await screenshot(overlay,'last-known-overlay',500,160);await screenshot(board,'completed-two-stream-trial',1440,1050);
+    assert.ok(await board.evaluate('[...document.querySelectorAll(".level-note")].every(n=>n.getBoundingClientRect().right<=n.closest(".entry").querySelector(".identity").getBoundingClientRect().left)'), 'Last-known label overlaps character identity');
+    observed.push({asOfReplay:true,after:after.player,final:final.player});
+  }
   if(verifyUpdates){
     const initialWindow=before.players.find(p=>p.channel==='synthetic_window');assert.equal(initialWindow.windows['5'].eligible,false);
     const windowPage=await tab('/stream/synthetic_window',1100,1050);await windowPage.wait('typeof data!=="undefined" && !!data?.player');

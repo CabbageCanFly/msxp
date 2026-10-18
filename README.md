@@ -27,6 +27,8 @@ The [live-update and million-EXP notes](docs/live-player-updates.md) cover backg
 polling, truthful single-stream activity, and separately labeled percentage-derived EXP.
 The [percentage quarantine policy](docs/percentage-quarantine.md) holds suspicious
 changes, confirms small losses with separate eligible captures and preserves raw evidence.
+The [live usability update](docs/live-usability.md) retains separately timestamped
+last-known levels and exposes early segment pace without relaxing fixed-window coverage.
 
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 2–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and

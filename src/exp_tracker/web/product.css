@@ -51,3 +51,11 @@
 .live-overlay .stat strong[data-size="long"] { font-size:13px; }
 @media(max-width:850px) { .product .entry { grid-template-columns:30px 58px minmax(110px,150px) minmax(125px,1fr) 90px; gap:9px; } }
 @media(max-width:650px) { .product .entry { grid-template-columns:36px minmax(0,1fr) 87px; } .welcome { padding:12px 0 22px; } .product .toolbar { align-items:flex-start; } .poll-note { width:100%; } .player-reading { padding:22px 14px 8px; gap:12px; } .player-stats { grid-template-columns:repeat(2,minmax(0,1fr)); padding:18px 14px; gap:20px; } .player-stats strong { font-size:24px; } .segment-note { padding-left:14px; padding-right:14px; } .overlay-actions { padding-left:14px; padding-right:14px; } }
+
+.early-pace { margin:0 25px 18px; padding:12px 15px; border:1px solid #796143; border-radius:9px; background:#392e24; }
+.early-pace > span { color:#e5c48e; font-size:11px; display:block; }
+.early-pace strong { display:block; margin:5px 0; font-size:17px; color:#def198; overflow-wrap:anywhere; }
+.early-pace small { color:#c9b18e; font-size:11px; }
+.product .level .level-note { display:block; margin:2px 0 0; font-size:8px; letter-spacing:0; }
+.live-overlay #level[data-last-known="true"] { border-style:dashed; }
+@media(max-width:650px) { .early-pace { margin-left:14px; margin-right:14px; } }

@@ -80,7 +80,7 @@ def interpret_exp(text, *, source_complete=None):
     """
     base = dict(classification='rejected', proposals=[], trusted=False,
                 numerical_identity_verified=False, reason='no_bounded_interpretation')
-    result = dict(policy='bounded_exp_v2', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
+    result = dict(policy='bounded_exp_v3', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
                   strict_full=None, strict_percentage_only=None, full_exp={**base}, percentage={**base},
                   source_complete=source_complete, trusted=False)
     if not isinstance(text, str) or not text or len(text) > MAX_TEXT:
@@ -92,6 +92,16 @@ def interpret_exp(text, *, source_complete=None):
         result.update(strict_full=strict, strict_percentage_only=only)
         for field in ('full_exp', 'percentage'):
             result[field] = {**base, 'classification': 'raw_strict', 'reason': 'original_strict_result_unchanged'}
+        return result
+    # A single EXP-label tail before an otherwise complete bracketed percentage.
+    # This never establishes the completeness of an absolute EXP field.
+    if text.startswith('P[') and parse_percentage_only(text[1:]) is not None:
+        result['percentage']={**base, 'classification':'unique_proposal',
+            'reason':'exp_label_tail_hypothesis_only', 'proposals':[dict(
+                interpretation=text[1:],reading=parse_percentage_only(text[1:]),
+                edits=[dict(index=0,old='P',new='',category='exp_label_tail')],
+                field_span=[1,len(text)],image_verification='required',
+                source_completeness_verified=False,trusted=False,numerical_identity_verified=False)]}
         return result
     if not text.endswith(('%]', '%1', '%|')):
         for field in ('full_exp', 'percentage'):
