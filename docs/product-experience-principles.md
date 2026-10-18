@@ -13,18 +13,19 @@ and game-like, with useful approximate information even when some readings fail.
   on every level or repeated warning paragraphs.
 - Retain useful last-known information. State its age or paused status; never make
   an old reading or rate look freshly observed. Missing values are not zero.
-- Start tentative pace promptly from defensible endpoints, then use more recent
-  connected evidence. Keep early estimates separate from complete-window rankings.
+- Start tentative pace promptly from defensible endpoints, then use more eligible
+  recent evidence. Keep early estimates separate from complete-window rankings.
 - Prefer full comma-separated EXP numbers where the component fits them; use K/M/B
   for genuinely compact spaces. Do not add fractional precision to approximate values.
   Percentage changes remain a fallback; conversion assumptions belong in tooltips.
 - Keep useful completed-capture summaries dated, with their actual observed span.
   Chart values should be inspectable by pointer, keyboard and touch without exposing
   raw debugging details or hiding missing data behind zero.
-- Keep recent pace stable with a transparent short rolling sample. Exclude unknown
-  intervals from its gain and time; retain visibly aged rates during interruptions.
-- A separately labeled no-new-gain presentation rate may ease during unreadable
-  HUDs, then pause. Keep the sampled rate and missing coverage intact internally.
+- Recent pace may use net cumulative endpoint changes across missing captures,
+  including their actual elapsed time. Invent no intermediate observations; retain
+  independent valid intervals around unsafe boundaries. Keep chart gaps separate.
+- Missing captures hold a dated last-observed rate, rather than implying zero gain.
+  Expire old intervals by time and preserve the distinction from a current estimate.
 - Twitch broadcast status and local capture health are separate facts. Unknown
   API status never means offline; an old reading never proves active capture.
 - Favor game-like orange EXP bars on fixed time axes, with a secondary level-%

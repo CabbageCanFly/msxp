@@ -288,7 +288,9 @@ function render() {
       visual.append(element('small',`Recent level hypothesis ${context.value}: ${context.samples} supported samples; ${context.age_seconds.toFixed(1)}s old, expires after ${context.expires_after_seconds}s. Original reader decision: ${reason(row.experimental_level.reader_evidence?.reason ?? row.experimental_level.reason)}`));
     }
     for(const hypothesis of row.interpretations?.symbol_hypotheses ?? [])
-      value.append(element('small',`Review only: ${hypothesis.interpretation} · missing % symbol; excluded from observations and pace`));
+      value.append(element('small',row.conditional_percent?
+        `${row.conditional_percent.policy}: ${row.conditional_percent.status} · ${reason(row.conditional_percent.reason)} · ${hypothesis.interpretation} · untrusted; original strict evidence unchanged`:
+        `Review only: ${hypothesis.interpretation} · missing % symbol; excluded from observations and pace`));
     visual.append(element("small", `Tesseract (UNVERIFIED): ${row.visual_status ?? "unavailable"}`));
     if (row.visual_attempts?.length) visual.append(element("small", `Raw passes: ${row.visual_attempts.map(text => text ?? "[redacted]").join(" / ")}`));
     if (row.neural_level) {

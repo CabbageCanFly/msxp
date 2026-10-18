@@ -77,9 +77,9 @@ try {
   const detail=await tab('/stream/'+channel,1440,1050);await detail.wait("typeof data!=='undefined' && !!data?.player");
   if(original.player.responsive_pace){
     const pace=original.player.responsive_pace;
-    const sample=`${pace.readings} readings / ${Math.round((pace.coverage_seconds ?? pace.span_seconds).approximate)}s sampled`;
+    const sample=`${pace.readings} readings / ${Math.round((pace.coverage_seconds ?? pace.span_seconds).approximate)}s ${pace.interval_counts?'elapsed':'sampled'}`;
     assert.ok((await detail.evaluate('document.getElementById("early-value").textContent')).includes(sample));
-    assert.ok((await detail.evaluate('document.getElementById("early-value").textContent')).includes(`${(pace.interruptions ?? 0)+1} sequence`));
+    if(!pace.interval_counts || pace.interruptions)assert.ok((await detail.evaluate('document.getElementById("early-value").textContent')).includes(`${(pace.interruptions ?? 0)+1} sequence`));
   }
   const recent=await detail.evaluate('({start:document.getElementById("history-chart").dataset.start,end:document.getElementById("history-chart").dataset.end,note:document.getElementById("history-note").textContent})');
   if(recent.start)assert.equal(Date.parse(recent.end)-Date.parse(recent.start),1800000);
@@ -114,9 +114,9 @@ try {
       await overlay.wait(`data?.player?.activity?.state===${JSON.stringify(actual.player.activity.state)}`);
       const pace=actual.player.responsive_pace;
       if(action==='gap'){
-        assert.equal(pace.presentation.state,'aging');assert.equal(pace.estimates.exp_per_hour.value.approximate,initial);
-        assert.ok(pace.presentation.estimates.exp_per_hour.value.approximate<initial);
-        assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/HUD unreadable/);
+        assert.equal(pace.presentation.state,'historical');
+        assert.ok(pace.presentation.estimates.exp_per_hour);
+        assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/last observed/);
       }else if(action==='recover'){
         assert.equal(pace.presentation.state,'observed');assert.ok(pace.readings>6);
       }else if(action==='pause'){

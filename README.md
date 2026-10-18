@@ -29,6 +29,9 @@ intervals across matching-level reacquisition, expires old samples and shows
 sampled time separately from gaps.
 The [gap and level resilience update](docs/gap-level-resilience.md) retains dated
 pace through longer outages and adds bounded, separately recorded level context.
+The [endpoint pace policy](docs/endpoint-exp-pace.md) supersedes the old no-gap
+restriction: validated cumulative endpoints include elapsed gap time, and narrowly
+corroborated `X` punctuation can supply separately labeled experimental evidence.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

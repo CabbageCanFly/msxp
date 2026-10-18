@@ -1,5 +1,9 @@
 # Pace through gaps and bounded level context
 
+The responsive no-gap and no-new-gain-decay rules below are historical. The
+[endpoint pace update](endpoint-exp-pace.md) supersedes them and adds conditional
+`X` recovery; the original findings/counts remain preserved here.
+
 This update changes read-time experimental interpretation and public presentation.
 It does not change capture, models, strict parsers, SQLite payloads/schema,
 requirements, character assignment or trusted accounting.

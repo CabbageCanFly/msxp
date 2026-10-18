@@ -1,4 +1,4 @@
-"""Presentation-only unreadable-HUD aging; no synthetic gain or accounting."""
+"""Dated unreadable-HUD fallback; only valid endpoints can add net gain/time."""
 from datetime import timedelta
 import json
 
@@ -34,22 +34,20 @@ def test_unreadable_gaps_age_only_presentation_and_recover_without_fake_gain(tra
         at(d,j,seconds,'?',status='malformed_or_unavailable',visual_level=None,neural_level=None)
     p=present(d,end);pace=p['responsive_pace'];shown=pace['presentation']
     assert pace['estimates']['exp_per_hour']['value']['approximate']==rate
-    if gap>=300:
-        assert shown['state']=='historical'
-        assert shown['estimates']['exp_per_hour']['value']['approximate']==rate
-        assert shown['estimates']['eta'] is None
-    else:
-        assert shown['state']=='aging' and shown['assumption']=='no_new_gain_since_last_observed_interval'
-        # The rolling pool expires whole old edges while unreadable time advances.
-        covered=200 if gap<=60 else 120
-        assert pace['coverage_seconds']['approximate']==covered
-        assert shown['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(rate*covered/(covered+max(0,gap-20)))
+    assert shown['state']=='historical' and shown['assumption'] is None
+    assert shown['estimates']['exp_per_hour']['value']['approximate']==rate
+    assert shown['estimates']['eta'] is None
+    # No new measurement or elapsed interval exists until a new endpoint arrives.
+    assert pace['coverage_seconds']['approximate']==(200 if gap<=60 or gap>=300 else 120)
     before=store.state('alpha',as_of=NOW+timedelta(seconds=end))
     index=11+gap//20
     at(d,index+1,end+20,'[34.00%]');at(d,index+2,end+40,'[34.02%]')
     p=present(d,end+40);pace=p['responsive_pace']
     assert pace['active'] and pace['presentation']['state']=='observed'
-    assert pace['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(rate)
+    intervals=pace['intervals']
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(
+        sum(e['gain']['approximate'] for e in intervals)*3600/pace['coverage_seconds']['approximate'])
+    assert pace['interval_counts']['endpoint_supported']==(1 if gap+20<=300 else 0)
     rows=history(d.snapshot('alpha',now=NOW+timedelta(seconds=end+40)))
     assert not rows[-2]['connect_previous'] and rows[-1]['connect_previous']
     assert not p['windows']['5']['eligible']

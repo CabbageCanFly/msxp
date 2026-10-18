@@ -1,4 +1,4 @@
-"""Read-only presentation estimates: no gaps become gains or elapsed coverage."""
+"""Endpoint-supported pace stays separate from unbridged chart/accounting gains."""
 from datetime import timedelta
 from fractions import Fraction
 
@@ -28,17 +28,17 @@ def test_history_gains_keep_zero_distinct_from_missing_and_never_bridge(tracking
     assert not store.db.execute('select 1 from observations').fetchone()
 
 
-def test_pooled_pace_uses_only_captured_seconds_and_quantization_components(tracking):
+def test_endpoint_pace_uses_full_elapsed_gap_and_combined_endpoint_quantization(tracking):
     _,_,d=tracking
     for i,pct in ((1,'33.00'),(2,'33.05'),(3,'33.10')):append(d,i,f'[{pct}%]')
     append(d,4,None,status='capture_failed',received_at=None,current=False)
     append(d,5,'[35.00%]');append(d,6,'[35.05%]')
     rate=get(d,75)['responsive_pace']
-    assert rate['active'] and rate['readings']==5 and rate['interruptions']==1
-    assert rate['coverage_seconds']['approximate']==45 and rate['span_seconds']['approximate']==75
-    assert rate['estimates']['percentage_per_hour']['value']['approximate']==12
-    # Two disconnected endpoint pairs contribute two display-precision bins.
-    assert rate['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']==pytest.approx(10.4)
+    assert rate['active'] and rate['readings']==5 and rate['interruptions']==0
+    assert rate['coverage_seconds']['approximate']==75 and rate['span_seconds']['approximate']==75
+    assert rate['estimates']['percentage_per_hour']['value']['approximate']==pytest.approx(98.4)
+    # Shared real endpoints cancel within the single endpoint-supported chain.
+    assert rate['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']==pytest.approx(97.92)
     assert not get(d,75)['windows']['5']['eligible']
 
 
@@ -67,7 +67,10 @@ def test_new_pace_and_bars_do_not_cross_hard_boundaries(tracking,boundary):
         for i,pct in ((5,'32.05' if boundary=='loss' else '33.15'),(6,'32.10' if boundary=='loss' else '33.20')):
             append(d,i,f'[{pct}%]',frame_sha256=f'{i:064x}')
     result=get(d,75)
-    assert result['responsive_pace']['readings']==2
+    assert result['responsive_pace']['readings']==(5 if boundary in ('anomaly','loss') else 2)
+    if boundary in ('anomaly','loss'):
+        assert result['responsive_pace']['interruptions']==1
+        assert all(e['first_event_id']!='run:4' and e['last_event_id']!='run:4' for e in result['responsive_pace']['intervals'])
     points=history(d.snapshot('alpha',now=NOW+timedelta(seconds=75)))
     assert points[3]['gain'] is None and points[-1]['gain']
 

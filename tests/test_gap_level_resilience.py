@@ -1,4 +1,4 @@
-"""Context is causal diagnostic evidence; missing intervals never earn gain/time."""
+"""Causal level evidence and dated pace; missing frames never become observations."""
 from copy import deepcopy
 from datetime import timedelta
 
@@ -156,5 +156,7 @@ def test_missing_attempts_retain_dated_rate_without_fake_intervals(tracking,miss
     at(d,12+missing,end+20,'[34.00%]');at(d,13+missing,end+40,'[34.02%]')
     recovered=present(d,end+40)['responsive_pace']
     assert recovered['active'] and recovered['presentation']['state']=='observed'
-    assert recovered['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(rate)
+    assert recovered['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(
+        sum(e['gain']['approximate'] for e in recovered['intervals'])*3600/recovered['coverage_seconds']['approximate'])
+    assert recovered['interval_counts']['endpoint_supported']==(1 if missing*20+20<=300 else 0)
     assert not store.db.execute('SELECT 1 FROM observations').fetchone()

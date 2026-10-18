@@ -36,15 +36,15 @@ test('cached failures and advancing ages preserve values but suppress rates and 
   p.context.performance.now=()=>0;p.run('failed=true;renderPlayer()');assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements.card.dataset.stale,'true');
 });
 
-test('unreadable HUD ages presentation, retains dated history, expires and never ranks the estimate',()=>{
+test('unreadable HUD retains dated rate without assuming zero gain, expires and never ranks it',()=>{
   const p=page(),base=player();
   base.latest_attempt_status='malformed_or_unavailable';
   base.responsive_pace={active:false,tentative:false,age_seconds:60,end:'2026-01-01T00:00:00Z',readings:11,
     span_seconds:{approximate:200},coverage_seconds:{approximate:200},estimates:base.estimates,
-    presentation:{can_age:true,state:'aging',grace_seconds:20,history_after_seconds:300,expire_after_seconds:1800,running:true}};
-  p.render(base);assert.equal(p.elements.rate.textContent,'~1.67K');assert.equal(p.elements.eta.textContent,'—');
-  assert.match(p.run('earlyText(data.player)'),/HUD unreadable/);
-  p.run('failed=true;renderPlayer()');assert.equal(p.elements.rate.textContent,'~1.67K');
+    presentation:{can_age:false,state:'historical',history_after_seconds:300,expire_after_seconds:1800,running:true}};
+  p.render(base);assert.equal(p.elements.rate.textContent,'~2K');assert.equal(p.elements.eta.textContent,'—');
+  assert.match(p.run('earlyText(data.player)'),/last observed 1m ago/);
+  p.run('failed=true;renderPlayer()');assert.equal(p.elements.rate.textContent,'~2K');
   p.run('failed=false');
   const board=page('board');board.context.sample=base;
   assert.equal(board.run('metricValue(sample,"exp_hour")'),null);
@@ -139,6 +139,20 @@ test('percentage chart counts numerical points separately from missing and unkno
   assert.equal(shapes.filter(n=>n.tag==='circle').length,2);
   assert.equal(shapes.filter(n=>n.tag==='path').length,2);
   assert.equal(shapes.filter(n=>n.tag==='line').length,0);
+});
+
+test('endpoint pace discloses elapsed gaps and conditional recovery is never strict OCR',()=>{
+  const p=page('player'),base=player();
+  base.responsive_pace={active:true,tentative:false,age_seconds:1,start:'2026-01-01T00:00:00Z',end:'2026-01-01T00:02:20Z',
+    readings:6,span_seconds:{approximate:140},coverage_seconds:{approximate:140},interruptions:0,missing_attempts:2,
+    interval_counts:{direct:3,endpoint_supported:2},estimates:base.estimates};
+  base.reading={...base.reading,evidence:'conditional_symbol',grammar_policy:'conditional_percent_v1'};
+  p.render(base);
+  assert.match(p.elements['early-value'].textContent,/6 readings \/ 140s elapsed · 2 missing readings/);
+  assert.match(p.elements['early-value'].title,/3 direct and 2 endpoint-supported intervals; gap time is included/);
+  assert.match(p.elements.exp.textContent,/^~/);
+  assert.match(p.elements.exp.title,/conditional X-to-% recovery/);
+  assert.equal(p.run('metricValue(data.player,"exp_hour")'),null);
 });
 
 test('pace ranking changes with the selected window and never substitutes a short segment rate',()=>{

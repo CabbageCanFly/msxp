@@ -40,12 +40,13 @@ def test_matching_reacquisition_pools_only_valid_integer_edges(tracking):
     frozen_windows=window_comparisons(snap,now=NOW+timedelta(seconds=90))
     frozen_history=history(snap)
     pace=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-    assert pace['active'] and pace['readings']==4 and pace['interruptions']==1
-    assert pace['coverage_seconds']['approximate']==30 and pace['span_seconds']['approximate']==75
+    assert pace['active'] and pace['readings']==4 and pace['interruptions']==0
+    assert pace['interval_counts']==dict(direct=2,endpoint_supported=1)
+    assert pace['coverage_seconds']['approximate']==75 and pace['span_seconds']['approximate']==75
     assert pace['basis']=='observed_exp_endpoints'
-    assert pace['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(1498*3600/30)
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(3745*3600/75)
     assert pace['estimates']['percentage_per_hour']['value']['approximate']==pytest.approx(12)
-    assert pace['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']==pytest.approx(9.6)
+    assert pace['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']==pytest.approx(11.52)
     assert window_comparisons(snap,now=NOW+timedelta(seconds=90))==frozen_windows
     assert history(snap)==frozen_history
     assert not frozen_history[4]['connect_previous'] and not frozen_history[5]['connect_previous']
@@ -55,7 +56,7 @@ def test_matching_reacquisition_pools_only_valid_integer_edges(tracking):
 
 
 @pytest.mark.parametrize('kind',['conflict','level','loss','quarantine','duplicate','stale','crop','source','session','restart'])
-def test_hard_boundaries_clear_the_old_interval_pool(tracking,kind):
+def test_hard_boundaries_block_crossing_and_keep_unrelated_same_context_intervals(tracking,kind):
     _,_,d=tracking
     seed(d);missing(d);full(d,5,497281,33.20);full(d,6,498030,33.25);full(d,7,498779,33.30)
     snap=d.snapshot('alpha',now=NOW+timedelta(seconds=90))
@@ -82,8 +83,13 @@ def test_hard_boundaries_clear_the_old_interval_pool(tracking,kind):
     from unittest.mock import patch
     with patch.object(module,'project',lambda rows:rows):
         pace=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-    assert pace['readings']==2 and pace['coverage_seconds']['approximate']==15
-    assert pace['start']==snap['observations'][5]['received_at']
+    if kind in ('level','source','session','restart'):
+        assert pace['readings']==2 and pace['coverage_seconds']['approximate']==15
+        assert pace['start']==snap['observations'][5]['received_at']
+    else:
+        assert pace['readings']==4 and pace['coverage_seconds']['approximate']==30
+        assert pace['interruptions']==1
+    assert all(snap['observations'][4]['event_id'] not in (e['first_event_id'],e['last_event_id']) for e in pace['intervals'])
 
 
 def test_pool_ages_without_new_captures_and_expired_history_is_not_current(tracking):
@@ -123,9 +129,9 @@ def test_contradictory_integer_on_pending_frame_is_not_a_soft_gap(tracking):
     full(d,5,1,33.20)  # Strict syntax, gross contradiction at the earlier supported level.
     full(d,6,498030,33.25);full(d,7,498779,33.30)
     pace=get(d,90)['responsive_pace']
-    assert pace['active'] and pace['readings']==2
-    assert pace['coverage_seconds']['approximate']==15
-    assert pace['start']==(NOW+timedelta(seconds=75)).isoformat()
+    assert pace['active'] and pace['readings']==4
+    assert pace['coverage_seconds']['approximate']==30 and pace['interruptions']==1
+    assert all(e['first_event_id']!='run:5' and e['last_event_id']!='run:5' for e in pace['intervals'])
 
 
 @pytest.mark.parametrize('kind',['other_level_without_percentage','duplicate_missing_frame'])
@@ -139,9 +145,9 @@ def test_unreadable_frames_do_not_conceal_conflicts_or_duplicate_pixels(tracking
             visual_level=None,neural_level=None,reasons=['missing_hud'],frame_sha256=f'{4:064x}')
     full(d,6,498030,33.25);full(d,7,498779,33.30);full(d,8,499528,33.35)
     pace=get(d,105)['responsive_pace']
-    assert pace['active'] and pace['readings']==2
-    assert pace['coverage_seconds']['approximate']==15
-    assert pace['start']==(NOW+timedelta(seconds=90)).isoformat()
+    assert pace['active'] and pace['readings']==4
+    assert pace['coverage_seconds']['approximate']==30 and pace['interruptions']==1
+    assert pace['intervals'][-1]['start']==(NOW+timedelta(seconds=90)).isoformat()
 
 
 def test_clean_rotation_retains_pool_but_unlinked_run_does_not(tracking):
@@ -158,7 +164,8 @@ def test_clean_rotation_retains_pool_but_unlinked_run_does_not(tracking):
     snap['run_id']='rotated'
     with patch.object(module,'project',lambda rows:rows):
         linked=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-        assert linked['readings']==4 and linked['interruptions']==1
+        assert linked['readings']==4 and linked['interruptions']==0
+        assert linked['interval_counts']['endpoint_supported']==1
         snap['observations'][6]['rotation_from']=None
         unlinked=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-        assert not unlinked['active'] and unlinked.get('history_basis')=='last_connected_segment'
+        assert not unlinked['active'] and unlinked['retained_history']

@@ -12,7 +12,7 @@ def test_completed_capture_retains_dated_comparable_piece_not_reset_tail(trackin
     fresh=NOW+timedelta(seconds=91)
     live=player(d.snapshot('alpha',now=fresh),now=fresh)
     assert not any(w['observed']['available'] for w in live['windows'].values())
-    assert live['responsive_pace']['readings']==2
+    assert live['responsive_pace']['readings']==6
     d.append('run',dict(type='summary',trusted=False,attempts=7,interrupted=False))
     for age in (0,300,4680):
         now=fresh+timedelta(seconds=age);snap=d.snapshot('alpha',now=now);p=player(snap,now=now)
@@ -24,9 +24,11 @@ def test_completed_capture_retains_dated_comparable_piece_not_reset_tail(trackin
             assert observed['difference_percentage_points']=='0.15'
             assert not window['eligible']
         pace=p['responsive_pace']
-        assert pace['readings']==4 and pace['retained_history'] and not pace['active']
-        assert pace['end']==(NOW+timedelta(seconds=45)).isoformat()
-        assert pace['age_seconds']==46+age and pace['estimates']['eta'] is None
+        assert pace['readings']==6 and not pace['active']
+        assert pace['interruptions']==1  # Both safe pieces survive; ambiguity supplies no edge.
+        assert pace['coverage_seconds']['approximate']==60
+        assert pace['end']==(NOW+timedelta(seconds=90)).isoformat()
+        assert pace['age_seconds']==1+age and pace['estimates']['eta'] is None
     assert not store.db.execute('select 1 from observations').fetchone()
 
 

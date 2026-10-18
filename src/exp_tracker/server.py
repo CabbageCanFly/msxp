@@ -15,7 +15,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
 from .diagnostics import Diagnostics, operation
-from .product import player,history,refresh,PRODUCT_ROWS
+from .product import player,history,refresh,reading,PRODUCT_ROWS,PACE_TREND_SECONDS
+from .pace_intervals import collect
 from .twitch_probe import StreamAvailability
 from .twitch_auth import AppTokens
 
@@ -172,6 +173,9 @@ class Handler(BaseHTTPRequestHandler):
                             value=diagnostic.snapshot(channel,active_runs=self.server.active_run_ids.copy(),session_id=session,
                                 before=before,run_id=query.get('run',[None])[0],start=query.get('start',[None])[0],end=query.get('end',[None])[0])
                             value['operation']=dict(state='historical_session') if value['historical'] else operation(value,self.server.coordinator_status.get(channel),datetime.now(timezone.utc))
+                            recoveries=collect(value,now=datetime.now(timezone.utc),read=reading,max_interval_seconds=PACE_TREND_SECONDS)['recoveries']
+                            for row in value['observations']:
+                                row['conditional_percent']=next((r for r in recoveries if r['event_id']==row['event_id']),None)
                         elif history_api:
                             value=diagnostic.sessions(channel,before=before) if history_api[2]=='sessions' else diagnostic.runs(channel,session,before=before)
                     if dashboard:

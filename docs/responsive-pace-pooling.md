@@ -1,5 +1,8 @@
 # Recent pace across level reacquisition
 
+The [endpoint pace policy](endpoint-exp-pace.md) supersedes the missing-interval
+exclusion in this historical report; its original measurements are unchanged.
+
 `responsive_pace_v4` retains separately eligible captured intervals across a
 temporary missing HUD and matching-level reacquisition. It changes only the
 experimental consumer pace projection. No OCR, level acceptance, grammar,

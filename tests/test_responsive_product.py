@@ -32,21 +32,22 @@ def test_two_readings_need_real_separation_and_rate_uses_actual_exp_when_consist
     assert p['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(1498*3600/22)
 
 
-def test_missing_sample_pauses_historical_estimate_and_new_pair_resumes_without_bridging(tracking):
+def test_missing_sample_retains_history_and_next_valid_endpoint_includes_gap_time(tracking):
     _,_,d=tracking
     append(d,1,'[33.00%]');append(d,2,'[33.05%]')
     before=get(d,15)['responsive_pace']
     append(d,3,None,status='capture_failed',received_at=None,current=False)
     p=get(d,30)
     assert not p['responsive_pace']['active'] and p['responsive_pace']['end']==before['end']
-    append(d,4,'[34.00%]');assert not get(d,45)['responsive_pace']['active']
+    append(d,4,'[34.00%]');assert get(d,45)['responsive_pace']['active']
     append(d,5,'[34.05%]');p=get(d,60)
     assert p['responsive_pace']['active'] and p['responsive_pace']['readings']==4
-    assert p['responsive_pace']['coverage_seconds']['approximate']==30
+    assert p['responsive_pace']['coverage_seconds']['approximate']==60
     assert p['responsive_pace']['span_seconds']['approximate']==60
-    assert p['responsive_pace']['interruptions']==1
-    # The 0.95pp change inside the missing interval contributes neither gain nor time.
-    assert p['responsive_pace']['estimates']['percentage_per_hour']['value']['approximate']==12
+    assert p['responsive_pace']['interruptions']==0
+    assert p['responsive_pace']['interval_counts']==dict(direct=2,endpoint_supported=1)
+    # Net endpoint difference includes the full elapsed gap, with no invented sample.
+    assert p['responsive_pace']['estimates']['percentage_per_hour']['value']['approximate']==63
     old=refresh(p,now=NOW+timedelta(seconds=200))
     assert not old['responsive_pace']['active'] and old['responsive_pace']['estimates']['exp_per_hour']
     assert old['responsive_pace']['age_seconds']==140
@@ -59,7 +60,9 @@ def test_quarantine_and_confirmed_loss_do_not_contribute_to_responsive_pace(trac
         p=get(d,(i-1)*15)
         if i==3:assert not p['responsive_pace']['active']
         if i==4:assert not p['responsive_pace']['active']
-    assert p['responsive_pace']['readings']==2 and p['responsive_pace']['start']==(NOW+timedelta(seconds=45)).isoformat()
+    assert p['responsive_pace']['readings']==4 and p['responsive_pace']['interruptions']==1
+    assert p['responsive_pace']['intervals'][-1]['start']==(NOW+timedelta(seconds=45)).isoformat()
+    assert all(e['first_event_id']!='run:3' and e['last_event_id']!='run:3' for e in p['responsive_pace']['intervals'])
 
 
 def test_corroborated_level_event_and_new_pace_never_connect_cross_level(tracking):

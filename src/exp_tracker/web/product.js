@@ -46,7 +46,7 @@ function fitAmounts() {
 }
 function movementText(summary) { return summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate)} EXP`:summary?.difference_percentage_points!=null?`+${summary.difference_percentage_points}%`:'—'; }
 function displayedExp(r,full=false) {
-  return r?.exp!=null?(r.evidence==='grammar_recovered'?'~ ':'')+expText(r.exp,full):
+  return r?.exp!=null?(['grammar_recovered','conditional_symbol'].includes(r.evidence)?'~ ':'')+expText(r.exp,full):
     r?.estimated_exp?`~${expText(r.estimated_exp.value.approximate,full)}`:'—';
 }
 function expTitle(r) {
@@ -54,7 +54,7 @@ function expTitle(r) {
     const e=r.estimated_exp;
     return `Estimated from observed percentage and provisional level ${e.level_evidence.value} requirement, not read directly by OCR. ${Object.entries(e.hypotheses).map(([rule,b])=>`${rule}: ${b.count?`${numbers.format(b.min)}–${numbers.format(b.max)} EXP`:'no compatible within-level integer'}`).join('; ')}. Community table ${e.requirement.version}; bounds exclude OCR/table errors.${r.exp_validity?.status==='invalid'?' Contradictory OCR integer withheld.':''}`;
   }
-  return r?.exp_validity?.status==='invalid'?'Absolute EXP withheld: inconsistent with level and percentage under both display hypotheses':r?.exp==null?'Absolute EXP unavailable; level or requirement unresolved':`${numbers.format(BigInt(r.exp))} current EXP; ${r.evidence==='grammar_recovered'?'unverified grammar-recovered proposal':'original strict OCR candidate; unverified'}`;
+  return r?.exp_validity?.status==='invalid'?'Absolute EXP withheld: inconsistent with level and percentage under both display hypotheses':r?.exp==null?'Absolute EXP unavailable; level or requirement unresolved':`${numbers.format(BigInt(r.exp))} current EXP; ${r.evidence==='conditional_symbol'?'conditional X-to-% recovery; unverified':r.evidence==='grammar_recovered'?'unverified grammar-recovered proposal':'original strict OCR candidate; unverified'}`;
 }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
@@ -79,6 +79,7 @@ function earlyText(p) {
 }
 function paceSample(pace) {
   const covered=(pace.coverage_seconds ?? pace.span_seconds).approximate,sequences=(pace.interruptions ?? 0)+1;
+  if(pace.interval_counts)return `${pace.readings} readings / ${Math.round(covered)}s elapsed${pace.missing_attempts?` · ${pace.missing_attempts} missing reading${pace.missing_attempts===1?'':'s'}`:''}${sequences>1?` · ${sequences} sequences`:''}`;
   return `${pace.readings} readings / ${Math.round(covered)}s sampled · ${sequences} sequence${sequences===1?'':'s'}`;
 }
 function publicPace(p) {
@@ -87,18 +88,9 @@ function publicPace(p) {
   const policy=pace.presentation;
   const active=pace.active && !current(p).stale && !failed && (!policy || policy.state==='observed');
   let estimates=active?pace.estimates:{...pace.estimates,eta:null};
-  const aging=policy?.can_age && age<(policy.history_after_seconds ?? policy.pause_after_seconds);
   const expired=policy?.state==='paused' || policy?.running && age>=(policy.expire_after_seconds ?? policy.pause_after_seconds);
   if(expired)estimates={exp_per_hour:null,percentage_per_hour:null,eta:null};
-  else if(aging) {
-    const coverage=pace.coverage_seconds.approximate,factor=coverage/(coverage+Math.max(0,age-policy.grace_seconds));
-    estimates={...estimates};
-    for(const key of ['exp_per_hour','percentage_per_hour'])if(estimates[key]) {
-      const rate=estimates[key];estimates[key]={...rate,value:{...rate.value,approximate:rate.value.approximate*factor},
-        hypotheses:Object.fromEntries(Object.entries(rate.hypotheses??{}).map(([rule,b])=>[rule,Object.fromEntries(Object.entries(b).map(([end,v])=>[end,{...v,approximate:v.approximate*factor}]))]))};
-    }
-  }
-  return {active,age,aging:aging && !expired,label:expired?'Pace paused':failed?`last observed ${ageText(age)}`:aging?'HUD unreadable · easing pace':active?(pace.tentative?'first estimate':'recent trend'):`last observed ${ageText(age)}`,
+  return {active,age,label:expired?'Pace paused':failed?`last observed ${ageText(age)}`:active?(pace.tentative?'first estimate':'recent trend'):`last observed ${ageText(age)}`,
     estimates,source:pace};
 }
 function current(p) {
@@ -176,7 +168,7 @@ function entry({player:p,value,rank}) {
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
   identity.append(name,node('span','channel',sourceText(p)),node('span','status',statusText(p)));
   const section=node('div','exp-section'),bar=node('div','exp-bar'),progress=node('progress');progress.max=100;progress.value=r?r.bp/100:0;progress.hidden=!r;progress.setAttribute('aria-label',`${p.character?.label ?? p.channel} observed EXP percentage`);
-  bar.dataset.missing=String(!r);bar.dataset.recovered=String(r?.evidence==='grammar_recovered');
+  bar.dataset.missing=String(!r);bar.dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence));
   const label=node('span','exp-label'),integer=node('span','exp-number',displayedExp(r,true));
   integer.dataset.compactNumber=displayedExp(r);label.title=expTitle(r);label.append(node('small','','EXP'),integer,node('span','percentage',r?`[${r.percentage}%]`:'Waiting for EXP'));
   bar.append(progress,label);
@@ -205,7 +197,7 @@ function renderPlayer() {
   const p=data?.player,r=p?.reading;
   if(!p) { el('status').textContent=failed?'Tracker unavailable':'Waiting for EXP';return; }
   const s=current(p),pace=publicPace(p),m=pace?.estimates ?? s.metrics;
-  if(view==='overlay') { el('streamer').textContent=sourceText(p);el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(r?.evidence==='grammar_recovered'); }
+  if(view==='overlay') { el('streamer').textContent=sourceText(p);el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
   else { el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=sourceText(p); }
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
   el('level').dataset.lastKnown=String(lastKnown(p));
@@ -233,7 +225,7 @@ function renderPlayer() {
   if(pace)el('rate').title=`${pace.label}; ${paceSample(pace.source)}. ${rateTitle(m?.exp_per_hour)}`;
   if(view==='overlay') {
     if(pace && !pace.active && !failed && !p.twitch && !p.percentage_state?.pending_since && !['capture_finished','capture_interrupted','historical_session','stopped','coordinator_stopped'].includes(p.activity?.state))el('status').textContent=`Last estimate ${ageText(pace.age)}`;
-    el('rate-label').textContent=pace?.aging?'Recent EXP / hour':pace && !pace.active?'Last EXP / hour':'EXP / hour';
+    el('rate-label').textContent=pace && !pace.active?'Last EXP / hour':'EXP / hour';
   }
   if(view==='player') {
     const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
@@ -244,10 +236,10 @@ function renderPlayer() {
     const early=p.early_pace,text=earlyText(p);
     el('early-value').textContent=pace?`${pace.label} · ${paceSample(pace.source)}`:text ?? (early?.segment?'Estimate paused':'Building comparable history');
     el('early-note').textContent=text?'Experimental current segment · separate from completed-window comparisons.':early?.segment?'Last eligible estimate retained for inspection; waiting for fresh, connected readings.':'Needs 3 supported same-level readings over 30s; interruptions restart the segment.';
-    el('early-value').title=pace?`${pace.source.start} – ${pace.source.end}; ${(pace.source.coverage_seconds ?? pace.source.span_seconds).approximate}s of comparable captured intervals. Missing intervals supply neither gain nor elapsed time. ${rateTitle(m?.exp_per_hour)}`:early?.segment?`${early.segment.start} – ${early.segment.end}; ${early.segment.readings} readings. ${rateTitle(early.estimates?.exp_per_hour)} Historical value: ${early.estimates?.exp_per_hour?.value.approximate ?? early.estimates?.percentage_per_hour?.value.approximate} ${early.estimates?.exp_per_hour?'EXP/h':'pp/h'}. Bounds exclude OCR errors.`:'';
+    el('early-value').title=pace?`${pace.source.start} – ${pace.source.end}; ${(pace.source.coverage_seconds ?? pace.source.span_seconds).approximate}s of eligible elapsed intervals. ${pace.source.interval_counts?`${pace.source.interval_counts.direct} direct and ${pace.source.interval_counts.endpoint_supported} endpoint-supported intervals; gap time is included, with no intermediate values invented.`:'Missing intervals supply neither gain nor elapsed time.'} ${rateTitle(m?.exp_per_hour)}`:early?.segment?`${early.segment.start} – ${early.segment.end}; ${early.segment.readings} readings. ${rateTitle(early.estimates?.exp_per_hour)} Historical value: ${early.estimates?.exp_per_hour?.value.approximate ?? early.estimates?.percentage_per_hour?.value.approximate} ${early.estimates?.exp_per_hour?'EXP/h':'pp/h'}. Bounds exclude OCR errors.`:'';
     el('rate-label').textContent=m?.exp_per_hour?'EXP / hour':'% / hour';
     if(!m?.exp_per_hour && m?.percentage_per_hour)amount('rate',`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`,`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`);
-    el('early-note').textContent=pace?.aging?'No new gain assumed while the HUD is unreadable':pace?.active?(pace.source.interruptions?'Short gaps excluded':'') :pace?(['capture_finished','capture_interrupted','historical_session','coordinator_stopped'].includes(p.activity?.state)?'Saved trend':'Waiting for the next reading'):'Building history';
+    el('early-note').textContent=pace?.active?(pace.source.interruptions?'Unsafe intervals excluded':'') :pace?(['capture_finished','capture_interrupted','historical_session','coordinator_stopped'].includes(p.activity?.state)?'Saved trend':'Waiting for the next reading'):'Building history';
     el('early-note').hidden=!el('early-note').textContent;
     el('level-note').textContent=lastKnown(p)?`Level last seen ${ageText(p.display_level.age_seconds+(performance.now()-receivedAt)/1000)}`:'';
     el('level-note').hidden=!lastKnown(p);
