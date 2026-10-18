@@ -130,6 +130,11 @@ def test_ownership_assignment_mismatch_and_lock_are_explicit(multi):
 def test_sqlite_failure_preserves_log_and_other_channel_and_allows_replay(multi,monkeypatch):
     module,path,_,_,_=multi
     original=module.shadow.capture_attempt
+    servers=[]
+    create_server=module.create_server
+    def server(*args,**kw):
+        result=create_server(*args,**kw);servers.append(result);return result
+    monkeypatch.setattr(module,'create_server',server)
     injected=[False]
     def fail(args,*rest,**kwargs):
         if not injected[0]:
@@ -138,6 +143,11 @@ def test_sqlite_failure_preserves_log_and_other_channel_and_allows_replay(multi,
                     WHEN (SELECT s.login FROM diagnostic_runs r JOIN streamers s ON s.id=r.streamer_id WHERE r.run_id=NEW.run_id)='alpha'
                     BEGIN SELECT RAISE(ABORT,'injected failure'); END""")
             injected[0]=True
+        elif args.tracking_channel=='beta':
+            with Store(args.db,read_only=True) as store:
+                snap=Diagnostics(store).snapshot('alpha',active_runs=servers[0].active_run_ids.copy())
+            assert snap['run_status']=='unfinished'  # A stopped lane is no longer a live worker.
+            assert servers[0].coordinator_status['alpha']['state']=='stopped'
         return original(args,*rest,**kwargs)
     monkeypatch.setattr(module.shadow,'capture_attempt',fail)
     assert main(multi)==1
@@ -288,3 +298,85 @@ def test_continuous_overload_rotates_despite_isolated_failed_captures(multi,monk
             assert any(r['skipped_deadlines']>0 for r in rows)
             assert all(r['actual_interval_seconds'] is None or r['actual_interval_seconds']>=20 for r in rows)
         assert any(r['status']=='capture_failed' for r in Diagnostics(store).snapshot('beta')['observations'])
+
+
+def test_rotation_transaction_failure_keeps_old_run_identity_and_reports_stopped(multi,monkeypatch):
+    module,path,_,calls,_=multi
+    original=Diagnostics.rotate
+    failed=[]
+    servers=[]
+    create_server=module.create_server
+    def server(*args,**kw):
+        result=create_server(*args,**kw);servers.append(result);return result
+    monkeypatch.setattr(module,'create_server',server)
+    capture=module.shadow.capture_attempt
+    def check_stopped(*args,**kw):
+        if failed:
+            assert servers[0].coordinator_status['beta']['state']=='stopped'
+            assert failed[0] not in servers[0].active_run_ids
+        return capture(*args,**kw)
+    monkeypatch.setattr(module.shadow,'capture_attempt',check_stopped)
+    def rotate(self,previous,following,channel,summary,configuration):
+        if channel=='beta':
+            failed.append(previous)
+            self.db.execute(f"""CREATE TRIGGER fail_rotation BEFORE INSERT ON diagnostic_runs
+                WHEN NEW.run_id='{following}' BEGIN SELECT RAISE(ABORT,'injected rotation failure: secret URL'); END""")
+        return original(self,previous,following,channel,summary,configuration)
+    monkeypatch.setattr(Diagnostics,'rotate',rotate)
+    assert main(multi,'--continuous','--max-attempts','62')==1
+    assert len([r for r in calls if r[0]=='alpha'])==62
+    assert len([r for r in calls if r[0]=='beta'])==60
+    operator=next((path.parent/'multi-alpha/runs').glob('*/operator.jsonl'))
+    events=[json.loads(line) for line in operator.read_text().splitlines()]
+    errors=[r for r in events if r.get('reason')=='rotation_failed']
+    assert len(errors)==1 and errors[0]['run_id']==failed[0]
+    assert errors[0]['state']=='stopped' and not errors[0]['sqlite_committed']
+    assert 'secret' not in operator.read_text()
+    log=operator.parent/'beta/capture.jsonl'
+    summaries=[r for line in log.read_text().splitlines() if (r:=json.loads(line))['type']=='summary']
+    assert len(summaries)==1  # No contradictory shutdown summary appended after failed rotation.
+    with Store(path.parent/'shared.sqlite3',read_only=True) as store:
+        run=store.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?',(failed[0],)).fetchone()
+        assert run['summary_json'] is None  # Atomic DB rotation did not commit.
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?',(failed[0],)).fetchone()[0]==60
+
+
+@pytest.mark.parametrize('interval',[15,30])
+def test_consecutive_outage_crosses_rotation_then_recovers_without_starving_healthy_lane(multi,monkeypatch,interval):
+    module,path,config,calls,clock=multi
+    for stream in config['streams']:stream['interval']=interval
+    path.write_text(json.dumps(config))
+    original=module.shadow.capture_attempt
+    totals=dict(alpha=0,beta=0)
+    def capture(args,*rest,**kw):
+        channel=args.tracking_channel;totals[channel]+=1
+        result=original(args,*rest,**kw)
+        if channel=='beta' and 58<=totals[channel]<=64:
+            clock[0]+=19  # A bounded 20-second acquisition timeout, not an instant failure.
+            return record(result['index'],status='capture_failed',current=False,received_at=None,
+                neural=None,visual_level=None,visual_status='not_run',localization=None,
+                reasons=['frame_timeout'])
+        return result
+    monkeypatch.setattr(module.shadow,'capture_attempt',capture)
+    assert main(multi,'--continuous','--max-attempts','67')==0
+    assert totals==dict(alpha=67,beta=67)
+    assert all(a[0]!=b[0] for a,b in zip(calls,calls[1:]))
+    with Store(path.parent/'shared.sqlite3',read_only=True) as store:
+        for channel in totals:
+            runs=list(store.db.execute('''SELECT r.* FROM diagnostic_runs r JOIN streamers s ON s.id=r.streamer_id
+                WHERE s.login=? ORDER BY r.rowid''',(channel,)))
+            assert len(runs)==2 and len({r['session_id'] for r in runs})==1
+            assert len({r['character_id'] for r in runs})==1
+            rows=[json.loads(r[0]) for run in runs for r in store.db.execute(
+                'SELECT payload_json FROM diagnostic_attempts WHERE run_id=? ORDER BY attempt_index',(run['run_id'],))]
+            assert len(rows)==67 and [r['index'] for r in rows]==list(range(1,61))+list(range(1,8))
+            failed=[i+1 for i,r in enumerate(rows) if r['status']=='capture_failed']
+            assert failed==(list(range(58,65)) if channel=='beta' else [])
+            assert all(rows[i-1]['received_at'] is None for i in failed)
+            assert rows[64]['current'] and rows[64]['status']=='diagnostic_percentage_only'
+            assert all(r['summary_json'] is not None for r in runs)
+            assert not Diagnostics(store).snapshot(channel)['percentage_progress']['current_pace']
+        assert not store.db.execute('SELECT 1 FROM observations').fetchone()
+    events=[json.loads(line) for line in next((path.parent/'multi-alpha/runs').glob('*/operator.jsonl')).read_text().splitlines()]
+    failures=[e for e in events if e.get('status')=='capture_failed']
+    assert len(failures)==7 and all(e['sqlite_committed'] and e['reasons']==['frame_timeout'] for e in failures)

@@ -1,6 +1,8 @@
 """Synthetic safety tests; no stream access, neural model or private profile needed."""
 
 import importlib
+import sys
+import time
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -238,6 +240,24 @@ def test_neural_worker_timeout_becomes_safe_failure(shadow, monkeypatch):
     monkeypatch.setattr(shadow.subprocess, 'run', timeout)
     with pytest.raises(CaptureError, match='neural_timeout'):
         shadow.neural_line(Image.new('RGB', (50, 15)), Path('unused'), 3)
+
+
+def test_real_neural_timeout_reaps_worker(shadow,monkeypatch,tmp_path):
+    import psutil
+    pidfile=tmp_path/'worker.pid'
+    worker=tmp_path/'hung_worker.py'
+    worker.write_text('import os, pathlib, sys, time\n'
+        'pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n'
+        'time.sleep(60)\n')
+    run=shadow.subprocess.run
+    def launch(_command,**kwargs):
+        return run([sys.executable,str(worker),str(pidfile)],**kwargs)
+    monkeypatch.setattr(shadow.subprocess,'run',launch)
+    started=time.monotonic()
+    with pytest.raises(CaptureError,match='neural_timeout'):
+        shadow.neural_line(Image.new('RGB',(50,15)),Path(sys.executable),.5)
+    assert time.monotonic()-started<5
+    assert pidfile.exists() and not psutil.pid_exists(int(pidfile.read_text()))
 
 
 def test_interrupt_during_partial_capture_startup_also_closes(shadow, monkeypatch):

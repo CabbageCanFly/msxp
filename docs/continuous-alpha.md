@@ -196,6 +196,10 @@ capacity, continuous remote reliability or 1-vCPU VPS performance as validated.
 
 ## Validation and next trial
 
+The [unattended failure/recovery audit](unattended-capture-reliability.md) documents
+scheduled retries, outage/rotation fault injection, stopped-worker status fixes,
+bounded resource-monitor bookkeeping and remaining operational limits.
+
 Validation: **140 focused Python tests plus the final simulated-header regression
 passed**, **1,127 full-suite passes** in 127.31s, **zero skips/failures**, and
 **39 Node tests passed**. Four final Chrome

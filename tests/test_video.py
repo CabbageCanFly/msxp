@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from io import BytesIO
 import struct
+import sys
 import threading
 import time
 
@@ -93,3 +94,33 @@ def test_safe_error_classification(text, reason):
     session = bare_session()
     session.logs["streamlink"] = bytearray(text)
     assert session.reason() == reason
+
+
+@pytest.mark.parametrize('kind',['file','twitch'])
+def test_real_hung_capture_children_timeout_and_are_reaped(monkeypatch,kind):
+    command=[sys.executable,'-c','import time; time.sleep(60)']
+    monkeypatch.setattr('exp_tracker.video.ffmpeg_command',lambda *a,**kw:command)
+    monkeypatch.setattr(Source,'streamlink_command',lambda _:command)
+    started=time.monotonic()
+    session=VideoSession(Source(kind,'synthetic'))
+    try:
+        with pytest.raises(CaptureError,match='frame_timeout'):
+            session.frame(timeout=.15)
+    finally:
+        session.close()
+    assert time.monotonic()-started<6
+    assert session.decoder.poll() is not None
+    assert session.producer is None or session.producer.poll() is not None
+    assert all(not thread.is_alive() for thread in session.threads)
+    session.close()  # Shutdown remains idempotent.
+
+
+def test_real_decoder_exit_is_unavailable_not_a_fresh_frame(monkeypatch):
+    monkeypatch.setattr('exp_tracker.video.ffmpeg_command',lambda *a,**kw:[sys.executable,'-c','raise SystemExit(2)'])
+    session=VideoSession(Source('file','synthetic'))
+    try:
+        with pytest.raises(CaptureError,match='source_ended'):
+            session.frame(timeout=2)
+    finally:
+        session.close()
+    assert session.latest is None and session.decoder.poll()==2

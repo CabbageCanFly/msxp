@@ -143,7 +143,7 @@ def options(row, database, output):
 
 def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
              continuous=False, max_attempts=None, stop_after_seconds=None, rotate=None,
-             activity=None, simulated=False):
+             activity=None, active_runs=None, simulated=False):
     """No queue: one due-time per lane, rotating ties, elapsed slots skipped."""
     started, wall = clock(), datetime.now(timezone.utc)
     for lane in lanes:
@@ -177,6 +177,10 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
                     lane['run_attempts']=0
                 except (OSError,sqlite3.Error,ValueError):
                     lane.update(stopped=True,interrupted=True,persistence_failed=True)
+                    if active_runs is not None: active_runs.discard(lane['run_id'])
+                    if activity is not None:
+                        activity[lane['channel']]=dict(state='stopped',run_id=lane['run_id'],
+                            updated_at=utc(),reason='rotation_failed')
                     continue
             number = lane['run_attempts']+1
             seek = lane['args'].start+clock()-started if lane['source'].kind=='file' else None
@@ -215,6 +219,7 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
                 emit(lane, record)
             except (OSError, sqlite3.Error, ValueError):
                 lane.update(stopped=True, interrupted=True, persistence_failed=True)
+                if active_runs is not None: active_runs.discard(lane['run_id'])
             if lane['interrupted'] and not lane.get('persistence_failed'):
                 raise KeyboardInterrupt
             lane['due'] += lane['args'].interval
@@ -332,6 +337,8 @@ def main(argv=None):
                         print('Capture RUNNING: one active job at a time, bounded per-channel attempts, no queued frames.',flush=True)
                         with (directory/'operator.jsonl').open('x',encoding='utf-8') as operator:
                             def emit(lane, record):
+                                if record['type']=='summary' and lane.get('rotation_failed'):
+                                    raise ValueError('Rotation intent already logged; keep database run unfinished')
                                 record['resources'] = monitor.snapshot()
                                 lane['log'].write(json.dumps(record,allow_nan=False)+'\n'); lane['log'].flush()
                                 committed = False
@@ -342,7 +349,10 @@ def main(argv=None):
                                     committed = True
                                     if record['type']=='attempt': lane['commits'] += 1
                                 finally:
-                                    operator.write(json.dumps(dict(channel=lane['channel'],index=record.get('index'),type=record['type'],sqlite_committed=committed))+'\n'); operator.flush()
+                                    operator.write(json.dumps(dict(channel=lane['channel'],run_id=lane['run_id'],
+                                        index=record.get('index'),type=record['type'],sqlite_committed=committed,
+                                        status=record.get('status'),reasons=record.get('reasons',[]),
+                                        timings=record.get('timings',{})))+'\n'); operator.flush()
                                     if record['type']=='attempt':
                                         print(report_attempt(record, committed, database=database, channel=lane['channel'],
                                             neural_enabled=lane['args'].experimental_neural_level).replace('#',lane['channel']+' #',1),flush=True)
@@ -350,18 +360,29 @@ def main(argv=None):
                                 previous=lane['run_id']; following=uuid.uuid4().hex
                                 summary=dict(type='summary',trusted=False,attempts=60,interrupted=False,
                                     completion_reason='scheduled_rotation',next_run_id=following)
-                                old=lane['log']
-                                old.write(json.dumps(summary)+'\n');old.flush()
-                                header=open_run(lane,following,previous)
+                                old,old_output=lane['log'],lane['args'].output
                                 try:
+                                    old.write(json.dumps(summary)+'\n');old.flush()
+                                    header=open_run(lane,following,previous)
                                     diagnostic.rotate(previous,following,lane['channel'],summary,header)
-                                finally:
+                                except (OSError,sqlite3.Error,ValueError):
+                                    lane['rotation_failed']=True
+                                    if lane['log'] is not old: lane['log'].close()
+                                    lane.update(run_id=previous,log=old)
+                                    lane['args'].output=old_output
+                                    handles[lane['channel']]=old
+                                    operator.write(json.dumps(dict(type='lifecycle_failure',channel=lane['channel'],
+                                        run_id=previous,proposed_run_id=following,state='stopped',
+                                        reason='rotation_failed',sqlite_committed=False))+'\n');operator.flush()
+                                    print(f"{lane['channel']}: rotation NOT committed; capture stopped for this channel; original run preserved, inspect private logs",flush=True)
+                                    raise
+                                else:
                                     old.close()
                                 httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(following)
                                 print(f"{lane['channel']}: scheduled rotation after 60 committed attempts; session {lane['session_id']} retained",flush=True)
                             scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate) if args.continuous else {}
                             interrupted = schedule(lanes, lambda lane,n,seek: shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek),emit,
-                                activity=httpd.coordinator_status,**scheduler_options)
+                                activity=httpd.coordinator_status,active_runs=httpd.active_run_ids,**scheduler_options)
                             for lane in lanes:
                                 try:
                                     emit(lane,dict(type='summary',trusted=False,attempts=lane['run_attempts'],interrupted=lane['interrupted'],skipped_deadlines=lane['skipped'],
