@@ -4,6 +4,12 @@ Independent, free, MIT-licensed feasibility prototype. This contains local OCR,
 acquisition, SQLite tracking and a localhost OBS overlay, not a hosted service.
 No accounts, cloud resources or secrets are required for offline tests.
 
+Follow the [player experience principles](docs/product-experience-principles.md)
+for public UI work: useful estimates and graceful pauses, with rigorous evidence
+and detailed uncertainty retained in Advanced.
+The [responsive player experience](docs/responsive-player-experience.md) adds
+two-reading pace, aged estimates during pauses and level-aware progress history.
+
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a
 transparent **500 × 160** experimental OBS overlay at `/live/overlay/CHANNEL`.

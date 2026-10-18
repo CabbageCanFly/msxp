@@ -11,7 +11,7 @@
 .product .character:hover { color:#ffc36e; }
 .product .score strong { font-size:23px; }
 .product .exp-bar[data-missing="true"] { opacity:.65; }
-.product .exp-bar[data-recovered="true"] { border-style:dashed; border-color:#dbb26e; }
+.product .exp-bar[data-recovered="true"] { border-color:#dbb26e; }
 .product .entry[data-stale="true"] progress { opacity:.6; }
 .product progress::-webkit-progress-value,.live-overlay progress::-webkit-progress-value { background:linear-gradient(#d8f969,#98c720); }
 .product progress::-moz-progress-bar,.live-overlay progress::-moz-progress-bar { background:#a9d633; }
@@ -46,7 +46,7 @@
 .live-overlay .estimate-mark { font-size:8px; color:#897254; white-space:nowrap; }
 .live-overlay .progress-label { color:#263310; text-shadow:0 1px #f5ffc280; }
 .live-overlay #card[data-stale="true"] progress { opacity:.65; }
-.live-overlay #card[data-recovered="true"] .progress-section { outline:1px dashed #b18e50; border-radius:7px; }
+.live-overlay #card[data-recovered="true"] .progress-section { border-radius:7px; }
 .live-overlay .stat strong { font-size:18px; }
 .live-overlay .stat strong[data-size="long"] { font-size:13px; }
 @media(max-width:850px) { .product .entry { grid-template-columns:30px 58px minmax(110px,150px) minmax(125px,1fr) 90px; gap:9px; } }
@@ -55,7 +55,17 @@
 .early-pace { margin:0 25px 18px; padding:12px 15px; border:1px solid #796143; border-radius:9px; background:#392e24; }
 .early-pace > span { color:#e5c48e; font-size:11px; display:block; }
 .early-pace strong { display:block; margin:5px 0; font-size:17px; color:#def198; overflow-wrap:anywhere; }
+.early-pace #rate { font-size:30px; }
+.early-pace #eta { display:inline; font-size:inherit; }
+.early-pace #eta-stat { margin-top:6px; }
+.early-pace [hidden] { display:none; }
+.early-pace #rate[data-paused="true"],.live-overlay #rate[data-paused="true"] { opacity:.7; }
 .early-pace small { color:#c9b18e; font-size:11px; }
+.reading-info { color:#c9b18e; font-size:11px; margin:0 0 16px; }
+.level-event { margin:16px 25px 0; color:#e1ed99; font-size:16px; font-weight:bold; }
+.history-chart .trend { stroke:#bfdc59; stroke-width:2; opacity:.7; }
+.player-stats { grid-template-columns:repeat(2,minmax(0,1fr)); padding-top:8px; padding-bottom:10px; }
+.player-stats strong { font-size:20px; }
 .product .level .level-note { display:block; margin:2px 0 0; font-size:8px; letter-spacing:0; }
 .live-overlay #level[data-last-known="true"] { border-style:dashed; }
 @media(max-width:650px) { .early-pace { margin-left:14px; margin-right:14px; } }

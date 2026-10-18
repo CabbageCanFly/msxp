@@ -6,11 +6,77 @@ from fractions import Fraction
 
 from .diagnostic_progress import percentage_point,rational,quantization_pace,elapsed_seconds
 from .diagnostic_evidence import project
+from .diagnostic_percentage import boundary
 from .exp_requirements import requirement
 from .exp_consistency import MODES, assess
 
 WINDOWS=(5,10,15,30)
 PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
+PACE_MIN_SECONDS=5
+PACE_TREND_SECONDS=120
+
+
+def responsive_pace(snapshot, display_level):
+    """Consumer estimate from an existing safe segment, never window/ranking evidence."""
+    rows=snapshot['observations'];data=snapshot['percentage_progress']
+    positions={r['event_id']:i for i,r in enumerate(rows)}
+    for segment in reversed(data['segments']):
+        if display_level and segment['level']!=display_level['value']:continue
+        points=[reading(r) for r in rows[positions[segment['first_event_id']]:positions[segment['last_event_id']]+1]]
+        points=[p for p in points if p]
+        if len(points)<2:continue
+        end=datetime.fromisoformat(points[-1]['timestamp'])
+        points=[p for p in points if (end-datetime.fromisoformat(p['timestamp'])).total_seconds()<=PACE_TREND_SECONDS]
+        if len(points)<2:continue
+        first,last=points[0],points[-1]
+        elapsed=elapsed_seconds(datetime.fromisoformat(first['timestamp']),end)
+        if elapsed<PACE_MIN_SECONDS:continue
+        diff=last['bp']-first['bp']
+        if diff<0:continue
+        pace=dict(value=rational(Fraction(diff*36)/elapsed),**quantization_pace(first['bp'],last['bp'],elapsed))
+        calculated=estimates(segment,pace,last['bp'])
+        basis='displayed_percentage_endpoints'
+        if (calculated['exp_per_hour'] and all(p['evidence']=='strict_full' and p['exp'] is not None
+                and p['exp_validity']['status']=='consistent' for p in (first,last)) and int(last['exp'])>=int(first['exp'])):
+            calculated['exp_per_hour']['value']=rational(Fraction((int(last['exp'])-int(first['exp']))*3600)/elapsed)
+            basis='observed_exp_endpoints'
+        # Two samples can seed a rate, but cannot seed an ETA.
+        tentative=len(points)<3 or elapsed<30
+        if tentative:calculated['eta']=None
+        current=data['current_segment']
+        return dict(active=bool(current and current['last_event_id']==last['event_id'] and rows[-1]['event_id']==last['event_id']),
+            tentative=tentative,level=segment['level'],start=first['timestamp'],end=last['timestamp'],
+            readings=len(points),span_seconds=rational(elapsed),estimates=calculated,basis=basis,
+            evidence_counts={kind:sum(p['evidence']==kind for p in points) for kind in ('strict_full','strict_percentage_only','grammar_recovered')},
+            policy='responsive_pace_v1',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
+            trusted=False,reason=data['reason'])
+    return None
+
+
+def level_events(rows):
+    """Two adjacent supported new-level readings; no gains or identity inference."""
+    events=[];established=None;previous=None;pending=None
+    for row in rows:
+        point,reason=percentage_point(row);level=level_evidence(row)
+        if point:point.update(interval_seconds=row.get('interval_seconds',15),frame_sha256=row.get('frame_sha256'))
+        supported=reason is None and level['status'] in ('agreement','provisional_neural') and row.get('percentage_review',{}).get('public_eligible') is not False
+        if supported:
+            if established and (any(point[k]!=established[k] for k in ('channel','source_channel','source_kind','character_id','session_id','source_identity','run_id'))
+                    or not 0<(datetime.fromisoformat(point['timestamp'])-datetime.fromisoformat(established['timestamp'])).total_seconds()<=120):
+                established=pending=None
+            if established and point['level']==established['level']+1 and point['bp']<established['bp']:
+                if (pending and previous and boundary(previous,point,row) is None
+                        and point['frame_sha256'] and pending['frame_sha256'] and point['frame_sha256']!=pending['frame_sha256']):
+                    events.append(dict(kind='level_up',level=point['level'],previous_level=established['level'],
+                        timestamp=point['timestamp'],first_observed_at=pending['timestamp'],event_id=point['event_id'],
+                        evidence='two_adjacent_supported_level_readings',trusted=False))
+                    established=point;pending=None
+                else:pending=point
+            else:
+                established=point;pending=None
+        else:pending=None
+        previous=point if supported else None
+    return events
 
 
 def fraction(value):
@@ -146,7 +212,7 @@ def player(snapshot,*,now=None):
     movement=movement if movement and movement.get('change') in ('positive','zero') else None
     decision=progress.get('percentage_state')
     result=dict(channel=snapshot['channel'],character=snapshot['selected_character'],session_id=(snapshot['session'] or {}).get('id'),
-        percentage_state=decision,display_level=display_level,
+        percentage_state=decision,display_level=display_level,level_events=level_events(rows),
         source_kind=snapshot.get('source_kind'),reading=latest,latest_attempt_at=(rows[-1].get('received_at') or rows[-1].get('attempted_at')) if rows else None,
         latest_attempt_status=rows[-1]['status'] if rows else 'waiting',
         stale_after_seconds=snapshot['stale_after_seconds'],movement=movement,
@@ -158,6 +224,7 @@ def player(snapshot,*,now=None):
     result['early_pace']=dict(active=bool(usable and progress['current_pace']),reason=progress['reason'],
         segment=historical,estimates=estimates(historical,historical['pace'],int(Fraction(historical['end_percentage'])*100)) if historical else estimates(None,None,0),
         label='EXPERIMENTAL / UNVERIFIED; early segment estimate, not a completed window')
+    result['responsive_pace']=responsive_pace(snapshot,display_level)
     return refresh(result,now=now)
 
 
@@ -167,6 +234,10 @@ def refresh(value,*,now=None,activity=None):
     value['age_seconds']=max(0,age) if age is not None else None
     value['stale']=age is None or age<0 or age>value['stale_after_seconds'] or not latest['fresh_at_capture']
     value['activity']=activity or dict(state='coordinator_stopped')
+    pace=value.get('responsive_pace')
+    if pace:
+        pace['age_seconds']=max(0,(now-datetime.fromisoformat(pace['end'])).total_seconds())
+        if value['stale'] or latest and latest['simulated']:pace['active']=False
     level=value.get('display_level')
     if level:
         level['age_seconds']=max(0,(now-datetime.fromisoformat(level['timestamp'])).total_seconds())
@@ -176,6 +247,7 @@ def refresh(value,*,now=None,activity=None):
     if decision and not decision['public_eligible'] and deadline and now>datetime.fromisoformat(deadline):
         decision.update(status='unresolved_numerical_continuity',reason='confirmation_expired')
         value['stale']=True
+        if pace:pace['active']=False
     if value['stale'] or latest and latest['simulated']:
         value['estimates']=estimates(None,None,0)
         for metric in value.get('windows',{}).values():
@@ -189,7 +261,9 @@ def history(snapshot):
     points=[]
     for row in snapshot['observations']:
         value=reading(row)
+        comparison=next((c for c in snapshot['percentage_progress']['comparisons'] if c['event_id']==row['event_id']),None)
         points.append(dict(event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'],percentage_review=row.get('percentage_review'),
+            connect_previous=bool(comparison and comparison['reason']=='contiguous_diagnostic_endpoints' and comparison['change'] in ('positive','zero')),
             reading=value,status=row['status'],fresh_at_capture=row['fresh_at_capture'],
             interval_seconds=row['interval_seconds'],level=level_evidence(row),
             break_reason=next((c['reason'] for c in snapshot['percentage_progress']['comparisons'] if c['event_id']==row['event_id']),None)))

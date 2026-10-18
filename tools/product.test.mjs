@@ -25,7 +25,7 @@ function player(changes={}){return {channel:'alpha',character:{label:'Main'},sou
 test('overlay updates percentage-only without borrowing absolute EXP; recovered values stay marked',()=>{
   const p=page();p.render(player());assert.equal(p.elements.exp.textContent,'71,441');assert.equal(p.elements.progress.value,5.9);
   p.render(player({reading:{exp:null,percentage:'6.00',bp:600,evidence:'strict_percentage_only',level:{value:60,status:'single_reader'}}}));
-  assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.progress.value,6);assert.equal(p.elements.level.textContent,'Lv. 60*');
+  assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.progress.value,6);assert.equal(p.elements.level.textContent,'Lv. 60');
   p.render(player({reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'grammar_recovered',level:{value:null,status:'conflict',visual:54,neural:64}}}));
   assert.match(p.elements.exp.textContent,/^≈/);assert.equal(p.elements.level.textContent,'Lv. —');assert.match(p.elements.level.title,/54 \/ 64/);
 });
@@ -83,7 +83,7 @@ test('withheld full EXP retains percentage and provisional level across product 
   const p=page();p.render(player({reading:{exp:null,percentage:'45.09',bp:4509,evidence:'strict_full',
     exp_validity:{status:'invalid'},level:{value:65,status:'provisional_neural',visual:63,neural:65}}}));
   assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.progress.value,45.09);
-  assert.match(p.elements.exp.title,/withheld/);assert.equal(p.elements.level.textContent,'Lv. 65*');
+  assert.match(p.elements.exp.title,/withheld/);assert.equal(p.elements.level.textContent,'Lv. 65');
 });
 
 test('percentage-derived EXP is explicitly approximate and leaves direct OCR integer display intact',()=>{
@@ -105,12 +105,12 @@ test('polling continues in background, refreshes on return, and never overlaps a
   p.context.document.hidden=false;p.events.visibilitychange();p.events.pageshow();assert.equal(calls,3);
   release({ok:false});await pending;assert.equal(p.elements.status.textContent,'Updates delayed');
   hang=false;p.events.pageshow();await new Promise(setImmediate);assert.equal(calls,4);
-  assert.equal(p.elements.status.textContent,'Waiting for next capture');assert.equal(p.timers.at(-1),2000);
+  assert.equal(p.elements.status.textContent,'Tracking');assert.equal(p.timers.at(-1),2000);
 });
 
 test('owned activity and completion stay distinct from cached API failures and stale values',()=>{
   const p=page();
-  for(const [activity,text] of [[{state:'running'},'Capturing'],[{state:'waiting'},'Waiting for next capture'],
+  for(const [activity,text] of [[{state:'running'},'Updating'],[{state:'waiting'},'Tracking'],
     [{state:'stopped',completion:'completed'},'Capture complete'],[{state:'stopped',completion:'interrupted'},'Capture interrupted']]){
     p.render(player({activity}));assert.equal(p.elements.status.textContent,text);
   }
@@ -130,9 +130,9 @@ test('last-known level is labeled separately and never supplies missing EXP or p
     const p=page(view),saved={value:65,timestamp:'2026-01-01T00:00:00Z',age_seconds:40,last_known:true,
       evidence:{value:65,status:'provisional_neural',reason:'repeated_neural_with_strict_arithmetic'}};
     p.render(player({display_level:saved,estimates:{},reading:{exp:null,percentage:'90.78',bp:9078,level:{value:null,status:'conflict'}}}));
-    assert.equal(p.elements.level.textContent,'Lv. 65†');assert.match(p.elements.level.title,/Last-known.*40s ago/);
+    assert.equal(p.elements.level.textContent,'Lv. 65');assert.match(p.elements.level.title,/Last-known.*40s ago/);
     assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.rate.textContent,'—');
-    if(view==='overlay')assert.match(p.elements.status.textContent,/last-known Lv/);
+    if(view==='player')assert.match(p.elements['level-note'].textContent,/Level last seen/);
   }
 });
 
@@ -144,4 +144,29 @@ test('early segment pace is visible before a complete window and becomes paused 
   p.context.performance.now=()=>50000;p.run('renderPlayer()');assert.equal(p.elements['early-value'].textContent,'Estimate paused');
   assert.match(p.elements['early-value'].title,/Historical value/);
   p.context.performance.now=()=>0;p.run('failed=true;renderPlayer()');assert.equal(p.elements['early-value'].textContent,'Estimate paused');
+});
+
+test('responsive pace has one current rate, retains an explicitly aged rate after gaps, and never ranks it',()=>{
+  const p=page('player'),base=player();
+  base.responsive_pace={active:true,tentative:true,age_seconds:0,readings:2,span_seconds:{approximate:15},estimates:{...base.estimates,eta:null}};
+  p.render(base);assert.equal(p.elements.rate.textContent,'~2K');assert.match(p.elements['early-value'].textContent,/first estimate.*2 readings \/ 15s/);
+  assert.equal(p.elements['window-rate'].textContent,'Building history');
+  p.render({...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}});
+  assert.equal(p.elements.rate.textContent,'~2K');assert.match(p.elements['early-value'].textContent,/last estimated 35s ago/);
+  assert.equal(p.elements.rate.dataset.paused,'true');assert.equal(p.elements['eta-stat'].hidden,true);
+  p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[null]);
+});
+
+test('current-level chart separates level-up, missing samples and quarantine; only guarded edges get lines',()=>{
+  const p=page('player'),base=player({display_level:{evidence:{value:66},value:66,age_seconds:0},level_events:[{level:66,timestamp:'2026-01-01T00:00:15Z',first_observed_at:'2026-01-01T00:00:15Z'}]});
+  p.render(base);
+  const point=(seconds,level,bp,connect_previous=false)=>({timestamp:new Date(Date.UTC(2026,0,1,0,0,seconds)).toISOString(),level:{value:level},interval_seconds:15,connect_previous,reading:bp==null?null:{bp,percentage:(bp/100).toFixed(2),evidence:'strict_full'}});
+  p.context.points=[point(0,65,9997),point(15,66,1),point(30,66,3,true),point(45,66,null),point(60,66,8),point(75,66,12,true)];
+  p.run('data.history=points;drawHistory()');
+  const shapes=p.elements['history-chart'].children;
+  assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,2);
+  assert.ok(!shapes.some(n=>n.tag==='text' && n.textContent==='99.97%'));
+  assert.equal(p.elements['level-event'].textContent,'Level 66 reached!');
+  assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:00:15.000Z');
+  assert.match(p.elements['history-note'].textContent,/Lv. 66/);
 });
