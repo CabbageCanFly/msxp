@@ -23,7 +23,7 @@ function player(changes={}){return {channel:'alpha',character:{label:'Main'},sou
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
 test('overlay updates percentage-only without borrowing absolute EXP; recovered values stay marked',()=>{
-  const p=page();p.render(player());assert.equal(p.elements.exp.textContent,'71,441');assert.equal(p.elements.progress.value,5.9);
+  const p=page();p.render(player());assert.equal(p.elements.exp.textContent,'71.4K');assert.match(p.elements.exp.title,/71,441/);assert.equal(p.elements.progress.value,5.9);
   p.render(player({reading:{exp:null,percentage:'6.00',bp:600,evidence:'strict_percentage_only',level:{value:60,status:'single_reader'}}}));
   assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.progress.value,6);assert.equal(p.elements.level.textContent,'Lv. 60');
   p.render(player({reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'grammar_recovered',level:{value:null,status:'conflict',visual:54,neural:64}}}));
@@ -31,7 +31,7 @@ test('overlay updates percentage-only without borrowing absolute EXP; recovered 
 });
 test('cached failures and advancing ages preserve values but suppress rates and ETA',()=>{
   const p=page();p.render(player());assert.equal(p.elements.rate.textContent,'~2K');assert.equal(p.elements.eta.textContent,'~15m');
-  p.context.performance.now=()=>50000;p.run('renderPlayer()');assert.equal(p.elements.rate.textContent,'—');assert.equal(p.elements.exp.textContent,'71,441');assert.equal(p.elements.status.textContent,'Updates delayed');
+  p.context.performance.now=()=>50000;p.run('renderPlayer()');assert.equal(p.elements.rate.textContent,'—');assert.equal(p.elements.exp.textContent,'71.4K');assert.equal(p.elements.status.textContent,'Updates delayed');
   p.context.performance.now=()=>0;p.run('failed=true;renderPlayer()');assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements.card.dataset.stale,'true');
 });
 test('unavailable rates are not ranked as zero and equal eligible values share rank',()=>{
@@ -47,7 +47,7 @@ test('window buttons use only eligible window metrics; overlay keeps its existin
   const p=page('player'),base=player();
   base.windows={5:{eligible:true,estimates:base.estimates,difference_percentage_points:'0.20',readings:21,coverage_seconds:{approximate:300}},
     10:{eligible:false,state:'building_history',estimates:{}}};
-  p.render(base);assert.equal(p.elements.movement.textContent,'+0.20 pp');assert.equal(p.elements.rate.textContent,'~2K');
+  p.render(base);assert.equal(p.elements.movement.textContent,'+0.20%');assert.equal(p.elements.rate.textContent,'~2K');
   p.buttons[1].listeners.click();assert.equal(p.elements.movement.textContent,'—');assert.equal(p.elements.rate.textContent,'—');
   assert.match(p.elements['segment-note'].textContent,/Building 10m history/);
   assert.equal(p.buttons[1].attributes['aria-pressed'],'true');
@@ -60,11 +60,11 @@ test('recent graph excludes distant runs, spans actual points, and retains gaps 
   const p=page('player');p.render(player());
   const point=(timestamp,bp=100)=>({event_id:timestamp,timestamp,interval_seconds:15,level:{value:64},reading:{bp,percentage:(bp/100).toFixed(2),evidence:'strict_percentage_only'}});
   p.context.points=[point('2026-01-01T00:00:00Z'),point('2026-01-01T00:06:00Z'),point('2026-01-01T00:06:15Z',101)];
-  p.run('data.history=points;drawHistory()');
+  p.run('chartMode="percentage";data.history=points;drawHistory()');
   assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:06:00.000Z');
-  assert.match(p.elements['history-note'].textContent,/2 attempts.*15s displayed/);
+  assert.match(p.elements['history-note'].textContent,/2 readings.*15s displayed/);
   p.buttons[1].listeners.click();assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:00:00.000Z');
-  assert.match(p.elements['history-note'].textContent,/1 sampling gaps/);
+  assert.ok(p.elements['history-chart'].children.some(n=>n.attributes.class==='gap'));
   assert.ok(!p.elements['history-chart'].children.some(n=>n.tag==='polyline'));
   p.elements['history-chart'].clientWidth=340;p.run('drawHistory()');
   assert.equal(p.elements['history-chart'].attributes.viewBox,'0 0 340 230');
@@ -88,17 +88,17 @@ test('observed windows show real partial endpoints without ranking them or relab
   p.render(base);
   for(let i=0;i<4;i++){
     p.buttons[i].listeners.click();
-    assert.equal(p.elements.movement.textContent,`+${i}.55 pp`);
-    assert.match(p.elements['segment-note'].textContent,/3m 28s observed.*15 readings.*1 interruption.*partial history/);
+    assert.equal(p.elements.movement.textContent,`+${i}.55%`);
+    assert.match(p.elements['segment-note'].textContent,/3m 28s.*15 readings.*1 short gap.*partial history/);
     assert.equal(p.elements['window-rate'].textContent,'Not complete yet');
     assert.equal(p.elements.rate.textContent,'~2K');
   }
   p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"movement").map(r=>r.rank))')),[null]);
   p.render({...base,stale:true});
-  assert.equal(p.elements.movement.textContent,'+3.55 pp');assert.equal(p.elements.movement.dataset.paused,'true');
-  assert.match(p.elements['segment-note'].textContent,/last observed/);
+  assert.equal(p.elements.movement.textContent,'+3.55%');assert.equal(p.elements.movement.dataset.paused,'true');
+  assert.match(p.elements['segment-note'].textContent,/last updated/);
   assert.equal(p.elements['window-rate'].textContent,'Paused');
-  p.run('failed=true;renderPlayer()');assert.match(p.elements['segment-note'].textContent,/last observed/);
+  p.run('failed=true;renderPlayer()');assert.match(p.elements['segment-note'].textContent,/last updated/);
 });
 
 test('withheld full EXP retains percentage and provisional level across product views',()=>{
@@ -114,7 +114,7 @@ test('percentage-derived EXP is explicitly approximate and leaves direct OCR int
       hypotheses:{nearest_half_up:{min:1069839,max:1069996,count:158},truncate:{min:1069918,max:1070075,count:158}}}};
   p.render(player({reading:r}));assert.equal(p.elements.exp.textContent,'≈1.07M');assert.match(p.elements.exp.title,/not read directly by OCR/);
   p.render(player({reading:{...r,exp:'1069917',estimated_exp:null,evidence:'strict_full'}}));
-  assert.equal(p.elements.exp.textContent,'1,069,917');assert.match(p.elements.exp.title,/Original strict OCR/);
+  assert.equal(p.elements.exp.textContent,'1.07M');assert.match(p.elements.exp.title,/original strict OCR/);
   p.render(player({reading:{...r,estimated_exp:null,level:{value:null,status:'conflict'}}}));assert.equal(p.elements.exp.textContent,'—');
 });
 
@@ -184,11 +184,51 @@ test('current-level chart separates level-up, missing samples and quarantine; on
   p.render(base);
   const point=(seconds,level,bp,connect_previous=false)=>({timestamp:new Date(Date.UTC(2026,0,1,0,0,seconds)).toISOString(),level:{value:level},interval_seconds:15,connect_previous,reading:bp==null?null:{bp,percentage:(bp/100).toFixed(2),evidence:'strict_full'}});
   p.context.points=[point(0,65,9997),point(15,66,1),point(30,66,3,true),point(45,66,null),point(60,66,8),point(75,66,12,true)];
-  p.run('data.history=points;drawHistory()');
+  p.run('chartMode="percentage";data.history=points;drawHistory()');
   const shapes=p.elements['history-chart'].children;
   assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,2);
   assert.ok(!shapes.some(n=>n.tag==='text' && n.textContent==='99.97%'));
   assert.equal(p.elements['level-event'].textContent,'Level 66 reached!');
   assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:00:15.000Z');
   assert.match(p.elements['history-note'].textContent,/Lv. 66/);
+});
+
+test('EXP bars split only valid captured intervals, conserve amounts, and preserve missing versus zero',()=>{
+  const p=page('player'),base=Date.parse('2026-01-01T00:00:00Z');
+  const interval=(a,b,value)=>({connect_previous:true,gain:{start:new Date(base+a*1000).toISOString(),end:new Date(base+b*1000).toISOString(),value:{approximate:value}}});
+  p.context.rows=[interval(50,70,100),interval(120,150,0),{connect_previous:false,gain:{start:new Date(base+70e3).toISOString(),end:new Date(base+120e3).toISOString(),value:{approximate:999}}}];
+  p.context.anchor=base+180e3;
+  const chart=JSON.parse(p.run('JSON.stringify(bucketHistory(rows,anchor,60))'));
+  assert.equal(chart.end-chart.start,1800000);assert.equal(chart.bins.length,30);
+  const populated=chart.bins.filter(b=>b.value!==null);
+  assert.deepEqual(populated.map(b=>b.value),[50,50,0]);assert.equal(populated.reduce((s,b)=>s+b.covered,0),50);
+  assert.ok(chart.bins.some(b=>b.state==='missing' && b.value===null));
+  assert.ok(populated.every(b=>b.state==='partial'));
+  p.context.rows=[interval(0,60,0)];
+  const zero=JSON.parse(p.run('JSON.stringify(bucketHistory(rows,anchor,60))')).bins.find(b=>b.value===0);
+  assert.equal(zero.state,'covered');assert.equal(zero.covered,60);
+  assert.equal(p.run('bucketHistory(rows,anchor,5)'),null);
+});
+
+test('EXP history has fixed axes, responsive bars and no made-up 24-hour range',()=>{
+  const p=page('player');p.render(player());
+  p.context.rows=[{connect_previous:true,gain:{start:'2026-01-01T00:00:00Z',end:'2026-01-01T00:00:15Z',value:{approximate:100}}}];
+  p.run('data.history=rows;data.player.latest_attempt_at="2026-01-01T00:00:15Z";drawHistory()');
+  assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column missing').length,29);
+  assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column partial').length,1);
+  for(const [bucket,seconds] of [[60,1800],[300,7200],[1800,21600]]){
+    p.run(`bucketSeconds=${bucket};drawHistory()`);
+    assert.equal(Date.parse(p.elements['history-chart'].dataset.end)-Date.parse(p.elements['history-chart'].dataset.start),seconds*1000);
+  }
+  p.elements['history-chart'].clientWidth=340;p.run('drawHistory()');
+  assert.equal(p.elements['history-chart'].attributes.viewBox,'0 0 340 250');
+});
+
+test('public progress uses EXP with percentage fallback and exact provenance in the tooltip',()=>{
+  const p=page('player'),base=player({windows:{5:{eligible:false,observed:{available:true,
+    difference_percentage_points:'0.14',estimated_exp:{value:{approximate:2329.7904},requirement:{version:'synthetic'}},
+    span_seconds:{approximate:45},readings:4,interruptions:0,age_seconds:1}}}});
+  p.render(base);assert.equal(p.elements.movement.textContent,'+2.33K EXP');assert.match(p.elements.movement.title,/0.14 percentage points/);
+  delete base.windows[5].observed.estimated_exp;p.render(base);assert.equal(p.elements.movement.textContent,'+0.14%');
+  assert.equal(p.run('expText(1234567890)'),'1.23B');assert.equal(p.run('expText(45)'),'45');
 });

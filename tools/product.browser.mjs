@@ -73,13 +73,13 @@ try {
   await screenshot(overlay,'overlay-before-stale',500,160);
   const detail=await tab('/stream/'+channel,1440,1050);await detail.wait("typeof data!=='undefined' && !!data?.player");
   const recent=await detail.evaluate('({start:document.getElementById("history-chart").dataset.start,end:document.getElementById("history-chart").dataset.end,note:document.getElementById("history-note").textContent})');
-  if(recent.start)assert.ok(Date.parse(recent.end)-Date.parse(recent.start)<=300000);
-  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Observed · last 5 min');
+  if(recent.start)assert.equal(Date.parse(recent.end)-Date.parse(recent.start),1800000);
+  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 5 min');
   if(!original.player.windows['5'].eligible)assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),original.player.windows['5'].observed?.available?'Not complete yet':'Building history');
   await screenshot(detail,'character-desktop',1440,1050);
   await screenshot(detail,'character-mobile',390,1200);
   await detail.evaluate('document.querySelectorAll("[data-window]")[2].click()');
-  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Observed · last 15 min');
+  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 15 min');
   await screenshot(detail,'character-15-minute',1440,1050);
   await detail.evaluate('document.querySelectorAll("[data-window]")[0].click()');
   await detail.command('Page.bringToFront');
@@ -98,8 +98,9 @@ try {
         const o=actual.player.windows[String(minutes)].observed;assert.ok(o.available);
         assert.equal(actual.player.windows[String(minutes)].eligible,false);
         await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
-        assert.equal(await detail.evaluate('document.getElementById("movement").textContent'),`+${o.difference_percentage_points} pp`);
-        assert.match(await detail.evaluate('document.getElementById("segment-note").textContent'),/observed.*readings.*partial history/);
+        assert.equal(await detail.evaluate('document.getElementById("movement").textContent'),await detail.evaluate(`movementText(data.player.windows[${JSON.stringify(String(minutes))}].observed)`));
+        assert.match(await detail.evaluate('document.getElementById("movement").textContent'),/EXP$|%$/);
+        assert.match(await detail.evaluate('document.getElementById("segment-note").textContent'),/readings.*partial history/);
         assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),'Not complete yet');
         await board.evaluate(`document.querySelector('[data-window="${minutes}"]').click();document.querySelector('[data-sort="movement"]').click()`);
         assert.equal(await board.evaluate(`document.querySelector('.entry[data-channel="${channel}"]').dataset.rank`),'');
@@ -107,20 +108,33 @@ try {
       if(action==='advance')await screenshot(detail,'observed-after-rotation',1100,1050);
     }
     assert.notEqual(batches[0].player.reading.event_id.split(':')[0],batches[1].player.reading.event_id.split(':')[0]);
-    for(const minutes of [5,10,15,30]){
+    for(const minutes of [5,30]){
       await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
       await screenshot(detail,`observed-${minutes}-minute-desktop`,1100,1050);
       await screenshot(detail,`observed-${minutes}-minute-mobile`,390,1100);
     }
     await screenshot(board,'observed-homepage',1440,1050);
     await screenshot(overlay,'observed-overlay',500,160);
+    for(const [seconds,span] of [[60,1800000],[300,7200000],[1800,21600000]]){
+      await detail.evaluate(`document.querySelector('[data-bucket="${seconds}"]').click()`);
+      const bounds=await detail.evaluate('({a:document.getElementById("history-chart").dataset.start,b:document.getElementById("history-chart").dataset.end})');
+      assert.equal(Date.parse(bounds.b)-Date.parse(bounds.a),span);
+      assert.ok(await detail.evaluate('document.querySelectorAll(".exp-column:not(.missing)").length>0'));
+      assert.ok(await detail.evaluate('document.querySelectorAll(".exp-column.missing").length>0'));
+    }
+    await detail.evaluate('document.querySelector("[data-bucket=\\"60\\"]").click()');
+    await screenshot(detail,'exp-bars-desktop',1100,1250);await screenshot(detail,'exp-bars-mobile',390,1400);
+    await detail.evaluate('document.querySelector("[data-chart=percentage]").click()');
+    assert.ok(await detail.evaluate('document.querySelectorAll("#history-chart .trend").length>0'));
+    await screenshot(detail,'secondary-level-chart',1100,1050);
+    await detail.evaluate('document.querySelector("[data-chart=exp]").click()');
     await fixtureCommand('stale');
     const stale=await api('/api/players/'+channel);assert.ok(stale.player.stale);
     await detail.wait('data?.player?.stale===true');
     await overlay.wait('data?.player?.stale===true');
     for(const minutes of [5,10,15,30]){
       await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
-      assert.match(await detail.evaluate('document.getElementById("segment-note").textContent'),/last observed/);
+      assert.match(await detail.evaluate('document.getElementById("segment-note").textContent'),/last updated/);
       assert.equal(await detail.evaluate('document.getElementById("movement").dataset.paused'),'true');
       assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),'Paused');
     }

@@ -11,6 +11,8 @@ The [responsive player experience](docs/responsive-player-experience.md) adds
 two-reading pace, aged estimates during pauses and level-aware progress history.
 The [observed-window update](docs/observed-progress-windows.md) shows useful partial
 5/10/15/30-minute progress separately from complete-window comparisons and rankings.
+The [gaming companion update](docs/gaming-companion-statistics.md) adds familiar
+EXP units, orange history bars, and a steadier recent pace with missing intervals excluded.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

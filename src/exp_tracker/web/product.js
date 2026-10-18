@@ -3,26 +3,26 @@
 const view=document.body.dataset.view;
 const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?location.pathname.split('/')[2]:null;
 const endpoint=channel?`/api/players/${encodeURIComponent(channel)}`:'/api/players';
-const numbers=new Intl.NumberFormat('en-US'),compact=new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1});
-const compactExp=new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:2});
+const numbers=new Intl.NumberFormat('en-US'),shortNumber=new Intl.NumberFormat('en-US',{maximumSignificantDigits:3});
 const sorts={exp_hour:'Estimated pace over the selected window; community requirements are provisional.',
   level:'Latest supported character levels. Hover for the reading time.',
   movement:'Displayed change within the selected window. Incomplete or interrupted coverage is not ranked.'};
-let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=5,pollTimer=null,activeController=null;
+let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=5,chartMode='exp',bucketSeconds=60,pollTimer=null,activeController=null;
 const el=id=>document.getElementById(id);
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
 function ageText(seconds) { if(seconds==null)return 'No reading yet';if(seconds<60)return `${Math.floor(seconds)}s ago`;if(seconds<3600)return `${Math.floor(seconds/60)}m ago`;if(seconds<86400)return `${Math.floor(seconds/3600)}h ago`;return `${Math.floor(seconds/86400)}d ago`; }
-function expText(value) { return value==null?'—':numbers.format(BigInt(value)); }
+function expText(value) { if(value==null)return '—';const n=Number(value),scale=n>=1e9?1e9:n>=1e6?1e6:n>=1e3?1e3:1;return (scale===1?numbers:shortNumber).format(n/scale)+({1:'',1000:'K',1000000:'M',1000000000:'B'}[scale]); }
+function movementText(summary) { return summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate)} EXP`:summary?.difference_percentage_points!=null?`+${summary.difference_percentage_points}%`:'—'; }
 function displayedExp(r) {
   return r?.exp!=null?(r.evidence==='grammar_recovered'?'≈ ':'')+expText(r.exp):
-    r?.estimated_exp?`≈${compactExp.format(r.estimated_exp.value.approximate)}`:'—';
+    r?.estimated_exp?`≈${expText(r.estimated_exp.value.approximate)}`:'—';
 }
 function expTitle(r) {
   if(r?.estimated_exp) {
     const e=r.estimated_exp;
     return `Estimated from observed percentage and provisional level ${e.level_evidence.value} requirement, not read directly by OCR. ${Object.entries(e.hypotheses).map(([rule,b])=>`${rule}: ${b.count?`${numbers.format(b.min)}–${numbers.format(b.max)} EXP`:'no compatible within-level integer'}`).join('; ')}. Community table ${e.requirement.version}; bounds exclude OCR/table errors.${r.exp_validity?.status==='invalid'?' Contradictory OCR integer withheld.':''}`;
   }
-  return r?.exp_validity?.status==='invalid'?'Absolute EXP withheld: inconsistent with level and percentage under both display hypotheses':r?.exp==null?'Absolute EXP unavailable; level or requirement unresolved':r.evidence==='grammar_recovered'?'Unverified grammar-recovered proposal':'Original strict OCR candidate; unverified';
+  return r?.exp_validity?.status==='invalid'?'Absolute EXP withheld: inconsistent with level and percentage under both display hypotheses':r?.exp==null?'Absolute EXP unavailable; level or requirement unresolved':`${numbers.format(BigInt(r.exp))} current EXP; ${r.evidence==='grammar_recovered'?'unverified grammar-recovered proposal':'original strict OCR candidate; unverified'}`;
 }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
@@ -36,13 +36,13 @@ function levelTitle(p) {
 function earlyText(p) {
   if(p.responsive_pace) {
     const pace=publicPace(p),e=pace.estimates;
-    const rate=e.exp_per_hour?`~${compact.format(e.exp_per_hour.value.approximate)} EXP/hour`:`~${e.percentage_per_hour.value.approximate.toFixed(2)} pp/hour`;
+    const rate=e.exp_per_hour?`~${expText(e.exp_per_hour.value.approximate)} EXP/hour`:`~${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`;
     return `${rate} · ${pace.label}`;
   }
   const early=p.early_pace;
   if(!early?.active || current(p).stale || failed)return null;
   const e=early.estimates,segment=early.segment;
-  const rate=e.exp_per_hour?`~${compact.format(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`~${e.percentage_per_hour.value.approximate.toFixed(2)} pp/hour`:null;
+  const rate=e.exp_per_hour?`~${expText(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`~${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`:null;
   return rate?`${rate} · early estimate · ${segment.readings} readings / ${Math.round(segment.span_seconds.approximate)}s`:null;
 }
 function publicPace(p) {
@@ -70,7 +70,7 @@ function windowNote(p) {
   if(o) {
     const age=o.age_seconds+(performance.now()-receivedAt)/1000;
     const old=current(p).stale || failed || o.paused;
-    return `${spanText(o.span_seconds.approximate)} observed · ${o.readings} readings${o.interruptions?` · ${o.interruptions} interruption${o.interruptions===1?'':'s'}`:''}${old?` · last observed ${ageText(age)}`:w.eligible?' · complete comparison':' · partial history'}`;
+    return `${spanText(o.span_seconds.approximate)} · ${o.readings} readings${o.interruptions?` · ${o.interruptions} short gap${o.interruptions===1?'':'s'}`:''}${old?` · last updated ${ageText(age)}`:w.eligible?' · complete window':' · partial history'}`;
   }
   if(current(p).stale || failed)return 'Waiting for fresh readings';
   if(w?.eligible)return `Last ${windowMinutes} min · ${Math.round(w.coverage_seconds.approximate)}s observed · ${w.readings} readings`;
@@ -114,9 +114,9 @@ function entry({player:p,value,rank}) {
   bar.dataset.missing=String(!r);bar.dataset.recovered=String(r?.evidence==='grammar_recovered');
   const label=node('span','exp-label');label.title=expTitle(r);label.append(node('small','','EXP'),node('span','exp-number',displayedExp(r)),node('span','percentage',r?`[${r.percentage}%]`:'Waiting for EXP'));
   bar.append(progress,label);
-  section.append(bar,node('div','exp-detail',`${observedWindow(p)?`+${observedWindow(p).difference_percentage_points} pp · ${windowNote(p)}`:!selectedWindow(p)?.eligible && earlyText(p) || windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
-  const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):sort==='movement'?`+${value.toFixed(2)}`:`~${compact.format(value)}`),
-    node('small','score-label',sort==='level'?'last observed level':sort==='movement'?'percentage points':'estimated EXP / hour'));
+  section.append(bar,node('div','exp-detail',`${observedWindow(p)?`${movementText(observedWindow(p))} · ${windowNote(p)}`:!selectedWindow(p)?.eligible && earlyText(p) || windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
+  const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):sort==='movement'?`+${value.toFixed(2)}%`:`~${expText(value)}`),
+    node('small','score-label',sort==='level'?'level':sort==='movement'?'level progress':'EXP / hour'));
   score.title=sort==='exp_hour'?rateTitle(s.metrics?.exp_per_hour):sort==='level'?levelTitle(p):'Displayed percentage change only; no exact earned EXP is inferred.';
   row.append(badge,level,identity,section,score);return row;
 }
@@ -150,10 +150,11 @@ function renderPlayer() {
   el('age').textContent=r?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp ?? '';
   const observed=view==='player'?observedWindow(p):null;
   const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):observed?.difference_percentage_points ?? (selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null);
-  el('movement').textContent=(observed || !s.stale && !failed) && movement!=null?`+${movement} pp`:'—';
+  const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);
+  el('movement').textContent=(observed || !s.stale && !failed) && movement!=null?movementText(summary):'—';
   el('movement').dataset.paused=String(!!observed && (observed.paused || s.stale || failed));
-  el('movement').title=observed?`${observed.start} – ${observed.end}; observed endpoint difference only. ${observed.unavailable_attempts} unavailable and ${observed.missing_attempts} missing attempts; no progress allocated inside gaps. Not used for ranking.`:'';
-  el('rate').textContent=m?.exp_per_hour?`~${compact.format(m.exp_per_hour.value.approximate)}`:'—';el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
+  el('movement').title=observed?`${observed.start} – ${observed.end}; +${movement} percentage points. ${observed.estimated_exp?'Approximate net EXP from percentage and community requirement '+observed.estimated_exp.requirement.version+'. ':''}${observed.unavailable_attempts} unavailable and ${observed.missing_attempts} missing attempts; not exact earned EXP, no progress allocated inside gaps. Not used for ranking.`:'';
+  el('rate').textContent=m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate)}`:'—';el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Experimental displayed percentage points/hour; zero displayed change does not prove zero actual EXP.';
   el('eta').textContent=etaText(m?.eta);el('eta').title=m?.eta?'Provisional same-level percentage estimate at the last reading, not a countdown. Both quantization hypotheses require positive pace.':'Building positive, comparable history';
@@ -161,31 +162,99 @@ function renderPlayer() {
   el('rate').dataset.paused=String(!!pace && !pace.active);
   if(view==='overlay') {
     if(pace && !pace.active && !failed && !p.percentage_state?.pending_since)el('status').textContent=`Last estimate ${ageText(pace.age)}`;
-    el('rate-label').textContent=pace && !pace.active?'Last EXP / hour':pace?.source.tentative?'First EXP / hour':'Est. EXP / hour';
+    el('rate-label').textContent=pace && !pace.active?'Last EXP / hour':'EXP / hour';
     el('rate').title=pace?`${pace.label}; ${pace.source.readings} readings / ${Math.round(pace.source.span_seconds.approximate)}s. ${rateTitle(m?.exp_per_hour)}`:el('rate').title;
   }
   if(view==='player') {
     const early=p.early_pace,text=earlyText(p);
     el('early-value').textContent=pace?`${pace.label} · ${pace.source.readings} readings / ${Math.round(pace.source.span_seconds.approximate)}s`:text ?? (early?.segment?'Estimate paused':'Building comparable history');
     el('early-note').textContent=text?'Experimental current segment · separate from completed-window comparisons.':early?.segment?'Last eligible estimate retained for inspection; waiting for fresh, connected readings.':'Needs 3 supported same-level readings over 30s; interruptions restart the segment.';
-    el('early-value').title=early?.segment?`${early.segment.start} – ${early.segment.end}; ${early.segment.readings} readings. ${rateTitle(early.estimates?.exp_per_hour)} Historical value: ${early.estimates?.exp_per_hour?.value.approximate ?? early.estimates?.percentage_per_hour?.value.approximate} ${early.estimates?.exp_per_hour?'EXP/h':'pp/h'}. Bounds exclude OCR errors.`:'';
-    el('rate-label').textContent=`${pace?.active?'Current':'Recent'} pace · ${m?.exp_per_hour?'EXP / hour':'pp / hour'}`;
-    el('early-note').textContent=pace?.active?'Based on your latest connected readings.':pace?'Paused until a new trend is available.':'Your first estimate appears after two comparable readings.';
+    el('early-value').title=pace?`${pace.source.start} – ${pace.source.end}; ${(pace.source.coverage_seconds ?? pace.source.span_seconds).approximate}s of comparable captured intervals. Missing intervals supply neither gain nor elapsed time. ${rateTitle(m?.exp_per_hour)}`:early?.segment?`${early.segment.start} – ${early.segment.end}; ${early.segment.readings} readings. ${rateTitle(early.estimates?.exp_per_hour)} Historical value: ${early.estimates?.exp_per_hour?.value.approximate ?? early.estimates?.percentage_per_hour?.value.approximate} ${early.estimates?.exp_per_hour?'EXP/h':'pp/h'}. Bounds exclude OCR errors.`:'';
+    el('rate-label').textContent=m?.exp_per_hour?'EXP / hour':'% / hour';
+    if(!m?.exp_per_hour && m?.percentage_per_hour)el('rate').textContent=`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`;
+    el('early-note').textContent=pace?.active?(pace.source.interruptions?'Short gaps excluded':'') :pace?'Waiting for the next reading':'Building history';
+    el('early-note').hidden=!el('early-note').textContent;
     el('level-note').textContent=lastKnown(p)?`Level last seen ${ageText(p.display_level.age_seconds+(performance.now()-receivedAt)/1000)}`:'';
     el('level-note').hidden=!lastKnown(p);
     el('level-note').title=levelTitle(p);
-    el('movement-label').textContent=`Observed · last ${windowMinutes} min`;
+    el('movement-label').textContent=`Last ${windowMinutes} min`;
     el('segment-note').textContent=windowNote(p);
     el('segment-note').title='Observed progress compares supported same-level endpoints across only short, disclosed gaps; it is not a complete-window measurement. Complete comparisons still need ≥90% uninterrupted coverage.';
-    el('window-rate').textContent=selectedWindow(p)?.eligible && s.metrics?.exp_per_hour?`~${compact.format(s.metrics.exp_per_hour.value.approximate)}`:observed?(s.stale || failed || observed.paused?'Paused':'Not complete yet'):'Building history';
+    el('window-rate').textContent=selectedWindow(p)?.eligible && s.metrics?.exp_per_hour?`~${expText(s.metrics.exp_per_hour.value.approximate)}`:observed?(s.stale || failed || observed.paused?'Paused':'Not complete yet'):'Building history';
     el('window-rate-label').textContent=`${windowMinutes} min EXP / hour`;
     el('pp-stat').hidden=!!m?.exp_per_hour || !m?.percentage_per_hour;
     el('eta-stat').hidden=!m?.eta;
     document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
   }
 }
-function drawHistory() {
+function bucketHistory(history,anchor,seconds) {
+  const range=({60:1800,300:7200,1800:21600})[seconds];
+  if(!range || !Number.isFinite(anchor))return null;
+  const step=seconds*1000,end=Math.ceil(anchor/step)*step,start=end-range*1000;
+  const bins=Array.from({length:range/seconds},(_,i)=>({start:start+i*step,end:start+(i+1)*step,value:null,covered:0,intervals:0}));
+  let previousEnd=-Infinity;
+  for(const row of history) {
+    const g=row.gain,a=Date.parse(g?.start),b=Date.parse(g?.end),amount=g?.value?.approximate;
+    if(!row.connect_previous || !Number.isFinite(a) || !Number.isFinite(b) || b<=a || a<previousEnd || !Number.isFinite(amount) || amount<0)continue;
+    previousEnd=b;
+    for(const bin of bins) {
+      const overlap=Math.max(0,Math.min(b,bin.end,anchor)-Math.max(a,bin.start));
+      if(!overlap)continue;
+      // Visualization only: uniform allocation within an eligible captured interval.
+      // Intervals crossing missing samples never arrive here from the server.
+      bin.value=(bin.value ?? 0)+amount*overlap/(b-a);
+      bin.covered+=overlap/1000;bin.intervals++;
+    }
+  }
+  for(const bin of bins)bin.state=bin.value==null?'missing':bin.covered<seconds-.01?'partial':'covered';
+  return {start,end,bins,range,seconds};
+}
+function drawExpHistory() {
   const svg=el('history-chart');svg.replaceChildren();
+  delete svg.dataset.start;delete svg.dataset.end;
+  const rows=data?.history ?? [],anchor=Date.parse(data?.player?.latest_attempt_at ?? rows.at(-1)?.timestamp);
+  const chart=bucketHistory(rows,anchor,bucketSeconds);
+  if(!chart){el('history-note').textContent='Your next adventure starts here.';return;}
+  const width=Math.max(300,Math.min(960,svg.clientWidth||960)),plotWidth=width-76;
+  svg.setAttribute('viewBox',`0 0 ${width} 250`);svg.setAttribute('aria-label','EXP history in fixed time buckets; gaps are missing data, faded bars have partial coverage');
+  svg.dataset.start=new Date(chart.start).toISOString();svg.dataset.end=new Date(chart.end).toISOString();
+  const max=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),scale=10**Math.floor(Math.log10(max)),top=Math.ceil(max/scale)*scale;
+  const x=t=>54+(t-chart.start)/(chart.end-chart.start)*plotWidth;
+  function shape(tag,attrs,title){const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(title)n.append(node('title','',title));svg.append(n);return n;}
+  for(let i=0;i<=4;i++){
+    const y=200-i*40;
+    shape('line',{x1:54,x2:width-22,y1:y,y2:y,class:'chart-grid'});
+    shape('text',{x:44,y:y+4,'text-anchor':'end'}).textContent=expText(top*i/4);
+  }
+  for(const bin of chart.bins){
+    const left=x(bin.start)+2,w=Math.max(2,x(bin.end)-x(bin.start)-4),height=bin.value==null?0:Math.max(2,bin.value/top*160);
+    const time=new Date(bin.start).toISOString();
+    const title=`${time} UTC · ${bin.state==='missing'?'No comparable readings':`${expText(bin.value)} EXP; ${Math.round(bin.covered)}s sampled / ${chart.seconds}s; ${bin.state} coverage. Allocation within intervals is a visualization estimate.`}`;
+    shape('rect',{x:left,y:bin.state==='missing'?205:200-height,width:w,height:bin.state==='missing'?2:height,rx:2,
+      class:`exp-column ${bin.state}`,tabindex:0,role:'img','aria-label':title},title);
+  }
+  const ticks=width<600?3:5;
+  for(let i=0;i<ticks;i++)shape('text',{x:54+plotWidth*i/(ticks-1),y:235,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'})
+    .textContent=new Date(chart.start+(chart.end-chart.start)*i/(ticks-1)).toISOString().slice(11,16);
+  const count=chart.bins.filter(b=>b.value!=null).length;
+  el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?'30 min':chart.range/3600+' hours'} · UTC${current(data.player).stale?' · saved history':''}${count?'':' · building history'}`;
+  el('history-note').title='Only comparable same-level captured intervals contribute. Gains are spread uniformly within each such interval for visualization only, never across gaps. Faded bars have partial coverage; baseline dashes are unknown, not zero. At most 640 saved attempts are loaded; older coverage may be absent.';
+}
+function drawHistory() {
+  document.querySelectorAll('[data-chart]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chart===chartMode)));
+  document.querySelectorAll('[data-bucket]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.bucket)===bucketSeconds)));
+  el('bucket-controls').hidden=chartMode!=='exp';
+  if(chartMode==='exp')drawExpHistory();else drawPercentageHistory();
+  const all=data?.history ?? [],anchor=Date.parse(data?.player?.latest_attempt_at ?? all.at(-1)?.timestamp);
+  const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-windowMinutes*60000).at(-1);
+  const label=event?`Level ${event.level} reached!`:'';
+  if(el('level-event').textContent!==label)el('level-event').textContent=label;
+  el('level-event').hidden=!event;
+  el('level-event').title=event?`Confirmed at ${event.timestamp}; first seen ${event.first_observed_at}. Cross-level EXP is not counted.`:'';
+}
+function drawPercentageHistory() {
+  const svg=el('history-chart');svg.replaceChildren();
+  svg.setAttribute('aria-label','Same-level percentage trend; gaps remain open');
   delete svg.dataset.start;delete svg.dataset.end;
   const width=Math.max(300,Math.min(960,svg.clientWidth||960)),plotWidth=width-100;
   svg.setAttribute('viewBox',`0 0 ${width} 230`);
@@ -219,12 +288,7 @@ function drawHistory() {
     shape('text',{x:60+plotWidth*i/(ticks-1),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=new Date(time).toISOString().slice(11,19);
   }
   svg.dataset.start=new Date(first).toISOString();svg.dataset.end=new Date(last).toISOString();
-  const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-windowMinutes*60000).at(-1);
-  const eventLabel=event?`Level ${event.level} reached!`:'';
-  if(el('level-event').textContent!==eventLabel)el('level-event').textContent=eventLabel;
-  el('level-event').hidden=!event;
-  el('level-event').title=event?`Confirmed at ${event.timestamp}; first seen ${event.first_observed_at}. Cross-level EXP is not counted.`:'';
-  el('history-note').textContent=`${level!=null?'Lv. '+level+' · ':''}${points.length} attempts · ${Math.round((last-first)/1000)}s displayed · UTC · ${gaps} sampling gaps${current(data.player).stale?' · saved history':''}. Gaps stay open.`;
+  el('history-note').textContent=`${level!=null?'Lv. '+level+' · ':''}${points.length} readings · ${Math.round((last-first)/1000)}s displayed · UTC${current(data.player).stale?' · saved history':''}`;
   el('history-note').title=`Last ${windowMinutes} min. Lines join only comparable same-level endpoints, not observed intermediate activity. Other levels and full history remain in Advanced.`;
 }
 async function poll() {
@@ -247,6 +311,8 @@ document.querySelectorAll('[data-window]').forEach(button=>button.addEventListen
   if(view==='board')renderBoard();else if(data?.player){renderPlayer();drawHistory();}
 }));
 if(view==='player') {
+  document.querySelectorAll('[data-chart]').forEach(b=>b.addEventListener('click',()=>{if(!['exp','percentage'].includes(b.dataset.chart))return;chartMode=b.dataset.chart;drawHistory();}));
+  document.querySelectorAll('[data-bucket]').forEach(b=>b.addEventListener('click',()=>{if(![60,300,1800].includes(Number(b.dataset.bucket)))return;bucketSeconds=Number(b.dataset.bucket);drawHistory();}));
   globalThis.addEventListener?.('resize',drawHistory);
   const url=`${location.origin}/live/overlay/${encodeURIComponent(channel)}`;
   el('overlay-link').href=url;el('diagnostics').href=`/dashboard/${channel}`;el('history-link').href=`/dashboard/${channel}`;

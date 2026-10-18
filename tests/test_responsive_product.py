@@ -41,8 +41,12 @@ def test_missing_sample_pauses_historical_estimate_and_new_pair_resumes_without_
     assert not p['responsive_pace']['active'] and p['responsive_pace']['end']==before['end']
     append(d,4,'[34.00%]');assert not get(d,45)['responsive_pace']['active']
     append(d,5,'[34.05%]');p=get(d,60)
-    assert p['responsive_pace']['active'] and p['responsive_pace']['readings']==2
-    assert p['responsive_pace']['start']==(NOW+timedelta(seconds=45)).isoformat()
+    assert p['responsive_pace']['active'] and p['responsive_pace']['readings']==4
+    assert p['responsive_pace']['coverage_seconds']['approximate']==30
+    assert p['responsive_pace']['span_seconds']['approximate']==60
+    assert p['responsive_pace']['interruptions']==1
+    # The 0.95pp change inside the missing interval contributes neither gain nor time.
+    assert p['responsive_pace']['estimates']['percentage_per_hour']['value']['approximate']==12
     old=refresh(p,now=NOW+timedelta(seconds=200))
     assert not old['responsive_pace']['active'] and old['responsive_pace']['estimates']['exp_per_hour']
     assert old['responsive_pace']['age_seconds']==140
@@ -101,9 +105,9 @@ def test_level_event_needs_distinct_new_frames_and_never_crosses_session_or_rest
     assert get(d,63)['responsive_pace'] is None and get(d,63)['level_events']==[]
 
 
-def test_trend_retains_only_observed_endpoints_in_last_two_minutes(tracking):
+def test_trend_retains_only_observed_intervals_in_last_five_minutes(tracking):
     _,_,d=tracking
-    for i in range(1,15):append(d,i,f'[{33+i//100}.{i%100:02}%]')
-    pace=get(d,195)['responsive_pace']
-    assert pace['span_seconds']['approximate']==120 and pace['readings']==9
-    assert not pace['tentative'] and pace['start']==(NOW+timedelta(seconds=75)).isoformat()
+    for i in range(1,30):append(d,i,f'[{33+i//100}.{i%100:02}%]')
+    pace=get(d,420)['responsive_pace']
+    assert pace['span_seconds']['approximate']==300 and pace['readings']==21
+    assert not pace['tentative'] and pace['start']==(NOW+timedelta(seconds=120)).isoformat()

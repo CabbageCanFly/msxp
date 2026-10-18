@@ -15,6 +15,12 @@ and game-like, with useful approximate information even when some readings fail.
   an old reading or rate look freshly observed. Missing values are not zero.
 - Start tentative pace promptly from defensible endpoints, then use more recent
   connected evidence. Keep early estimates separate from complete-window rankings.
+- Prefer familiar EXP units with consistent K/M/B formatting. Percentage changes
+  remain a fallback; exact values, conversion assumptions and provenance belong in tooltips.
+- Keep recent pace stable with a transparent short rolling sample. Exclude unknown
+  intervals from its gain and time; retain visibly aged rates during interruptions.
+- Favor game-like orange EXP bars on fixed time axes, with a secondary level-%
+  chart. Missing coverage is unknown, never a zero bar or invented daily/session total.
 - Celebrate corroborated level-ups. Begin a new level-specific trend, leave gaps
   open and never invent cross-level gains or character identity.
 - Reserve visible warnings for changes that affect interpretation: unresolved large

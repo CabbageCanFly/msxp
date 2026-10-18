@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime,timedelta,timezone
 from fractions import Fraction
 
-from .diagnostic_progress import percentage_point,rational,quantization_pace,elapsed_seconds
+from .diagnostic_progress import percentage_point,rational,quantization_pace,elapsed_seconds,difference_bounds
 from .diagnostic_evidence import project
 from .diagnostic_percentage import boundary
 from .exp_requirements import requirement
@@ -13,12 +13,12 @@ from .exp_consistency import MODES, assess
 WINDOWS=(5,10,15,30)
 PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
 PACE_MIN_SECONDS=5
-PACE_TREND_SECONDS=120
+PACE_TREND_SECONDS=300
 OBSERVED_MAX_GAP_SECONDS=60
 OBSERVED_MAX_MISSING=2
 
 
-def responsive_pace(snapshot, display_level):
+def _last_connected_pace(snapshot, display_level):
     """Consumer estimate from an existing safe segment, never window/ranking evidence."""
     rows=snapshot['observations'];data=snapshot['percentage_progress']
     positions={r['event_id']:i for i,r in enumerate(rows)}
@@ -48,11 +48,72 @@ def responsive_pace(snapshot, display_level):
         current=data['current_segment']
         return dict(active=bool(current and current['last_event_id']==last['event_id'] and rows[-1]['event_id']==last['event_id']),
             tentative=tentative,level=segment['level'],start=first['timestamp'],end=last['timestamp'],
-            readings=len(points),span_seconds=rational(elapsed),estimates=calculated,basis=basis,
+            readings=len(points),span_seconds=rational(elapsed),coverage_seconds=rational(elapsed),interruptions=0,
+            estimates=calculated,basis=basis,history_basis='last_connected_segment',
             evidence_counts={kind:sum(p['evidence']==kind for p in points) for kind in ('strict_full','strict_percentage_only','grammar_recovered')},
-            policy='responsive_pace_v1',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
+            policy='responsive_pace_v2',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
             trusted=False,reason=data['reason'])
     return None
+
+
+def responsive_pace(snapshot, display_level):
+    """Pool captured intervals inside recent safe context; holes supply no gain/time."""
+    rows=snapshot['observations'];data=snapshot['percentage_progress']
+    reference=next((r.get('received_at') or r.get('attempted_at') for r in reversed(rows)),None)
+    if not reference:return None
+    # Review decisions already carry the causal as-of clock from snapshot().
+    points,_,_,_=observed_sequence(snapshot,now=datetime.fromisoformat(reference))
+    allowed={p['event_id'] for p in points}
+    edges=[];comp={c['event_id']:c for c in data['comparisons']}
+    for before,after in zip(rows,rows[1:]):
+        if not {before['event_id'],after['event_id']}<=allowed:continue
+        if comp[after['event_id']]['reason']!='contiguous_diagnostic_endpoints':continue
+        a,b=reading(before),reading(after)
+        if not a or not b:continue
+        if display_level and b['level']['value']!=display_level['value']:continue
+        if before.get('crop_suspect') or after.get('crop_suspect'):continue
+        if all(p['exp'] is not None and p['evidence']=='strict_full' for p in (a,b)) and int(b['exp'])<int(a['exp']):
+            edges.clear();continue  # A visible integer decrease cannot be smoothed into gains.
+        edges.append((a,b))
+    if edges:
+        # Failed attempts must not advance the rate's sample or change a held value.
+        cutoff=datetime.fromisoformat(edges[-1][1]['timestamp'])-timedelta(seconds=PACE_TREND_SECONDS)
+        edges=[(a,b) for a,b in edges if datetime.fromisoformat(a['timestamp'])>=cutoff]
+    elapsed=sum((elapsed_seconds(datetime.fromisoformat(a['timestamp']),datetime.fromisoformat(b['timestamp'])) for a,b in edges),Fraction(0))
+    if elapsed<PACE_MIN_SECONDS:
+        old=_last_connected_pace(snapshot,display_level)
+        if old:old['active']=False
+        return old
+    groups=[]
+    for a,b in edges:
+        if groups and groups[-1][1]['event_id']==a['event_id']:groups[-1]=(groups[-1][0],b)
+        else:groups.append((a,b))
+    diff=sum(b['bp']-a['bp'] for a,b in groups)
+    pace=dict(value=rational(Fraction(diff*36)/elapsed))
+    for rule in ('nearest_half_up','truncation'):
+        bins=[difference_bounds(a['bp'],b['bp'])[rule] for a,b in groups]
+        pace[rule]=dict(lower=rational(sum((v[0] for v in bins),Fraction(0))*36/elapsed),
+            upper=rational(sum((v[1] for v in bins),Fraction(0))*36/elapsed))
+    first,last=edges[0][0],edges[-1][1]
+    calculated=estimates(dict(requirement=requirement(last['level']['value'])),pace,last['bp'])
+    basis='captured_percentage_intervals'
+    if calculated['exp_per_hour'] and all(p['evidence']=='strict_full' and p['exp'] is not None
+            and p['exp_validity']['status']=='consistent' for pair in edges for p in pair):
+        gain=sum(int(b['exp'])-int(a['exp']) for a,b in edges)
+        if gain>=0:
+            calculated['exp_per_hour']['value']=rational(Fraction(gain*3600)/elapsed)
+            basis='observed_exp_endpoints'
+    ids={p['event_id'] for pair in edges for p in pair}
+    tentative=len(ids)<3 or elapsed<30
+    active=bool(rows[-1]['event_id']==last['event_id'] and not rows[-1].get('run_interrupted')
+        and snapshot.get('run_id',rows[-1]['run_id'])==rows[-1]['run_id'])
+    if tentative or not active:calculated['eta']=None
+    return dict(active=active,tentative=tentative,level=last['level']['value'],start=first['timestamp'],end=last['timestamp'],
+        readings=len(ids),span_seconds=rational(elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))),
+        coverage_seconds=rational(elapsed),interruptions=len(groups)-1,estimates=calculated,basis=basis,
+        evidence_counts={kind:sum(reading(r)['evidence']==kind for r in rows if r['event_id'] in ids) for kind in ('strict_full','strict_percentage_only','grammar_recovered')},
+        policy='responsive_pace_v2',minimum_seconds=PACE_MIN_SECONDS,trend_seconds=PACE_TREND_SECONDS,
+        trusted=False,reason=data['reason'])
 
 
 def level_events(rows):
@@ -232,11 +293,22 @@ def observed_window(sequence, *, cutoff, end):
         level=last['level'],start=first['timestamp'],end=last['timestamp'],span_seconds=rational(elapsed),
         first_event_id=first['event_id'],last_event_id=last['event_id'],
         start_percentage=first['percentage'],end_percentage=last['percentage'],readings=len(points),
-        difference_percentage_points=f'{diff//100}.{diff%100:02}',interruptions=len(holes),holes=holes,
+        difference_percentage_points=f'{diff//100}.{diff%100:02}',estimated_exp=exp_change(first['bp'],last['bp'],last['level']),
+        interruptions=len(holes),holes=holes,
         unavailable_attempts=sum(h['unavailable_attempts'] for h in holes),
         missing_attempts=sum(h['missing_attempts'] for h in holes),pending_attempts=len(pending),
         paused=bool(pending),age_seconds=0,
         evidence_counts={kind:sum(p['evidence']==kind for p in points) for kind in ('strict_full','strict_percentage_only','grammar_recovered')})
+
+
+def exp_change(first_bp,last_bp,level):
+    """Net display conversion, never an exact earned-EXP total."""
+    req=requirement(level)
+    if req['to_next'] is None:return None
+    return dict(value=rational(Fraction((last_bp-first_bp)*req['to_next'],10000)),requirement=req,
+        hypotheses={rule:dict(lower=rational(low*req['to_next']/10000),upper=rational(high*req['to_next']/10000))
+            for rule,(low,high,_) in difference_bounds(first_bp,last_bp).items()},
+        basis='displayed_percentage_endpoint_difference',trusted=False)
 
 
 def window_comparisons(snapshot, *, now):
@@ -375,12 +447,26 @@ def refresh(value,*,now=None,activity=None):
 
 def history(snapshot):
     points=[]
+    comparisons={c['event_id']:c for c in snapshot['percentage_progress']['comparisons']}
+    previous=None;previous_row=None
     for row in snapshot['observations']:
         value=reading(row)
-        comparison=next((c for c in snapshot['percentage_progress']['comparisons'] if c['event_id']==row['event_id']),None)
+        comparison=comparisons.get(row['event_id'])
+        gain=None
+        connected=bool(comparison and comparison['reason']=='contiguous_diagnostic_endpoints' and comparison['change'] in ('positive','zero'))
+        if connected and previous and value and not row.get('crop_suspect') and not previous_row.get('crop_suspect'):
+            gain=exp_change(previous['bp'],value['bp'],value['level']['value'])
+            if gain:
+                if all(p['evidence']=='strict_full' and p['exp'] is not None and p['exp_validity']['status']=='consistent' for p in (previous,value)) and int(value['exp'])>=int(previous['exp']):
+                    gain['value']=rational(Fraction(int(value['exp'])-int(previous['exp'])))
+                    gain['basis']='observed_exp_endpoints'
+                gain.update(start=previous['timestamp'],end=value['timestamp'],
+                    first_event_id=previous['event_id'],last_event_id=value['event_id'],level=value['level']['value'])
+                if all(p['exp'] is not None and p['evidence']=='strict_full' for p in (previous,value)) and int(value['exp'])<int(previous['exp']):gain=None
         points.append(dict(event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'],percentage_review=row.get('percentage_review'),
-            connect_previous=bool(comparison and comparison['reason']=='contiguous_diagnostic_endpoints' and comparison['change'] in ('positive','zero')),
+            connect_previous=connected,gain=gain,
             reading=value,status=row['status'],fresh_at_capture=row['fresh_at_capture'],
             interval_seconds=row['interval_seconds'],level=level_evidence(row),
-            break_reason=next((c['reason'] for c in snapshot['percentage_progress']['comparisons'] if c['event_id']==row['event_id']),None)))
+            break_reason=comparison['reason'] if comparison else None))
+        previous=value;previous_row=row
     return points
