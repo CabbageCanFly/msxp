@@ -1,12 +1,22 @@
 from io import BytesIO
 from datetime import datetime,timedelta,timezone
 from urllib.error import HTTPError,URLError
+import os
 
 from PIL import Image
 import pytest
 
 from exp_tracker.twitch_probe import inspect_thumbnail, main, thumbnail_url
 from exp_tracker.twitch_probe import MAX_STREAM_PAGES,StreamAvailability,helix
+
+
+@pytest.fixture(autouse=True)
+def isolated_manual_auth(monkeypatch,tmp_path):
+    # Legacy status/pagination tests must never load the operator's real .env.
+    monkeypatch.setattr('exp_tracker.twitch_auth.DEFAULT_ENV_FILE',tmp_path/'absent.env')
+    monkeypatch.delenv('TWITCH_CLIENT_SECRET',raising=False)
+    monkeypatch.setattr('exp_tracker.twitch_auth.oauth_json',lambda request:
+        dict(client_id=os.environ.get('TWITCH_CLIENT_ID'),expires_in=7200))
 
 
 def test_only_official_https_thumbnail_host():
@@ -50,7 +60,7 @@ def test_batched_stream_status_cache_never_confuses_api_failure_with_offline(mon
     for error,reason in ((HTTPError('secret-url',401,'secret-token',{},None),'credentials_rejected'),
                          (URLError('secret-url'),'api_unavailable'),
                          (HTTPError('secret-url',503,'secret-token',{},None),'api_error')):
-        seconds[0]+=60;failure[0]=error
+        seconds[0]+=300;failure[0]=error
         result=status.snapshot(['alpha','beta'],now=now+timedelta(seconds=seconds[0]))
         assert all(r['status']=='unknown' and r['reason']==reason for r in result.values())
         assert result['alpha']['last_known_status']=='live'
@@ -138,7 +148,7 @@ def test_incomplete_pagination_preserves_verified_live_and_leaves_rest_unknown(m
     assert result['alpha']['status']=='live' and result['alpha']['reason'] is None
     assert result['beta']['status']=='unknown' and result['beta']['reason']==reason
     assert 'secret' not in str(result)
-    assert cache.next_check==(120 if reason=='rate_limited' else 60)
+    assert cache.next_check==(120 if reason=='rate_limited' else 300 if reason=='credentials_rejected' else 60)
 
 
 def test_page_limit_is_unknown_not_offline_and_retains_live(monkeypatch):

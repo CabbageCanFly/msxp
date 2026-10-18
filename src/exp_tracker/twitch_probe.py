@@ -20,6 +20,7 @@ from PIL import Image
 
 from .models import Region
 from .recognition import recognize
+from .twitch_auth import AppTokens,AuthError
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_STREAM_PAGES = 3
@@ -44,8 +45,9 @@ def helix(endpoint: str, params: dict, client_id: str, token: str, *, timeout=15
 
 class StreamAvailability:
     """Opt-in, process-local Get Streams cache; never evidence of capture health."""
-    def __init__(self, *, enabled=False, fetch=None, clock=time.monotonic):
+    def __init__(self, *, enabled=False, fetch=None, clock=time.monotonic,auth=None):
         self.enabled=enabled;self.fetch=fetch or helix;self.clock=clock
+        self.auth=auth or AppTokens(clock=clock)
         self.lock=threading.Lock();self.next_check=0;self.results={}
 
     def snapshot(self,channels,*,now=None):
@@ -56,14 +58,18 @@ class StreamAvailability:
         with self.lock:
             if self.clock()>=self.next_check:
                 reason=None;live=set();delay=60
-                client,token=os.environ.get('TWITCH_CLIENT_ID'),os.environ.get('TWITCH_ACCESS_TOKEN')
                 if not self.enabled:reason='not_enabled'
-                elif not client or not token:reason='missing_credentials'
                 elif channels:
                     try:
-                        params=dict(user_login=list(channels),first=100);seen=set()
+                        client,token=self.auth.get()
+                        params=dict(user_login=list(channels),first=100);seen=set();reauthenticated=False
                         for _ in range(MAX_STREAM_PAGES):
-                            response=self.fetch('streams',params.copy(),client,token,timeout=3)
+                            try:response=self.fetch('streams',params.copy(),client,token,timeout=3)
+                            except HTTPError as error:
+                                if error.code!=401 or reauthenticated:raise
+                                reauthenticated=True
+                                client,token=self.auth.get(rejected_token=token)
+                                response=self.fetch('streams',params.copy(),client,token,timeout=3)
                             data=response['data']
                             if not isinstance(data,list) or len(data)>25:
                                 raise ValueError('Invalid stream status response')
@@ -82,8 +88,11 @@ class StreamAvailability:
                                 reason='pagination_repeated_cursor';break
                             seen.add(cursor);params['after']=cursor
                         else:reason='pagination_limit'
+                    except AuthError as error:
+                        reason=error.reason;delay=max(60,error.retry_after)
                     except HTTPError as error:
                         reason='credentials_rejected' if error.code==401 else 'rate_limited' if error.code==429 else 'api_error'
+                        if error.code==401:self.auth.reject(token);delay=300
                         if error.code==429:
                             try:delay=max(60,min(900,int(error.headers.get('Retry-After','60'))))
                             except (TypeError,ValueError):pass
@@ -118,15 +127,22 @@ def inspect_thumbnail(payload: bytes, regions: dict[str, Region] | None = None) 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("channel", help="Twitch login; no URL")
+    parser.add_argument("channel", nargs='+', help="Twitch login; no URL (one or more with --status-only)")
+    parser.add_argument('--status-only',action='store_true',help='Read-only live/offline verification with automatic app authentication; no capture or thumbnails')
     parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--interval", type=int, default=60)
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--config", type=Path, help="Optional normalized ROIs for OCR and HUD hashes")
     args = parser.parse_args(argv)
-    if not re.fullmatch(r"[A-Za-z0-9_]{1,25}", args.channel):
+    if len(args.channel)>25 or any(not re.fullmatch(r"[A-Za-z0-9_]{1,25}", channel) for channel in args.channel):
         parser.error("Use a Twitch login, not a URL")
+    if args.status_only:
+        statuses=StreamAvailability(enabled=True).snapshot([c.lower() for c in args.channel])
+        print(json.dumps(dict(channels=statuses)))
+        return 1 if any(s['status']=='unknown' for s in statuses.values()) else 0
+    if len(args.channel)!=1:parser.error('Thumbnail experiment accepts one channel')
+    args.channel=args.channel[0]
     if not 1 <= args.count <= 120 or args.interval < 30 or not (8 <= args.width <= 4096 and 8 <= args.height <= 4096):
         parser.error("count: 1..120; interval: >=30 seconds; dimensions: 8..4096")
     client_id, token = os.environ.get("TWITCH_CLIENT_ID"), os.environ.get("TWITCH_ACCESS_TOKEN")

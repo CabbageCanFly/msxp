@@ -107,6 +107,7 @@ def test_restart_restores_evidence_but_does_not_join_new_run(tracking):
 def test_real_sqlite_http_batches_official_status_separately_from_capture(tracking,monkeypatch):
     from exp_tracker.server import create_server
     from exp_tracker.twitch_probe import StreamAvailability
+    from exp_tracker.twitch_auth import AppTokens
     path,store,d=tracking
     at(d,1,0,'[33.00%]');at(d,2,20,'[33.02%]')
     store.add_channel('beta');cid=store.add_character('beta','Other')
@@ -117,7 +118,9 @@ def test_real_sqlite_http_batches_official_status_separately_from_capture(tracki
     def fetch(*args,**kw):
         calls.append(args[1]);return dict(data=[dict(user_login='alpha',type='live')])
     with create_server(path,port=0,diagnostic_dashboard=True) as http:
-        http.twitch_availability=StreamAvailability(enabled=True,fetch=fetch,clock=lambda:seconds[0])
+        auth=AppTokens(env_file=path.parent/'absent.env',environ=dict(TWITCH_CLIENT_ID='secret-client',TWITCH_ACCESS_TOKEN='secret-token'),
+            request=lambda request:dict(client_id='secret-client',expires_in=7200),clock=lambda:seconds[0])
+        http.twitch_availability=StreamAvailability(enabled=True,fetch=fetch,clock=lambda:seconds[0],auth=auth)
         def get(path):
             status,_,body=request((http,None),path)
             assert status==200 and b'secret' not in body

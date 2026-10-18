@@ -17,6 +17,7 @@ from .shadow_view import ShadowLog
 from .diagnostics import Diagnostics, operation
 from .product import player,history,refresh,PRODUCT_ROWS
 from .twitch_probe import StreamAvailability
+from .twitch_auth import AppTokens
 
 
 WEB = Path(__file__).with_name("web")
@@ -34,6 +35,13 @@ SHADOW_ASSETS = {
 DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
 PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
+
+
+class TrackerHTTPServer(ThreadingHTTPServer):
+    def server_close(self):
+        super().server_close()
+        availability=getattr(self,'twitch_availability',None)
+        if availability:availability.auth.close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -228,7 +236,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     with Store(database, read_only=True):
         pass  # Validate without creating, migrating or changing journal mode.
     diagnostics = ShadowLog(shadow_log) if shadow_log is not None else None
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server = TrackerHTTPServer(("127.0.0.1", port), Handler)
     server.database = database
     server.shadow_log = diagnostics
     server.diagnostic_dashboard = diagnostic_dashboard
@@ -238,7 +246,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.directory_lock = threading.Lock()
     server.history_cache={}
     server.history_lock=threading.Lock()
-    server.twitch_availability=StreamAvailability(enabled=twitch_status)
+    server.twitch_availability=StreamAvailability(enabled=twitch_status,auth=AppTokens(maintain=twitch_status))
     return server
 
 

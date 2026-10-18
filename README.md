@@ -4,6 +4,10 @@ Independent, free, MIT-licensed feasibility prototype. This contains local OCR,
 acquisition, SQLite tracking and a localhost OBS overlay, not a hosted service.
 No accounts, cloud resources or secrets are required for offline tests.
 
+Optional official Twitch status now [manages app tokens automatically](docs/twitch-authentication.md)
+from your ignored root `.env` (`TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET`).
+Enable `--twitch-status`; manual access-token generation is no longer required.
+
 Follow the [player experience principles](docs/product-experience-principles.md)
 for public UI work: useful estimates and graceful pauses, with rigorous evidence
 and detailed uncertainty retained in Advanced.

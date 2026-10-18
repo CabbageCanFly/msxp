@@ -152,6 +152,7 @@ def resilience_trial(database,port):
     import exp_tracker.server as server_module
     import exp_tracker.diagnostics as diagnostic_module
     from exp_tracker.twitch_probe import StreamAvailability
+    from exp_tracker.twitch_auth import AppTokens
     root=Path('private/multi-alpha/runs/20261018T070644Z-33a2d9e1')
     records={c:[json.loads(s) for s in (root/c/'capture.jsonl').read_text().splitlines()] for c in ('telfer1','shiphtur')}
     class ReviewClock(datetime):
@@ -177,7 +178,9 @@ def resilience_trial(database,port):
         with create_server(database,port=port,diagnostic_dashboard=True) as http:
             http.quiet=True
             http.twitch_availability=StreamAvailability(enabled=True,
-                fetch=lambda *a,**kw:dict(data=[dict(user_login='telfer1',type='live')]),clock=lambda:ReviewClock.at.timestamp())
+                fetch=lambda *a,**kw:dict(data=[dict(user_login='telfer1',type='live')]),clock=lambda:ReviewClock.at.timestamp(),
+                auth=AppTokens(env_file=database.parent/'absent.env',environ=dict(TWITCH_CLIENT_ID='synthetic',TWITCH_ACCESS_TOKEN='synthetic'),
+                    request=lambda request:dict(client_id='synthetic',expires_in=7200),clock=lambda:ReviewClock.at.timestamp()))
             def running():
                 for c,rows in records.items():
                     http.active_run_ids.add(rows[0]['run_id'])

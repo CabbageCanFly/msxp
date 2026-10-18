@@ -83,7 +83,10 @@ Private audit: `private/hud-resilience/audit-56fb1fb0/audit.json`; baseline:
 
 Enable `--twitch-status` on the HTTP server, `tools/local_alpha.py` or
 `tools/multi_alpha.py`. It reuses `twitch_probe.helix` and the existing server-side
-`TWITCH_CLIENT_ID` / `TWITCH_ACCESS_TOKEN` environment convention. Without the
+`TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` setup, including the ignored root `.env`.
+[Automatic app-token management](twitch-authentication.md) handles acquisition,
+expiry, startup/hourly validation and one replacement after Helix 401. Existing
+`TWITCH_ACCESS_TOKEN` setups remain supported without a secret. Without the
 flag or credentials, capture/tracking still works and broadcast status is unknown.
 No token is stored in SQLite, diagnostic configuration, public JSON or the browser.
 
@@ -94,16 +97,16 @@ default is only 20), and caches results for 60s. Local test-video assignments ar
 not probed. Checks are demand-driven by public API polling, not another scheduler.
 
 One shared lock prevents concurrent refreshes. Pagination follows `after`, with
-at most three requests per refresh, a 3s transport timeout and 256 KiB JSON limit
-per page. All requested channels confirmed live stops pagination early. Repeated
+at most three pages plus one authentication retry per refresh, a 3s transport
+timeout and 256 KiB JSON limit per page. All requested channels confirmed live stops pagination early. Repeated
 or invalid cursors, the page limit and later-page failures retain confirmed live
 channels but leave unresolved channels **unknown**. Only reaching a terminal page
 allows an absent channel to be reported offline. Worst-case request time can now
-approach 9s; this affects an HTTP refresh, not capture scheduling. Missing credentials,
+approach 9s before additional authentication work; this affects an HTTP refresh, not capture scheduling. Missing credentials,
 HTTP errors, rejected tokens and expired cached results never establish offline
 status. This is not authentication of account/character identity.
-429 retries respect a bounded 60–900s Retry-After. Tokens are not automatically
-renewed; correct the server environment and restart when rejected.
+429 retries respect a bounded 60–900s Retry-After. App tokens are automatically
+reacquired when needed; incorrect credentials still require a local correction/restart.
 Backoff does not extend a confirmed live result's 60s freshness; it becomes unknown
 if it expires before another request is permitted.
 
@@ -139,7 +142,7 @@ implemented here.
 
 ```powershell
 # Existing read-only data; this command starts no capture. Optional Helix needs
-# TWITCH_CLIENT_ID / TWITCH_ACCESS_TOKEN set locally, never committed or shared.
+# TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET in ignored .env, never shared.
 .\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --twitch-status
 Start-Process 'http://127.0.0.1:8765/stream/telfer1'
 Start-Process 'http://127.0.0.1:8765/live/overlay/telfer1'
