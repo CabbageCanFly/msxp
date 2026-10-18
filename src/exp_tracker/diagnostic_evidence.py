@@ -2,15 +2,18 @@
 
 from collections import deque
 from datetime import datetime
+from decimal import Decimal
 import math
 
 from .exp_consistency import MODES, assess
 from .exp_requirements import requirement
 from .shadow_grammar import interpret_exp
 
-POLICY = 'experimental_level_v1'
+POLICY = 'experimental_level_v2'
 # A seed-quality gate, not calibrated correctness; repetition and corroboration are mandatory.
 NEURAL_SEED_SCORE = .90
+CONTEXT_SECONDS = 120
+CONTEXT_CONFLICTS = 2
 
 
 def full_reading(row):
@@ -63,12 +66,15 @@ def _adjacent(before,row):
     except (TypeError,ValueError,KeyError): return False
 
 
-def project(rows, *, state=None):
+def project(rows, *, state=None, allow_context=True):
     """Only past, adjacent observations corroborate a level; no lookahead or EXP-derived choice."""
     output=[]; recent=deque(maxlen=3); previous=None; established=None; established_at=None; neural_context=False; missing=0; corroborated_at=None
+    anchor=None; context_conflicts=0;context_frames=deque(maxlen=12)
     if state:
         recent=state['recent'];previous=state['previous'];established=state['established'];established_at=state['established_at']
         neural_context=state['neural_context'];missing=state['missing'];corroborated_at=state['corroborated_at']
+        anchor=state.get('anchor');context_conflicts=state.get('context_conflicts',0)
+        context_frames=state.get('context_frames',context_frames)
     for original in rows:
         row=dict(original); visual=_visual(row); neural,score=_neural(row)
         fresh=(row.get('fresh_at_capture') is True and row.get('capture_acquired') is True
@@ -76,8 +82,11 @@ def project(rows, *, state=None):
             and row.get('hud_count')==1 and row.get('timestamp_ordered') is not False
             and row.get('timing_mode')!='simulated' and bool(row.get('received_at'))
             and (row.get('neural_level') or {}).get('source_complete') is not False)
-        if not previous or not _adjacent(previous,row) or not fresh:
+        adjacent=bool(previous and _adjacent(previous,row))
+        if not adjacent or not fresh:
             recent.clear(); established=None; neural_context=False; missing=0; corroborated_at=None
+            anchor=None;context_conflicts=0
+            context_frames.clear()
         full=full_reading(row)
         direct=consistency(full,neural) if row.get('candidate') and neural is not None else None
         # Zero/zero fits every requirement and supplies no identifying level evidence.
@@ -130,10 +139,52 @@ def project(rows, *, state=None):
         else:
             reason='failed_stale_or_ambiguous_capture'
         evidence.update(value=selected,status=status,reason=reason,temporal_samples=len(recent))
+        # Context never seeds itself or renews its own expiry. Two supported reader
+        # observations establish the hypothesis; arithmetic can only corroborate it.
+        frame=row.get('frame_sha256')
+        safe=(fresh and not row.get('crop_suspect') and (claimed is None or neural is not None)
+            and not row.get('candidate_invalid') and not row.get('percentage_only_invalid')
+            and (not frame or frame not in context_frames))
+        if frame:context_frames.append(frame)
+        if not safe:anchor=None
+        if anchor:
+            age=(datetime.fromisoformat(row['received_at'])-datetime.fromisoformat(anchor['timestamp'])).total_seconds()
+            if (age>CONTEXT_SECONDS or visual not in (None,anchor['value'])
+                    or neural not in (None,anchor['value']) and score>=NEURAL_SEED_SCORE
+                    or selected not in (None,anchor['value'])):
+                anchor=None;context_conflicts=0
+        strong=safe and selected is not None and status in ('agreement','provisional_neural')
+        strong=strong and (status=='agreement' or score is not None and score>=NEURAL_SEED_SCORE)
+        if strong and consistency(full,selected)['status']!='invalid':
+            hits=anchor['samples']+1 if anchor and anchor['value']==selected else 1
+            parsed=interpret_exp(row.get('raw_text'))
+            pct=parsed['strict_percentage_only'] or (parsed['percentage']['proposals'][0]['reading']
+                if parsed['percentage']['classification']=='unique_proposal' else None)
+            anchor=dict(value=selected,timestamp=row['received_at'],event_id=row.get('event_id'),samples=hits,
+                full=full,percentage=full['percentage'] if full else pct['percentage'] if pct else None)
+            context_conflicts=0
+        elif allow_context and anchor and anchor['samples']>=2 and safe:
+            support=consistency(full,anchor['value'])
+            weak_conflict=neural not in (None,anchor['value'])
+            if weak_conflict:context_conflicts+=1
+            evidence['context_hypothesis']=dict(**anchor,
+                age_seconds=(datetime.fromisoformat(row['received_at'])-datetime.fromisoformat(anchor['timestamp'])).total_seconds(),
+                expires_after_seconds=CONTEXT_SECONDS,weak_conflicts=context_conflicts,
+                exp_consistency=support['status'],trusted=False)
+            orderly=bool(full and (anchor['full'] is None or int(full['exp'])>=int(anchor['full']['exp']))
+                and (anchor['percentage'] is None or 0<=Decimal(full['percentage'])-Decimal(anchor['percentage'])<10))
+            if (selected is None and context_conflicts<=CONTEXT_CONFLICTS
+                    and (visual==anchor['value'] or support['status']=='consistent' and orderly)
+                    and (neural in (None,anchor['value']) or score<NEURAL_SEED_SCORE)):
+                evidence['reader_evidence']=dict(value=selected,status=status,reason=reason)
+                selected=anchor['value']
+                evidence.update(value=selected,status='contextual',reason='recent_corroborated_level',
+                    contextual=True,strict_window_eligible=False)
         row['experimental_level']=evidence
         row['exp_validity']=consistency(full,selected)
         output.append(row); previous=row
     if state is not None:
         state.update(recent=recent,previous=previous,established=established,established_at=established_at,
-            neural_context=neural_context,missing=missing,corroborated_at=corroborated_at)
+            neural_context=neural_context,missing=missing,corroborated_at=corroborated_at,
+            anchor=anchor,context_conflicts=context_conflicts,context_frames=context_frames)
     return output

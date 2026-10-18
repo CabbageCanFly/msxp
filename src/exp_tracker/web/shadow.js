@@ -283,6 +283,12 @@ function render() {
     const visual = element("td", row.visual_level ?? "—");
     if(row.experimental_level) visual.append(element('strong',`Experimental level: ${row.experimental_level.value ?? '—'} · ${row.experimental_level.status}`),
       element('small',`${row.experimental_level.policy}: ${reason(row.experimental_level.reason)} · neural score ${row.experimental_level.neural_score ?? 'unavailable'} · raw readers below`));
+    if(row.experimental_level?.context_hypothesis) {
+      const context=row.experimental_level.context_hypothesis;
+      visual.append(element('small',`Recent level hypothesis ${context.value}: ${context.samples} supported samples; ${context.age_seconds.toFixed(1)}s old, expires after ${context.expires_after_seconds}s. Original reader decision: ${reason(row.experimental_level.reader_evidence?.reason ?? row.experimental_level.reason)}`));
+    }
+    for(const hypothesis of row.interpretations?.symbol_hypotheses ?? [])
+      value.append(element('small',`Review only: ${hypothesis.interpretation} · missing % symbol; excluded from observations and pace`));
     visual.append(element("small", `Tesseract (UNVERIFIED): ${row.visual_status ?? "unavailable"}`));
     if (row.visual_attempts?.length) visual.append(element("small", `Raw passes: ${row.visual_attempts.map(text => text ?? "[redacted]").join(" / ")}`));
     if (row.neural_level) {

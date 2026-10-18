@@ -27,6 +27,8 @@ separate from capture health.
 The [recent pace pooling update](docs/responsive-pace-pooling.md) retains valid
 intervals across matching-level reacquisition, expires old samples and shows
 sampled time separately from gaps.
+The [gap and level resilience update](docs/gap-level-resilience.md) retains dated
+pace through longer outages and adds bounded, separately recorded level context.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

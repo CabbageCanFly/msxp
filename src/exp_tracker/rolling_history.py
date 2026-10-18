@@ -57,7 +57,7 @@ def aggregate(diagnostic,channel,*,now):
             when=datetime.fromisoformat(row.get('received_at') or row['attempted_at'])
             row['timestamp_ordered']=last_time is None or when>last_time
             last_time=max(last_time,when) if last_time else when
-        rows=project(rows,state=level_state)
+        rows=project(rows,state=level_state,allow_context=False)
         evidence=[percentage_point(r) for r in rows]
         decisions=review(rows,evidence,now=now,state=percentage_state)
         for row,(point,invalid),decision in zip(rows,evidence,decisions):

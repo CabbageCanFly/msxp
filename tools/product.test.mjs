@@ -36,12 +36,12 @@ test('cached failures and advancing ages preserve values but suppress rates and 
   p.context.performance.now=()=>0;p.run('failed=true;renderPlayer()');assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements.card.dataset.stale,'true');
 });
 
-test('unreadable HUD ages presentation only, pauses after five minutes and never ranks the estimate',()=>{
+test('unreadable HUD ages presentation, retains dated history, expires and never ranks the estimate',()=>{
   const p=page(),base=player();
   base.latest_attempt_status='malformed_or_unavailable';
   base.responsive_pace={active:false,tentative:false,age_seconds:60,end:'2026-01-01T00:00:00Z',readings:11,
     span_seconds:{approximate:200},coverage_seconds:{approximate:200},estimates:base.estimates,
-    presentation:{can_age:true,state:'aging',grace_seconds:20,pause_after_seconds:300}};
+    presentation:{can_age:true,state:'aging',grace_seconds:20,history_after_seconds:300,expire_after_seconds:1800,running:true}};
   p.render(base);assert.equal(p.elements.rate.textContent,'~1.67K');assert.equal(p.elements.eta.textContent,'—');
   assert.match(p.run('earlyText(data.player)'),/HUD unreadable/);
   p.run('failed=true;renderPlayer()');assert.equal(p.elements.rate.textContent,'~1.67K');
@@ -49,6 +49,9 @@ test('unreadable HUD ages presentation only, pauses after five minutes and never
   const board=page('board');board.context.sample=base;
   assert.equal(board.run('metricValue(sample,"exp_hour")'),null);
   p.context.performance.now=()=>240000;p.run('renderPlayer()');
+  assert.equal(p.elements.rate.textContent,'~2K');assert.match(p.run('earlyText(data.player)'),/last observed 5m ago/);
+  assert.equal(p.elements.eta.textContent,'—');
+  p.context.performance.now=()=>1740000;p.run('renderPlayer()');
   assert.equal(p.elements.rate.textContent,'—');assert.match(p.run('earlyText(data.player)'),/Pace paused/);
   p.context.performance.now=()=>0;base.responsive_pace.presentation={state:'historical',can_age:false};
   base.activity={state:'capture_finished'};p.render(base);
@@ -241,7 +244,7 @@ test('responsive pace has one current rate, retains an explicitly aged rate afte
   p.render(base);assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/first estimate.*2 readings \/ 15s/);
   assert.equal(p.elements['window-rate'].textContent,'Building history');
   p.render({...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}});
-  assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/last estimated 35s ago/);
+  assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/last observed 35s ago/);
   assert.equal(p.elements.rate.dataset.paused,'true');assert.equal(p.elements['eta-stat'].hidden,true);
   p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[null]);
 });

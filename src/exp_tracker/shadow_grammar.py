@@ -80,9 +80,9 @@ def interpret_exp(text, *, source_complete=None):
     """
     base = dict(classification='rejected', proposals=[], trusted=False,
                 numerical_identity_verified=False, reason='no_bounded_interpretation')
-    result = dict(policy='bounded_exp_v3', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
+    result = dict(policy='bounded_exp_v4', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
                   strict_full=None, strict_percentage_only=None, full_exp={**base}, percentage={**base},
-                  source_complete=source_complete, trusted=False)
+                  symbol_hypotheses=[], source_complete=source_complete, trusted=False)
     if not isinstance(text, str) or not text or len(text) > MAX_TEXT:
         for field in ('full_exp', 'percentage'):
             result[field] = {**base, 'classification': 'unavailable', 'reason': 'missing_or_unbounded_text'}
@@ -104,6 +104,17 @@ def interpret_exp(text, *, source_complete=None):
                 source_completeness_verified=False,trusted=False,numerical_identity_verified=False)]}
         return result
     if not text.endswith(('%]', '%1', '%|')):
+        # Missing '%' is not ordinary recovery evidence. Keep a bounded review
+        # hypothesis separate; no consumer may use it as a percentage endpoint.
+        if source_complete is not False and re.search(r'[0-9]{1,2}\.[0-9]{2}X1$',text):
+            repaired=interpret_exp(text[:-2]+'%1',source_complete=source_complete)['full_exp']
+            if repaired['classification']=='unique_proposal':
+                proposal=repaired['proposals'][0]
+                edits=[dict(index=len(text)-2,old='X',new='%',category='percent_symbol_hypothesis')]+proposal['edits']
+                if len(edits)<=4:
+                    result['symbol_hypotheses']=[dict(proposal,edits=edits,
+                        classification='unsupported_symbol_hypothesis',usable_as_observation=False,
+                        reason='literal_percent_missing_requires_source_pixel_review')]
         for field in ('full_exp', 'percentage'):
             result[field] = {**base, 'reason': 'explicit_percent_and_two_present_boundaries_required'}
         return result

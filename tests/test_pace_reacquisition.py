@@ -99,8 +99,9 @@ def test_pool_ages_without_new_captures_and_expired_history_is_not_current(track
     assert not old['responsive_pace']['active'] and old['responsive_pace']['retained_history']
     from exp_tracker.product import refresh
     shown=refresh(old,now=NOW+timedelta(seconds=601),activity=dict(state='waiting'))
-    assert shown['responsive_pace']['presentation']['state']=='paused'
-    assert shown['responsive_pace']['presentation']['estimates']['exp_per_hour'] is None
+    assert shown['responsive_pace']['presentation']['state']=='historical'
+    assert shown['responsive_pace']['presentation']['estimates']['exp_per_hour']
+    assert shown['responsive_pace']['presentation']['estimates']['eta'] is None
 
 
 def test_directory_cache_expires_intervals_without_a_new_sqlite_revision(tracking):

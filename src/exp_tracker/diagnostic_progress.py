@@ -140,7 +140,7 @@ def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, 
         if reason or current is None:
             if current: current['end_reason'] = reason
             current = dict(channel=point['channel'],character_id=point['character_id'],session_id=point['session_id'],
-                run_id=point['run_id'],run_ids=[],level=point['level'],level_provenance='experimental_level_v1; raw readers retained separately',
+                run_id=point['run_id'],run_ids=[],level=point['level'],level_provenance=point['level_evidence']['policy']+'; raw readers retained separately',
                 start_reason=reason or 'baseline',end_reason=None,points=[])
             segments.append(current)
         point['interval_seconds'] = row.get('interval_seconds',15)

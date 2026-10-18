@@ -120,7 +120,9 @@ try {
       }else if(action==='recover'){
         assert.equal(pace.presentation.state,'observed');assert.ok(pace.readings>6);
       }else if(action==='pause'){
-        assert.equal(pace.presentation.state,'paused');assert.equal(await overlay.evaluate('document.getElementById("rate").textContent'),'—');
+        assert.equal(pace.presentation.state,'historical');
+        assert.notEqual(await overlay.evaluate('document.getElementById("rate").textContent'),'—');
+        assert.equal(await overlay.evaluate('document.getElementById("eta").textContent'),'—');
       }else if(action==='restart'){
         assert.equal(pace.presentation.state,'historical');assert.equal(actual.player.display_level.value,66);
       }else{
@@ -321,7 +323,7 @@ try {
     await detail.wait(`data?.player?.latest_attempt_at===${JSON.stringify(final.player.latest_attempt_at)}`);
     await overlay.wait(`data?.player?.latest_attempt_at===${JSON.stringify(final.player.latest_attempt_at)}`);
     await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.latest_attempt_at===${JSON.stringify(final.player.latest_attempt_at)}`);
-    assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/last estimated/);
+    assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/last observed/);
     assert.equal(final.player.responsive_pace.active,false);
     for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     await screenshot(board,'recent-trend-homepage',1440,1050);await screenshot(board,'recent-trend-homepage-mobile',390,1200);

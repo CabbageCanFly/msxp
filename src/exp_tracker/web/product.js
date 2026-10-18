@@ -86,8 +86,9 @@ function publicPace(p) {
   const age=pace.age_seconds+(performance.now()-receivedAt)/1000;
   const policy=pace.presentation;
   const active=pace.active && !current(p).stale && !failed && (!policy || policy.state==='observed');
-  let estimates=active?pace.estimates:{...pace.estimates,eta:null},aging=policy?.can_age;
-  const expired=policy?.state==='paused' || aging && age>=policy.pause_after_seconds;
+  let estimates=active?pace.estimates:{...pace.estimates,eta:null};
+  const aging=policy?.can_age && age<(policy.history_after_seconds ?? policy.pause_after_seconds);
+  const expired=policy?.state==='paused' || policy?.running && age>=(policy.expire_after_seconds ?? policy.pause_after_seconds);
   if(expired)estimates={exp_per_hour:null,percentage_per_hour:null,eta:null};
   else if(aging) {
     const coverage=pace.coverage_seconds.approximate,factor=coverage/(coverage+Math.max(0,age-policy.grace_seconds));
@@ -97,7 +98,7 @@ function publicPace(p) {
         hypotheses:Object.fromEntries(Object.entries(rate.hypotheses??{}).map(([rule,b])=>[rule,Object.fromEntries(Object.entries(b).map(([end,v])=>[end,{...v,approximate:v.approximate*factor}]))]))};
     }
   }
-  return {active,age,aging:aging && !expired,label:expired?'Pace paused':failed?`last estimated ${ageText(age)}`:aging?'HUD unreadable · easing pace':active?(pace.tentative?'first estimate':'recent trend'):`last estimated ${ageText(age)}`,
+  return {active,age,aging:aging && !expired,label:expired?'Pace paused':failed?`last observed ${ageText(age)}`:aging?'HUD unreadable · easing pace':active?(pace.tentative?'first estimate':'recent trend'):`last observed ${ageText(age)}`,
     estimates,source:pace};
 }
 function current(p) {

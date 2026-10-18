@@ -72,6 +72,21 @@ function state(overrides = {}) {
     observations: [observation(1)], interval_seconds: 15, age_seconds: 5, stale_after_seconds: 45, ...overrides};
 }
 
+test('symbol hypotheses and recent level context remain separate from raw candidates',()=>{
+  const p=page('/dashboard/synthetic');
+  const row=observation(1,{candidate:null,raw_text:'401.128122.82X1',
+    interpretations:{policy:'bounded_exp_v4',full_exp:{classification:'rejected'},percentage:{classification:'rejected'},
+      symbol_hypotheses:[{interpretation:'401,128[22.82%]'}]},
+    experimental_level:{value:null,status:'unavailable',reason:'visual_level_unavailable',policy:'experimental_level_v2',
+      context_hypothesis:{value:67,samples:4,age_seconds:40,expires_after_seconds:120}}});
+  p.render(state({storage:'sqlite_diagnostics',observations:[row],latest_reading:null}));
+  const cells=p.elements.readings.children[0].children;
+  assert.ok(cells[2].children.some(c=>c.textContent?.includes('Review only: 401,128[22.82%]')));
+  assert.ok(cells[3].children.some(c=>c.textContent?.includes('Recent level hypothesis 67')));
+  assert.match(p.elements['latest-candidate'].textContent,/Waiting/);
+  assert.equal(p.evaluate('chartValue(fixture.observations[0],true).value'),null);
+});
+
 test('chart defaults to recent captures while all loaded history and the original table remain available',()=>{
   const p=page('/dashboard/synthetic');
   p.render(state({observations:[observation(1),observation(30),observation(31)]}));

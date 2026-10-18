@@ -15,6 +15,7 @@ PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-cont
 PACE_MIN_SECONDS=5
 PACE_TREND_SECONDS=300
 PACE_UNREADABLE_GRACE_SECONDS=20
+PACE_HISTORY_SECONDS=1800
 OBSERVED_MAX_GAP_SECONDS=60
 OBSERVED_MAX_MISSING=2
 
@@ -380,6 +381,8 @@ def window_comparisons(snapshot, *, now):
             minimum_readings=len(points)>=3,minimum_span=False,ninety_percent_span=False,
             left_endpoint_within_interval=False,latest_attempt_is_endpoint=False,
             fresh=not data['stale'],reference_not_future=end<=now)
+        context_free=not any(r.get('experimental_level',{}).get('contextual') for r,_ in points)
+        metric['eligibility_checks']['reader_supported_levels']=context_free
         if points:
             first,last=points[0][1],points[-1][1]
             a,b=datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp'])
@@ -392,7 +395,7 @@ def window_comparisons(snapshot, *, now):
                 ninety_percent_span=elapsed>=Fraction(minutes*60*9,10),
                 left_endpoint_within_interval=boundary<=Fraction(str(points[0][0]['interval_seconds'])),
                 latest_attempt_is_endpoint=rows[-1]['event_id']==last['event_id'])
-            complete=(len(points)>=3 and elapsed>=30 and elapsed>=Fraction(minutes*60*9,10)
+            complete=(context_free and len(points)>=3 and elapsed>=30 and elapsed>=Fraction(minutes*60*9,10)
                 and boundary<=Fraction(str(points[0][0]['interval_seconds']))
                 and rows[-1]['event_id']==last['event_id'])
             if complete:
@@ -481,7 +484,9 @@ def refresh(value,*,now=None,activity=None):
         running=value['activity']['state'] in ('running','waiting','capture_delayed','capture_failing')
         offline=value.get('twitch',{}).get('status')=='offline'
         aging=bool(running and not offline and not pace['active'] and pace.get('aging_allowed'))
-        expired=running and not offline and (pace['age_seconds']>=PACE_TREND_SECONDS or pace.get('recent_pool_expired'))
+        historical=bool(pace['age_seconds']>=PACE_TREND_SECONDS or pace.get('recent_pool_expired'))
+        expired=running and not offline and pace['age_seconds']>=PACE_HISTORY_SECONDS
+        aging=aging and not historical
         seconds=Fraction(str(pace['age_seconds']))
         covered=Fraction(pace['coverage_seconds']['numerator'],pace['coverage_seconds']['denominator'])
         factor=covered/(covered+max(Fraction(0),seconds-PACE_UNREADABLE_GRACE_SECONDS)) if aging else Fraction(1)
@@ -499,6 +504,8 @@ def refresh(value,*,now=None,activity=None):
         elif not pace['active'] or not running or offline:shown['eta']=None
         pace['presentation']=dict(state='paused' if expired else 'aging' if aging else 'observed' if pace['active'] and running and not offline else 'historical',
             can_age=aging,grace_seconds=PACE_UNREADABLE_GRACE_SECONDS,pause_after_seconds=PACE_TREND_SECONDS,
+            history_after_seconds=PACE_TREND_SECONDS,expire_after_seconds=PACE_HISTORY_SECONDS,
+            running=running and not offline,
             factor=rational(factor),estimates=shown,assumption='no_new_gain_since_last_observed_interval' if aging else None,
             contributes_to_progress=False)
     level=value.get('display_level')

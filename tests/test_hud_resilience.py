@@ -35,7 +35,9 @@ def test_unreadable_gaps_age_only_presentation_and_recover_without_fake_gain(tra
     p=present(d,end);pace=p['responsive_pace'];shown=pace['presentation']
     assert pace['estimates']['exp_per_hour']['value']['approximate']==rate
     if gap>=300:
-        assert shown['state']=='paused' and shown['estimates']['exp_per_hour'] is None
+        assert shown['state']=='historical'
+        assert shown['estimates']['exp_per_hour']['value']['approximate']==rate
+        assert shown['estimates']['eta'] is None
     else:
         assert shown['state']=='aging' and shown['assumption']=='no_new_gain_since_last_observed_interval'
         # The rolling pool expires whole old edges while unreadable time advances.
