@@ -52,6 +52,8 @@ The [EXP-derived level search](docs/exp-inference-performance.md) restores pre-m
 replay cost with an exact integer interval search over requirements.
 [Background publishing](docs/background-publishing.md) moves card, history and Twitch
 work out of HTTP requests; viewers read one shared, timestamped publication.
+The [MVP level-evidence update](docs/mvp-level-evidence.md) displays unique arithmetic
+levels immediately and uses complete grammar-recovered EXP in public pace/history.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

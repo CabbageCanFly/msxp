@@ -2,7 +2,9 @@
 from datetime import datetime,timedelta
 from fractions import Fraction
 
-POLICY='percentage_continuity_v1'
+from .diagnostic_evidence import consistency,full_reading
+
+POLICY='percentage_continuity_v2'
 CONFIRM_SECONDS=60
 LARGE_CHANGE_BP=1000  # 10 percentage points: evidence gate, not an EXP gain/rate cap.
 
@@ -100,9 +102,9 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
                 returned=(not lower if pending['direction']=='down' else point['bp']<first['bp'])
                 independent=(row.get('frame_sha256') is not None and pending['row'].get('frame_sha256') is not None
                     and row['frame_sha256']!=pending['row']['frame_sha256'])
-                clean=(point['evidence']!='grammar_recovered' and first['evidence']!='grammar_recovered'
-                    and point['comparison_eligible'] and first['comparison_eligible']
-                    and row.get('crop_suspect') is not True and pending['row'].get('crop_suspect') is not True)
+                clean=all(p['comparison_eligible'] and r.get('crop_suspect') is not True
+                    and (p['evidence']!='grammar_recovered' or consistency(full_reading(r),p['level'])['status']=='consistent')
+                    for p,r in ((point,row),(first,pending['row'])))
                 if returned:
                     value.update(resolves_event_id=first['event_id'],resolution='suspected_ocr_anomaly')
                     if 0<=difference<LARGE_CHANGE_BP:value['break_before']='excluded_suspected_ocr_interval'

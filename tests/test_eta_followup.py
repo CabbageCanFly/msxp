@@ -71,11 +71,11 @@ def test_short_missing_capture_retains_reader_context_but_no_numeric_point():
     assert snap['observations'][-1]['percentage_review']['progress_eligible']
     assert not history(snap)[-1]['connect_previous']
     pace=recent_windows(snap,None,now=NOW+timedelta(seconds=80))['5']['pace']
-    assert pace['interval_counts']['endpoint_supported']==1 and pace['readings']==3
+    assert pace['interval_counts']['endpoint_supported']==1 and pace['readings']==4
 
 
 @pytest.mark.parametrize('boundary',['stale','duplicate','conflict','source','session','restart','expired','ambiguous','late','clipped'])
-def test_short_context_does_not_cross_hard_boundaries(boundary):
+def test_short_reader_context_breaks_but_fresh_arithmetic_can_reestablish_level(boundary):
     rows=neural_rows()+[missing(4,60),point(5,80,662457,'37.69')]
     rows[-1].update(visual_level=None,visual_status='unavailable')
     if boundary=='stale':rows[3].update(status='stale_local_frame')
@@ -88,7 +88,11 @@ def test_short_context_does_not_cross_hard_boundaries(boundary):
     elif boundary=='late':rows[3]['local_age_seconds']=16
     elif boundary=='clipped':rows[3]['neural_level']=dict(status='not_run',level=None,source_complete=False)
     else:rows[3]['hud_count']=2
-    assert project(rows)[-1]['experimental_level']['value'] is None
+    values=project(rows)
+    assert values[3]['experimental_level']['value'] is None
+    final=values[-1]['experimental_level']
+    assert final['value']==67 and final['status']=='exp_derived'
+    assert final['exp_derived']['unique_level']==67 and not final.get('contextual')
 
 
 def test_carried_level_frame_does_not_relax_strict_completed_window_evidence():

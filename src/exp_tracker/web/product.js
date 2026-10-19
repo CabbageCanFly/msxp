@@ -386,7 +386,7 @@ function drawHistory() {
   if(chartMode==='exp')drawExpHistory();else drawPercentageHistory();
   const all=data?.history ?? [],anchor=Date.parse(data?.tracked_history?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end ?? data?.player?.latest_attempt_at ?? all.at(-1)?.timestamp);
   const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-windowMinutes*60000).at(-1);
-  const label=!event?'':event.inferred?(event.status==='corroborated'?`Level ${event.level} reached (inferred)`:`Level ${event.level} reached`):`Level ${event.level} reached!`;
+  const label=!event?'':event.inferred?`Level ${event.level} reached`:`Level ${event.level} reached!`;
   if(el('level-event').textContent!==label)el('level-event').textContent=label;
   el('level-event').hidden=!event;
   el('level-event').title=!event?'':event.inferred?`Inferred from a percentage wrap after Lv. ${event.previous_level} at ${event.first_observed_at}; ${event.status==='corroborated'?`corroborated by ${event.evidence}`:'not yet corroborated by EXP or a level reading'}. Cross-level EXP is not counted.`:`Confirmed at ${event.timestamp}; first seen ${event.first_observed_at}. Cross-level EXP is not counted.`;

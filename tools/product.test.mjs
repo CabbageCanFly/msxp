@@ -567,7 +567,7 @@ test('inferred level-up banner and chart marker stay provisional until corrobora
   const event=status=>({kind:'inferred_level_up',inferred:true,status,level:43,previous_level:42,evidence:status==='corroborated'?'unique_exp_pair':'percentage_wrap_and_forward_progress',
     timestamp:'2026-01-01T00:00:15Z',first_observed_at:'2026-01-01T00:00:15Z'});
   const point=(seconds,level,bp)=>({timestamp:new Date(Date.UTC(2026,0,1,0,0,seconds)).toISOString(),level:{value:level},interval_seconds:15,connect_previous:false,reading:{bp,percentage:(bp/100).toFixed(2),evidence:'strict_percentage_only'}});
-  for(const [status,banner,marker] of [['provisional','Level 43 reached','Lv. 43'],['corroborated','Level 43 reached (inferred)','Level 43!']]){
+  for(const [status,banner,marker] of [['provisional','Level 43 reached','Lv. 43'],['corroborated','Level 43 reached','Level 43!']]){
     const p=page('player');p.render(player({display_level:{evidence:{value:43,status:'provisional_level_up'},value:43,age_seconds:0},level_events:[event(status)]}));
     p.context.points=[point(0,42,9992),point(15,43,116)];
     p.run('chartMode="percentage";data.history=points;drawHistory()');

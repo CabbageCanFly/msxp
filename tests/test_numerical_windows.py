@@ -69,10 +69,12 @@ def test_neural_confirmation_uses_actual_bounded_spacing_not_nominal_cadence(sec
     rows=[point(i+1,i*seconds,518725,'47.70',level=58) for i in range(5)]
     for r in rows:r.update(visual_level=None,visual_status='unavailable')
     values=project(rows)
-    assert [r['experimental_level']['value'] for r in values]==[None,58,58,58,58]
+    assert [r['experimental_level']['value'] for r in values]==[58]*5
+    assert values[0]['experimental_level']['status']=='exp_derived'
     rows[2].update(status='stale_local_frame',fresh_at_capture=False)
     values=project(rows)
-    assert [r['experimental_level']['value'] for r in values]==[None,58,None,None,58]
+    assert [r['experimental_level']['value'] for r in values]==[58,58,None,58,58]
+    assert values[3]['experimental_level']['status']=='exp_derived'
     assert all(not r['exp_validity'].get('whole_pair_rejected') for r in values)
 
 
@@ -80,9 +82,13 @@ def test_duplicate_frames_and_conflicting_neural_levels_do_not_corroborate():
     rows=[point(i+1,i*40,518725,'47.70',level=58) for i in range(3)]
     for r in rows:r.update(visual_level=None,visual_status='unavailable')
     rows[1]['frame_sha256']=rows[0]['frame_sha256']
-    assert all(r['experimental_level']['value'] is None for r in project(rows))
+    values=project(rows)
+    assert [r['experimental_level']['value'] for r in values]==[58,None,58]
+    assert values[2]['experimental_level']['status']=='exp_derived'
     rows[1]['frame_sha256']='a'*64;rows[1]['neural_level'].update(level=57,text='57')
-    assert all(r['experimental_level']['value'] is None for r in project(rows))
+    values=project(rows)
+    assert all(r['experimental_level']['value']==58 and r['experimental_level']['status']=='exp_derived' for r in values)
+    assert values[1]['experimental_level']['unselected_reader_claims']==dict(neural=57)
 
 
 def saved_attempt(d,run,index,seconds,bp,source_kind='twitch'):
@@ -275,7 +281,8 @@ def test_saved_live_failure_checkpoints_are_causal_read_only_regressions(tmp_pat
         else:
             assert rows[32]['status']=='stale_local_frame'
             assert not rows[32]['percentage_review']['public_eligible']
-            assert rows[33]['experimental_level']['value'] is None
-            assert not rows[33]['percentage_review']['progress_eligible']
+            assert rows[33]['experimental_level']['value']==58
+            assert rows[33]['experimental_level']['status']=='exp_derived'
+            assert rows[33]['percentage_review']['progress_eligible']
             assert all(r['experimental_level']['value']==58 and r['percentage_review']['progress_eligible'] for r in rows[34:42])
         assert not s.db.execute('select 1 from observations').fetchone()

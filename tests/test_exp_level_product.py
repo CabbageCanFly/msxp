@@ -43,7 +43,7 @@ def test_public_player_shows_inferred_retained_possible_provisional_and_corrobor
         attempt(d,index,**values);seen[index]=get(d,(index-1)*15)
     value=lambda i:(seen[i]['display_level'] or {}).get('value')
     status=lambda i:(seen[i]['display_level'] or {}).get('evidence',{}).get('status')
-    assert seen[2]['display_level'] is None
+    assert value(1)==42 and value(2)==42
     p=seen[3]
     assert (value(3),status(3))==(42,'exp_derived') and p['reading']['level']['status']=='exp_derived'
     assert p['level_context']['last_supported_level']==42 and p['level_context']['source']=='exp_derived'

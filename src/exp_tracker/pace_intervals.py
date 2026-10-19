@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
 
-from .diagnostic_evidence import consistency,full_reading,CONTEXT_SECONDS
+from .diagnostic_evidence import consistency,full_reading,supported_exp,CONTEXT_SECONDS
 from .diagnostic_percentage import boundary,LARGE_CHANGE_BP
 from .diagnostic_progress import percentage_point,rational,elapsed_seconds
 from .exp_requirements import requirement
@@ -11,14 +11,14 @@ from .shadow_grammar import interpret_exp
 
 POLICY='endpoint_pace_v1'
 RECOVERY_POLICY='conditional_percent_v1'
-TRACKED_POLICY='tracked_endpoint_exp_v2'
+TRACKED_POLICY='tracked_endpoint_exp_v3'
 
 
 def exp_interval(edge):
     """One nonnegative same-level EXP interval, independent of lookback length."""
     a,b=edge['before'],edge['after'];req=requirement(b['level']['value'])
     if req['to_next'] is None or a['level']['value']!=b['level']['value']:return None
-    direct=all(p['exp'] is not None and p['exp_validity']['status']=='consistent' for p in (a,b))
+    direct=all(supported_exp(p) for p in (a,b))
     gain=Fraction(int(b['exp'])-int(a['exp'])) if direct else Fraction((b['bp']-a['bp'])*req['to_next'],10000)
     if gain<0:return None
     return dict(start=a['timestamp'],end=b['timestamp'],first_event_id=a['event_id'],last_event_id=b['event_id'],

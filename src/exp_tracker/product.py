@@ -5,7 +5,7 @@ from datetime import datetime,timedelta,timezone
 from fractions import Fraction
 
 from .diagnostic_progress import percentage_point,rational,quantization_pace,elapsed_seconds,difference_bounds
-from .diagnostic_evidence import project,full_reading,consistency,Projected
+from .diagnostic_evidence import project,full_reading,consistency,supported_exp,Projected
 from .diagnostic_percentage import boundary
 from .exp_requirements import requirement
 from .exp_consistency import MODES, assess
@@ -345,12 +345,8 @@ def reading(row):
     if not point: return None
     if point.get('requires_percentage_only_context') and not row.get('percentage_review',{}).get('percentage_only_context',{}).get('supported'):
         return None
-    full=row.get('candidate') if point['evidence']=='strict_full' else None
-    if point['evidence']=='grammar_recovered':
-        proposed=(row.get('interpretations') or {}).get('full_exp',{})
-        if proposed.get('classification')=='unique_proposal':
-            candidate=proposed['proposals'][0]['reading']
-            if candidate['percentage']==point['percentage']: full=candidate
+    full=full_reading(row)
+    if full and full['percentage']!=point['percentage']:full=None
     exp=full['exp'] if full and row['exp_validity']['status']!='invalid' else None
     level=level_evidence(row)
     return dict(event_id=point['event_id'],timestamp=point['timestamp'],percentage=point['percentage'],
@@ -682,13 +678,13 @@ def interval_gain(previous,row,value,connected):
     if not connected or not previous or not value or row.get('crop_suspect') or value['bp']<previous['bp']:return None
     gain=exp_change(previous['bp'],value['bp'],value['level']['value'])
     if gain:
-        if all(p['evidence']=='strict_full' and p['exp'] is not None and p['exp_validity']['status']=='consistent' for p in (previous,value)):
+        if all(supported_exp(p) for p in (previous,value)):
             if int(value['exp'])<int(previous['exp']):return None
             gain['value']=rational(Fraction(int(value['exp'])-int(previous['exp'])))
             gain['basis']='observed_exp_endpoints'
         gain.update(start=previous['timestamp'],end=value['timestamp'],
             first_event_id=previous['event_id'],last_event_id=value['event_id'],level=value['level']['value'])
-        if all(p['exp'] is not None and p['evidence']=='strict_full' for p in (previous,value)) and int(value['exp'])<int(previous['exp']):return None
+        if all(p['exp'] is not None for p in (previous,value)) and int(value['exp'])<int(previous['exp']):return None
     return gain
 
 

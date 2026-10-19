@@ -8,8 +8,9 @@ from pathlib import Path
 import pytest
 
 from exp_tracker.diagnostics import Diagnostics
+from exp_tracker.diagnostic_evidence import full_reading
 from exp_tracker.exp_requirements import requirement
-from exp_tracker.product import recent_windows,window_comparisons,history,player,fraction
+from exp_tracker.product import recent_windows,window_comparisons,history,player,fraction,responsive_pace
 from exp_tracker.store import Store
 from tests.test_endpoint_pace import point,snapshot,missing
 from tests.test_diagnostic_progress import NOW
@@ -182,7 +183,7 @@ def test_saved_65_to_66_and_unobserved_niru_advancement(tmp_path):
         d,now=replay(store,'niru',['20261018T211439Z-794bf39d','20261019T000710Z-bda4f628'],34)
         snap=d.recent_snapshot('niru',now=now);w=recent_windows(snap,None,now=now)['60']
         assert w['pace']['levels']==[57]  # level 56 was hours earlier, outside the actual window
-        assert w['gain']['approximate']==90584
+        assert w['gain']['approximate']==91765
         old=d.rolling_history('niru',now=now)
         assert old['tracked_exp']['approximate']>w['gain']['approximate']
 
@@ -193,13 +194,20 @@ def test_unobserved_niru_level_advance_retains_both_sides_but_no_transition_gain
         now=datetime.fromisoformat('2026-10-18T23:02:00+00:00')
         snap=d.snapshot('niru',now=now,limit=640)
         p=player(snap,now=now,recent_snapshot=d.recent_snapshot('niru',now=now))
-        assert p['recent_windows']['5']['gain']['approximate']==8472
+        assert p['recent_windows']['5']['gain']['approximate']==9330
         old=p['current_level_windows']['60']['gain']['approximate']
-        w=p['recent_windows']['60'];assert old==8472
-        assert w['gain']['approximate']==102016
-        assert w['pace']['levels']==[56,57] and w['pace']['readings']==126
-        assert w['pace']['coverage_seconds']['approximate']==pytest.approx(2621.361301)
-        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(140101.86228807838)
+        w=p['recent_windows']['60'];assert old==9330
+        assert w['gain']['approximate']==102874
+        assert w['pace']['levels']==[56,57] and w['pace']['readings']==127
+        assert w['pace']['coverage_seconds']['approximate']==pytest.approx(2655.286408)
+        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(139475.12361913163)
+        by_id={r['event_id']:r for r in snap['observations']}
+        pace=responsive_pace(d.recent_snapshot('niru',now=now),dict(value=57),now=now,minutes=60,pool_history=True,retain_history=False)
+        for edge in pace['intervals']:
+            a,b=(by_id[edge[k]] for k in ('first_event_id','last_event_id'))
+            assert a['experimental_level']['value']==b['experimental_level']['value']
+            if edge['basis']=='observed_exp_endpoints':
+                assert edge['gain']['approximate']==int(full_reading(b)['exp'])-int(full_reading(a)['exp'])
         assert w['eta']['level']==57 and p['level_events']==[]
 
 

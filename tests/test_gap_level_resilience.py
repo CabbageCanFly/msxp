@@ -46,7 +46,8 @@ def test_telfer_defects_are_not_repaired_into_known_answers():
     assert decisions[4]['progress_eligible']
     assert data['comparisons'][-1]['reason']=='baseline'  # No #10 -> #13 gain.
     old=project(rows,allow_context=False)
-    assert old[2]['experimental_level']['value'] is None and old[4]['experimental_level']['value'] is None
+    assert old[2]['experimental_level']['value'] is None
+    assert old[4]['experimental_level']['value']==67 and old[4]['experimental_level']['status']=='exp_derived'
 
 
 @pytest.mark.parametrize('text',['401.128122.82X1','401,128[22.82X1'])
@@ -81,9 +82,9 @@ def test_context_does_not_override_hard_boundaries(changes):
     assert not result['experimental_level'].get('contextual')
 
 
-def test_no_level_is_chosen_from_table_without_prior_reader_support():
+def test_unique_arithmetic_supplies_level_without_prior_reader_support():
     rows=[example(i,'402.319[22.89%]',visual=None,level=57,score=.7) for i in range(1,5)]
-    assert all(r['experimental_level']['value'] is None for r in project(rows))
+    assert all(r['experimental_level']['value']==67 and r['experimental_level']['status']=='exp_derived' for r in project(rows))
     # A clipped/reset integer cannot support carrying the old level without visual agreement.
     result=project(supported()+[example(3,'103[0.01%]',visual=None,level=57,score=.7)])[-1]
     assert result['experimental_level']['value'] is None
@@ -96,7 +97,9 @@ def test_context_expires_and_repeated_weak_conflicts_cannot_keep_it_alive():
     for r in rows[2:]:r['neural_level']=None
     values=project(rows)
     assert values[4]['experimental_level']['value']==67
-    assert values[-1]['experimental_level']['value'] is None
+    assert values[-1]['experimental_level']['value']==67
+    assert values[-1]['experimental_level']['status']=='exp_derived'
+    assert not values[-1]['experimental_level'].get('contextual')
 
 
 def test_context_state_is_identical_across_streamed_pages():

@@ -103,7 +103,7 @@ def test_zero_and_pairs_that_could_need_unsupported_requirements_abstain(exp, pc
     assert levels([pair(i, exp, pct) for i in range(1, 5)]) == [None]*4
 
 
-def test_bad_contradictory_or_repaired_ocr_is_never_inferred():
+def test_bad_contradictory_or_partial_only_recovery_is_never_inferred():
     assert exp_derived(dict(exp='2345', percentage='92.74'))['status'] == 'incompatible'
     assert exp_derived(dict(exp='1241', percentage='99.82'))['status'] == 'incompatible'
     mismatch = [pair(i, 278125+i*400, candidate=dict(exp='278125', percentage='77.92')) for i in range(1, 4)]
@@ -116,19 +116,17 @@ def test_bad_contradictory_or_repaired_ocr_is_never_inferred():
     assert levels([pair(i, 278125+i*400, candidate_invalid=True) for i in range(1, 4)]) == [None]*3
 
 
-def test_obscured_level_needs_three_fresh_rising_pairs_and_stays_labeled():
+def test_obscured_level_uses_first_fresh_unique_pair_with_provenance():
     rows = climbing()
     projected = project(rows)
-    assert [r['experimental_level']['value'] for r in projected] == [None, None, 42]
-    pending, confirmed = projected[1]['experimental_level'], projected[2]['experimental_level']
-    assert pending['status'] == 'unavailable' and pending['level_context']['reason'] == 'exp_derived_confirmation_pending'
-    assert pending['level_context']['candidate_level'] == 42 and pending['level_context']['last_supported_level'] is None
-    assert confirmed['status'] == 'exp_derived' and confirmed['reason'] == 'repeated_unique_exp_inference'
+    assert [r['experimental_level']['value'] for r in projected] == [42]*3
+    confirmed = projected[0]['experimental_level']
+    assert confirmed['status'] == 'exp_derived' and confirmed['reason'] == 'unique_exp_inference'
     assert confirmed['visual'] is None and confirmed['neural'] is None and not confirmed['trusted']
     assert confirmed['strict_window_eligible'] is False
     context = confirmed['level_context']
-    assert context['sample_event_ids'] == ['run:1', 'run:2', 'run:3'] and context['source'] == 'exp_derived'
-    assert context['last_supported_level'] == 42 and context['confirmed_at'] == rows[2]['received_at']
+    assert context['sample_event_ids'] == ['run:1'] and context['source'] == 'exp_derived'
+    assert context['last_supported_level'] == 42 and context['confirmed_at'] == rows[0]['received_at']
     assert not context['verified'] and not context['trusted']
     # Agreement with the pairs the level came from is circular, not verification.
     assert projected[2]['exp_validity']['status'] == 'indeterminate'
@@ -141,13 +139,10 @@ def test_obscured_level_needs_three_fresh_rising_pairs_and_stays_labeled():
 
 
 @pytest.mark.parametrize('rows', [
-    [pair(1, 278125)],
-    [pair(1, 278125), pair(2, 278525)],
-    [pair(i, 278125) for i in range(1, 5)],                                 # no EXP progression
     [pair(i, 278125+i*400, frame_sha256=None) for i in range(1, 5)],         # no frame evidence
     [only(i, f'78.1{i}') for i in range(1, 6)],                             # percentages never identify
 ])
-def test_single_static_unhashed_or_percentage_only_readings_are_not_level_evidence(rows):
+def test_unhashed_or_percentage_only_readings_are_not_level_evidence(rows):
     assert all(value is None for value in levels(rows))
 
 
@@ -163,7 +158,7 @@ def test_level_is_retained_across_prolonged_percentage_only_tracking():
     assert context['unsupported_frames'] == 240 and context['support_age_seconds'] == 3600
     assert context['continuity'] == 'ordered' and not context['verified']
     segment = progress(rows, now=NOW+timedelta(seconds=3660))['current_segment']
-    assert segment['level'] == 42 and segment['readings'] == 241
+    assert segment['level'] == 42 and segment['readings'] == 243
     # A fresh unique pair renews support without restarting confirmation.
     renewed = evidence(rows+[pair(244, 287500)])[-1]
     assert renewed['status'] == 'exp_derived' and renewed['level_context']['unsupported_frames'] == 0
@@ -172,7 +167,7 @@ def test_level_is_retained_across_prolonged_percentage_only_tracking():
 def test_no_evidence_frames_hold_context_but_breaks_and_identity_changes_reset():
     held = climbing()+[only(4, '78.16', frame_sha256=f'{3:064x}'), gap(5), only(6, '78.17', fresh_at_capture=False),
                        only(7, '78.18', crop_suspect=True), only(8, '78.19')]
-    assert levels(held) == [None, None, 42, None, None, None, None, 42]
+    assert levels(held) == [42, 42, 42, None, None, None, None, 42]
     assert evidence(held)[-1]['status'] == 'retained_level'
     for change in (dict(run_id='restart', event_id='restart:5'), dict(character_id=2), dict(source_identity='b'*64),
                    dict(session_id=2), dict(hud_count=2), dict(timing_mode='simulated'),
@@ -295,7 +290,7 @@ def test_reader_levels_take_precedence_and_disagreement_is_preserved():
 
 def test_persistent_single_reader_conflict_is_preserved_until_evidence_resolves_it():
     rows = climbing()+[pair(i, 279325+i, visual_level=24, visual_status='available') for i in range(4, 8)]+[pair(8, 279800)]
-    assert statuses(rows) == ['unavailable']*2+['exp_derived']+['conflict']*4+['exp_derived']
+    assert statuses(rows) == ['exp_derived']*3+['conflict']*4+['exp_derived']
 
 
 def test_bogus_obscured_hud_reader_claims_do_not_block_arithmetic_but_real_ones_conflict():
@@ -318,7 +313,7 @@ def test_competing_unique_level_conflicts_once_and_replaces_only_after_its_own_c
     rows = climbing()+[pair(4, 300, display(300, total))]+climbing(5)
     assert exp_derived(dict(exp='300', percentage=display(300, total)))['unique_level'] == 7
     projected = evidence(rows)
-    assert [e['value'] for e in projected] == [None, None, 42, None, 42, 42, 42]
+    assert [e['value'] for e in projected] == [42, 42, 42, None, 42, 42, 42]
     assert projected[3]['status'] == 'conflict' and projected[3]['reason'] == 'competing_exp_derived_level'
     replaced = evidence(climbing()+[pair(4+i, 300+i*10, display(300+i*10, total)) for i in range(3)])
     assert [e['value'] for e in replaced[3:]] == [None, None, 7]

@@ -11,10 +11,9 @@ from .exp_consistency import MODES, assess, infer_indexed, requirement_index
 from .exp_requirements import community_table, requirement
 from .shadow_grammar import interpret_exp
 
-POLICY = 'experimental_level_v6'
-EXP_DERIVED_POLICY = 'exp_derived_level_v2'
-# Separate fresh frames, one unique table level and rising display; one pair never suffices.
-# Also the post-wrap percentage readings a possible level-up needs to become provisional.
+POLICY = 'experimental_level_v7'
+EXP_DERIVED_POLICY = 'exp_derived_level_v3'
+# Repeated forward evidence is still required for a wrap or a competing level.
 DERIVED_SAMPLES = 3
 # A near-100% to near-0% display is a level-up hypothesis, not proof. Heuristic, uncalibrated.
 WRAP_FROM_BP = 9500
@@ -48,6 +47,13 @@ def consistency(full, level):
     status = 'consistent' if 'consistent' in statuses else 'invalid' if all(s=='inconsistent' for s in statuses) else 'indeterminate'
     return {**result, 'status':status, 'hypotheses':checks,
             'reason':'contradicts_both_display_hypotheses' if status=='invalid' else 'conditional_table_agreement' if status=='consistent' else 'unavailable_numeric'}
+
+
+def supported_exp(value):
+    """Public numeric endpoint support, including circular level arithmetic, never verification."""
+    check=value.get('exp_validity',{})
+    return value.get('exp') is not None and (check.get('status')=='consistent' or
+        check.get('status')=='indeterminate' and check.get('reason')=='level_derived_from_exp_pairs')
 
 
 @lru_cache(maxsize=1)
@@ -103,7 +109,10 @@ def _numbers(state, s, when, **changes):
 
 
 def _chain(samples):
-    return (len(samples) >= DERIVED_SAMPLES and samples[-1]['bp'] > samples[0]['bp']
+    return (len(samples) >= DERIVED_SAMPLES
+        and (samples[-1]['bp'] > samples[0]['bp'] or all(s['exp'] is not None for s in samples)
+             and samples[-1]['exp'] > samples[0]['exp'])
+        and all(_forward(a,b) for a,b in zip(samples,samples[1:]))
         and len({s['frame_sha256'] for s in samples}) == len(samples))
 
 
@@ -174,13 +183,7 @@ def _derived_step(state, row, inference, exp, bp):
     s = dict(event_id=row.get('event_id'), frame_sha256=frame, exp=exp, bp=bp, timestamp=when)
     if not state or not state['confirmed']:
         if level is not None and frame:
-            same = bool(state and state['level'] == level and _forward(state, s))
-            samples = (state['samples'] if same else [])[-(DERIVED_SAMPLES - 1):] + [s]
-            confirmed = _chain(samples) and samples[-1]['exp'] > samples[0]['exp']
-            new = {**_established(level, s, when, 'exp_derived', state), 'samples': samples,
-                'confirmed': confirmed, 'confirmed_at': when if confirmed else None}
-            return new, level if confirmed else None, 'exp_derived' if confirmed else 'unavailable', (
-                'repeated_unique_exp_inference' if confirmed else 'exp_derived_confirmation_pending')
+            return _established(level, s, when, 'exp_derived', state), level, 'exp_derived', 'unique_exp_inference'
         if inference and not (state and state['level'] in inference['levels']):
             return None, None, 'unavailable', 'exp_derived_' + inference['status']
         if not state: return None, None, 'unavailable', None
@@ -411,8 +414,7 @@ def project(rows, *, state=None, allow_context=True):
         # The derived/retained level never outranks a selected reader level, verifies its
         # own pairs or survives a disagreement with recent reader-supported context.
         derived_safe=fresh and not row.get('candidate_invalid') and not row.get('percentage_only_invalid')
-        strict=full if derived_safe and row.get('candidate') else None
-        inference=exp_derived(strict) if strict else None
+        inference=exp_derived(full) if derived_safe and full else None
         if inference:evidence['exp_derived']=inference
         pct=_percentage(row,full) if derived_safe else None
         numbers=dict(event_id=row.get('event_id'),frame_sha256=frame,exp=int(full['exp']) if full else None,
@@ -433,6 +435,8 @@ def project(rows, *, state=None, allow_context=True):
         elif visual is not None:
             if derived:derived={**derived,'last_at':row['received_at']}
             derived_reason='unselected_visual_level'
+        elif status=='conflict' and (inference or {}).get('unique_level') is None:
+            derived=None;derived_reason='reader_conflict_without_unique_exp_support'
         elif anchor and anchor['samples']>=2 and (inference or {}).get('unique_level') not in (None,anchor['value']):
             derived=None;derived_reason='recent_reader_level_disagrees'
         else:
