@@ -52,6 +52,8 @@ The [EXP-derived level search](docs/exp-inference-performance.md) restores pre-m
 replay cost with an exact integer interval search over requirements.
 [Background publishing](docs/background-publishing.md) moves card, history and Twitch
 work out of HTTP requests; viewers read one shared, timestamped publication.
+The [VPS readiness check](docs/vps-readiness.md) measures 100 viewers at 5 and 10
+channels, fixes the listen backlog, and lists the reverse-proxy and trial prerequisites.
 The [MVP level-evidence update](docs/mvp-level-evidence.md) displays unique arithmetic
 levels immediately and uses complete grammar-recovered EXP in public pace/history.
 The [Telfer level-up follow-up](docs/telfer-levelup-and-window-gaps.md) accepts prompt

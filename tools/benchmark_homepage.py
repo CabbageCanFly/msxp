@@ -11,6 +11,7 @@ from contextlib import closing
 from datetime import datetime,timedelta,timezone
 from fractions import Fraction
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import shutil
@@ -143,8 +144,8 @@ def measure(db,channels,open_runs,next_n,start,repeat,full_replay=False,viewers=
         result['present_ms_mean']=round((after['present_seconds']-before['present_seconds'])/max(1,after['presentations']-before['presentations'])*1000,1)
         result['nested_values']=min(nested(get(server,f'/api/players/{name}/history')[1]) for name in names)
         if viewers:
-            before=stats();result['viewers']=load(server,names,append,viewers,seconds);after=stats()
-            result['viewers'].update(refresher_builds=after['builds']-before['builds'],refresher_busy_fraction=round((after['build_seconds']-before['build_seconds'])/result['viewers']['seconds'],2),
+            before=stats();publisher.stats['max_build_seconds']=0;result['viewers']=load(server,names,append,viewers,seconds);after=stats()
+            result['viewers'].update(refresher_builds=after['builds']-before['builds'],max_build_ms=round(publisher.stats['max_build_seconds']*1000),refresher_busy_fraction=round((after['build_seconds']-before['build_seconds'])/result['viewers']['seconds'],2),
                 presentations=after['presentations']-before['presentations'],present_busy_fraction=round((after['present_seconds']-before['present_seconds'])/result['viewers']['seconds'],3))
         result['rss_mib']=round(PROCESS.memory_info().rss/2**20)
     finally:
@@ -157,37 +158,86 @@ def measure(db,channels,open_runs,next_n,start,repeat,full_replay=False,viewers=
     return result
 
 
-def load(server,names,append,viewers,seconds):
-    """Browser-like clients: 5 s timeout, next poll 2 s after each response; one capture per channel per 20 s."""
-    stop=time.monotonic()+seconds;samples={'home':[],'character':[]};timeouts={'home':0,'character':0};lock=threading.Lock()
+def viewer_process(port,names,first,count,viewers,start_at,seconds,queue):
+    """Viewers first..first+count-1 in their own process, so client CPU never shares the server's GIL."""
+    samples={'home':[],'character':[],'history':[]};timeouts=dict.fromkeys(samples,0);errors=dict.fromkeys(samples,0);reasons={};lock=threading.Lock()
+    stop=start_at+seconds
+    def fetch(kind,path):
+        tick=time.perf_counter()
+        try:
+            with urlopen(f'http://127.0.0.1:{port}{path}',timeout=5) as response:data=response.read()
+        except OSError as error:  # HTTPError (e.g. 503 warming) is an error; a socket timeout is a timeout.
+            with lock:
+                if isinstance(getattr(error,'reason',error),TimeoutError):timeouts[kind]+=1
+                else:
+                    errors[kind]+=1;reason=f'HTTP {error.code}' if hasattr(error,'code') else type(getattr(error,'reason',error)).__name__;reasons[reason]=reasons.get(reason,0)+1
+            return None
+        ms=(time.perf_counter()-tick)*1000
+        with lock:
+            if ms>5000:timeouts[kind]+=1  # The browser aborts the whole request at 5 s.
+            else:samples[kind].append(ms)
+        return json.loads(data)
     def viewer(i):
-        kind='home' if i%2==0 else 'character';path='/api/players' if kind=='home' else f'/api/players/{names[i//2%len(names)]}'
-        time.sleep(i*2/viewers)
-        while time.monotonic()<stop:
-            try:
-                ms,body=get(server,path,timeout=5)
+        kind='home' if i%2==0 else 'character';channel=names[i//2%len(names)]
+        path='/api/players' if kind=='home' else f'/api/players/{channel}'
+        time.sleep(max(0,start_at-time.time())+i*2/viewers);polls=0
+        while time.time()<stop:
+            body=fetch(kind,path)
+            if body:
                 for p in body['players'] if kind=='home' else [body['player']]:
                     values=[w['gain'] for w in p['recent_windows'].values() if w.get('gain')]
                     values=[Fraction(v['numerator'],v['denominator']) for v in values]
                     assert values==sorted(values),'nested public totals'
-                with lock:samples[kind].append(ms)
-            except OSError:
-                with lock:timeouts[kind]+=1
-            time.sleep(2)
-    def writer():
-        while time.monotonic()<stop:
-            for name in names:
-                if time.monotonic()>=stop:return
-                append([name]);time.sleep(STEP/len(names))
-    threads=[threading.Thread(target=viewer,args=(i,)) for i in range(viewers)]+[threading.Thread(target=writer)]
-    used=cpu();tick=time.monotonic()
+            if kind=='character' and polls%15==0:fetch('history',f'/api/players/{channel}/history')  # The page refreshes history every 30 s.
+            polls+=1;time.sleep(2)
+    threads=[threading.Thread(target=viewer,args=(i,)) for i in range(first,first+count)]
     for t in threads:t.start()
     for t in threads:t.join()
-    wall=time.monotonic()-tick;result=dict(viewers=viewers,seconds=round(wall,1),cpu_seconds_per_second=round((cpu()-used)/wall,2))
-    for kind,values in samples.items():
-        values.sort()
-        result[kind]=dict(requests=len(values),timeouts=timeouts[kind],**(dict(p50_ms=round(statistics.median(values)),
-            p95_ms=round(values[int(.95*(len(values)-1))]),max_ms=round(values[-1])) if values else {}))
+    queue.put((samples,timeouts,errors,reasons))
+
+
+def load(server,names,append,viewers,seconds):
+    """Browser-like clients in separate processes: 5 s timeout, next poll 2 s after each response.
+    One capture per channel per 20 s is appended in this process; a monitor samples publication lag, entry age and RSS."""
+    publisher=server.publisher;pending={};lags=[];ages=[];rss=[PROCESS.memory_info().rss];done=threading.Event()
+    def monitor():
+        while not done.is_set():
+            rss[0]=max(rss[0],PROCESS.memory_info().rss);now=datetime.now(timezone.utc)
+            with publisher.lock:entries=dict(publisher.entries)
+            if entries:ages.append(max((now-datetime.fromisoformat(e['built_at'])).total_seconds() for e in entries.values()))
+            for (name,stamp),at in list(pending.items()):
+                latest=entries.get(name,{}).get('card',{}).get('player',{}).get('latest_attempt_at')
+                if latest and datetime.fromisoformat(latest)>=stamp:lags.append(time.monotonic()-at);del pending[(name,stamp)]
+            done.wait(.1)
+    def writer():
+        while time.time()<stop:
+            for name in names:
+                if time.time()>=stop:return
+                for stamp in append([name]).values():pending[(name,stamp)]=time.monotonic()
+                time.sleep(STEP/len(names))
+    per=25;queue=multiprocessing.Queue()
+    start_at=time.time()+5;stop=start_at+seconds  # Client processes need a few seconds to spawn on Windows.
+    clients=[multiprocessing.Process(target=viewer_process,args=(server.server_port,names,first,min(per,viewers-first),viewers,start_at,seconds,queue))
+        for first in range(0,viewers,per)]
+    for c in clients:c.start()
+    time.sleep(max(0,start_at-time.time()))
+    threads=[threading.Thread(target=writer),threading.Thread(target=monitor)]
+    used=cpu();tick=time.monotonic()
+    for t in threads:t.start()
+    results=[queue.get() for _ in clients]
+    for c in clients:c.join()
+    wall=time.monotonic()-tick;cpu_rate=round((cpu()-used)/wall,2);done.set()
+    for t in threads:t.join()
+    lags.sort();ages.sort()
+    result=dict(viewers=viewers,client_processes=len(clients),seconds=round(wall,1),server_cpu_seconds_per_second=cpu_rate,peak_rss_mib=round(rss[0]/2**20),
+        capture_to_publication_s=dict(count=len(lags),unpublished=len(pending),p50=round(lags[len(lags)//2],2),p95=round(lags[int(.95*(len(lags)-1))],2),max=round(lags[-1],2)) if lags else dict(unpublished=len(pending)),
+        error_reasons={k:sum(r[3].get(k,0) for r in results) for r in results for k in r[3]},
+        oldest_entry_age_s=dict(p50=round(ages[len(ages)//2],1),p95=round(ages[int(.95*(len(ages)-1))],1),max=round(ages[-1],1)) if ages else None)
+    for kind in ('home','character','history'):
+        values=sorted(v for samples,*_ in results for v in samples[kind])
+        result[kind]=dict(requests=len(values),timeouts=sum(r[1][kind] for r in results),errors=sum(r[2][kind] for r in results),
+            **(dict(p50_ms=round(statistics.median(values)),p95_ms=round(values[int(.95*(len(values)-1))]),
+            p99_ms=round(values[int(.99*(len(values)-1))]),max_ms=round(values[-1])) if values else {}))
     return result
 
 
