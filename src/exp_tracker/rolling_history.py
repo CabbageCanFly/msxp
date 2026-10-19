@@ -1,7 +1,9 @@
 """Bounded, causal, read-only 24h projection. Never trusted EXP accounting."""
+from copy import deepcopy
 from datetime import datetime,timedelta,timezone
 from fractions import Fraction
 import json
+import threading
 
 from .diagnostic_evidence import project
 from .diagnostic_percentage import review
@@ -18,15 +20,15 @@ class HistoryLimit(ValueError):
     pass
 
 
-def run_batches(diagnostic,channel,*,start,now,receipt):
-    """Bounded source reads using the existing sanitized decoder; no partial totals."""
+def select_runs(diagnostic,channel,*,start,now):
+    """The full-replay run sequence: time-range runs plus verified rotation predecessors."""
     from .diagnostics import rotation_link
     store=diagnostic.store;db=diagnostic.db;streamer=store._channel(channel)
     character=streamer['selected_character_id']
     owner='a.session_id IN (SELECT id FROM sessions WHERE streamer_id=? AND character_id=?)' if store.schema_version>=4 else 'r.streamer_id=? AND r.character_id=?'
-    runs=list(db.execute('SELECT DISTINCT r.rowid,r.* FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id '
+    runs=[dict(r) for r in db.execute('SELECT DISTINCT r.rowid,r.* FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id '
         'WHERE '+owner+' AND a.attempted_at>=? AND a.attempted_at<=? ORDER BY r.rowid LIMIT ?',
-        (streamer['id'],character,start.isoformat(),now.isoformat(),MAX_RUNS+1))) if character else []
+        (streamer['id'],character,start.isoformat(),now.isoformat(),MAX_RUNS+1))] if character else []
     selected={r['run_id']:r for r in runs}
     if len(selected)>MAX_RUNS:raise HistoryLimit('run_limit')
     for current in runs:
@@ -34,59 +36,130 @@ def run_batches(diagnostic,channel,*,start,now,receipt):
             config=json.loads(current['configuration_json'])
             previous=db.execute('SELECT rowid,* FROM diagnostic_runs WHERE run_id=?',(config.get('previous_run_id'),)).fetchone() if config.get('start_reason')=='scheduled_rotation' else None
             if not rotation_link(previous,current) or previous['run_id'] in selected:break
-            selected[previous['run_id']]=previous;current=previous
+            selected[previous['run_id']]=dict(previous);current=selected[previous['run_id']]
             if len(selected)>MAX_RUNS:raise HistoryLimit('run_limit')
-    for run in sorted(selected.values(),key=lambda r:r['rowid']):
-        receipt['run_count']+=1
-        lengths=db.execute('SELECT COUNT(*),COALESCE(SUM(LENGTH(CAST(payload_json AS BLOB))),0) FROM diagnostic_attempts WHERE run_id=?',(run['run_id'],)).fetchone()
-        receipt['context_attempts']+=lengths[0];receipt['source_bytes']+=lengths[1]
-        if lengths[0]>60 or receipt['context_attempts']>MAX_EVENTS or receipt['source_bytes']>MAX_BYTES:
-            raise HistoryLimit('attempt_or_byte_limit')
-        rows=diagnostic._snapshot(channel,now=now,session_id=run['session_id'],run_id=run['run_id'],limit=60,_rows_only=True)
-        yield run,[r for r in rows if datetime.fromisoformat(r.get('received_at') or r['attempted_at'])<=now]
+    return sorted(selected.values(),key=lambda r:r['rowid'])
 
 
-def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None):
+def run_rows(diagnostic,channel,run,*,now,receipt):
+    """Bounded source read of one run using the existing sanitized decoder."""
+    receipt['run_count']+=1
+    lengths=diagnostic.db.execute('SELECT COUNT(*),COALESCE(SUM(LENGTH(CAST(payload_json AS BLOB))),0),MAX(id) FROM diagnostic_attempts WHERE run_id=?',(run['run_id'],)).fetchone()
+    receipt['context_attempts']+=lengths[0];receipt['source_bytes']+=lengths[1]
+    if lengths[0]>60 or receipt['context_attempts']>MAX_EVENTS or receipt['source_bytes']>MAX_BYTES:
+        raise HistoryLimit('attempt_or_byte_limit')
+    rows=diagnostic._snapshot(channel,now=now,session_id=run['session_id'],run_id=run['run_id'],limit=60,_rows_only=True)
+    return (run['run_id'],run['configuration_json'],run['summary_json'],lengths[0],lengths[2]),[
+        r for r in rows if datetime.fromisoformat(r.get('received_at') or r['attempted_at'])<=now]
+
+
+RECEIPT=('run_count','context_attempts','source_bytes')
+
+
+def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,key=None,keep=lambda state:state):
+    """Full causal replay, resumed after the longest unchanged checkpointed run prefix.
+
+    Attempts are INSERT-only and contiguous within an unfinished run, and a summary
+    is written once, which closes the run. A checkpoint therefore stays exact while
+    the clock has not regressed, the current full-replay run sequence begins with
+    the covered runs, and each covered run keeps its configuration, summary, attempt
+    count and last attempt ID. Anything else is a full replay from the first run.
+    ``step`` mutates ``state`` for one run batch and returns its percentage reviews.
+    """
+    runs=select_runs(diagnostic,channel,start=start,now=now)
+    with LOCK:saved=checkpoints.get(key) if checkpoints is not None else None
+    covered=0
+    if saved and now>=saved['now'] and len(saved['runs'])<=len(runs) and all(
+            (r['run_id'],r['configuration_json'],r['summary_json'])==f[:3] for r,f in zip(runs,saved['runs'])):
+        ids=[f[0] for f in saved['runs']]
+        counts={row[0]:(row[1],row[2]) for row in diagnostic.db.execute('SELECT run_id,COUNT(*),MAX(id) FROM diagnostic_attempts WHERE run_id IN ('
+            +','.join('?'*len(ids))+') GROUP BY run_id',ids)} if ids else {}
+        if all(counts.get(f[0],(0,None))==f[3:] for f in saved['runs']):
+            # In place: a later HistoryLimit leaves the caller with the progress made so far.
+            state.clear();state.update(thaw(saved['state']));receipt.update({k:saved['receipt'][k] for k in RECEIPT});covered=len(ids)
+    if not covered and checkpoints is not None:
+        with LOCK:checkpoints.pop(key,None)
+    fingerprints=list(saved['runs'][:covered]) if covered else []
+    for i,run in enumerate(runs[covered:],covered):
+        fingerprint,rows=run_rows(diagnostic,channel,run,now=now,receipt=receipt)
+        decisions=step(state,run,rows)
+        # Only a complete, closed (or superseded) run whose last quarantine deadline has
+        # passed is final: review() re-labels an unexpired final row from the clock.
+        settled=(len(rows)==fingerprint[3] and (i<len(runs)-1 or run['summary_json'] is not None)
+            and (not decisions or not decisions[-1]['verification_deadline']
+                or now>datetime.fromisoformat(decisions[-1]['verification_deadline'])))
+        if checkpoints is not None and len(fingerprints)==i and settled:
+            fingerprints.append(fingerprint)
+            value=dict(now=now,runs=list(fingerprints),receipt={k:receipt[k] for k in RECEIPT},state=thaw(keep(state)))
+            with LOCK:
+                if key not in checkpoints and len(checkpoints)>=MAX_CHECKPOINTS:checkpoints.pop(next(iter(checkpoints)))
+                checkpoints[key]=value
+    return state
+
+
+MAX_CHECKPOINTS=64  # Two per channel (24h, recent) for the 25-channel directory, plus headroom.
+LOCK=threading.Lock()  # Directory and character threads share one checkpoint store.
+
+
+def thaw(state):
+    """Independent mutable copy; immutable interval/row records are shared, not copied."""
+    memo={id(v):v for name in ('gains','rows','decisions') for v in state.get(name,())}
+    return deepcopy(state,memo)
+
+
+def stamp(row):
+    return datetime.fromisoformat(row.get('received_at') or row['attempted_at'])
+
+
+def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,checkpoints=None):
     """One hour plus causal warmup, never a browser-sized raw history response."""
     from .diagnostics import rotation_link
     base=diagnostic._snapshot(channel,now=now,limit=1)
     receipt=dict(context_attempts=0,source_bytes=0,run_count=0)
-    rows=[];decisions=[];level_state={};percentage_state={};previous_run=None;previous_time=None
-    start=now-timedelta(minutes=65)
+    start=now-timedelta(minutes=65);session=(base['session'] or {}).get('id')
     owner='session_id=?' if diagnostic.store.schema_version>=4 else 'run_id IN (SELECT run_id FROM diagnostic_runs WHERE session_id=?)'
     if _historical:
         earliest=diagnostic.db.execute('SELECT MIN(attempted_at) FROM diagnostic_attempts WHERE '+owner,
-            ((base['session'] or {}).get('id'),)).fetchone()[0]
+            (session,)).fetchone()[0]
         if earliest:start=datetime.fromisoformat(earliest)
+    def step(state,run,batch):
+        # A different session can supply its own historical total, never a
+        # rate for the explicitly selected current session.
+        if run['session_id']!=session:return []
+        if not rotation_link(state['previous_run'],run):state['level_state']={};state['percentage_state']={}
+        for row in batch:
+            when=row.get('received_at') or row['attempted_at']
+            row['timestamp_ordered']=state['previous_time'] is None or when>state['previous_time']
+            state['previous_time']=max(state['previous_time'],when) if state['previous_time'] else when
+        batch=project(batch,state=state['level_state'])
+        reviewed=review(batch,[percentage_point(r) for r in batch],now=now,state=state['percentage_state'])
+        # Retained rows passed an earlier, never later, cutoff; reapply this request's.
+        kept=[(r,d) for r,d in zip(state['rows'],state['decisions']) if stamp(r)>=start]
+        rows=state['rows']=[r for r,_ in kept];decisions=state['decisions']=[d for _,d in kept]
+        for row,decision in zip(batch,reviewed):
+            if stamp(row)<start:continue
+            row['percentage_review']=decision;rows.append(row);decisions.append(decision)
+        if _historical and len(rows)>4096:
+            # A lone new endpoint cannot evict the last supported rate.
+            evidence=dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions))
+            intervals=collect(evidence,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)['intervals']
+            if intervals:
+                cutoff=datetime.fromisoformat(intervals[-1]['after']['timestamp'])-timedelta(minutes=65)
+                keep=next((i for i,r in enumerate(rows) if stamp(r)>=cutoff),len(rows))
+                state['rows']=rows[keep:];state['decisions']=decisions[keep:]
+        if len(state['rows'])>4096:raise HistoryLimit('recent_attempt_limit')
+        state['previous_run']=run
+        return reviewed
+    state=dict(level_state={},percentage_state={},previous_run=None,previous_time=None,rows=[],decisions=[])
+    # The 4,096-row historical restoration is too large to retain per channel.
+    resume=None if _historical else checkpoints
     try:
-        for run,batch in run_batches(diagnostic,channel,start=start,now=now,receipt=receipt):
-            # A different session can supply its own historical total, never a
-            # rate for the explicitly selected current session.
-            if run['session_id']!=(base['session'] or {}).get('id'):continue
-            if not rotation_link(previous_run,run):level_state={};percentage_state={}
-            for row in batch:
-                when=row.get('received_at') or row['attempted_at']
-                row['timestamp_ordered']=previous_time is None or when>previous_time
-                previous_time=max(previous_time,when) if previous_time else when
-            batch=project(batch,state=level_state)
-            reviewed=review(batch,[percentage_point(r) for r in batch],now=now,state=percentage_state)
-            for row,decision in zip(batch,reviewed):
-                if datetime.fromisoformat(row.get('received_at') or row['attempted_at'])<start:continue
-                row['percentage_review']=decision;rows.append(row);decisions.append(decision)
-            if _historical and len(rows)>4096:
-                from .pace_intervals import collect
-                from .product import PACE_TREND_SECONDS
-                # A lone new endpoint cannot evict the last supported rate.
-                evidence=dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions))
-                intervals=collect(evidence,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)['intervals']
-                if intervals:
-                    cutoff=datetime.fromisoformat(intervals[-1]['after']['timestamp'])-timedelta(minutes=65)
-                    keep=next((i for i,r in enumerate(rows) if datetime.fromisoformat(r.get('received_at') or r['attempted_at'])>=cutoff),len(rows))
-                    rows=rows[keep:];decisions=decisions[keep:]
-            if len(rows)>4096:raise HistoryLimit('recent_attempt_limit')
-            previous_run=run
+        state=replay(diagnostic,channel,start=start,now=now,receipt=receipt,state=state,step=step,
+            checkpoints=resume,key=('recent',channel,base['selected_character'] and base['selected_character']['id'],session))
     except HistoryLimit:
         return dict(base,observations=[],recent_history_status='history_limit',recent_history_receipt=receipt)
+    kept=[(r,d) for r,d in zip(state['rows'],state['decisions']) if stamp(r)>=start]
+    rows=[r for r,_ in kept];decisions=[d for _,d in kept]
     data=dict(percentage_reviews=decisions,reason=decisions[-1]['reason'] if decisions else 'no_observations')
     result=dict(base,observations=rows,percentage_progress=data,recent_history_status='ready',recent_history_receipt=receipt)
     if not _historical:
@@ -105,17 +178,17 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None):
                 saved={m:w['eta'] for m,w in old.items()}
                 cached=(key,saved,historical['recent_history_status'],historical['recent_history_receipt'])
                 if eta_cache is not None:
-                    if len(eta_cache)>=8:eta_cache.pop(next(iter(eta_cache)))
+                    if channel not in eta_cache and len(eta_cache)>=25:eta_cache.pop(next(iter(eta_cache)))
                     eta_cache[channel]=cached
             result.update(historical_etas=cached[1],eta_history_status=cached[2],eta_history_receipt=cached[3])
     return result
 
 
-def aggregate(diagnostic,channel,*,now):
+def aggregate(diagnostic,channel,*,now,checkpoints=None):
     from .diagnostics import rotation_link
     if now.utcoffset() is None:raise ValueError('Aware history clock required')
     now=now.astimezone(timezone.utc);start=now-timedelta(hours=24)
-    store=diagnostic.store;db=diagnostic.db;streamer=store._channel(channel)
+    store=diagnostic.store;streamer=store._channel(channel)
     character=streamer['selected_character_id']
     bins=[dict(start=(start+timedelta(minutes=30*i)).isoformat(),end=(start+timedelta(minutes=30*(i+1))).isoformat(),
                amount=None,coverage=Fraction(0),intervals=0,gap=False) for i in range(48)]
@@ -126,53 +199,62 @@ def aggregate(diagnostic,channel,*,now):
         boundary_intervals_excluded=0,basis_counts={},requirement_versions=[],buckets=[],windows={},current_level_windows={},
         chart_intervals=[],scope='selected_character_independent_sessions_and_sources',exclusion_counts={})
     limited=False
-    level_state={};percentage_state={};interval_state={};last_time=None;gains=[];level=None
-    previous_run=None;total=Fraction(0);coverage=Fraction(0);versions=set()
-    batches=run_batches(diagnostic,channel,start=start-timedelta(seconds=PACE_TREND_SECONDS),now=now,receipt=result)
-    try:
-      for run,rows in batches:
-        if not rotation_link(previous_run,run):
-            level_state={};percentage_state={}
+    def step(state,run,rows):
+        if not rotation_link(state['previous_run'],run):
+            state['level_state']={};state['percentage_state']={}
         for row in rows:
-            when=datetime.fromisoformat(row.get('received_at') or row['attempted_at'])
-            row['timestamp_ordered']=last_time is None or when>last_time
-            last_time=max(last_time,when) if last_time else when
-        rows=project(rows,state=level_state)
+            when=stamp(row);last=state['last_time']
+            row['timestamp_ordered']=last is None or when>last
+            state['last_time']=max(last,when) if last else when
+        rows=project(rows,state=state['level_state'])
         evidence=[percentage_point(r) for r in rows]
-        decisions=review(rows,evidence,now=now,state=percentage_state)
+        decisions=review(rows,evidence,now=now,state=state['percentage_state'])
         for row,decision in zip(rows,decisions):
             row['percentage_review']=decision
             level_reading=row.get('experimental_level') or {}
             if (level_reading.get('value') is not None and row.get('timestamp_ordered') is not False
-                    and row.get('fresh_at_capture') and row.get('capture_acquired') and row.get('hud_count')==1):level=level_reading['value']
+                    and row.get('fresh_at_capture') and row.get('capture_acquired') and row.get('hud_count')==1):state['level']=level_reading['value']
         collected=collect(dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions)),
-            now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS,state=interval_state)
+            now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS,state=state['interval_state'])
+        counts=state['exclusion_counts']
         for excluded in collected['excluded']:
             reason=excluded['reason'] or 'unavailable'
-            result['exclusion_counts'][reason]=result['exclusion_counts'].get(reason,0)+1
+            counts[reason]=counts.get(reason,0)+1
         for edge in collected['intervals']:
             gain=exp_interval(edge)
-            if gain:
-                a,b=datetime.fromisoformat(gain['start']),datetime.fromisoformat(gain['end'])
-                if a<start<b:result['boundary_intervals_excluded']+=1
-                if a>=start and b<=now:
-                    gains.append(gain)
-                    amount=fraction(gain['value']);duration=elapsed_seconds(a,b)
-                    total+=amount;coverage+=duration;result['intervals']+=1
-                    basis=gain['basis'];result['basis_counts'][basis]=result['basis_counts'].get(basis,0)+1
-                    versions.add(gain['requirement']['version'])
-                    first=(a-start)//timedelta(minutes=30);last=min(47,(b-start)//timedelta(minutes=30))
-                    for bucket in bins[first:last+1]:
-                        left=max(a,datetime.fromisoformat(bucket['start']));right=min(b,datetime.fromisoformat(bucket['end']))
-                        if right<=left:continue
-                        overlap=elapsed_seconds(left,right)
-                        bucket['amount']=(bucket['amount'] or Fraction(0))+amount*overlap/duration
-                        bucket['coverage']+=overlap;bucket['intervals']+=1
-                        bucket['gap'] |= gain['kind']=='endpoint_supported'
-            else:result['exclusion_counts']['unsupported_exp_requirement']=result['exclusion_counts'].get('unsupported_exp_requirement',0)+1
-        previous_run=run
+            # Window membership is decided at the end, from this request's clock.
+            if gain:state['gains'].append(gain)
+            else:counts['unsupported_exp_requirement']=counts.get('unsupported_exp_requirement',0)+1
+        state['previous_run']=run
+        return decisions
+    state=dict(level_state={},percentage_state={},interval_state={},last_time=None,previous_run=None,level=None,
+        gains=[],exclusion_counts={})
+    try:
+        state=replay(diagnostic,channel,start=start-timedelta(seconds=PACE_TREND_SECONDS),now=now,receipt=result,state=state,step=step,
+            checkpoints=checkpoints,key=('tracked',channel,character),
+            # An interval ending at or before this start can never re-enter a later window.
+            keep=lambda s:dict(s,gains=[g for g in s['gains'] if datetime.fromisoformat(g['end'])>start]))
     except HistoryLimit:
         limited=True
+    result['exclusion_counts']=dict(state['exclusion_counts']);level=state['level']
+    gains=[];total=Fraction(0);coverage=Fraction(0);versions=set()
+    for gain in state['gains']:
+        a,b=datetime.fromisoformat(gain['start']),datetime.fromisoformat(gain['end'])
+        if a<start<b:result['boundary_intervals_excluded']+=1
+        if a>=start and b<=now:
+            gains.append(gain)
+            amount=fraction(gain['value']);duration=elapsed_seconds(a,b)
+            total+=amount;coverage+=duration;result['intervals']+=1
+            basis=gain['basis'];result['basis_counts'][basis]=result['basis_counts'].get(basis,0)+1
+            versions.add(gain['requirement']['version'])
+            first=(a-start)//timedelta(minutes=30);last=min(47,(b-start)//timedelta(minutes=30))
+            for bucket in bins[first:last+1]:
+                left=max(a,datetime.fromisoformat(bucket['start']));right=min(b,datetime.fromisoformat(bucket['end']))
+                if right<=left:continue
+                overlap=elapsed_seconds(left,right)
+                bucket['amount']=(bucket['amount'] or Fraction(0))+amount*overlap/duration
+                bucket['coverage']+=overlap;bucket['intervals']+=1
+                bucket['gap'] |= gain['kind']=='endpoint_supported'
     if limited:
         # Incomplete causal replay must not masquerade as a complete query or zero.
         result.update(status='history_limit',tracked_exp=None,basis_counts={});versions.clear()
@@ -184,8 +266,9 @@ def aggregate(diagnostic,channel,*,now):
         result['windows']={str(m):tracked_window(gains,start=now-timedelta(minutes=m),end=now) for m in WINDOWS}
         result['current_level_windows']={str(m):tracked_window(gains if level is not None else [],
             start=now-timedelta(minutes=m),end=now,level=level) for m in WINDOWS}
-        result['chart_intervals']=[{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
-            for g in gains if datetime.fromisoformat(g['start'])>=now-timedelta(minutes=60)]
+        # Copied: retained interval records must never be reachable from a response.
+        result['chart_intervals']=deepcopy([{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
+            for g in gains if datetime.fromisoformat(g['start'])>=now-timedelta(minutes=60)])
         result['chart_status']='ready' if len(result['chart_intervals'])<=4096 else 'history_limit'
         if result['chart_status']=='history_limit':result['chart_intervals']=[]
     result.update(coverage_seconds=rational(coverage),unknown_seconds=rational(Fraction(86400)-coverage),requirement_versions=sorted(versions),

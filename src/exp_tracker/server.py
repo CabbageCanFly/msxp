@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
 from .diagnostics import Diagnostics, operation
-from .product import player,history,refresh,reading,tracked_statistics,PRODUCT_ROWS,PACE_TREND_SECONDS
+from .product import refresh,reading,tracked_statistics,PACE_TREND_SECONDS
 from .pace_intervals import collect
 from .twitch_probe import StreamAvailability
 from .twitch_auth import AppTokens
@@ -38,6 +38,11 @@ PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/prod
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
 
+# Homepage requests rebuild stale cards for at most this long, then serve the last
+# completed cards; the browser abandons a request after five seconds.
+REBUILD_BUDGET_SECONDS=1.5
+
+
 class TrackerHTTPServer(ThreadingHTTPServer):
     def server_close(self):
         super().server_close()
@@ -55,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
             key=(streamer['selected_character_id'],revision)
             cached=self.server.history_cache.get(channel)
             if cached is None or cached[0]!=key or time.monotonic()-cached[1]>=30 or abs((now-datetime.fromisoformat(cached[2]['as_of'])).total_seconds())>=30:
-                value=Diagnostics(store).rolling_history(channel,now=now)
+                value=Diagnostics(store).rolling_history(channel,now=now,checkpoints=self.server.checkpoints)
                 if channel not in self.server.history_cache and len(self.server.history_cache)>=25:self.server.history_cache.pop(next(iter(self.server.history_cache)))
                 self.server.history_cache[channel]=(key,time.monotonic(),value)
             return self.server.history_cache[channel][2]
@@ -116,8 +121,11 @@ class Handler(BaseHTTPRequestHandler):
                 elif path in ('/','/streams'):
                     self.reply(200,(WEB/'tracker.html').read_bytes(),'text/html')
                 elif path=='/api/players':
-                    with self.server.directory_lock,Store(self.server.database,read_only=True) as store:
-                        data=Diagnostics(store).directory(self.server.directory_cache,active_runs=self.server.active_run_ids.copy(),coordinator_status=self.server.coordinator_status.copy())
+                    with Store(self.server.database,read_only=True) as store:
+                        with self.server.directory_lock:
+                            data=Diagnostics(store).directory(self.server.directory_cache,active_runs=self.server.active_run_ids.copy(),coordinator_status=self.server.coordinator_status.copy(),
+                                checkpoints=self.server.checkpoints,eta_cache=self.server.eta_cache,budget_seconds=REBUILD_BUDGET_SECONDS)
+                        # Outside directory_lock: character pages only wait for card rebuilds.
                         now=datetime.fromisoformat(data['served_at'])
                         for row in data['streams']:tracked_statistics(row['player'],self.tracked(store,row['player']['channel'],now),now=now)
                     self.reply(200,dict(players=self.broadcasts([r['player'] for r in data['streams']]),served_at=data['served_at'],truncated=data['truncated'],experimental=True,poll_seconds=2))
@@ -131,14 +139,14 @@ class Handler(BaseHTTPRequestHandler):
                             self.reply(200,dict(self.tracked(store,channel,now),served_at=utc(now)))
                         elif product_api:
                             now=datetime.now(timezone.utc)
-                            diagnostics=Diagnostics(store)
-                            snap=diagnostics.snapshot(channel,now=now,limit=PRODUCT_ROWS)
-                            activity=operation(snap,self.server.coordinator_status.get(channel),now)
-                            with self.server.history_lock:
-                                recent=diagnostics.recent_snapshot(channel,now=now,eta_cache=self.server.eta_cache)
-                            value=refresh(player(snap,now=now,recent_snapshot=recent),now=now,activity=activity)
+                            # The homepage's per-revision card: one computation for every viewer.
+                            with self.server.directory_lock,store._transaction():
+                                diagnostics=Diagnostics(store)
+                                _,card,extras=diagnostics.card(self.server.directory_cache,diagnostics.heads(channel)[0],now=now,
+                                    checkpoints=self.server.checkpoints,eta_cache=self.server.eta_cache)
+                            value=refresh(card['player'],now=now,activity=operation(extras['lifecycle'],self.server.coordinator_status.get(channel),now))
                             tracked=self.tracked(store,channel,now);tracked_statistics(value,tracked,now=now)
-                            self.reply(200,dict(player=self.broadcasts([value])[0],tracked_history=tracked,history=history(recent),truncated=recent.get('recent_history_status')=='history_limit',served_at=utc(now),experimental=True,poll_seconds=2))
+                            self.reply(200,dict(player=self.broadcasts([value])[0],tracked_history=tracked,history=extras['history'],truncated=extras['truncated'],served_at=utc(now),experimental=True,poll_seconds=2))
                         else:
                             self.reply(200,(WEB/('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html')).read_bytes(),'text/html')
             except ValueError as error:
@@ -260,6 +268,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.directory_lock = threading.Lock()
     server.history_cache={}
     server.eta_cache={}
+    server.checkpoints={}  # Exact resumable causal replay state; see rolling_history.replay().
     server.history_lock=threading.Lock()
     server.twitch_availability=StreamAvailability(enabled=twitch_status,auth=AppTokens(maintain=twitch_status))
     return server

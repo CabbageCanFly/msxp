@@ -2,19 +2,23 @@
 
 One full-day 20-second channel is written through the normal Diagnostics append and
 rotation path, then cloned per channel with SQL. An in-process read-only server is
-timed over HTTP in cold, warm and newly-appended (cache-invalidated) states.
+timed over HTTP in cold, warm and newly-appended (cache-invalidated) states, then
+under a bounded concurrent viewer load. ``--full-replay`` disables causal checkpoints.
 """
 import argparse
 from contextlib import closing
 from datetime import datetime,timedelta,timezone
 from fractions import Fraction
 import json
+import os
 from pathlib import Path
 import shutil
 import statistics
 import threading
 import time
 from urllib.request import urlopen
+
+import psutil
 
 from shadow_capture import private_path
 from exp_tracker.diagnostics import Diagnostics
@@ -92,9 +96,14 @@ def timed(name,function):
 for name in ('directory','rolling_history','recent_snapshot'):setattr(Diagnostics,name,timed(name,getattr(Diagnostics,name)))
 
 
-def get(server,path):
+PROCESS=psutil.Process(os.getpid())
+def cpu():
+    times=PROCESS.cpu_times();return times.user+times.system
+
+
+def get(server,path,timeout=600):
     tick=time.perf_counter()
-    with urlopen(f'http://127.0.0.1:{server.server_port}{path}',timeout=600) as response:body=json.load(response)
+    with urlopen(f'http://127.0.0.1:{server.server_port}{path}',timeout=timeout) as response:body=json.load(response)
     return (time.perf_counter()-tick)*1000,body
 
 
@@ -105,15 +114,17 @@ def nested(packet):
     return len(values)
 
 
-def measure(db,channels,open_runs,next_n,start,repeat):
+def measure(db,channels,open_runs,next_n,start,repeat,full_replay=False,viewers=0,seconds=0):
     server=create_server(db,port=0,diagnostic_dashboard=True);server.quiet=True
+    if full_replay:server.checkpoints=None
     server.history_lock=TimedLock();server.directory_lock=TimedLock()
+    baseline=threading.active_count()
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     result=dict(channels=channels);n=dict.fromkeys((f'bench_{i:02d}' for i in range(channels)),next_n)
     def scenario(label,action):
         SPENT.clear();server.history_lock.wait=server.history_lock.held=server.directory_lock.wait=0.0
-        ms,body=action()
-        result[label]=dict(ms=round(ms,1),**{k:round(v*1000,1) for k,v in SPENT.items()},
+        used=cpu();ms,body=action()
+        result[label]=dict(ms=round(ms,1),cpu_ms=round((cpu()-used)*1000),**{k:round(v*1000,1) for k,v in SPENT.items()},
             history_lock_wait_ms=round(server.history_lock.wait*1000,1),history_lock_held_ms=round(server.history_lock.held*1000,1),
             directory_lock_wait_ms=round(server.directory_lock.wait*1000,1))
         return body
@@ -146,7 +157,49 @@ def measure(db,channels,open_runs,next_n,start,repeat):
             homepage=threading.Thread(target=lambda:done.update(home=get(server,'/api/players')[0]));homepage.start()
             time.sleep(.05);done['other']=get(server,f'/api/players/{other}')[0];homepage.join()
             result['concurrent_homepage_ms']=round(done['home'],1);result['concurrent_unchanged_character_ms']=round(done['other'],1)
-    finally:server.shutdown();thread.join(5);server.server_close()
+        if viewers:result['viewers']=load(server,names,append,viewers,seconds)
+        result['rss_mib']=round(PROCESS.memory_info().rss/2**20)
+    finally:
+        server.shutdown();thread.join(5);server.server_close()
+        # Handler threads are daemons: requests a client abandoned keep running. Let
+        # them finish so they cannot steal CPU from the next measurement.
+        tick=time.monotonic()
+        while threading.active_count()>baseline and time.monotonic()-tick<1800:time.sleep(.2)
+        result['abandoned_work_drain_seconds']=round(time.monotonic()-tick,1)
+    return result
+
+
+def load(server,names,append,viewers,seconds):
+    """Browser-like clients: 5 s timeout, next poll 2 s after each response; one capture per channel per 20 s."""
+    stop=time.monotonic()+seconds;samples={'home':[],'character':[]};timeouts={'home':0,'character':0};lock=threading.Lock()
+    def viewer(i):
+        kind='home' if i%2==0 else 'character';path='/api/players' if kind=='home' else f'/api/players/{names[i//2%len(names)]}'
+        time.sleep(i*2/viewers)
+        while time.monotonic()<stop:
+            try:
+                ms,body=get(server,path,timeout=5)
+                for p in body['players'] if kind=='home' else [body['player']]:
+                    values=[w['gain'] for w in p['recent_windows'].values() if w.get('gain')]
+                    values=[Fraction(v['numerator'],v['denominator']) for v in values]
+                    assert values==sorted(values),'nested public totals'
+                with lock:samples[kind].append(ms)
+            except OSError:
+                with lock:timeouts[kind]+=1
+            time.sleep(2)
+    def writer():
+        while time.monotonic()<stop:
+            for name in names:
+                if time.monotonic()>=stop:return
+                append([name]);time.sleep(STEP/len(names))
+    threads=[threading.Thread(target=viewer,args=(i,)) for i in range(viewers)]+[threading.Thread(target=writer)]
+    used=cpu();tick=time.monotonic()
+    for t in threads:t.start()
+    for t in threads:t.join()
+    wall=time.monotonic()-tick;result=dict(viewers=viewers,seconds=round(wall,1),cpu_seconds_per_second=round((cpu()-used)/wall,2))
+    for kind,values in samples.items():
+        values.sort()
+        result[kind]=dict(requests=len(values),timeouts=timeouts[kind],**(dict(p50_ms=round(statistics.median(values)),
+            p95_ms=round(values[int(.95*(len(values)-1))]),max_ms=round(values[-1])) if values else {}))
     return result
 
 
@@ -156,16 +209,20 @@ def main(argv=None):
     cli.add_argument('--attempts',type=int,default=4321,help='Per channel; 4,321 at 20s is 24 hours')
     cli.add_argument('--channels',type=int,nargs='+',default=[1,5,10,25])
     cli.add_argument('--repeat',type=int,default=5)
+    cli.add_argument('--full-replay',action='store_true',help='Disable causal checkpoints (before/after baseline)')
+    cli.add_argument('--viewers',type=int,default=0,help='Concurrent browser-like clients after the scenarios')
+    cli.add_argument('--seconds',type=int,default=30)
     args=cli.parse_args(argv)
-    if not 61<=args.attempts<=4400 or not all(1<=c<=25 for c in args.channels):cli.error('Use 61..4400 attempts and 1..25 channels')
+    if not 61<=args.attempts<=4400 or not all(1<=c<=25 for c in args.channels) or not 0<=args.viewers<=200 or not 5<=args.seconds<=300:
+        cli.error('Use 61..4400 attempts, 1..25 channels, 0..200 viewers and 5..300 seconds')
     folder=private_path(args.directory);folder.mkdir(parents=True,exist_ok=False)
     start=datetime.now(timezone.utc)-timedelta(seconds=args.attempts*STEP+60)
     base=folder/'template.sqlite3';tick=time.perf_counter();open_run,next_n=template(base,args.attempts,start)
-    report=dict(synthetic=True,not_capture_throughput=True,attempts_per_channel=args.attempts,cadence_seconds=STEP,
+    report=dict(synthetic=True,not_capture_throughput=True,attempts_per_channel=args.attempts,cadence_seconds=STEP,full_replay=args.full_replay,
         template_build_seconds=round(time.perf_counter()-tick,1),results=[])
     for channels in args.channels:
         db=folder/f'channels-{channels:02d}.sqlite3';shutil.copy(base,db);clone(db,channels,start)
-        result=measure(db,channels,open_run,next_n,start,args.repeat)
+        result=measure(db,channels,open_run,next_n,start,args.repeat,args.full_replay,args.viewers,args.seconds)
         report['results'].append(result);print(json.dumps(result),flush=True)
     (folder/'homepage-benchmark.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
 

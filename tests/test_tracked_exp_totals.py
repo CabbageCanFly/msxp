@@ -195,7 +195,7 @@ def test_refreshing_an_existing_history_cache_entry_does_not_evict_another_chann
     _,store,d=tracking;save(d,'run',1,0,3300);save(d,'run',2,20,3305)
     handler=object.__new__(Handler)
     cache={'alpha':(None,0,None),**{f'other{i}':(None,0,None) for i in range(24)}}
-    handler.server=SimpleNamespace(history_lock=threading.Lock(),history_cache=cache)
+    handler.server=SimpleNamespace(history_lock=threading.Lock(),history_cache=cache,checkpoints={})
     result=handler.tracked(store,'alpha',NOW+timedelta(seconds=20))
     assert result['tracked_exp']['approximate']>0
     assert len(cache)==25 and all(f'other{i}' in cache for i in range(24))

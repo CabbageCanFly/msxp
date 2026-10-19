@@ -66,6 +66,8 @@ SQLite isolation itself is not the problem: readers use WAL snapshots and
 
 ## Recommended next milestone: incremental causal checkpoints
 
+Implemented in [incremental history](incremental-history.md), with measured results.
+
 This needs review first, because it changes how history is cached.
 
 1. Per (channel, selected character), cache the streaming state already used by

@@ -9,13 +9,14 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
+import time
 
 from .shadow_view import MAX_LINE, MAX_ROWS, ShadowLog, observation, timestamp
 from .store import Store, utc
 from .shadow_grammar import interpret_exp, propose_full_exp
 from .exp_requirements import community_table, requirement
 from .diagnostic_progress import progress
-from .product import player,refresh,PRODUCT_ROWS
+from .product import player,refresh,history,PRODUCT_ROWS
 from .diagnostic_evidence import project
 
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
@@ -35,6 +36,16 @@ def operation(value,runtime,now):
     elif runtime['state']=='waiting' and (now-datetime.fromisoformat(runtime['next_due_at'])).total_seconds()>max(2,min(15,runtime.get('requested_interval_seconds',15)/2)):
         result['state']='capture_delayed'
     return result
+
+
+def due(player,built_at,now):
+    """A cached player must be rebuilt as rolling windows age, even without a new revision."""
+    paces=[player.get('responsive_pace')]+[w.get('pace') for w in player['recent_windows'].values()]
+    pace_due=any(pace and not pace.get('retained_history') and
+        datetime.fromisoformat(pace['start'])<now-timedelta(seconds=pace['trend_seconds']) for pace in paces)
+    history_due=(any(w['available'] for w in player['recent_windows'].values())
+        and (now-datetime.fromisoformat(built_at)).total_seconds()>=10)
+    return pace_due or history_due
 
 
 def rotation_link(previous, current):
@@ -375,72 +386,90 @@ class Diagnostics:
             result['percentage_progress']['reason']='historical_window_not_current'
         return result
 
-    def rolling_history(self,channel,*,now=None):
+    def rolling_history(self,channel,*,now=None,checkpoints=None):
         from .rolling_history import aggregate
-        if self.db.in_transaction:return aggregate(self,channel,now=now or datetime.now(timezone.utc))
+        if self.db.in_transaction:return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints)
         with self.store._transaction():
-            return aggregate(self,channel,now=now or datetime.now(timezone.utc))
+            return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints)
 
-    def recent_snapshot(self,channel,*,now,eta_cache=None):
+    def recent_snapshot(self,channel,*,now,eta_cache=None,checkpoints=None):
         from .rolling_history import recent_snapshot
-        if self.db.in_transaction:return recent_snapshot(self,channel,now=now,eta_cache=eta_cache)
+        if self.db.in_transaction:return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints)
         with self.store._transaction():
-            return recent_snapshot(self,channel,now=now,eta_cache=eta_cache)
+            return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints)
 
-    def directory(self, cache, *, now=None, active_runs=None,coordinator_status=None):
-        """Cache compact cards by committed revision; never retain full histories."""
+    def heads(self,login=None):
+        """Committed revision per channel: selection, open session, latest run and attempt."""
+        latest='SELECT MAX(id) FROM diagnostic_attempts WHERE session_id=se.id' if self.store.schema_version>=4 else (
+            'SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id WHERE dr.session_id=se.id')
+        return list(self.db.execute('''SELECT s.login,s.selected_character_id,se.id AS session_id,
+            r.run_id,r.summary_json,
+            (SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=se.id AND summary_json IS NULL) AS unfinished_count,
+            ('''+latest+''') AS last_attempt_id
+            FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
+            LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
+            '''+('WHERE s.login=? ' if login else '')+'ORDER BY s.login LIMIT 26',(login,) if login else ()))
+
+    def card(self,cache,head,*,now,checkpoints=None,eta_cache=None):
+        """One shared computation per channel revision for the homepage and character API.
+
+        Entry: (revision, card, extras); extras carry the character page's chart history.
+        """
+        key=tuple(head);cached=cache.get(head['login'])
+        if cached is None or cached[0]!=key or due(cached[1]['player'],cached[1]['recent_as_of'],now):
+            snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS)
+            recent=self.recent_snapshot(head['login'],now=now,eta_cache=eta_cache,checkpoints=checkpoints)
+            p = snap['percentage_progress']
+            last = snap['observations'][-1] if snap['observations'] else {}
+            full = None
+            for row in reversed(snap['observations']):
+                if not row['timestamp_ordered'] or row['candidate_invalid'] or row['percentage_only_invalid']: continue
+                if row['exp_validity']['status']=='invalid': continue
+                proposal = row['interpretations']['full_exp']
+                reading = row['candidate'] or (proposal['proposals'][0]['reading'] if proposal['classification']=='unique_proposal' else None)
+                if reading:
+                    full = dict(exp=reading['exp'],percentage=reading['percentage'],
+                        evidence='strict_full' if row['candidate'] else 'grammar_recovered',
+                        event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'])
+                    break
+            point = p['latest_percentage']
+            card = dict(channel=snap['channel'],character=snap['selected_character'],session=snap['session'],
+                source_kind=snap.get('source_kind'),
+                source_status=snap['source_status'],run_status=snap['run_status'],run_id=snap['run_id'],
+                reasons=last.get('reasons',[]),
+                last_attempt_at=last.get('received_at') or last.get('attempted_at'),
+                last_attempt_noncurrent=last.get('timestamp_ordered') is False or not last.get('fresh_at_capture'),
+                percentage={k:point[k] for k in ('percentage','evidence','timestamp','event_id')} if point else None,
+                full_exp=full,visual_level=last.get('visual_level'),neural_level=(last.get('neural_level') or {}).get('level'),
+                movement=p['latest_movement'],progress_reason=p['reason'],pace=p['current_pace'],
+                stale_after_seconds=snap['stale_after_seconds'],history_limit=PRODUCT_ROWS,
+                history_truncated=snap['truncated'],trusted=False)
+            card['player']=player(snap,now=now,recent_snapshot=recent)
+            card['recent_as_of']=now.isoformat()
+            card['unfinished_run_count'] = snap['unfinished_run_count']
+            cache[head['login']]=(key,card,dict(history=history(recent),truncated=recent.get('recent_history_status')=='history_limit',
+                lifecycle={k:snap[k] for k in ('run_status','historical','unfinished_run_count')}))
+        return cache[head['login']]
+
+    def directory(self, cache, *, now=None, active_runs=None,coordinator_status=None,checkpoints=None,eta_cache=None,budget_seconds=None):
+        """Cache compact cards by committed revision; never retain full histories.
+
+        With a budget, stale cards are rebuilt newest-revision-first until it is spent;
+        the rest are served as their last completed card, aged by refresh().
+        """
         now = now or datetime.now(timezone.utc)
         cards = []
         with self.store._transaction():
-            latest='SELECT MAX(id) FROM diagnostic_attempts WHERE session_id=se.id' if self.store.schema_version>=4 else (
-                'SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id WHERE dr.session_id=se.id')
-            heads = list(self.db.execute('''SELECT s.login,s.selected_character_id,se.id AS session_id,
-                r.run_id,r.summary_json,
-                (SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=se.id AND summary_json IS NULL) AS unfinished_count,
-                ('''+latest+''') AS last_attempt_id
-                FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
-                LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
-                ORDER BY s.login LIMIT 26'''))
+            heads=self.heads()
+            stale=[h for h in heads[:25] if h['login'] not in cache or cache[h['login']][0]!=tuple(h)
+                or due(cache[h['login']][1]['player'],cache[h['login']][1]['recent_as_of'],now)]
+            stale.sort(key=lambda h:(h['login'] in cache,h['login'] in cache and cache[h['login']][0]==tuple(h),
+                cache[h['login']][1]['recent_as_of'] if h['login'] in cache else ''))
+            started=time.monotonic()
+            for head in stale:
+                if budget_seconds is not None and head['login'] in cache and time.monotonic()-started>=budget_seconds:continue
+                self.card(cache,head,now=now,checkpoints=checkpoints,eta_cache=eta_cache)
             for head in heads[:25]:
-                key = tuple(head)
-                cached = cache.get(head['login'])
-                paces=([cached[1]['player'].get('responsive_pace')]+[w.get('pace') for w in cached[1]['player']['recent_windows'].values()]) if cached else []
-                # Expire rolling intervals even when no new SQLite revision arrives.
-                pace_due=any(pace and not pace.get('retained_history') and
-                    datetime.fromisoformat(pace['start'])<now-timedelta(seconds=pace['trend_seconds']) for pace in paces)
-                history_due=bool(cached and any(w['available'] for w in cached[1]['player']['recent_windows'].values())
-                    and (now-datetime.fromisoformat(cached[1]['recent_as_of'])).total_seconds()>=10)
-                if cached is None or cached[0] != key or pace_due or history_due:
-                    snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS)
-                    p = snap['percentage_progress']
-                    last = snap['observations'][-1] if snap['observations'] else {}
-                    full = None
-                    for row in reversed(snap['observations']):
-                        if not row['timestamp_ordered'] or row['candidate_invalid'] or row['percentage_only_invalid']: continue
-                        if row['exp_validity']['status']=='invalid': continue
-                        proposal = row['interpretations']['full_exp']
-                        reading = row['candidate'] or (proposal['proposals'][0]['reading'] if proposal['classification']=='unique_proposal' else None)
-                        if reading:
-                            full = dict(exp=reading['exp'],percentage=reading['percentage'],
-                                evidence='strict_full' if row['candidate'] else 'grammar_recovered',
-                                event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'])
-                            break
-                    point = p['latest_percentage']
-                    card = dict(channel=snap['channel'],character=snap['selected_character'],session=snap['session'],
-                        source_kind=snap.get('source_kind'),
-                        source_status=snap['source_status'],run_status=snap['run_status'],run_id=snap['run_id'],
-                        reasons=last.get('reasons',[]),
-                        last_attempt_at=last.get('received_at') or last.get('attempted_at'),
-                        last_attempt_noncurrent=last.get('timestamp_ordered') is False or not last.get('fresh_at_capture'),
-                        percentage={k:point[k] for k in ('percentage','evidence','timestamp','event_id')} if point else None,
-                        full_exp=full,visual_level=last.get('visual_level'),neural_level=(last.get('neural_level') or {}).get('level'),
-                        movement=p['latest_movement'],progress_reason=p['reason'],pace=p['current_pace'],
-                        stale_after_seconds=snap['stale_after_seconds'],history_limit=PRODUCT_ROWS,
-                        history_truncated=snap['truncated'],trusted=False)
-                    card['player']=player(snap,now=now,recent_snapshot=self.recent_snapshot(head['login'],now=now))
-                    card['recent_as_of']=now.isoformat()
-                    card['unfinished_run_count'] = snap['unfinished_run_count']
-                    cache[head['login']] = (key,card)
                 card = deepcopy(cache[head['login']][1])
                 def age(when):
                     return (now-datetime.fromisoformat(when)).total_seconds() if when else None

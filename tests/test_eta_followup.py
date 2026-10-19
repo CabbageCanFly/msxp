@@ -260,20 +260,21 @@ def test_historical_eta_replay_prunes_only_after_supported_intervals(tracking,mo
     from exp_tracker import rolling_history,diagnostics
     _,_,d=tracking
     now=NOW+timedelta(seconds=4200*20)
-    def batches(*args,receipt,**kwargs):
-        for n in range(70):
-            batch=[]
-            for i in range(60):
-                ordinal=n*60+i+1;bp=3000+ordinal
-                row=point(ordinal,ordinal*20,bp*1757815//10000,f'{bp//100}.{bp%100:02}')
-                row.update(run_id=f'run-{n}',index=i+1,rotation_from=f'run-{n-1}' if n else None,
-                    source_identity='b'*64,coordinator_instance='a'*32)
-                batch.append(row)
-            receipt['context_attempts']+=len(batch);receipt['run_count']+=1
-            yield dict(session_id=1),batch
+    runs=[dict(run_id=f'run-{n}',session_id=1,configuration_json='{}',summary_json='{}') for n in range(70)]
+    def batch(diagnostic,channel,run,*,now,receipt):
+        n=int(run['run_id'][4:]);rows=[]
+        for i in range(60):
+            ordinal=n*60+i+1;bp=3000+ordinal
+            row=point(ordinal,ordinal*20,bp*1757815//10000,f'{bp//100}.{bp%100:02}')
+            row.update(run_id=f'run-{n}',index=i+1,rotation_from=f'run-{n-1}' if n else None,
+                source_identity='b'*64,coordinator_instance='a'*32)
+            rows.append(row)
+        receipt['context_attempts']+=len(rows);receipt['run_count']+=1
+        return (run['run_id'],'{}','{}',60,n),rows
     # Sanitized synthetic batches isolate bounded retention; real SQLite rotation
     # validation is exercised by the existing multi-run history regressions.
-    monkeypatch.setattr(rolling_history,'run_batches',batches)
+    monkeypatch.setattr(rolling_history,'select_runs',lambda *args,**kwargs:runs)
+    monkeypatch.setattr(rolling_history,'run_rows',batch)
     monkeypatch.setattr(diagnostics,'rotation_link',lambda before,after:before is not None)
     result=rolling_history.recent_snapshot(d,'alpha',now=now,_historical=True)
     assert result['recent_history_status']=='ready'

@@ -44,6 +44,8 @@ The [tracked-EXP consistency follow-up](docs/tracked-exp-consistency.md) uses sh
 eligible intervals for nested recent/24-hour totals and displays ETA to the nearest minute.
 The [homepage performance investigation](docs/homepage-performance.md) measures 1–25
 synthetic full-day channels and recommends incremental history checkpoints.
+The [incremental history follow-up](docs/incremental-history.md) resumes exact causal
+checkpoints per run and shares one player card per channel revision across viewers.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a
