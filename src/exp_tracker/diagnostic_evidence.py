@@ -7,7 +7,7 @@ from decimal import Decimal
 from functools import lru_cache
 import math
 
-from .exp_consistency import MODES, assess, infer_levels
+from .exp_consistency import MODES, assess, infer_indexed, requirement_index
 from .exp_requirements import community_table, requirement
 from .shadow_grammar import interpret_exp
 
@@ -50,11 +50,19 @@ def consistency(full, level):
             'reason':'contradicts_both_display_hypotheses' if status=='invalid' else 'conditional_table_agreement' if status=='consistent' else 'unavailable_numeric'}
 
 
+@lru_cache(maxsize=1)
+def _supported_table():
+    """(table, validated index); read-only, built once per process."""
+    data, _ = community_table()
+    table = {int(k): v for k, v in data['to_next'].items()}
+    return table, requirement_index(table)
+
+
 @lru_cache(maxsize=4096)  # Long-running servers see a new pair nearly every frame.
 def _exp_derived(exp, percentage):
     data, sha = community_table()
-    table = {int(k): v for k, v in data['to_next'].items()}
-    hypotheses = {mode: infer_levels(int(exp), percentage, table, mode) for mode in MODES}
+    table, index = _supported_table()
+    hypotheses = {mode: infer_indexed(int(exp), percentage, index, mode) for mode in MODES}
     levels = sorted({level for value in hypotheses.values() for level in value['levels']})
     result = dict(policy=EXP_DERIVED_POLICY, exp=exp, percentage=percentage, table_version=data['version'],
         table_sha256=sha, supported_levels=[min(table), max(table)], levels=levels, unique_level=None,

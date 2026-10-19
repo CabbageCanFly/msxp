@@ -64,6 +64,8 @@ noisy. The card CPU measurement above is the controlled comparison.
 
 ### Cold start regression from the EXP-level inference merge (not this change)
 
+Resolved by [exact interval search](exp-inference-performance.md); cold replay is back to pre-merge cost.
+
 Cold replays became ≈3–7× slower after `feat/exp-level-inference`. On the same fixture,
 CPU best of 3: 24h replay 0.8 → 2.2 s, recent 0.5–0.6 → 3.6 s. This change is neutral:
 reference ≈ optimized. `project()` calls `_exp_derived(exp, percentage)` per row; a cache

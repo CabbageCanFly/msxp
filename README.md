@@ -48,6 +48,8 @@ The [incremental history follow-up](docs/incremental-history.md) resumes exact c
 checkpoints per run and shares one player card per channel revision across viewers.
 The [card projection follow-up](docs/card-projection.md) removes repeated parsing and
 projection inside each card with exact reference parity, and records the remaining cost.
+The [EXP-derived level search](docs/exp-inference-performance.md) restores pre-merge cold
+replay cost with an exact integer interval search over requirements.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a
