@@ -1,6 +1,6 @@
 """SQLite base schema and additive migrations, applied in one transaction."""
 
-VERSION = 4
+VERSION = 6
 STATEMENTS = (
     """CREATE TABLE streamers (
         id INTEGER PRIMARY KEY, login TEXT NOT NULL UNIQUE,
@@ -83,4 +83,50 @@ MIGRATION_4 = (
     'CREATE INDEX diagnostic_time ON diagnostic_attempts(session_id,attempted_at,id)',
     'CREATE INDEX diagnostic_run_order ON diagnostic_runs(session_id)',
     'CREATE INDEX session_listing ON sessions(streamer_id,id)',
+)
+
+MIGRATION_5 = (
+    """CREATE TABLE manual_corrections (
+        id INTEGER PRIMARY KEY, event_id TEXT NOT NULL,
+        streamer_id INTEGER NOT NULL REFERENCES streamers(id),
+        character_id INTEGER NOT NULL, session_id INTEGER,
+        effective_at TEXT NOT NULL, recorded_at TEXT NOT NULL,
+        provenance TEXT NOT NULL DEFAULT 'manual_admin' CHECK(provenance='manual_admin'),
+        action TEXT NOT NULL CHECK(action IN ('set','clear')),
+        level INTEGER CHECK(level BETWEEN 1 AND 200),
+        current_exp INTEGER CHECK(current_exp >= 0),
+        percentage_bp INTEGER CHECK(percentage_bp BETWEEN 0 AND 9999), reason TEXT,
+        CHECK((action='set' AND (level IS NOT NULL OR current_exp IS NOT NULL OR percentage_bp IS NOT NULL))
+            OR (action='clear' AND level IS NULL AND current_exp IS NULL AND percentage_bp IS NULL)),
+        FOREIGN KEY(character_id,streamer_id) REFERENCES characters(id,streamer_id),
+        FOREIGN KEY(session_id,character_id,streamer_id) REFERENCES sessions(id,character_id,streamer_id),
+        UNIQUE(streamer_id,event_id)
+    )""",
+    'CREATE INDEX manual_character_history ON manual_corrections(character_id,effective_at,id)',
+    """CREATE TRIGGER manual_no_update BEFORE UPDATE ON manual_corrections
+        BEGIN SELECT RAISE(ABORT,'manual corrections are append-only'); END""",
+    """CREATE TRIGGER manual_no_delete BEFORE DELETE ON manual_corrections
+        BEGIN SELECT RAISE(ABORT,'manual corrections are append-only'); END""",
+)
+
+MIGRATION_6 = (
+    "ALTER TABLE manual_corrections ADD COLUMN kind TEXT NOT NULL DEFAULT 'baseline' CHECK(kind IN ('baseline','point'))",
+    "ALTER TABLE manual_corrections ADD COLUMN operation TEXT NOT NULL DEFAULT 'apply' CHECK(operation IN ('apply','retract'))",
+    'ALTER TABLE manual_corrections ADD COLUMN replaces_id INTEGER REFERENCES manual_corrections(id)',
+    "ALTER TABLE manual_corrections ADD COLUMN target_kind TEXT CHECK(target_kind IN ('diagnostic','observation'))",
+    'ALTER TABLE manual_corrections ADD COLUMN target_event_id TEXT',
+    'CREATE UNIQUE INDEX manual_successor ON manual_corrections(replaces_id) WHERE replaces_id IS NOT NULL',
+    """CREATE TRIGGER manual_required_fields BEFORE INSERT ON manual_corrections
+        WHEN NEW.action='set' AND (NEW.level IS NULL OR (NEW.current_exp IS NULL AND NEW.percentage_bp IS NULL))
+        BEGIN SELECT RAISE(ABORT,'new corrections require level and EXP or percentage'); END""",
+    """CREATE TABLE character_renames (
+        id INTEGER PRIMARY KEY, streamer_id INTEGER NOT NULL REFERENCES streamers(id),
+        character_id INTEGER NOT NULL, previous_label TEXT NOT NULL, label TEXT NOT NULL,
+        recorded_at TEXT NOT NULL, reason TEXT,
+        FOREIGN KEY(character_id,streamer_id) REFERENCES characters(id,streamer_id)
+    )""",
+    """CREATE TRIGGER rename_no_update BEFORE UPDATE ON character_renames
+        BEGIN SELECT RAISE(ABORT,'character renames are append-only'); END""",
+    """CREATE TRIGGER rename_no_delete BEFORE DELETE ON character_renames
+        BEGIN SELECT RAISE(ABORT,'character renames are append-only'); END""",
 )

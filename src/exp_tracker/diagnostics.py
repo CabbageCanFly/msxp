@@ -17,6 +17,7 @@ from .exp_requirements import community_table, requirement
 from .diagnostic_progress import progress
 from .product import player,refresh,history,PRODUCT_ROWS
 from .diagnostic_evidence import project
+from .manual import annotate,active,corrected_reading
 
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
 
@@ -307,6 +308,11 @@ class Diagnostics:
             age_seconds=None, stale=False, interval_seconds=None, stale_after_seconds=45, poll_seconds=2,
             observations=[], truncated=False, mixed_channels=False, latest_reading=None,
             trusted_state=state)
+        result['manual_corrections'] = self.store.manual_history(channel,
+            character_id=selected['id'] if selected else None,as_of=now) if selected else []
+        result['manual_observations']=[corrected_reading(e,event_id='observation:'+e['target_event_id'])
+            for e in active(result['manual_corrections']) if e['kind']=='point' and e['target_kind']=='observation'
+            and e['session_id']==(session['id'] if session else None)]
         result.update(historical=historical or bool(session and session['ended_at']),
             history=dict(session_id=session['id'] if session else None,run_id=run_id,before=before,start=start,end=end,next_before=None))
         table, sha = community_table()
@@ -365,11 +371,16 @@ class Diagnostics:
                          timestamp_ordered=previous is None or when > previous)
             previous = max(previous, when) if previous else when
             observations.append(value)
+        annotate(observations,result['manual_corrections'])
         if _rows_only:
             return observations  # Internal streaming history: reuse the exact sanitized decoder.
         total = self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE session_id=?' if self.store.schema_version>=4 else
             'SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?', (session['id'],)).fetchone()[0]
         observations=project(observations)
+        for row in observations:
+            if row.get('manual_point'):
+                row['manual_presentation']=corrected_reading(row['manual_point'],event_id=row['event_id'],
+                    timestamp=row.get('received_at') or row['attempted_at'],epoch=row['manual_epoch'])
         result['coverage'] = coverage(observations, total)
         result['coverage']['history_limit']=limit
         if result['historical']: result['coverage']['scope']='selected_history_page'
@@ -420,12 +431,16 @@ class Diagnostics:
 
     def heads(self,login=None):
         """Committed revision per channel: selection, open session, latest run and attempt."""
+        manual='(SELECT MAX(id) FROM manual_corrections WHERE streamer_id=s.id)' if self.store.schema_version>=5 else 'NULL'
+        rename='(SELECT MAX(id) FROM character_renames WHERE streamer_id=s.id)' if self.store.schema_version>=6 else 'NULL'
         latest='SELECT MAX(id) FROM diagnostic_attempts WHERE session_id=se.id' if self.store.schema_version>=4 else (
             'SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id WHERE dr.session_id=se.id')
         return list(self.db.execute('''SELECT s.login,s.selected_character_id,se.id AS session_id,
             r.run_id,r.summary_json,
             (SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=se.id AND summary_json IS NULL) AS unfinished_count,
-            ('''+latest+''') AS last_attempt_id
+            ('''+latest+''') AS last_attempt_id,
+            '''+manual+''' AS manual_revision,
+            '''+rename+''' AS rename_revision
             FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
             LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
             '''+('WHERE s.login=? ' if login else '')+'ORDER BY s.login LIMIT 26',(login,) if login else ()))

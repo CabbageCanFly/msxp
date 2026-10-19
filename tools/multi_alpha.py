@@ -129,7 +129,7 @@ def check_assignments(database, streams):
                 if found and found[0] is not None:
                     label = store.db.execute('SELECT label FROM characters WHERE id=?', (found[0],)).fetchone()[0]
                     if label != row['character']:
-                        raise ValueError(f"Character mismatch for {row['channel']}: selected {label!r}; requested {row['character']!r}. Use explicit administration.")
+                        raise ValueError(f"Character mismatch for {row['channel']}: selected {label!r}; requested {row['character']!r}. Review the coordinated rename workflow in docs/manual-exp-admin.md; do not create another character.")
 
 
 def initialize(database, streams, say=print):

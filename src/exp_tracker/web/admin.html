@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="admin-token" content="__ADMIN_TOKEN__">
+  <title>Level &amp; EXP · MapleStory Classic</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/admin.css">
+  <script src="/admin.js" type="module"></script>
+</head>
+<body>
+<main id="app" aria-busy="true">
+  <header><span class="eyebrow">MapleStory Classic · Local admin</span><h1>Level &amp; EXP</h1>
+    <p>Choose a character, enter the correct values, then review before saving.</p>
+  </header>
+  <p id="status" role="status" aria-live="polite">Loading characters…</p>
+  <section class="panel" aria-labelledby="edit-title">
+    <div id="pickers" class="fields selectors">
+      <label>Twitch channel<select id="channel" required></select></label>
+      <div><div class="label-line"><label for="character">Character name</label><button id="rename" type="button" class="text-button">Rename character</button></div>
+        <select id="character" required></select></div>
+    </div>
+    <form id="rename-form" hidden>
+      <h2>Rename character</h2>
+      <label>New name<input id="new-name" maxlength="100" required></label>
+      <label>Reason <span class="optional">(optional)</span><input id="rename-reason" maxlength="1000"></label>
+      <p class="muted">All readings and corrections stay with this character. If it is in your capture roster, update its name there before the next restart.</p>
+      <button type="submit" class="primary">Review name change</button><button id="cancel-rename" type="button">Cancel</button>
+    </form>
+    <div id="latest" aria-label="Latest character information"></div>
+    <div class="heading-line"><h2 id="edit-title">Set level and EXP</h2><button id="new-correction" type="button" class="text-button" hidden>Start a new correction</button></div>
+    <p id="edit-context" class="muted" hidden></p>
+    <form id="editor">
+      <fieldset id="time-fields">
+        <div class="fields date-time">
+          <label>Date<input id="date" type="date" required></label>
+          <label>Time <span class="optional">(with seconds)</span><input id="time" type="time" step="1" required></label>
+        </div>
+        <p id="timezone" class="muted"></p>
+        <label class="check"><input id="use-now" type="checkbox">Use current date and time</label>
+        <div id="clock-choice" hidden>
+          <p class="warning">The clocks change on this date, so this time occurs twice. Choose which one you mean.</p>
+          <label>Which time?<select id="clock-time"></select></label>
+        </div>
+      </fieldset>
+      <fieldset id="value-fields">
+        <div class="fields exp-fields">
+          <label>Level<input id="level" type="number" min="1" max="200" step="1" required></label>
+          <label>Numerical EXP<input id="exp" inputmode="numeric" pattern="[0-9]+"></label>
+          <label>EXP percentage<input id="percentage" inputmode="decimal" pattern="[0-9]{1,2}(\.[0-9]{1,2})?" placeholder="e.g. 0.45"></label>
+        </div>
+        <p class="hint">Enter numerical EXP, EXP percentage, or both.</p>
+      </fieldset>
+      <label>Reason <span id="reason-note" class="optional">(optional)</span><input id="reason" maxlength="1000"></label>
+      <fieldset id="session-choice" hidden>
+        <p>This time falls between two tracking periods. Choose the recording you want to correct.</p>
+        <label>Recording<select id="recording-choice"></select></label>
+      </fieldset>
+      <details id="form-advanced"><summary>Advanced</summary>
+        <label class="check"><input id="use-iso" type="checkbox">Paste an exact ISO timestamp instead</label>
+        <label id="iso-field" hidden>ISO timestamp (with seconds and timezone)<input id="effective-at" placeholder="2026-10-19T17:30:00-04:00" spellcheck="false"></label>
+        <p id="exact-time" class="muted"></p>
+        <label>Recording override<select id="target-session"><option value="auto">Choose automatically</option><option value="none">Outside recorded play times</option></select></label>
+        <p class="muted">Use an override only when correcting information outside a recorded period, or when you need a particular recording.</p>
+        <button id="clear" type="button">Stop using a manual starting point</button>
+        <button id="find-reading" type="button">Enter an older reading's identity</button>
+        <fieldset id="target-fields" hidden>
+          <label>Original record type<select id="target-kind"><option value="diagnostic">Diagnostic event</option><option value="observation">SQLite observation</option></select></label>
+          <label>Original record identity<input id="target-id" spellcheck="false"></label>
+        </fieldset>
+        <p id="database" class="muted"></p>
+      </details>
+      <button id="preview-button" type="submit" class="primary">Review changes</button>
+    </form>
+    <section id="preview" class="review" hidden aria-labelledby="preview-title" tabindex="-1">
+      <h2 id="preview-title">Review changes</h2><p id="preview-summary"></p>
+      <div id="preview-values"></div><p id="preview-warning" class="warning" role="alert" hidden></p>
+      <p id="preview-notice" class="muted"></p>
+      <details><summary>Advanced details</summary><pre id="preview-audit"></pre></details>
+      <button id="save" type="button" class="primary">Save changes</button><button id="cancel" type="button">Back to editing</button>
+    </section>
+    <details id="receipt" hidden><summary>Advanced: last saved details</summary><pre id="saved-audit"></pre></details>
+  </section>
+  <nav aria-label="Character records"><a href="#past-section">Past readings</a><a href="#history-section">Correction history</a><button id="refresh" type="button" class="text-button">Refresh</button></nav>
+  <details id="past-section" class="panel"><summary>Past readings</summary>
+    <label>Recorded period<select id="session"></select></label>
+    <p class="muted">Find the reading you want to change and choose Fix. Its original time is kept exactly.</p>
+    <div id="readings"></div>
+  </details>
+  <details id="history-section" class="panel"><summary>Correction history</summary>
+    <p class="muted">Edit a correction or undo it. Original game readings are always kept.</p>
+    <div id="history"></div>
+  </details>
+</main>
+</body>
+</html>

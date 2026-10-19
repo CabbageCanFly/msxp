@@ -53,12 +53,14 @@ function displayedExp(r,full=false) {
     r?.estimated_exp?`~${expText(r.estimated_exp.value.approximate,full)}`:'—';
 }
 function expTitle(r) {
+  if(r?.evidence==='manual_admin')return `Operator correction at ${r.timestamp} (${r.provenance?.kind==='point'?'historical reading':'baseline'}); supplied fields: ${Object.entries(r.provenance).filter(([k,v])=>['level','current_exp','percentage_bp'].includes(k) && v!=null).map(([k])=>k).join(', ')}. ${r.estimated_exp?'Numerical EXP is estimated from the entered percentage and provisional requirement. ':''}${r.estimated_percentage?'Percentage is estimated from entered EXP and provisional requirement; display uses truncation. ':''}${r.exp_validity?.status==='invalid'?'Entered values conflict with the provisional requirement; both supplied values are preserved. ':''}Operator adjustment; never earned EXP or trusted OCR.`;
   if(r?.estimated_exp) {
     const e=r.estimated_exp;
     return `Estimated from observed percentage and provisional level ${e.level_evidence.value} requirement, not read directly by OCR. ${Object.entries(e.hypotheses).map(([rule,b])=>`${rule}: ${b.count?`${numbers.format(b.min)}–${numbers.format(b.max)} EXP`:'no compatible within-level integer'}`).join('; ')}. Community table ${e.requirement.version}; bounds exclude OCR/table errors.${r.exp_validity?.status==='invalid'?' Contradictory OCR integer withheld.':''}`;
   }
   return r?.exp_validity?.status==='invalid'?'Absolute EXP withheld: inconsistent with level and percentage under both display hypotheses':r?.exp==null?'Absolute EXP unavailable; level or requirement unresolved':`${numbers.format(BigInt(r.exp))} current EXP; ${r.evidence==='conditional_symbol'?'conditional X-to-% recovery; unverified':r.evidence==='grammar_recovered'?'unverified grammar-recovered proposal':'original strict OCR candidate; unverified'}`;
 }
+function percentageText(r) { return r?.percentage!=null?`${r.estimated_percentage?'~':''}${r.percentage}%`:'—'; }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
 function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l.age_seconds+(performance.now()-receivedAt)/1000>p.stale_after_seconds); }
@@ -73,6 +75,7 @@ function levelText(p) {
 }
 function levelTitle(p) {
   const l=displayLevel(p),saved=p.display_level,t=levelTransition(p),context=p.level_context;
+  if(l?.status==='manual_admin')return `Operator-set level; correction ${l.correction_id}. Used as context when level OCR is unavailable; never character identity or trusted OCR.`;
   if(t)return `Possible level-up: percentage went from ${t.before_bp/100}% to ${t.after_bp/100}% at ${t.detected_at}. Lv. ${t.from_level} is the last supported level; Lv. ${t.to_level} needs more forward progress, EXP or a level reading.`;
   if(saved && LEVEL_SOURCES[saved.evidence.status])return `${LEVEL_SOURCES[saved.evidence.status]}${context?.supported_at?` Last supported ${context.supported_at} (${context.source}).`:''} ${saved.timestamp}. Experimental; never trusted accounting.`;
   if(saved)return `${lastKnown(p)?'Last-known':'Recently supported'} level; ${ageText(saved.age_seconds+(performance.now()-receivedAt)/1000)}; ${saved.evidence.reason}; ${saved.timestamp}. Display only, not evidence for calculations; OCR remains unverified.`;
@@ -213,10 +216,10 @@ function entry({player:p,value,rank}) {
   const level=node('span','level');level.append(node('small','','LV.'),node('strong','',levelText(p)));level.title=levelTitle(p);
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
   identity.append(name,node('span','channel',sourceText(p)),node('span','status',statusText(p)));
-  const section=node('div','exp-section'),bar=node('div','exp-bar'),progress=node('progress');progress.max=100;progress.value=r?r.bp/100:0;progress.hidden=!r;progress.setAttribute('aria-label',`${p.character?.label ?? p.channel} observed EXP percentage`);
+  const section=node('div','exp-section'),bar=node('div','exp-bar'),progress=node('progress');progress.max=100;progress.value=r?.bp!=null?r.bp/100:0;progress.hidden=r?.bp==null;progress.setAttribute('aria-label',`${p.character?.label ?? p.channel} observed EXP percentage`);
   bar.dataset.missing=String(!r);bar.dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence));
   const label=node('span','exp-label'),integer=node('span','exp-number',displayedExp(r,true));
-  integer.dataset.compactNumber=displayedExp(r);label.title=expTitle(r);label.append(node('small','','EXP'),integer,node('span','percentage',r?`[${r.percentage}%]`:'Waiting for EXP'));
+  integer.dataset.compactNumber=displayedExp(r);label.title=expTitle(r);label.append(node('small','','EXP'),integer,node('span','percentage',r?.percentage!=null?`[${percentageText(r)}]`:'Waiting for EXP'));
   bar.append(progress,label);
   section.append(bar,node('div','exp-detail',`${observedWindow(p)?`${movementText(observedWindow(p))} · ${windowNote(p)}`:!selectedWindow(p)?.eligible && earlyText(p) || windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):sort==='movement'?`+${value.toFixed(2)}%`:`~${expText(value)}`),
@@ -260,11 +263,11 @@ function renderPlayer() {
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
   el('level').dataset.lastKnown=String(lastKnown(p));
   el('level').dataset.inferred=String(!!levelTransition(p) || !!LEVEL_SOURCES[displayLevel(p)?.status]);
-  el('progress').value=r?r.bp/100:0;
-  el('progress').hidden=!r;
+  el('progress').value=r?.bp!=null?r.bp/100:0;
+  el('progress').hidden=r?.bp==null;
   const absolute=displayedExp(r,true);
   amount('exp',absolute==='—'?'—':absolute+' EXP',displayedExp(r));el('exp').title=expTitle(r);
-  el('percentage').textContent=r?`${r.percentage}%`:'—';
+  el('percentage').textContent=percentageText(r);el('percentage').title=r?.evidence==='manual_admin'?expTitle(r):'';
   el('status').textContent=statusText(p);
   el('age').textContent=r?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp ?? '';
   const observed=view==='player'?observedWindow(p):null;
@@ -418,7 +421,7 @@ function drawPercentageHistory() {
   const level=displayLevel(data?.player ?? {})?.value;
   const points=currentLevelOnly?windowPoints.filter(p=>!p.reading || p.level.value===level):windowPoints;
   // Unknown level points are retained as gaps, never assigned to the displayed level.
-  const visible=p=>p.reading && p.level.value!=null && (!currentLevelOnly || p.level.value===level);
+  const visible=p=>p.reading && p.reading.bp!=null && p.level.value!=null && (!currentLevelOnly || p.level.value===level);
   const values=points.filter(visible).map(p=>p.reading.bp/100),min=values.length?Math.min(...values):0,max=values.length?Math.max(...values):100;
   const padding=Math.max(.01,(max-min)*.1),low=Math.max(0,min-padding),high=Math.min(100,max+padding);
   function shape(tag,attrs,title) { const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(title)n.append(node('title','',title));svg.append(n);return n; }
@@ -482,7 +485,7 @@ async function poll() {
 async function pollRolling(force=false) {
   if(data?.tracked_history)return;
   if(view!=='player' || rollingController)return;
-  const revision=JSON.stringify([data?.player?.character?.id,data?.player?.latest_attempt_at]);
+  const revision=JSON.stringify([data?.player?.character?.id,data?.player?.session_id,data?.player?.latest_attempt_at,data?.player?.manual_correction?.id]);
   if(!force && rollingRevision===revision && performance.now()-rollingReceived<30000)return;
   clearTimeout(rollingTimer);
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);

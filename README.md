@@ -91,6 +91,23 @@ last-known levels and exposes early segment pace without relaxing fixed-window c
 Manage assignments with the [private roster CLI](docs/streamer-roster.md): add, disable,
 re-enable and inspect without deleting history; changes apply on controlled restart.
 
+[Manual administration (A1.1 / A2)](docs/manual-exp-admin.md) provides a local CLI and
+separate loopback-only browser dashboard for
+inspection, explicit-time Level / EXP baselines, historical reading corrections,
+audited amend/undo, clear and character renaming. New corrections require the
+existing character name, level, EXP and/or percentage, plus `--effective-at` or
+explicit `--now`; time never defaults silently. Public pages and the experimental
+OBS overlay refresh without another capture, and corrections never count as earned EXP.
+Launch the preview-first operator interface with
+`python -m exp_tracker.admin_server --db YOUR_DATABASE.sqlite3 --port 8766` and open
+the printed `http://127.0.0.1:8766/` URL. It reuses the existing correction rules,
+requires protected same-origin requests and never adds writes to the public server.
+Start with a synthetic/offline database; it does not start or restart capture.
+The dashboard opens on **Set level and EXP**, with native local date/time controls
+and a review before saving. **Past readings → Fix**, history **Edit / Undo**, and
+the separate **Rename character** action fill in their targets automatically.
+Daylight-saving ambiguities require a choice; technical details stay in Advanced.
+
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 1–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and
 separately gated experimental percentage progress. Start with the offline
@@ -160,7 +177,7 @@ existing SQLite state. Start with an existing demo database:
 Start-Process 'http://127.0.0.1:8765/overlay/demo'
 ```
 
-The read-only server supports schemas 3 and 4; writer initialization migrates to 4.
+The read-only server supports schemas 3–6; writer initialization migrates to 6.
 The linked guide covers creating a demo,
 explicitly migrating old databases, saved real OCR state and timed synthetic
 updates. HTTP never creates/migrates databases or writes tracking state.

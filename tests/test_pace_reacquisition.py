@@ -74,8 +74,9 @@ def test_hard_boundaries_block_crossing_and_keep_unrelated_same_context_interval
     else:
         row['percentage_review'].update(public_eligible=kind=='loss',progress_eligible=kind=='loss',break_before='confirmed_change_new_baseline' if kind=='loss' else None)
     pace=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-    assert pace['total_gain']['approximate']==498779-494285
-    assert pace['coverage_seconds']['approximate']==90
+    expected=(495783-494285)+(498779-498030) if kind=='session' else 498779-494285
+    assert pace['total_gain']['approximate']==expected
+    assert pace['coverage_seconds']['approximate']==(45 if kind=='session' else 90)
     strict=collect(snap,now=NOW+timedelta(seconds=90),read=reading,max_interval_seconds=300)
     if kind in ('conflict','stale','crop','duplicate'):
         assert all(row['event_id'] not in (e['before']['event_id'],e['after']['event_id']) for e in strict['intervals'])

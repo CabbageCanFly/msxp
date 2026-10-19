@@ -110,6 +110,9 @@ def test_public_boundaries_and_missed_captures_match_causal_replay(tracking,kind
     for r,decision in zip(rows,decisions):r['percentage_review']=decision
     edges=collect_observed(dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions)),now=now,read=reading,max_interval_seconds=300)['intervals']
     reference=dict(observations=rows);expected=expected_net(reference,now)
+    if kind=='session':
+        expected=sum(expected_net(dict(observations=[r for r in rows if r['session_id']==sid]),now) or 0
+                     for sid in {r['session_id'] for r in rows})
     assert (fraction(result['tracked_exp']) if result['tracked_exp'] else None)==expected
     assert result['tracked_exp'] is None or result['tracked_exp']['approximate']>=0
     assert not store.db.execute('select 1 from observations').fetchone()

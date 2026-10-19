@@ -187,7 +187,7 @@ def test_x_abstains_without_every_required_corroboration(kind,monkeypatch):
     if kind=='ambiguous':
         original=module.interpret_exp
         def duplicate(text):
-            result=original(text)
+            result=deepcopy(original(text))
             if result['symbol_hypotheses']:result['symbol_hypotheses']*=2
             return result
         monkeypatch.setattr(module,'interpret_exp',duplicate)

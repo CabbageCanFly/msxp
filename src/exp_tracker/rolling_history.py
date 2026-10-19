@@ -6,6 +6,7 @@ import json
 import threading
 
 from .diagnostic_evidence import project
+from .manual import revision,active
 from .diagnostic_percentage import review
 from .diagnostic_progress import percentage_point,rational,elapsed_seconds
 from .product import reading,fraction,WINDOWS,PACE_TREND_SECONDS
@@ -161,7 +162,8 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     resume=None if _historical else checkpoints
     try:
         state=replay(diagnostic,channel,start=start,now=now,receipt=receipt,state=state,step=step,
-            checkpoints=resume,key=('recent',channel,base['selected_character'] and base['selected_character']['id'],session))
+            checkpoints=resume,key=('recent',channel,base['selected_character'] and base['selected_character']['id'],session,
+                revision(base['manual_corrections'])))
     except HistoryLimit:
         return dict(base,observations=[],recent_history_status='history_limit',recent_history_receipt=receipt)
     kept=[(r,d) for r,d in zip(state['rows'],state['decisions']) if stamp(r)>=start]
@@ -174,9 +176,9 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
         if not collect(result,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)['intervals']:
             # Cold-server restoration is bounded like other history queries.
             # Cache only compact static estimates, invalidated by any new event.
-            revision=diagnostic.db.execute('SELECT MAX(id) FROM diagnostic_attempts WHERE '+owner+' AND attempted_at<=?',
+            attempt_revision=diagnostic.db.execute('SELECT MAX(id) FROM diagnostic_attempts WHERE '+owner+' AND attempted_at<=?',
                 ((base['session'] or {}).get('id'),now.isoformat())).fetchone()[0]
-            key=(channel,(base['session'] or {}).get('id'),revision,base['run_id'],base['run_status'])
+            key=(channel,(base['session'] or {}).get('id'),attempt_revision,base['run_id'],base['run_status'],revision(base['manual_corrections']))
             cached=eta_cache.get(channel) if eta_cache is not None else None
             if cached is None or cached[0]!=key:
                 historical=recent_snapshot(diagnostic,channel,now=now,_historical=True)
@@ -196,6 +198,8 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
     now=now.astimezone(timezone.utc);start=now-timedelta(hours=24)
     store=diagnostic.store;streamer=store._channel(channel)
     character=streamer['selected_character_id']
+    manual_events=store.manual_history(channel,character_id=character,as_of=now) if character else []
+    manual_revision=revision(manual_events)
     bins=[dict(start=(start+timedelta(minutes=30*i)).isoformat(),end=(start+timedelta(minutes=30*(i+1))).isoformat(),
                amount=None,coverage=Fraction(0),intervals=0,gap=False) for i in range(48)]
     result=dict(policy=TRACKED_POLICY,channel=channel,character_id=character,as_of=now.isoformat(),
@@ -219,7 +223,10 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
             row['percentage_review']=decision
             level_reading=row.get('experimental_level') or {}
             if (level_reading.get('value') is not None and row.get('timestamp_ordered') is not False
-                    and row.get('fresh_at_capture') and row.get('capture_acquired') and row.get('hud_count')==1):state['level']=level_reading['value']
+                    and row.get('fresh_at_capture') and row.get('capture_acquired') and row.get('hud_count')==1):
+                state['level']=level_reading['value'];state['level_epoch']=row.get('manual_epoch')
+                state['level_baseline_id']=row.get('manual_baseline_id',row.get('manual_epoch'))
+                state['level_at']=row.get('received_at') or row['attempted_at']
         collected=collect(dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions)),
             now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS,state=state['interval_state'])
         counts=state['exclusion_counts']
@@ -230,16 +237,26 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
         state['last_row']=rows[-1] if rows else state['last_row']
         state['previous_run']=run
         return decisions
-    state=dict(level_state={},percentage_state={},interval_state={},last_time=None,previous_run=None,level=None,
+    state=dict(level_state={},percentage_state={},interval_state={},last_time=None,previous_run=None,level=None,level_epoch=None,
+        level_baseline_id=None,level_at=None,
         rows=[],last_row=None,exclusion_counts={})
     try:
         state=replay(diagnostic,channel,start=start-timedelta(seconds=PACE_TREND_SECONDS),now=now,receipt=result,state=state,step=step,
-            checkpoints=checkpoints,key=('tracked',channel,character),
+            checkpoints=checkpoints,key=('tracked',channel,character,manual_revision),
             keep=lambda s:dict(s,rows=window_rows(s['rows'],start)))
     except HistoryLimit:
         limited=True
     result['exclusion_counts']=dict(state['exclusion_counts']);level=state['level']
     transition=(((state['last_row'] or {}).get('experimental_level') or {}).get('level_context') or {}).get('transition') or {}
+    session=store._open_session(streamer['id'])
+    manual=next((e for e in reversed(active(manual_events)) if e['kind']=='baseline' and e['session_id']==(session['id'] if session else None)),None)
+    if manual and manual['action']=='set' and manual['level'] is not None:
+        if state['level_baseline_id']!=manual['id']:level=manual['level']
+        if (state['last_row'] or {}).get('manual_baseline_id')!=manual['id']:transition={}
+    point=next((e for e in reversed(active(manual_events)) if e['kind']=='point' and e['session_id']==(session['id'] if session else None)),None)
+    if point and (not state['level_at'] or datetime.fromisoformat(point['effective_at'])>=datetime.fromisoformat(state['level_at'])) and (
+            manual is None or point['effective_at']>=manual['effective_at']):
+        level=point['level'];transition={}
     if transition.get('phase')=='possible':level=transition['to_level']
     gains=[];coverage=Fraction(0);versions=set()
     points=sorted((r for r in state['rows'] if usable_endpoint(r)),key=lambda r:datetime.fromisoformat(r['timestamp']))

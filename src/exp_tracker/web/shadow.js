@@ -243,6 +243,10 @@ function render() {
       `Full EXP withheld: inconsistent with provisional level/percentage under both hypotheses. Original percentage: ${latest.candidate.percentage}% (UNVERIFIED).` : latest?.candidate ?
       `UNVERIFIED candidate: ${exactExp(latest.candidate.exp)} EXP [${latest.candidate.percentage}%]` : latest?.percentage_only_candidate ?
       `UNVERIFIED candidate: ${latest.percentage_only_candidate.percentage}% · percentage only · absolute EXP unavailable` : "Waiting for complete diagnostic values";
+    if(latest?.manual_presentation) {
+      const corrected=latest.manual_presentation;
+      document.getElementById('latest-candidate').textContent=`Operator correction: Lv. ${corrected.level.value} · ${corrected.exp!=null?exactExp(corrected.exp)+' EXP':'estimated EXP only'} [${corrected.percentage ?? 'unavailable'}%]. Original OCR retained in the table; correction ${corrected.provenance.id}.`;
+    }
     const trusted = snapshot.trusted_state;
     document.getElementById("trusted-summary").textContent = snapshot.session && trusted?.last_trusted?.session_id === snapshot.session.id ?
       `Separate trusted engine: ${exactExp(trusted.observed_session_exp)} counted session EXP. Shadow candidates do not contribute.` :
@@ -272,6 +276,11 @@ function render() {
     value.append(element("code", row.raw_text_redacted ? "[Non-numeric diagnostic text redacted]" : row.raw_text ?? "—"),
       element("span", row.candidate ? `${row.exp_validity?.status==='invalid'?'WITHHELD original saved pair: ':''}${exactExp(row.candidate.exp)} EXP [${row.candidate.percentage}%]` : row.percentage_only_candidate ? `${row.percentage_only_candidate.percentage}% · percentage only · EXP unavailable` : "No complete saved pair"));
     if(row.exp_validity) value.append(element('small',`Read-time full EXP: ${row.exp_validity.status} · ${reason(row.exp_validity.reason)}. ${row.exp_validity.whole_pair_rejected?'Whole EXP/percentage pair WITHHELD using recent corroborated level context.':'Percentage retained independently; arithmetic agreement does not verify digits.'}`));
+    if(row.manual_presentation) {
+      const corrected=row.manual_presentation;
+      value.append(element('strong',`Operator presentation: Lv. ${corrected.level.value} · ${corrected.exp!=null?exactExp(corrected.exp)+' EXP':'estimated EXP only'} [${corrected.percentage ?? 'unavailable'}%]`),
+        element('small',`Correction ${corrected.provenance.id}: ${corrected.provenance.reason ?? 'no reason supplied'}. Saved values above are original OCR; no earned EXP through this point.`));
+    }
     if (row.percentage_only_origin === "legacy_raw_parse") value.append(element("small", "Percentage-only syntax parsed for display from legacy raw text"));
     if (row.partial_percentage_evidence) value.append(element("small", `Partial only: ${row.partial_percentage_evidence.percentage}% · not a complete observation`));
     if (!row.candidate && !row.percentage_only_candidate) {
