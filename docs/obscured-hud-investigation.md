@@ -83,7 +83,8 @@ use new filenames. Do not attach credentials, signed playback URLs, or databases
 - Prefer exact decoder `Frame.png` bytes from a failing attempt, paired with its
   existing receipt timestamp, SHA-256, rendition and attempt index. Saving these
   must happen before localization, with an explicit small capture limit, outside
-  the live database path. The current CLI has no full-frame save option.
+  the live database path. At investigation time the CLI had no full-frame save
+  option; the standalone collector below now supplies this evidence.
 - Alternatively, use an authorized local recording of the same composed stream
   and rendition. Extract native PNGs without resize/re-encoding the source video.
   Record source filename, requested offset and dimensions; an offline extraction
@@ -159,6 +160,121 @@ evidence.
 - The initial run had a missing parent `artifacts/` directory and failed fixture
   setup. Creating that directory and rerunning produced the results above.
 
-Only this document changed. No production code, tests, trusted accounting, live
-database, main-worktree files or performance work was changed. No commit or push
-was made. Suggested commit: `docs: investigate Tricia HUD localization failures`.
+At the original investigation milestone only this document changed. No production
+code, tests, trusted accounting, live database, main-worktree files or performance
+work was changed. No commit or push was made. Suggested commit at that point:
+`docs: investigate Tricia HUD localization failures`.
+
+## Opt-in full-frame collector
+
+`tools/collect_hud_frames.py` now supplies the missing native images using the
+existing `VideoSession` / `Frame.png` acquisition path. It runs before any HUD
+localization and requires neither Tesseract nor RapidOCR. It does not load the
+coordinator configuration, connect to SQLite or append to existing archives.
+
+From this feature worktree, using the existing sibling capture environment:
+
+```powershell
+Set-Location H:\Desktop\codex\msclassic-level-inference
+# Run only after confirming streamer permission for this specific Twitch trial.
+# The timestamp makes a new directory; existing output is always refused.
+$hudCollection = 'private/obscured-hud/tricia-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe tools/collect_hud_frames.py --channel TriciaIsABirdy --authorized --quality best --count 3 --interval 5 --timeout 10 --output $hudCollection
+```
+
+`--authorized` is an explicit operator assertion of permission for **this** trial,
+matching shadow capture's authorization gate. It is not platform authorization or
+authentication of the on-screen character. The tool accepts one Twitch login,
+never arbitrary remote/playback URLs, and retains Streamlink's existing browser,
+configuration and sideloading restrictions. Do not pass tokens or credentials.
+Access restrictions remain acquisition failures. No remote trial was run during
+implementation or testing.
+
+For an authorized existing local video, with another new output directory:
+
+```powershell
+$hudCollection = 'private/obscured-hud/local-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe tools/collect_hud_frames.py --file private/obscured-hud/authorized-recording.mp4 --start 60 --count 3 --interval 5 --timeout 10 --output $hudCollection
+```
+
+The local video must already exist. `--start` is a seek request, not confirmed
+frame PTS; local playback uses FFmpeg's existing real-time/keyframe behavior.
+FFmpeg must be on PATH; Twitch additionally needs the existing Streamlink capture
+extra in the selected Python environment. No dependencies or models are installed
+or downloaded by this tool. A feature-local `.venv` with those dependencies can
+be used instead of the sibling Python executable.
+
+The new output must be a direct child of this worktree's ignored
+`private/obscured-hud/`. Resolved paths outside that directory, nested output paths,
+existing files/directories and output symlinks are refused before acquisition.
+The collector exclusively creates the directory and each evidence file. It saves
+`frame-01.png` etc. and `manifest.json`. PNG files are byte-for-byte copies of
+the delivered `Frame.png`, with original decoded dimensions and no image scaling
+or recompression. This is native decoder output, not the source video's original
+compressed frame data.
+
+The manifest records PNG size/dimensions/hash, local receipt time/sequence/age,
+collection limits and outcomes. Twitch source identity includes the normalized
+login and requested named rendition/selector. `best` is a selector: the actual
+resolved rendition name is not available from `VideoSession`; dimensions are
+recorded per PNG. If a known named rendition was used by the failing capture,
+request that same name explicitly. Local source identity is a SHA-256 of kind
+and resolved path, without exposing the filename/path or hashing the full video.
+This identifies the assignment, not video contents or character identity. Neither
+signed URLs, credentials nor subprocess stderr are persisted. Errors use fixed
+codes. Source/broadcast age and verified PTS remain unknown.
+
+Bounds and resource implications:
+
+- `--count` is 1-5, default 3; no more than five PNGs and one small manifest.
+  Each PNG has the existing 32 MiB / 4096x2160-pixel limit (the latter is a pixel
+  count limit). Maximum PNG disk payload is 160 MiB. JSON has at most ten attempt
+  entries and five frame entries.
+- At most ten frame acquisition attempts and a 60-second monotonic collection
+  deadline, checked before waits and after returned frames. Per-frame timeout is
+  1-20 seconds (default 10), clipped to the remaining collection budget. Pauses
+  are 1-10 seconds (default 5), also clipped. A local receipt age outside 0-5
+  seconds is rejected. Source latency cannot be checked.
+- One persistent session with the existing single latest-frame buffer, FFmpeg
+  decoder/PNG encoder thread limits, Streamlink 4 MiB ring buffer and bounded
+  subprocess cleanup. Keyframe-only decoding preserves the live pipeline's
+  behavior. The session downloads the selected rendition between samples;
+  keyframe skipping does not reduce network bandwidth. No new OCR/model cost.
+- The 60-second budget covers normal collection, not a hard OS resource quota.
+  Process launch, filesystem IO and existing bounded shutdown add overhead;
+  shutdown terminates/reaps children and joins their threads. No CPU/RSS/network
+  benchmark or platform-wide resource limit is claimed.
+
+Only distinct PNG SHA-256 values are saved; duplicates still consume attempts and
+time. Different PNG bytes do not prove different visible content. Completion can
+therefore return fewer than requested frames (static video, sparse keyframes,
+source end, deadline or errors). The manifest explicitly marks this shortfall and
+the stop reason. Exit codes: 0 requested count collected; 2 incomplete; 130 operator
+interruption; 1 validation/output failure. Ctrl+C preserves a partial manifest and
+closes the session. Hard termination or disk failure can leave partial evidence;
+preserve it and choose a new directory rather than overwriting it.
+
+The collector itself does not localize or save localization OCR tokens. After
+collection, review the PNGs and run the locator offline to establish which anchors
+or geometry fail before implementing an LV-independent locator.
+
+Collector validation on this Windows feature worktree:
+
+- Targeted offline tests: **39 passed, 1 skipped** (Windows refused creation of
+  the symlink used by one escape-path test). Other path-containment and exclusive
+  output tests passed, as did byte/hash/dimension preservation, authorization,
+  duplicates, count/deadline/timeout limits, stale frames and interrupted cleanup.
+- Generated synthetic MP4 integration used the real FFmpeg decoder, verified
+  saved PNG hashes and checked child/thread cleanup. A separate invocation of
+  the actual CLI also saved and verified one frame from that synthetic video;
+  its ignored output is `private/obscured-hud/offline-cli-check/`.
+- Final full `python -m pytest`: **1,600 passed, 102 skipped** in 100.22 seconds.
+  Separately: **100 private-fixture skips**, **1 loopback-policy skip** and
+  **1 symlink-permission skip**. CLI help and whitespace checks passed.
+- No real Tricia frame, remote Twitch trial or CPU/RSS/bandwidth benchmark was
+  performed. These tests validate collection behavior, not Tricia localization.
+
+Changed files: `tools/collect_hud_frames.py`, `tests/test_collect_hud_frames.py`
+and this guide. Coordinator, locator, OCR, SQLite and tracking policies are
+unchanged. No commit or push was made. Suggested commit:
+`feat(diagnostics): add bounded native HUD frame collector`.
