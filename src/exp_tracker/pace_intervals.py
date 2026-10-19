@@ -95,6 +95,8 @@ def endpoint_interval(before,after):
     """Net EXP in level/EXP coordinates; no capture-connection eligibility."""
     if before.get('manual_epoch') != after.get('manual_epoch'):
         return None,'manual_correction'
+    if before.get('accounting_scope')!=after.get('accounting_scope'):
+        return None,'character_or_session_changed'
     a,b=before['level']['value'],after['level']['value']
     if a is None or b is None:return None,'level_unavailable'
     if b<a:return None,'observed_level_decrease'
@@ -125,10 +127,10 @@ def window_endpoints(points,*,start,end,level=None):
         and (level is None or p['level']['value']==level)]
     selected=[p for p in in_window if usable_endpoint(p)]
     selected.sort(key=lambda p:datetime.fromisoformat(p['timestamp']))
-    if len({p.get('manual_epoch') for p in selected})>1:
+    if len({(p.get('manual_epoch'),p.get('accounting_scope')) for p in selected})>1:
         from itertools import groupby
         used=[];gains=[];coverage=Fraction(0)
-        for _,group in groupby(selected,key=lambda p:p.get('manual_epoch')):
+        for _,group in groupby(selected,key=lambda p:(p.get('manual_epoch'),p.get('accounting_scope'))):
             part=list(group)
             if len(part)<2 or part[0]['timestamp']==part[-1]['timestamp']:continue
             gain,_=endpoint_interval(part[0],part[-1])
@@ -171,10 +173,11 @@ def collect_observed(snapshot, *, now, read, max_interval_seconds, state=None):
                 when=datetime.fromisoformat(value['timestamp'])
                 if when.utcoffset() is None or when>now:raise ValueError
             except (TypeError,ValueError):continue
-            value=dict(value,source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),run_id=row.get('run_id'),index=row.get('index'))
+            value=dict(value,source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),run_id=row.get('run_id'),index=row.get('index'),
+                accounting_scope=f"{row.get('character_id')}:{row.get('session_id')}")
             points.append(value)
             if not usable_endpoint(value):continue
-            if previous and previous.get('manual_epoch')==value.get('manual_epoch') and datetime.fromisoformat(previous['timestamp'])<when:
+            if previous and previous.get('manual_epoch')==value.get('manual_epoch') and previous.get('accounting_scope')==value['accounting_scope'] and datetime.fromisoformat(previous['timestamp'])<when:
                 edges.append(dict(before=previous,after=value,epoch=0,
                     identity=(row.get('assigned_channel') or row.get('channel'),row.get('channel'),row.get('source_kind'),row.get('source_identity'),row.get('character_id'),row.get('session_id')),
                     kind='endpoint_supported' if holes else 'direct',missing_event_ids=list(holes),

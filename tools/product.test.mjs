@@ -47,6 +47,18 @@ test('homepage renders an operator correction with ordinary numeric labels',()=>
   assert.match(p.run('expTitle(fixture.reading)'),/never earned EXP or trusted OCR/);
 });
 
+for(const view of ['player','overlay'])test(`${view} marks estimated percentage and preserves inconsistent manual coordinates`,()=>{
+  const p=page(view),level={value:64,status:'manual_admin',correction_id:9};
+  const reading={exp:'749000',percentage:'50.00',bp:5000,evidence:'manual_admin',timestamp:'2026-01-01T00:00:00Z',level,
+    estimated_percentage:{source:'manual_exp_and_community_requirement'},provenance:{kind:'baseline',level:64,current_exp:749000,percentage_bp:null}};
+  p.render(player({reading}));assert.equal(p.elements.percentage.textContent,'~50.00%');
+  assert.match(p.elements.exp.title,/Percentage is estimated/);
+  p.render(player({reading:{...reading,exp:'1',estimated_percentage:null,exp_validity:{status:'invalid'},
+    provenance:{kind:'point',level:64,current_exp:1,percentage_bp:5000}}}));
+  assert.equal(p.elements.percentage.textContent,'50.00%');assert.match(p.elements.exp.textContent,/1/);
+  assert.match(p.elements.exp.title,/both supplied values are preserved/);
+});
+
 test('character page tab names the channel before any reading; overlay keeps its own title',()=>{
   assert.equal(page('player').context.document.title,'alpha · EXP Tracker');
   assert.equal(page().context.document.title,undefined);

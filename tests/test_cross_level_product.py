@@ -125,7 +125,8 @@ def test_acquisition_and_process_boundaries_do_not_exclude_level_up_gain(boundar
     elif boundary=='missing':rows.insert(2,missing(8,30))
     else:rows[2]=point(3,40,1757100,'99.96')
     w=recent_windows(snapshot(rows,80),None,now=NOW+timedelta(seconds=80))['5']
-    assert w['pace'] and w['gain']['approximate']==requirement(67)['to_next']-1757100+1010
+    expected=(1757288-1757100)+(1010-103) if boundary=='session' else requirement(67)['to_next']-1757100+1010
+    assert w['pace'] and w['gain']['approximate']==expected
     assert not w['complete_window']
 
 

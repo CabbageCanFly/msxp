@@ -18,6 +18,27 @@ def command(roster, *args):
     return tool.main(['--config', str(path), *args])
 
 
+def test_coordinated_manual_rename_preserves_assignment_ids_and_rejects_stale_roster(roster):
+    tool,(module,path,value,*_rest)=roster
+    database,_,rows=module.validate_config(value)
+    module.initialize(database,rows,say=lambda _:None)
+    with Store(database) as store:
+        before=store.state('alpha');cid=before['selected_character_id']
+        store.rename_character('alpha',cid,'Tricia',reason='Correct placeholder')
+    with pytest.raises(ValueError,match='coordinated rename'):
+        module.check_assignments(database,rows)
+    original,config=tool.read_config(path)
+    next(r for r in config['streams'] if r['channel']=='alpha')['character']='Tricia'
+    tool.save_config(path,config,original)
+    database,_,renamed=module.validate_config(config)
+    module.check_assignments(database,renamed)
+    module.initialize(database,renamed,say=lambda _:None)
+    with Store(database,read_only=True) as store:
+        assert store.state('alpha')['selected_character_id']==cid
+        assert store.state('alpha')['session']['id']==before['session']['id']
+        assert len(store.state('alpha')['characters'])==len(before['characters'])
+
+
 def test_init_add_preview_preserves_settings_and_authorization(roster, capsys):
     tool, (module, path, config, *_rest) = roster
     before = path.read_bytes()

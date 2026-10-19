@@ -1,129 +1,208 @@
-# Checkpoint A1: local Level / EXP corrections
+# Manual Level / EXP administration (A1)
 
-Use the local CLI against an explicitly selected channel/character. There is no
-HTTP write endpoint or operator dashboard. Nothing captures video or calls Twitch.
-Run in the repository's Python environment, from the repository root:
+Local CLI only. There are no HTTP write endpoints or browser administration forms.
+Commands neither capture video nor contact Twitch. Run from this worktree with its
+Python environment; set `PYTHONPATH=src` when using an interpreter from elsewhere.
+The database must already exist. Do not use an active database for offline trials.
+
+## Required input and inspection
+
+Every new `set`, `correct` or `amend` requires the **existing character name**,
+**level 1..200**, and **numerical EXP and/or percentage**. EXP is a nonnegative
+SQLite integer, up to 9,223,372,036,854,775,807; percentage is 0.00..99.99 with at
+most two decimals. Zero counts as supplied. Channel is always explicit.
+
+Every such operation, and `clear`, requires exactly one of:
+
+- `--effective-at '2026-10-19T16:30:00Z'`: complete year/month/day and
+  hour/minute/second, optional microseconds, plus `Z` or an explicit `+/-HH:MM` offset.
+- `--now`: the operator deliberately chooses the current UTC timestamp.
+
+There is **no implicit current time**. Missing timestamps, timestamps without
+seconds/timezone, future timestamps, and using both options are rejected. The
+backend likewise requires an aware datetime or explicit `now=True`, exclusively.
+This is also the contract for A2's future form: manual datetime entry by default,
+with an explicit current-time choice. A2 itself is not included.
 
 ```powershell
-$db = 'private/offline-test/tracker.sqlite3' # choose the intended database
-python -m exp_tracker.manual_admin --db $db --channel alpha inspect
-python -m exp_tracker.manual_admin --db $db --channel alpha set --character 'Main' --level 64 --exp 749000 --percentage 50.00 --reason 'Corrected HUD reading'
-python -m exp_tracker.manual_admin --db $db --channel alpha history
-# A new set supersedes the previous override; omitted EXP/percentage stay unknown.
-python -m exp_tracker.manual_admin --db $db --channel alpha set --character 'Main' --level 65
-python -m exp_tracker.manual_admin --db $db --channel alpha clear --character 'Main' --reason 'Resume OCR'
+$db = 'private/offline-test/tracker.sqlite3'
+python -m exp_tracker.manual_admin --db $db --channel telfer1 inspect
+python -m exp_tracker.manual_admin --db $db --channel telfer1 inspect --character 'Tricia' --session 7
+python -m exp_tracker.manual_admin --db $db --channel telfer1 history
+python -m exp_tracker.manual_admin --db $db --channel telfer1 history --correction-id 12
 ```
 
-`inspect` shows character IDs/labels, selection, session, current public reading,
-level provenance and latest applicable correction. `history` includes all of this
-channel's correction events, including clears and earlier character/session scopes.
-Both commands are read-only and do not migrate the database. The database must
-already exist; use the existing explicit channel/character/session setup first.
+`inspect` returns character IDs/names, session choices, exact UTC reading timestamps
+and identities, original OCR values and corrected presentation. Diagnostic identities
+are `RUN_ID:ATTEMPT_INDEX`; trusted SQLite observations use their integer ID.
+`history` returns correction events and rename audit records, including effective
+and recorded times, reasons, `replaces_id`, `superseded_by` and `active` status.
+Inspection/history are read-only, including on older schemas.
 
-Level is **1..200**, EXP is an optional nonnegative SQLite integer (up to
-9,223,372,036,854,775,807), and percentage is **0.00..99.99**, with at most two
-decimal places. At least one value is required. Zero is a supplied value.
-Omitted fields remain SQL NULL; a percentage-derived EXP estimate stays separate
-from an entered integer. Neither a missing percentage nor EXP is backfilled from
-an older OCR reading. If level is omitted, the usual last-known supported level
-may still provide display context. Inconsistent operator-entered pairs are preserved as manual
-information; community-table arithmetic does not authenticate them.
+## Baseline versus historical reading
 
-The default effective time is the current UTC time. Optionally supply
-`--effective-at '2026-10-19T16:30:00Z'` (or an explicit offset). Naive, future,
-pre-session and non-increasing effective timestamps in the same character/session
-scope are rejected. Backdated corrections reproject history causally at that time;
-newer eligible OCR may already have resumed by the time of submission. For an
-idempotent retry, use the same `--event-id NAME` and identical values, reason and
-effective time. Reusing an ID with different contents is rejected.
+`set` establishes a baseline. Character/session ownership comes from the database,
+not level/EXP arithmetic. `--session` explicitly targets an existing session;
+otherwise effective time must identify a unique session for that character. Shared
+session-end/start instants can be ambiguous and require `--session`. Out-of-session
+timestamps require explicit `--no-session` when that character has sessions;
+this creates an unbound baseline, useful between captures, that does not carry into
+a new session. A character with no sessions can have an unbound baseline directly.
+Older characters and closed sessions are supported without changing live selection.
 
-## Precedence and accounting
+```powershell
+# Preview the complete write on a disposable snapshot; source SQLite is not migrated.
+python -m exp_tracker.manual_admin --db $db --channel telfer1 set --character 'Tricia' --level 42 --percentage 99.40 --now --dry-run
+python -m exp_tracker.manual_admin --db $db --channel telfer1 set --character 'Tricia' --level 42 --percentage 99.40 --now --reason 'Known starting level'
+```
 
-- Each set replaces the previous manual override in its entirety. It takes effect
-  without another capture. Older OCR, delayed delivery of a pre-correction frame,
-  and EXP-derived levels cannot immediately overwrite supplied values.
-- A subsequent fresh, ordered, public-eligible OCR reading resumes the numeric
-  pair together. It must pass the existing source/percentage checks and have no
-  arithmetic contradiction. A percentage-only observation can resume with unknown
-  integer EXP; it does not pair new percentages with the old manual integer.
-  Duplicate source frames in the causal context do not release the override.
-- A manual level supplies labeled context for **subsequent** fresh observations
-  when readers are unavailable or weak. Reader agreement or the existing confirmed
-  neural-reader policy releases it. A weaker inferred level cannot displace it.
-  This context never establishes character identity, modifies raw reader results,
-  or retroactively validates observations acquired before the correction.
-- Every set and clear separates accounting segments. Manual coordinates themselves
-  never become endpoints. Recent 5/10/15/30/60-minute and 24-hour totals retain valid
-  OCR intervals on either side, excluding the cross-boundary difference. Rates use
-  the sum of those observed spans, excluding the correction gap. A lone reading
-  after the edit supplies a new baseline, not progress. Unknown level requirements
-  and transitions remain unavailable; no missing progress is invented.
-- Clear appends an event, removes the override and waits for fresh OCR rather than
-  resurrecting an older overridden display. It preserves old accounting boundaries.
-  Sets/clears also discard pre-correction current ETA estimates. A partial new
-  override leaves omitted numeric fields unknown. Earlier valid historical gains
-  and dated history remain inspectable.
-- Events bind to the selected character and currently open session, or to no
-  session when none is open. They never carry into another session, even when
-  returning to the same character. A correction outside a session applies only
-  until a new session starts. Explicit selection, never level/EXP, determines ownership.
+`correct` changes one historical point's **presentation**, retaining the original
+OCR row and identity. Use a reading ID plus its exact original timestamp, or omit
+the ID and resolve by exact timestamp and character/session scope. More than one
+matching source reading is rejected; specify its identity. Use the timestamp from
+`inspect`, including its fractional seconds. `--now` cannot retime an old reading.
 
-SQLite schema **5** adds only `manual_corrections`, its index and append-only
-triggers. Set/clear commands migrate earlier supported schemas transactionally.
-Readers still support schemas 3 and 4. Prior observations/diagnostic attempts and
-tracking state are not rewritten. Trusted ingestion establishes a new OCR baseline
-after a correction instead of crediting the adjusted EXP. Trusted SQLite totals
-remain separate from public experimental history.
+```powershell
+# Replace RUN_UUID:2 and the timestamp with the values printed by inspect.
+python -m exp_tracker.manual_admin --db $db --channel telfer1 correct --character 'Tricia' --session 7 --reading 'RUN_UUID:2' --level 49 --exp 12345 --percentage 2.10 --effective-at '2026-10-19T15:20:30.123456Z' --reason 'Level was 49, not 50'
+# Alternatively use --observation-id 123 for a trusted SQLite OCR observation.
+```
 
-The homepage, character page and experimental `/live/overlay/CHANNEL` share the
-corrected player projection. Hover level/EXP/percentage for provenance; player APIs
-include `manual_correction`, and Advanced diagnostic snapshots include the event
-log and per-reading correction context. Treat reasons as public diagnostic text.
-The original trusted `/overlay/CHANNEL` continues to show trusted OCR only.
+A point correction does not seed adjacent level inference, authenticate identity,
+or edit adjacent OCR. It blocks accounting into, out of, and across that point.
+The corrected point is visible in public percentage history and Advanced session
+views with manual provenance; newer valid readings retain the current live display.
+Trusted-observation corrections have a separate manual presentation; the original
+trusted OCR state and trusted overlay remain explicitly original OCR.
 
-A correction ID participates in the publisher revision, card cache, recent/24-hour
-checkpoints, historical ETA cache and browser history revision. The background
-publisher discovers external CLI writes on its normal idle poll (about one second,
-plus pending builds); browsers poll every two seconds. No new frame is required.
+## Amend, undo and clear
 
-## Limits and validation
+Effective timestamps need **not** arrive in chronological order. At equal effective
+times, the later recorded active baseline wins. `amend` supplies a complete
+replacement, with required character, level, EXP/percentage, explicit time choice
+and reason. It can move a correction to another time, session or character in the
+same channel. Point amendments identify the replacement point at that time.
 
-Deploy this code before using schema 5 with a running process: older code may reject
-that schema. Upgrading an existing operator installation requires its normal
-controlled code rollout; A1 does not restart coordinators or migrate active data
-on the operator's behalf. No live capture, identity detection, locking an override
-forever, inferred manual level-ups, or A2 browser administration is included.
-Level context/release follows the bounded causal OCR replay; operators can explicitly
-clear a correction to stop supplying context. EXP requirements remain provisional.
+```powershell
+python -m exp_tracker.manual_admin --db $db --channel telfer1 amend --correction-id 12 --character 'Tricia' --session 7 --level 49 --exp 12345 --effective-at '2026-10-19T15:20:00Z' --reason 'Correct earlier level/time' --dry-run
+python -m exp_tracker.manual_admin --db $db --channel telfer1 undo --correction-id 13 --reason 'Entry was applied to the wrong character'
+python -m exp_tracker.manual_admin --db $db --channel telfer1 clear --character 'Tricia' --now --reason 'Stop supplying manual context'
+```
 
-Regression tests use fresh/migrated isolated databases and synthetic attempts:
-`tests/test_manual_admin.py`, together with persistence, projection, publisher,
-history and frontend suites. They cover restart, partial/zero values, delayed and
-out-of-order OCR, duplicates, level and numeric boundaries, character/session
-isolation, cache invalidation and unchanged raw/trusted evidence.
+`undo` retracts an active revision and its superseded lineage; it does not revive an
+older manual mistake. It inherits that revision's effective time and records the
+actual retraction time. To restore operator information, submit a new set/correct.
+Already superseded/retracted IDs are rejected with an inspection hint. Older active
+corrections remain amendable even when newer independent corrections exist.
 
-Final offline verification in this worktree:
+`clear` is a new time-scoped boundary that stops the baseline context from that
+time forward and waits for fresh OCR. It preserves prior corrections/history.
+`undo` removes that revision's projection and accounting boundaries, restoring the
+underlying original OCR projection where no other active correction applies.
 
-- **2,080 Python tests passed**, **117 private-fixture skips**, **one Windows
-  symlink-permission skip**; **95 Node tests passed**, zero skips. The correction
-  module contributes 46 synthetic regression cases. Full Python output:
-  `private/manual-a1/python-full-final.txt`; Node output:
-  `private/manual-a1/node-full-final.txt`. `git diff --check` passed.
-- Actual headless Chrome rendered the homepage, desktop/mobile character page,
-  and transparent 500 x 160 overlay against a synthetic database. Two CLI writes
-  appeared through polling with one navigation per page and no capture: an entered
-  zero with missing percentage, then a complete correction. No artificial gains,
-  browser exceptions or external requests were observed. Screenshots and the
-  receipt are under `private/manual-a1/browser-final/` (ignored).
-- Inspect the retained synthetic example without touching active tracking:
+All mutations support `--dry-run`. Corrections/undo accept a stable `--event-id`
+for retries: the same ID/content is idempotent; conflicting reuse is rejected.
+Undo and amend require a reason. Treat reasons as public diagnostic text.
 
-  ```powershell
-  $env:PYTHONPATH = "$PWD\src"
-  & ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe -m exp_tracker.manual_admin --db private/manual-a1/preview.sqlite3 --channel manual_demo inspect
-  # Substitute history for inspect to view the appended preview events.
-  ```
+## Derived coordinates, precedence and EXP accounting
 
-The existing adjacent virtual environment supplied test dependencies; its Python
-import path was set to this worktree's `src`. No dependency installation was needed.
-No active tracking database was opened or changed, no coordinator was restarted,
-and no Twitch connection, deployment, push or live OCR trial was performed.
+- Supplied fields remain nullable independently in SQLite. Numerical-only input
+  derives an **estimated** displayed percentage when the provisional requirement
+  is supported and EXP is below that requirement. This display uses truncation and
+  is marked `~`; its `estimated_percentage` metadata records the source/requirement.
+- Percentage-only input keeps `exp=null` and supplies a separately labeled
+  `estimated_exp` when possible. It is never relabeled as an entered integer.
+  Disputed/missing requirements leave conversions unavailable.
+- When both values are entered, both are preserved. Existing arithmetic checks
+  flag contradictions in `exp_validity`; tooltips explain them. Neither value is
+  silently repaired or promoted to trusted OCR. Historical schema-5 partial events
+  remain readable; the stricter contract applies only to new set/amend writes.
+- A baseline immediately overrides older/delayed frames. Fresh ordered eligible
+  OCR resumes the numeric pair together; an old manual integer is not paired with
+  a new OCR percentage. Weak/conflicting evidence cannot immediately replace a
+  manual level. Existing reader confirmation can release it, and the existing
+  EXP-derived transition machinery can advance it after a corroborated adjacent
+  level-up or its existing multi-frame forward confirmation. Manual seed provenance
+  remains inspectable. No character-name OCR or new OCR acceptance policy is added.
+- Manual coordinates never become earned-EXP endpoints. Each set/clear and each
+  corrected point separates accounting segments. Valid OCR intervals on either
+  side remain; correction deltas and unknown transitions supply no gain. The first
+  fresh OCR after a boundary is a baseline, not earned progress from a manual entry.
+  Rates use summed observed spans, excluding correction gaps. Observed losses still
+  reduce net gain. Different characters/sessions never supply a connecting gain;
+  5/10/15/30/60-minute and 24-hour totals sum their independent eligible spans.
+- Append-only amendments/retractions are resolved before ownership/time filtering,
+  so moving a correction to another character actually removes its old effect.
+  Publisher revisions include every audit event and rename. Card, historical ETA,
+  recent/24-hour checkpoints and browser histories refresh without another frame.
+  The background publisher polls about once per second plus pending builds; browser
+  polling is every two seconds. Corrections are local SQLite transactions.
+
+Schema **6** additively extends schema 5 with correction kinds, replacement links,
+retractions, stricter new-insert validation and rename audit history. Existing raw
+observations/attempts are preserved. Read-only operation supports schemas 3–6.
+Deploy updated serving/writer code before migrating an operator installation;
+older processes can reject the new schema. No active installation is upgraded here.
+
+## Rename a character without changing its identity
+
+```powershell
+python -m exp_tracker.manual_admin --db $db --channel telfer1 rename --character-id 7 --new-name 'Tricia' --reason 'Replace Main placeholder' --dry-run
+python -m exp_tracker.manual_admin --db $db --channel telfer1 rename --character-id 7 --new-name 'Tricia' --reason 'Replace Main placeholder'
+```
+
+Rename updates the existing label, audits old/new names and invalidates publication.
+It preserves the character ID, sessions, OCR, manual events and EXP history. Duplicate
+channel labels, controls, empty names and outer whitespace are rejected.
+
+**Coordinate the roster before the next startup.** `multi_alpha.py` and
+`stream_roster.py` validate JSON character labels against the selected database
+character. For a configured assignment, perform this workflow at a controlled pause:
+
+1. Stop your coordinator normally in its own terminal when you choose; this CLI
+   never stops/restarts it or edits its configuration.
+2. Preview/apply the database rename. In the matching private roster JSON, change
+   only that channel's `character` string from `Main` to `Tricia`, retaining its
+   source, authorization, enabled flag and other settings. Do not add a character
+   or remove/re-add the roster assignment. The two files are not one atomic transaction.
+3. Run `python tools/stream_roster.py --config YOUR_ROSTER.json list`, then your
+   normal coordinator `--check` before restarting. A stale label is a hard, explicit
+   mismatch, not an automatic reassignment. If interrupted between the two edits,
+   keep capture stopped and reconcile the labels before starting.
+
+## Verification and remaining limits
+
+Tests use isolated synthetic databases, saved-fixture skips and read-only previews.
+No active tracking database, coordinator, Twitch connection or other worktree is
+modified. No commit, merge, push or deployment is performed. Preview snapshots use
+the OS temporary directory and are deleted after validation.
+
+Final verification in this worktree: **2,119 Python passes**, **117 unavailable
+private-fixture skips**, **one Windows symlink-permission skip**; **97 Node passes**,
+zero Node skips. Focused regressions cover the operator contract, historical
+revisions, inference, isolation and coordinated renaming. `git diff --check` passed.
+Logs are ignored under
+`private/manual-revision/` (`python-review-final.txt`, `node-full-final.txt`).
+
+Headless Chrome verified a historical point correction, its amendment and undo,
+original OCR preservation, explicit `--now`, estimated percentage labels, rename
+preview/apply, and automatic homepage/character/overlay updates with one navigation
+per page. Desktop, mobile and transparent 500 x 160 overlay screenshots and the
+no-external-request/no-console-error receipt are under
+`private/manual-revision/browser-evidence/`. Its synthetic database remains available
+for local, read-only inspection; the preview server has stopped:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe -m exp_tracker.manual_admin --db private/manual-revision/browser.sqlite3 --channel alpha inspect
+& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe -m exp_tracker.manual_admin --db private/manual-revision/browser.sqlite3 --channel alpha history
+```
+
+The adjacent existing interpreter supplied dependencies read-only; bytecode writes
+were disabled and imports targeted this worktree's `src`. No dependencies were added.
+
+Known limits: point targeting uses exact source timestamps/identities, not fuzzy
+time matching; manual coordinates are excluded from earned-EXP endpoints; requirement
+data remains provisional; native HUD availability and bounded causal inference can
+delay a level-up. Naming is manual. A2 forms/authentication, live OCR validation and
+automatic roster/coordinator reconfiguration are outside this milestone.

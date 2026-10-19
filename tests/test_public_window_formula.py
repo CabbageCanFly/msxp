@@ -22,8 +22,8 @@ def window(rows,seconds=300,*,level=None,current=False):
 def test_numeric_endpoints_ignore_acquisition_and_process_metadata(change):
     rows=[numeric(1,0,10000),numeric(2,60,11000),missing(3,120),dict(numeric(4,300,15000),**change)]
     w=window(rows)
-    assert w['gain']['approximate']==5000
-    assert w['observed']['coverage_seconds']['approximate']==300
+    assert w['gain']['approximate']==(1000 if change.get('session_id') else 5000)
+    assert w['observed']['coverage_seconds']['approximate']==(60 if change.get('session_id') else 300)
     assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==60000
 
 

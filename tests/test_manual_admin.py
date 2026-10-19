@@ -66,8 +66,8 @@ def test_persistence_supplied_fields_and_no_ocr_changes(tracking):
     path,store,d=tracking;save(d,'run',1,0,3300)
     raw=list(store.db.execute('SELECT payload_json FROM diagnostic_attempts'))
     state=store.state('alpha',as_of=NOW)
-    event=correct(store,level=65,reason='Selected HUD level')
-    assert event['provenance']=='manual_admin' and event['current_exp'] is None and event['percentage_bp'] is None
+    event=correct(store,level=65,percentage_bp=0,reason='Selected HUD level and percentage')
+    assert event['provenance']=='manual_admin' and event['current_exp'] is None and event['percentage_bp']==0
     assert datetime.fromisoformat(event['recorded_at']).utcoffset()==timedelta(0)
     assert store.state('alpha',as_of=NOW)==state
     assert list(store.db.execute('SELECT payload_json FROM diagnostic_attempts'))==raw
@@ -75,21 +75,23 @@ def test_persistence_supplied_fields_and_no_ocr_changes(tracking):
     with Store(path,read_only=True) as reopened:
         assert reopened.manual_history('alpha')==store.manual_history('alpha')
         p=current(Diagnostics(reopened))
-        assert p['reading']['exp'] is None and p['reading']['percentage'] is None
+        assert p['reading']['exp'] is None and p['reading']['percentage']=='0.00'
         assert p['display_level']['value']==65
 
 
 @pytest.mark.parametrize('values,exp,pct',[
-    ({'level':200},None,None),({'current_exp':0},'0',None),({'percentage_bp':9999},None,'99.99'),
-    ({'level':64,'percentage_bp':5000},None,'50.00'),({'level':64,'current_exp':123},'123',None),
+    ({'level':200,'current_exp':0},'0',None),({'level':64,'current_exp':0},'0','0.00'),
+    ({'level':64,'percentage_bp':9999},None,'99.99'),
+    ({'level':64,'percentage_bp':5000},None,'50.00'),({'level':64,'current_exp':123},'123','0.00'),
 ])
-def test_partial_corrections_do_not_fabricate_omitted_fields(tracking,values,exp,pct):
+def test_one_exp_coordinate_keeps_supplied_and_estimated_fields_separate(tracking,values,exp,pct):
     _,store,d=tracking;correct(store,**values)
     p=current(d)
     assert p['reading']['exp']==exp and p['reading']['percentage']==pct
     assert p['reading']['evidence']=='manual_admin' and p['segment'] is None
     assert p['estimates']['exp_per_hour'] is None
-    if values.get('level')==64 and pct:assert p['reading']['estimated_exp']
+    if 'current_exp' not in values:assert p['reading']['estimated_exp']
+    elif pct is not None:assert p['reading']['estimated_percentage']
 
 
 def test_older_and_delayed_frames_cannot_override_but_fresh_ocr_resumes(tracking):
@@ -151,20 +153,21 @@ def test_selected_character_and_session_isolation_and_clear(tracking):
     correct(store,35,clear=True)
     assert current(d,36)['reading'] is None
     assert len(store.manual_history('alpha'))==2
-    correct(store,40,level=66)
+    correct(store,40,level=66,percentage_bp=0)
     other=store.add_character('alpha','Other');store.select_character('alpha',other,at=at(45))
     store.start_session('alpha',at=at(45))
     assert current(d,50)['reading'] is None and current(d,50).get('manual_correction') is None
     store.select_character('alpha',original,at=at(55));store.start_session('alpha',at=at(55))
     assert current(d,60)['reading'] is None and current(d,60).get('manual_correction') is None
     store.add_channel('beta');assert store.manual_history('beta')==[]
-    with pytest.raises(ValueError,match='selected character'):
-        store.correct_manual('alpha','wrong',other,level=67)
+    foreign=store.add_character('beta','Foreign')
+    with pytest.raises(ValueError,match='belong'):
+        store.correct_manual('alpha','wrong',foreign,level=67,percentage_bp=0,effective_at=at(60))
 
 
 def test_clear_and_supersede_are_new_baselines_and_fresh_ocr_can_resume(tracking):
     _,store,d=tracking;correct(store,level=65,current_exp=50)
-    second=correct(store,30,percentage_bp=0)
+    second=correct(store,30,level=65,percentage_bp=0)
     p=current(d,31)
     assert p['reading']['exp'] is None and p['reading']['percentage']=='0.00'
     correct(store,35,clear=True)
@@ -189,18 +192,18 @@ def test_invalid_input_is_atomic(tracking,values):
 
 
 def test_duplicate_conflicting_and_out_of_order_events(tracking):
-    _,store,d=tracking;event=correct(store,level=64)
-    duplicate=correct(store,level=64)
+    _,store,d=tracking;event=correct(store,level=64,percentage_bp=0)
+    duplicate=correct(store,level=64,percentage_bp=0)
     assert duplicate['duplicate'] and duplicate['id']==event['id']
     cid=store.state('alpha')['selected_character_id']
-    assert store.correct_manual('alpha','correction-25',cid,level=64)['duplicate']
-    with pytest.raises(ValueError,match='different contents'):correct(store,level=65)
-    for seconds in (-1,20,25):
-        with pytest.raises(ValueError):
-            store.correct_manual('alpha',f'new-{seconds}',cid,level=65,effective_at=at(seconds))
-    assert len(store.manual_history('alpha'))==1
+    assert store.correct_manual('alpha','correction-25',cid,level=64,percentage_bp=0,now=True)['duplicate']
+    with pytest.raises(ValueError,match='different contents'):correct(store,level=65,percentage_bp=0)
+    with pytest.raises(ValueError):
+        store.correct_manual('alpha','pre-session',cid,level=65,percentage_bp=0,effective_at=at(-1))
+    store.correct_manual('alpha','earlier',cid,level=65,percentage_bp=0,effective_at=at(20))
+    assert current(d)['display_level']['value']==64  # Effective order, not submission order.
     # UTC normalization, including offset-form input.
-    utc_event=store.correct_manual('alpha','offset',cid,level=65,
+    utc_event=store.correct_manual('alpha','offset',cid,level=65,percentage_bp=0,
         effective_at=datetime.fromisoformat('2025-12-31T19:00:30-05:00'))
     assert utc_event['effective_at'].startswith('2026-01-01T00:00:30.')
 
@@ -253,7 +256,7 @@ def test_current_level_filter_uses_manual_level_immediately_without_capture(trac
     _,store,d=tracking
     save(d,'run',1,0,3300,neural_level=dict(level=64,text='64',status='numeric_candidate',score=.99))
     save(d,'run',2,20,3310,neural_level=dict(level=64,text='64',status='numeric_candidate',score=.99))
-    correct(store,level=65)
+    correct(store,level=65,percentage_bp=0)
     p=current(d,30);tracked=d.rolling_history('alpha',now=at(30))
     assert p['display_level']['value']==65 and tracked['current_level']==65
     assert p['recent_windows']['5']['gain'] is not None
@@ -326,7 +329,7 @@ def test_cli_inspect_set_history_clear_and_errors(tracking,capsys):
                   '--event-id','cli','--effective-at',at(25).isoformat(),'--reason','Test baseline']
     assert main(command)==0;assert json.loads(capsys.readouterr().out)['provenance']=='manual_admin'
     assert main(command)==0;assert json.loads(capsys.readouterr().out)['duplicate']
-    assert main(args+['history'])==0;assert len(json.loads(capsys.readouterr().out))==1
+    assert main(args+['history'])==0;assert len(json.loads(capsys.readouterr().out)['corrections'])==1
     for tail in (['set','--character','Test character'],['set','--character','Wrong','--level','64'],
                  ['set','--character','Test character','--percentage','99.999'],
                  ['set','--character','Test character','--level','201'],

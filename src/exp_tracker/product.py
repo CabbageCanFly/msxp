@@ -265,6 +265,10 @@ def estimates(segment,pace,bp):
 
 
 def reading(row):
+    if row.get('manual_point'):
+        from .manual import corrected_reading
+        return corrected_reading(row['manual_point'],event_id=row['event_id'],
+            timestamp=row.get('received_at') or row['attempted_at'],epoch=row['manual_epoch'])
     if row.get('percentage_review',{}).get('public_eligible') is False:return None
     if 'experimental_level' not in row: row=project([row])[0]
     point,_=percentage_point(row)
@@ -279,7 +283,9 @@ def reading(row):
         bp=point['bp'],exp=exp,estimated_exp=percentage_exp(point['bp'],level) if exp is None else None,
         exp_validity=row['exp_validity'],evidence=point['evidence'],grammar_policy=point['grammar_policy'],
         fresh_at_capture=point['fresh_at_capture'] and point['capture_acquired'] and row.get('manual_resume_eligible',True),level=level,
-        simulated=row.get('timing_mode')=='simulated',trusted=False,manual_epoch=row.get('manual_epoch'))
+        simulated=row.get('timing_mode')=='simulated',trusted=False,manual_epoch=row.get('manual_epoch'),
+        manual_baseline_id=row.get('manual_baseline_id',row.get('manual_epoch')),
+        accounting_scope=f"{row.get('character_id')}:{row.get('session_id')}")
 
 
 def observed_sequence(snapshot, *, now,completed=None,max_gap_seconds=OBSERVED_MAX_GAP_SECONDS,max_missing=OBSERVED_MAX_MISSING,
@@ -492,15 +498,22 @@ def player(snapshot,*,now=None,recent_snapshot=None):
         if value and row.get('timestamp_ordered') is not False and value['timestamp']:
             when=datetime.fromisoformat(value['timestamp'])
             if when<=now and (latest is None or when>datetime.fromisoformat(latest['timestamp'])): latest=value
+    for point in snapshot.get('manual_observations',[]):
+        if datetime.fromisoformat(point['timestamp'])<=now and (latest is None or point['timestamp']>=latest['timestamp']):latest=point
     # Display context never enters reading(), numerical checks or progress inputs.
     display_level=None
     for row in rows:
         level=level_evidence(row);stamp=row.get('received_at')
-        if (stamp and datetime.fromisoformat(stamp)<=now and row.get('timestamp_ordered') is not False
+        if (not row.get('manual_point') and stamp and datetime.fromisoformat(stamp)<=now and row.get('timestamp_ordered') is not False
                 and row.get('fresh_at_capture') and row.get('capture_acquired') and row.get('hud_count')==1
                 and level['value'] is not None and level['status'] in DISPLAY_LEVEL_STATUSES):
             display_level=dict(value=level['value'],timestamp=stamp,event_id=row['event_id'],
-                evidence=level,display_only=True,trusted=False,manual_epoch=row.get('manual_epoch'))
+                evidence=level,display_only=True,trusted=False,manual_epoch=row.get('manual_epoch'),
+                manual_baseline_id=row.get('manual_baseline_id',row.get('manual_epoch')))
+    if latest and latest['evidence']=='manual_admin' and (not display_level or latest['timestamp']>=display_level['timestamp']):
+        display_level=dict(value=latest['level']['value'],timestamp=latest['timestamp'],event_id=latest['event_id'],
+            evidence=latest['level'],display_only=True,trusted=False,manual_epoch=latest['manual_epoch'],
+            manual_baseline_id=latest.get('manual_baseline_id'))
     progress=snapshot['percentage_progress'];segment=progress['current_segment']
     usable=bool(latest and segment and segment['last_event_id']==latest['event_id'] and rows and rows[-1]['event_id']==latest['event_id'])
     movement=progress.get('latest_movement') if usable else None
@@ -641,4 +654,8 @@ def history(snapshot):
             interval_seconds=row['interval_seconds'],level=level_evidence(row),
             break_reason=comparison['reason'] if comparison else None))
         previous=value;previous_row=row;previous_point=point if eligible else None
-    return points
+    for reading_value in snapshot.get('manual_observations',[]):
+        points.append(dict(event_id=reading_value['event_id'],timestamp=reading_value['timestamp'],percentage_review=None,
+            connect_previous=False,gain=None,reading=reading_value,status='manual_correction',fresh_at_capture=False,
+            interval_seconds=snapshot.get('interval_seconds') or 15,level=reading_value['level'],break_reason='manual_historical_correction'))
+    return sorted(points,key=lambda p:p['timestamp'])

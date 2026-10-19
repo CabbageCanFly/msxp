@@ -12,7 +12,7 @@ import sqlite3
 
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition
-from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, STATEMENTS, VERSION
+from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, STATEMENTS, VERSION
 from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
@@ -40,7 +40,7 @@ class Store:
             with self._transaction():
                 version = self.db.execute("PRAGMA user_version").fetchone()[0]
                 if read_only:
-                    if version not in (3,4,VERSION):
+                    if version not in (3,4,5,VERSION):
                         raise ValueError(f"unsupported schema version {version}; initialize/migrate with the tracking CLI first")
                     self.schema_version=version
                     return
@@ -66,6 +66,10 @@ class Store:
                     for statement in MIGRATION_5:
                         self.db.execute(statement)
                     version = 5
+                if version == 5:
+                    for statement in MIGRATION_6:
+                        self.db.execute(statement)
+                    version = 6
                 if version != VERSION:
                     raise ValueError(f"unsupported schema version {version}")
                 self.db.execute(f"PRAGMA user_version={VERSION}")
@@ -175,39 +179,88 @@ class Store:
             if session:
                 self._end(session, utc(at), "explicit_end")
 
-    def manual_history(self, login, *, character_id=None, as_of=None):
-        """Operator events, separate from OCR evidence and trusted accounting."""
+    def manual_history(self, login, *, character_id=None, as_of=None, active_only=False):
+        """Current audit resolution, filtered by effective time, never by recording order."""
         streamer = self._channel(login)
         if self.schema_version < 5:
             return []
-        where = 'streamer_id=?'; args = [streamer['id']]
-        if character_id is not None:
-            where += ' AND character_id=?'; args.append(character_id)
-        if as_of is not None:
-            where += ' AND effective_at<=?'; args.append(utc(as_of))
-        return [dict(r) for r in self.db.execute(
-            'SELECT * FROM manual_corrections WHERE '+where+' ORDER BY effective_at,id', args)]
+        rows=[dict(kind='baseline',operation='apply',replaces_id=None,target_kind=None,target_event_id=None,**dict(r))
+              if self.schema_version<6 else dict(r) for r in self.db.execute(
+            'SELECT * FROM manual_corrections WHERE streamer_id=? ORDER BY effective_at,id',(streamer['id'],))]
+        replaced={r['replaces_id']:r['id'] for r in rows if r['replaces_id'] is not None}
+        cutoff=utc(as_of) if as_of is not None else None
+        for row in rows:
+            row['superseded_by']=replaced.get(row['id'])
+            row['active']=row['id'] not in replaced and row['operation']!='retract'
+        # Resolve across the whole channel first: an amendment can move to another character/time.
+        return [r for r in rows if (character_id is None or r['character_id']==character_id)
+                and (cutoff is None or r['effective_at']<=cutoff) and (not active_only or r['active'])]
+
+    def _manual_session(self, streamer_id, character_id, when, session_id):
+        if session_id is not None and (type(session_id) is not int or session_id<1):
+            raise ValueError('session must be a positive integer')
+        sessions=list(self.db.execute('SELECT * FROM sessions WHERE streamer_id=? AND character_id=?'+
+            (' AND id=?' if session_id is not None else ''),
+            (streamer_id,character_id,session_id) if session_id is not None else (streamer_id,character_id)))
+        matches=[s for s in sessions if utc(datetime.fromisoformat(s['started_at']))<=when and
+                 (s['ended_at'] is None or when<=utc(datetime.fromisoformat(s['ended_at']))) ]
+        if len(matches)>1:raise ValueError('ambiguous session at timestamp; specify --session')
+        if not matches and (sessions or session_id is not None):
+            raise ValueError('timestamp is outside the character/session scope')
+        return matches[0]['id'] if matches else None
+
+    def _manual_target(self, streamer_id, character_id, session_id, when, target_kind, target_event_id):
+        """Resolve one immutable OCR identity, using an exact timestamp when no ID is given."""
+        if session_id is None:raise ValueError('a historical reading needs an existing session')
+        if target_kind not in (None,'diagnostic','observation'):
+            raise ValueError('target kind must be diagnostic or observation')
+        matches=[]
+        if target_kind in (None,'diagnostic'):
+            for row in self.db.execute('''SELECT a.run_id,a.attempt_index,a.attempted_at,a.received_at
+                FROM diagnostic_attempts a JOIN diagnostic_runs r ON a.run_id=r.run_id
+                WHERE r.streamer_id=? AND r.character_id=? AND r.session_id=?''',
+                (streamer_id,character_id,session_id)):
+                identity=f"{row['run_id']}:{row['attempt_index']}"
+                stamp=row['received_at'] or row['attempted_at']
+                if (target_event_id is None or str(target_event_id)==identity) and utc(datetime.fromisoformat(stamp))==when:
+                    matches.append(('diagnostic',identity))
+        if target_kind in (None,'observation'):
+            for row in self.db.execute('SELECT id,observed_at FROM observations WHERE streamer_id=? AND character_id=? AND session_id=?',
+                                       (streamer_id,character_id,session_id)):
+                if (target_event_id is None or str(target_event_id)==str(row['id'])) and row['observed_at']==when:
+                    matches.append(('observation',str(row['id'])))
+        if len(matches)!=1:
+            raise ValueError('ambiguous reading; specify --reading or --observation-id' if matches else
+                             'no reading matches character, session, identity and exact effective timestamp')
+        return matches[0]
 
     def correct_manual(self, login, event_id, character_id, *, level=None, current_exp=None,
-                       percentage_bp=None, effective_at=None, reason=None, clear=False):
-        """Append a selected-character baseline adjustment; duplicate IDs are idempotent."""
+                       percentage_bp=None, effective_at=None, now=False, reason=None, clear=False,
+                       session_id=None, no_session=False, kind='baseline', target_kind=None, target_event_id=None, replaces_id=None):
+        """Append a fully specified baseline/point, optionally replacing an active audit revision."""
         if not isinstance(event_id, str) or not 1 <= len(event_id) <= 200:
             raise ValueError('event_id must contain 1..200 characters')
-        if type(character_id) is not int or character_id < 1 or type(clear) is not bool:
+        if type(character_id) is not int or character_id < 1 or type(clear) is not bool or type(now) is not bool:
             raise ValueError('invalid character or clear flag')
+        if type(no_session) is not bool or no_session and session_id is not None:
+            raise ValueError('choose session_id or no_session, exclusively')
         for name, value, low, high in (('level',level,1,200), ('current_exp',current_exp,0,2**63-1),
                                       ('percentage_bp',percentage_bp,0,9999)):
             if value is not None and (type(value) is not int or not low <= value <= high):
                 raise ValueError(f'{name} must be an integer in {low}..{high}')
-        supplied = any(v is not None for v in (level,current_exp,percentage_bp))
-        if clear == supplied:
-            raise ValueError('supply values or clear, exclusively')
+        if kind not in ('baseline','point') or clear and kind!='baseline':raise ValueError('invalid correction kind')
+        if clear and any(v is not None for v in (level,current_exp,percentage_bp)):
+            raise ValueError('clear cannot supply level or EXP')
+        if not clear and (level is None or current_exp is None and percentage_bp is None):
+            raise ValueError('level and at least one of current_exp or percentage_bp are required')
         if reason is not None and (not isinstance(reason,str) or not reason.strip() or len(reason)>1000
                                    or any(ord(c)<32 for c in reason)):
             raise ValueError('reason must contain 1..1000 characters without controls')
         if effective_at is not None and not isinstance(effective_at,datetime):
             raise ValueError('effective timestamp must be a timezone-aware datetime')
-        recorded = utc(); when = utc(effective_at) if effective_at is not None else recorded
+        if (effective_at is not None)==now:
+            raise ValueError('supply exactly one explicit effective timestamp or now=True')
+        recorded = utc(); when = recorded if now else utc(effective_at)
         if when > recorded:
             raise ValueError('effective timestamp cannot be in the future')
         with self._transaction():
@@ -216,25 +269,81 @@ class Store:
                                        (streamer['id'],event_id)).fetchone()
             action = 'clear' if clear else 'set'
             if existing:
-                expected = (character_id,action,level,current_exp,percentage_bp,reason)
-                if tuple(existing[k] for k in ('character_id','action','level','current_exp','percentage_bp','reason')) != expected or (
-                        effective_at is not None and existing['effective_at'] != when):
+                keys=('character_id','action','level','current_exp','percentage_bp','reason','kind','replaces_id')
+                expected=(character_id,action,level,current_exp,percentage_bp,reason,kind,replaces_id)
+                if tuple(existing[k] for k in keys)!=expected or existing['operation']!='apply' or (
+                        not now and existing['effective_at']!=when) or (session_id is not None and existing['session_id']!=session_id) or (
+                        target_kind is not None and existing['target_kind']!=target_kind) or (
+                        target_event_id is not None and existing['target_event_id']!=str(target_event_id)) or (
+                        no_session and existing['session_id'] is not None):
                     raise ValueError('event_id reused with different contents')
                 return dict(existing,duplicate=True)
-            if streamer['selected_character_id'] != character_id:
-                raise ValueError('character must be the channel selected character')
-            session = self._open_session(streamer['id'])
-            session_id = session['id'] if session else None
-            if session and when < session['started_at']:
-                raise ValueError('effective timestamp precedes current session')
-            previous = self.db.execute('SELECT effective_at FROM manual_corrections WHERE character_id=? '
-                'AND session_id IS ? ORDER BY effective_at DESC,id DESC LIMIT 1',(character_id,session_id)).fetchone()
-            if previous and when <= previous['effective_at']:
-                raise ValueError('effective timestamps must strictly increase within the correction scope')
+            if not self.db.execute('SELECT 1 FROM characters WHERE id=? AND streamer_id=?',(character_id,streamer['id'])).fetchone():
+                raise ValueError('character does not belong to channel')
+            if replaces_id is not None:
+                self._manual_revision(login,replaces_id)
+                if not reason:raise ValueError('amending a correction requires a reason')
+            session_id=None if no_session else self._manual_session(streamer['id'],character_id,when,session_id)
+            if kind=='point':
+                target_kind,target_event_id=self._manual_target(streamer['id'],character_id,session_id,when,target_kind,target_event_id)
+                conflict=next((e for e in self.manual_history(login,active_only=True) if e['kind']=='point'
+                    and (e['target_kind'],e['target_event_id'])==(target_kind,target_event_id) and e['id']!=replaces_id),None)
+                if conflict:raise ValueError(f"reading already corrected by {conflict['id']}; amend or undo that correction")
+            elif target_kind is not None or target_event_id is not None:
+                raise ValueError('a baseline cannot target a reading identity')
             row_id = self.db.execute('''INSERT INTO manual_corrections(event_id,streamer_id,character_id,session_id,
-                effective_at,recorded_at,action,level,current_exp,percentage_bp,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
-                (event_id,streamer['id'],character_id,session_id,when,recorded,action,level,current_exp,percentage_bp,reason)).lastrowid
+                effective_at,recorded_at,action,level,current_exp,percentage_bp,reason,kind,target_kind,target_event_id,replaces_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (event_id,streamer['id'],character_id,session_id,when,recorded,action,level,current_exp,percentage_bp,reason,
+                 kind,target_kind,target_event_id,replaces_id)).lastrowid
             return dict(self.db.execute('SELECT * FROM manual_corrections WHERE id=?',(row_id,)).fetchone(),duplicate=False)
+
+    def _manual_revision(self, login, correction_id):
+        if type(correction_id) is not int or correction_id<1:raise ValueError('invalid correction ID')
+        event=next((e for e in self.manual_history(login) if e['id']==correction_id),None)
+        if event is None:raise ValueError('correction does not belong to channel')
+        if not event['active']:
+            raise ValueError(f"correction is inactive; inspect successor {event['superseded_by']}" if event['superseded_by'] else
+                             'retractions are audit records; submit a new set/correct to restore operator information')
+        return event
+
+    def retract_manual(self, login, event_id, correction_id, *, reason):
+        if not isinstance(event_id,str) or not 1<=len(event_id)<=200:raise ValueError('invalid event_id')
+        if not isinstance(reason,str) or not reason.strip() or len(reason)>1000 or any(ord(c)<32 for c in reason):
+            raise ValueError('undo requires a reason of 1..1000 characters without controls')
+        with self._transaction():
+            streamer=self._channel(login)
+            existing=self.db.execute('SELECT * FROM manual_corrections WHERE streamer_id=? AND event_id=?',
+                                     (streamer['id'],event_id)).fetchone()
+            if existing:
+                if existing['operation']!='retract' or existing['replaces_id']!=correction_id or existing['reason']!=reason:
+                    raise ValueError('event_id reused with different contents')
+                return dict(existing,duplicate=True)
+            event=self._manual_revision(login,correction_id)
+            row_id=self.db.execute('''INSERT INTO manual_corrections(event_id,streamer_id,character_id,session_id,
+                effective_at,recorded_at,action,reason,kind,operation,replaces_id,target_kind,target_event_id)
+                VALUES(?,?,?,?,?,?,'clear',?,?,'retract',?,?,?)''',
+                (event_id,streamer['id'],event['character_id'],event['session_id'],event['effective_at'],utc(),reason,
+                 event['kind'],correction_id,event['target_kind'],event['target_event_id'])).lastrowid
+            return dict(self.db.execute('SELECT * FROM manual_corrections WHERE id=?',(row_id,)).fetchone(),duplicate=False)
+
+    def rename_character(self, login, character_id, label, *, reason=None):
+        if type(character_id) is not int or character_id<1:raise ValueError('invalid character ID')
+        if not isinstance(label,str) or label!=label.strip() or not 1<=len(label)<=100 or any(ord(c)<32 for c in label):
+            raise ValueError('new character name must contain 1..100 characters without controls or outer whitespace')
+        if reason is not None and (not isinstance(reason,str) or not reason.strip() or len(reason)>1000 or any(ord(c)<32 for c in reason)):
+            raise ValueError('invalid rename reason')
+        with self._transaction():
+            streamer=self._channel(login)
+            character=self.db.execute('SELECT * FROM characters WHERE id=? AND streamer_id=?',(character_id,streamer['id'])).fetchone()
+            if character is None:raise ValueError('character does not belong to channel')
+            if character['label']==label:raise ValueError('character already has that name')
+            if self.db.execute('SELECT 1 FROM characters WHERE streamer_id=? AND label=?',(streamer['id'],label)).fetchone():
+                raise ValueError('character name already exists in this channel')
+            self.db.execute('UPDATE characters SET label=? WHERE id=?',(label,character_id))
+            row_id=self.db.execute('''INSERT INTO character_renames(streamer_id,character_id,previous_label,label,recorded_at,reason)
+                VALUES(?,?,?,?,?,?)''',(streamer['id'],character_id,character['label'],label,utc(),reason)).lastrowid
+            return dict(self.db.execute('SELECT * FROM character_renames WHERE id=?',(row_id,)).fetchone())
 
     def ingest(self, login, event_id, observed_at, result: Recognition, *, profile=None,
                session_id=None, source="local"):
@@ -282,9 +391,9 @@ class Store:
                     transition = Transition("rejected", ";".join(result.reasons) or result.status)
                 else:
                     previous = self.db.execute("SELECT * FROM observations WHERE id=?", (state["last_trusted_observation_id"],)).fetchone()
-                    correction = self.db.execute('SELECT effective_at FROM manual_corrections WHERE session_id=? '
-                        'AND effective_at<? ORDER BY effective_at DESC,id DESC LIMIT 1',(session_id,when)).fetchone()
-                    if correction and previous and previous['observed_at'] <= correction['effective_at']:
+                    boundaries=[e['effective_at'] for e in self.manual_history(login,character_id=char,active_only=True)
+                                if e['session_id']==session_id and e['effective_at']<when]
+                    if boundaries and previous and previous['observed_at'] <= max(boundaries):
                         previous = None
                     observation = Observation(str(char), datetime.fromisoformat(when), result.reading)
                     prior = Observation(str(char), datetime.fromisoformat(previous["observed_at"]),

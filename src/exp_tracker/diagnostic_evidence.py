@@ -307,6 +307,12 @@ def project(rows, *, state=None, allow_context=True):
             missing=0;corroborated_at=None;anchor=None;context_conflicts=0;capture_gaps=0;derived=None
             manual_epoch=original.get('manual_epoch');manual_released=False
         row=dict(original); visual=_visual(row); neural,score=_neural(row)
+        if row.get('manual_point'):
+            from .manual import corrected_reading
+            corrected=corrected_reading(row['manual_point'])
+            row.update(experimental_level=corrected['level'],exp_validity=corrected['exp_validity'],manual_resume_eligible=False)
+            output.append(row);previous=None;derived=None
+            continue
         frame=row.get('frame_sha256')
         fresh=(row.get('fresh_at_capture') is True and row.get('capture_acquired') is True
             and row.get('status') in ('diagnostic_pair','diagnostic_percentage_only','malformed_or_unavailable')
@@ -350,6 +356,14 @@ def project(rows, *, state=None, allow_context=True):
             recent.clear(); established=None; neural_context=False; missing=0; corroborated_at=None
             anchor=None;context_conflicts=0;derived=derived if hold else None
             context_frames.clear()
+        manual=row.get('manual_context')
+        if fresh and manual and manual['level'] is not None and not manual_released and derived is None:
+            from .manual import corrected_reading
+            seed=corrected_reading(manual)
+            if seed['bp'] is not None:
+                sample=dict(event_id='manual:'+manual['event_id'],frame_sha256='manual:'+str(manual['id']),
+                    exp=manual['current_exp'],bp=seed['bp'],timestamp=manual['effective_at'])
+                derived=_established(manual['level'],sample,row['received_at'],'manual_admin')
         full=full_reading(row)
         direct=consistency(full,neural) if row.get('candidate') and neural is not None else None
         # Zero/zero fits every requirement and supplies no identifying level evidence.
@@ -484,15 +498,23 @@ def project(rows, *, state=None, allow_context=True):
             evidence.update(value=selected,status=derived_status,reason=derived_reason,strict_window_eligible=False)
             # Unconfirmed reader numbers stay visible; an obscured HUD can produce them.
             if claims:evidence['unselected_reader_claims']=claims
-        manual=row.get('manual_context')
         if manual and manual['level'] is not None and fresh:
             if status in ('agreement','provisional_neural') and selected is not None:
                 manual_released=True
+            transition=(derived or {}).get('last_transition') or (derived or {}).get('transition') or {}
+            forward_transition=(derived_value==manual['level']+1 and (
+                transition.get('from_level')==manual['level'] and transition.get('phase') in ('provisional','corroborated')
+                or (derived or {}).get('replaced_level')==manual['level'] and len((derived or {}).get('samples',[]))>=DERIVED_SAMPLES))
+            if forward_transition and derived_status in ('exp_derived','provisional_level_up'):
+                manual_released=True
+                evidence['manual_seed']=dict(correction_id=manual['id'],level=manual['level'],effective_at=manual['effective_at'])
             if not manual_released:
                 from .manual import level_evidence
+                context=evidence.get('level_context')
                 evidence=level_evidence(manual)
                 evidence.update(reader_evidence=dict(value=selected,status=status),visual=visual,neural=neural)
-                selected=manual['level'];derived=None
+                if context:evidence['level_context']=context
+                selected=manual['level']
         row['experimental_level']=evidence
         row['exp_validity']=pair_check if veto else consistency(full,selected)
         if evidence['status']=='exp_derived':
