@@ -43,7 +43,7 @@ def percentage_point(row, *, include_recovered=True):
     if row.get('candidate_invalid') or row.get('percentage_only_invalid'):
         return None, 'candidate_contradiction'
     interpreted = interpret_exp(row.get('raw_text'))
-    kind, reading = None, None
+    kind, reading, requires_context = None, None, False
     if row.get('candidate'):
         if interpreted['strict_full'] and all(row['candidate'].get(k)==interpreted['strict_full'][k] for k in ('exp','percentage')):
             kind, reading = 'strict_full', interpreted['strict_full']
@@ -56,6 +56,9 @@ def percentage_point(row, *, include_recovered=True):
             return None, 'candidate_contradiction'
     elif include_recovered and interpreted['percentage']['classification']=='unique_proposal':
         kind, reading = 'grammar_recovered', interpreted['percentage']['proposals'][0]['reading']
+    elif include_recovered and len(interpreted['percentage_hypotheses'])==1:
+        kind,reading='grammar_recovered',interpreted['percentage_hypotheses'][0]['reading']
+        requires_context=True
     if reading is None:
         return None, 'invalid_or_ambiguous_percentage'
     point = dict(event_id=row.get('event_id'), index=row.get('index'), run_id=row.get('run_id'),
@@ -88,7 +91,9 @@ def percentage_point(row, *, include_recovered=True):
     except (TypeError,ValueError):
         if reason in (None,'visual_level_unavailable','level_evidence_conflict'):
             reason = 'timestamp_unavailable_or_out_of_order'
-    point['comparison_eligible'] = reason is None
+    if requires_context:point['requires_percentage_only_context']=True
+    point['comparison_eligible'] = reason is None and (not requires_context or
+        row.get('percentage_review',{}).get('percentage_only_context',{}).get('supported') is True)
     return point, reason
 
 

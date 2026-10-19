@@ -243,6 +243,8 @@ def reading(row):
     if 'experimental_level' not in row: row=project([row])[0]
     point,_=percentage_point(row)
     if not point: return None
+    if point.get('requires_percentage_only_context') and not row.get('percentage_review',{}).get('percentage_only_context',{}).get('supported'):
+        return None
     full=row.get('candidate') if point['evidence']=='strict_full' else None
     if point['evidence']=='grammar_recovered':
         proposed=(row.get('interpretations') or {}).get('full_exp',{})

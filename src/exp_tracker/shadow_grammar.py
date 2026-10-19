@@ -80,12 +80,25 @@ def interpret_exp(text, *, source_complete=None):
     """
     base = dict(classification='rejected', proposals=[], trusted=False,
                 numerical_identity_verified=False, reason='no_bounded_interpretation')
-    result = dict(policy='bounded_exp_v5', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
+    result = dict(policy='bounded_exp_v6', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
                   strict_full=None, strict_percentage_only=None, full_exp={**base}, percentage={**base},
-                  symbol_hypotheses=[], source_complete=source_complete, trusted=False)
+                  symbol_hypotheses=[], percentage_hypotheses=[], source_complete=source_complete, trusted=False)
     if not isinstance(text, str) or not text or len(text) > MAX_TEXT:
         for field in ('full_exp', 'percentage'):
             result[field] = {**base, 'classification': 'unavailable', 'reason': 'missing_or_unbounded_text'}
+        return result
+    # Three integer characters cannot be an ordinary 10..99% token. Interpreting
+    # the first '1' still needs prior field-mode evidence, never text grammar alone.
+    leading = re.fullmatch(r'1([1-9][0-9]\.[0-9]{2})%([\]1])', text)
+    if leading and source_complete is not False:
+        interpretation=f'[{leading[1]}%]'
+        edits=[dict(index=0,old='1',new='[',category='opening_bracket')]
+        if leading[2]=='1':edits.append(dict(index=len(text)-1,old='1',new=']',category='closing_bracket'))
+        result['percentage'].update(classification='review_only',reason='prior_strict_percentage_only_context_required')
+        result['percentage_hypotheses']=[dict(interpretation=interpretation,reading=parse_percentage_only(interpretation),
+            edits=edits,required_context='two_prior_strict_percentage_only',field_span=[0,len(text)],
+            image_verification='required',source_completeness_verified=False,
+            trusted=False,numerical_identity_verified=False)]
         return result
     strict, only = _full_reading(text), parse_percentage_only(text)
     if strict or only:

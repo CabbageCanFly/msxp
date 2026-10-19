@@ -26,15 +26,21 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
     """Separate eligible captures corroborate a baseline, not statistical independence or cause."""
     if type(confirmation_seconds) is not int or not 1<=confirmation_seconds<=60:raise ValueError('Confirmation span must be 1..60 seconds')
     anchor=pending=previous=None
-    seen=set();result=[];quarantined_at=None
+    seen=set();result=[];quarantined_at=None;strict_percentage_context=[]
     if state:
         anchor=state['anchor'];pending=state['pending'];previous=state['previous']
         seen=state['seen'];quarantined_at=state['quarantined_at']
+        strict_percentage_context=state.get('strict_percentage_context',[])
     def record(value):
-        nonlocal quarantined_at
+        nonlocal quarantined_at,strict_percentage_context
         if value['public_eligible']:quarantined_at=None
         elif value['pending_since'] and quarantined_at is None:quarantined_at=datetime.fromisoformat(value['pending_since'])
         value['verification_deadline']=(quarantined_at+timedelta(seconds=confirmation_seconds)).isoformat() if quarantined_at else None
+        if value['break_before'] or edge not in (None,'sampling_gap'):strict_percentage_context=[]
+        if (point and value['progress_eligible'] and point['evidence']=='strict_percentage_only'
+                and row.get('frame_sha256') and not row.get('crop_suspect')):
+            strict_percentage_context=(strict_percentage_context+[dict(point=point,frame=row['frame_sha256'])])[-2:]
+        else:strict_percentage_context=[]
         result.append(value)
     for row,(point,invalid) in zip(rows,evidence):
         if point:point['interval_seconds']=row.get('interval_seconds',15)
@@ -47,6 +53,19 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
         when=datetime.fromisoformat(point['timestamp']) if point and point.get('timestamp') and invalid not in ('timestamp_unavailable_or_out_of_order',) else None
         if when and when>now:invalid='future_timestamp'
         edge=boundary(previous,point,row) if previous and point and invalid is None else None
+        if point and point.get('requires_percentage_only_context'):
+            frames=[c['frame'] for c in strict_percentage_context]+[row.get('frame_sha256')]
+            keys=('channel','source_channel','source_kind','source_identity','character_id','session_id','run_id','level')
+            supported=(invalid is None and edge in (None,'sampling_gap') and pending is None
+                and len(strict_percentage_context)==2 and all(frames) and len(set(frames))==3
+                and previous is not None and previous['event_id']==strict_percentage_context[-1]['point']['event_id']
+                and all(all(c['point'][k]==point[k] for k in keys) and
+                    0<(when-datetime.fromisoformat(c['point']['timestamp'])).total_seconds()<=120
+                    for c in strict_percentage_context))
+            value['percentage_only_context']=dict(policy='leading_one_percentage_v1',supported=supported,
+                support_event_ids=[c['point']['event_id'] for c in strict_percentage_context],max_age_seconds=120)
+            if supported:point['comparison_eligible']=True
+            else:invalid='percentage_bracket_context_required';value['eligibility_reason']=invalid
         if anchor and point:
             changed=any(point[k]!=anchor['point'][k] for k in ('channel','source_channel','source_kind','source_identity','character_id','session_id'))
             if (changed or invalid is None and point['level'] is not None and point['level']!=anchor['level']
@@ -112,7 +131,8 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
             value.update(pending_since=pending['since'].isoformat(),
                 confirmation_deadline=(pending['since']+timedelta(seconds=confirmation_seconds)).isoformat())
         previous=point;record(value)
-    if state is not None:state.update(anchor=anchor,pending=pending,previous=previous,seen=seen,quarantined_at=quarantined_at)
+    if state is not None:state.update(anchor=anchor,pending=pending,previous=previous,seen=seen,quarantined_at=quarantined_at,
+        strict_percentage_context=strict_percentage_context)
     if result and result[-1]['verification_deadline'] and now>datetime.fromisoformat(result[-1]['verification_deadline']):
         result[-1].update(status='unresolved_numerical_continuity',reason='confirmation_expired')
     return result
