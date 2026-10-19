@@ -448,3 +448,116 @@ nullable-region callers in `tools/evaluate_adaptive_hud.py`,
 `tests/test_obscured_hud.py`; this guide. No commit or push made.
 
 Suggested commit: `fix(hud): localize visible EXP without a level anchor`.
+
+## Feature wrap-up: one short isolated trial
+
+Wrap-up review of `e01b281` found no remaining serious correctness/safety issue
+requiring another implementation change. Rechecked geometry merging/ambiguity,
+crop bounds, null level crops and their callers, freshness, worker limits,
+diagnostic persistence and public inference. This is still an experimental
+single-layout-family recognizer, not character authentication.
+
+Verified environments (read-only checks plus an actual offline EXP worker call):
+
+- Capture Python: `H:\Desktop\codex\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe`;
+  Python 3.14.7, Streamlink 8.6.2, Pillow 12.3.0, pytesseract 0.3.13, psutil 7.2.2.
+- OCR Python: `H:\Desktop\codex\msclassic-twitch-exp-tracker\private\rapidocr\.venv\Scripts\python.exe`;
+  RapidOCR 3.10.0, ONNX Runtime 1.31.0. Existing models loaded successfully with
+  worker downloads disabled. The saved first Tricia EXP crop again returned
+  `45,257[11.57%]`, with neural level `missing_crop`.
+- Tesseract: `C:\Program Files\Tesseract-OCR\tesseract.exe`.
+  FFmpeg: `C:\Shortcuts\exe\ffmpeg.EXE`.
+- Offline `shadow_capture.prepare` passed for the command below: `args.db` is
+  absent, no output was created and no remote connection was made. The script
+  inserts this feature worktree's `src/`; borrowing the sibling interpreter
+  does not select main's acquisition implementation.
+
+Run **only after confirming permission for this specific Twitch trial**:
+
+```powershell
+Set-Location 'H:\Desktop\codex\msclassic-level-inference'
+$capturePython = 'H:\Desktop\codex\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe'
+$ocrPython = 'H:\Desktop\codex\msclassic-twitch-exp-tracker\private\rapidocr\.venv\Scripts\python.exe'
+$trial = Join-Path (Get-Location) ('private\obscured-hud\tricia-validation-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+Write-Host "Private trial: $trial"
+& $capturePython tools/shadow_capture.py --channel triciaisabirdy --authorized `
+  --quality best --count 24 --interval 20 --timeout 15 --max-age 15 --ocr-timeout 10 `
+  --experimental-neural-level --save-crops --ocr-python $ocrPython `
+  --output (Join-Path $trial 'capture.jsonl')
+```
+
+Expected duration is about eight minutes at the measured cadence. This is an
+attempt-count limit, not a hard wall-time deadline; overruns can extend it. Press
+Ctrl+C at ten minutes if needed. The runner closes owned capture/worker processes
+and writes an interrupted summary. Do not force-kill it to enforce a timer.
+The runner normally writes JSONL silently; inspect the growing file in another
+terminal if needed. Exit 0 alone does not establish successful OCR.
+
+There is no `--db`, server, live configuration or coordinator access in this
+command. New output paths are required. Crops are under
+`$trial/capture/0001/exp.png` etc.; covered levels have no `level.png`. Missing or
+ambiguous localization saves no crop. CPU/network are shared with other local
+processes, even though files, state and owned subprocesses are isolated.
+
+After the run, reuse the existing **offline replay** to inspect public inference
+and Advanced coverage. This creates a separate review database, never opens the
+active database, and never starts capture. Keep `$trial` from the command above:
+
+```powershell
+$reviewConfig = Join-Path $trial 'review-config.json'
+$reviewDb = Join-Path $trial 'review.sqlite3'
+if ((Test-Path $reviewConfig) -or (Test-Path $reviewDb)) { throw 'Use new review output names.' }
+@{
+  database = $reviewDb
+  port = 8787
+  streams = @(@{ channel = 'triciaisabirdy'; character = 'Isolated validation'; source = 'twitch' })
+} | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $reviewConfig
+& $capturePython tools/multi_alpha.py --config $reviewConfig `
+  --replay ('triciaisabirdy=' + (Join-Path $trial 'capture.jsonl'))
+```
+
+`--replay` bypasses acquisition; no `--twitch-status` is enabled. This is a new
+offline viewer process on port 8787, not the active coordinator. Use another free
+port if necessary. Open `http://127.0.0.1:8787/stream/triciaisabirdy` and
+`http://127.0.0.1:8787/dashboard/triciaisabirdy`. Ctrl+C closes the review viewer.
+The original JSONL/timestamps remain unchanged. A normal or Ctrl+C summary is
+needed for replay of this no-DB log; preserve/review incomplete logs after a hard
+termination rather than inventing a completion.
+
+Review all at most 24 attempts and available crops:
+
+1. **Detection:** count acquired frames, unique/missing/ambiguous HUDs and failures.
+   Advanced's coverage distinguishes strict pairs, percentages and grammar
+   proposals; these categories overlap and are not an accuracy score.
+2. **OCR:** manually compare every strict accepted number with its native crop.
+   Separate correct, wrong and unreadable, then review rejected/recovered text.
+   A high model score or arithmetic agreement is not digit verification.
+3. **Target/false positives:** confirm crop coordinates and content belong to the
+   native EXP row, not the separate overlay. Observe the stream during the trial
+   for scene/identity changes. Crops alone cannot establish full-frame uniqueness
+   or explain a missing-HUD frame; use the existing opt-in full-frame collector
+   only if an anomaly needs context.
+4. **Level continuity:** inspect the public level/context and Advanced decisions.
+   Establishment needs several eligible, distinct frame hashes and forward EXP
+   and percentage progress. Stationary play need not establish a level. Missing
+   level OCR stays missing; percentage-only retention must remain inferred and
+   gaps/conflicts/transitions must remain dated or explicitly uncertain.
+5. **Freshness:** inspect increasing receipt times, repeated hashes,
+   `local_age_seconds`, `current`, `status`, per-stage timings and resource
+   snapshots. Stale results must remain ineligible. Receipt age is local only;
+   hashes, Twitch availability and a low local age cannot prove broadcast age.
+
+Merge recommendation: **ready after short live validation**. No implementation
+blocker was found. Require no wrong-target or wrong strict accepted values in the
+reviewed sample, reliable localization while the native row is visible, honest
+stale/gap handling and coherent inferred continuity when sufficient progression
+occurs. A short trial will not establish broad false-positive rates, table
+accuracy or every real level-up scenario. Do not expand this into a new phase.
+After integrating main's independent performance work, run the combined suite;
+its projection changes were not reimplemented or audited here.
+
+Wrap-up checks: **193 focused Python tests passed, zero skips**; previous final
+full suite **1,623 passed / 102 skipped** (100 private fixtures, one loopback,
+one symlink permission), plus **59 frontend tests passed**. No production code
+changed during wrap-up, so that full run was not repeated. No remote trial,
+active database write, coordinator restart, merge or push was performed.
