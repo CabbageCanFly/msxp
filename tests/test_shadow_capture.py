@@ -254,10 +254,20 @@ def test_real_neural_timeout_reaps_worker(shadow,monkeypatch,tmp_path):
         return run([sys.executable,str(worker),str(pidfile)],**kwargs)
     monkeypatch.setattr(shadow.subprocess,'run',launch)
     started=time.monotonic()
-    with pytest.raises(CaptureError,match='neural_timeout'):
-        shadow.neural_line(Image.new('RGB',(50,15)),Path(sys.executable),.5)
-    assert time.monotonic()-started<5
-    assert pidfile.exists() and not psutil.pid_exists(int(pidfile.read_text()))
+    try:
+        with pytest.raises(CaptureError,match='neural_timeout'):
+            shadow.neural_line(Image.new('RGB',(50,15)),Path(sys.executable),.5)
+        assert time.monotonic()-started<5
+        assert pidfile.exists() and not psutil.pid_exists(int(pidfile.read_text()))
+    finally:
+        # An assertion failure must not leave this test's sleeping worker behind.
+        if pidfile.exists():
+            try:
+                process=psutil.Process(int(pidfile.read_text()))
+                if str(worker) in process.cmdline():
+                    process.kill();process.wait(timeout=5)
+            except psutil.NoSuchProcess:
+                pass
 
 
 def test_interrupt_during_partial_capture_startup_also_closes(shadow, monkeypatch):
