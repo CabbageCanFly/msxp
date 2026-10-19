@@ -381,3 +381,21 @@ def test_consecutive_outage_crosses_rotation_then_recovers_without_starving_heal
     events=[json.loads(line) for line in next((path.parent/'multi-alpha/runs').glob('*/operator.jsonl')).read_text().splitlines()]
     failures=[e for e in events if e.get('status')=='capture_failed']
     assert len(failures)==7 and all(e['sqlite_committed'] and e['reasons']==['frame_timeout'] for e in failures)
+
+
+def test_public_only_coordinator_serves_public_routes_and_refuses_developer_routes(multi,monkeypatch,capsys):
+    from tests.test_server import request
+    module=multi[0];servers=[];seen=[]
+    create_server=module.create_server
+    def server(*args,**kw):
+        assert (kw['public_only'],kw['diagnostic_dashboard'],kw['background'])==(True,False,True)
+        result=create_server(*args,**kw);servers.append(result);return result
+    monkeypatch.setattr(module,'create_server',server)
+    capture=module.shadow.capture_attempt
+    def check(*args,**kw):
+        seen.append([request((servers[0],None),p)[0] for p in ('/api/players','/stream/alpha','/live/overlay/alpha','/dev/api/streams','/dashboard/alpha')])
+        return capture(*args,**kw)
+    monkeypatch.setattr(module.shadow,'capture_attempt',check)
+    assert main(multi,'--public-only')==0
+    assert seen and all(s==[200,200,200,404,404] for s in seen)
+    assert 'Public-only: developer diagnostics are disabled' in capsys.readouterr().out

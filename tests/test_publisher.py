@@ -444,3 +444,26 @@ def test_capture_committing_between_card_and_totals_cannot_mix_revisions(trackin
         entry=server.publisher.entry('alpha')
         assert entry['tracked']['context_attempts']==4
         assert entry['card']['last_attempt_at']==(NOW+timedelta(seconds=80)).isoformat()
+
+
+def test_public_only_publishes_in_background_and_refuses_developer_routes(tracking,clock):
+    path,store,d=tracking;d.begin('one','alpha',config('one',interval=20));save(d,'one',1,20,3300);clock.at=NOW+timedelta(seconds=20)
+    from tests.test_server import request
+    with server_module.create_server(path,port=0,background=True,public_only=True) as server:
+        get=lambda p,method='GET':request((server,None),p,method)
+        wait_for(lambda:server.publisher.entry('alpha'))
+        for p in ('/','/streams','/stream/alpha','/live/overlay/alpha','/api/players','/api/players/alpha','/api/players/alpha/history',
+                  '/static/product.js','/static/product.css','/static/leaderboard.css','/static/leaderboard.svg','/static/overlay.css'):
+            assert get(p)[0]==200,p
+        assert [p['channel'] for p in json.loads(get('/api/players')[2])['players']]==['alpha']
+        assert all(b'data-site="public"' in get(p)[2] for p in ('/','/stream/alpha','/live/overlay/alpha'))
+        assert get('/api/players/missing')[0]==404 and get('/stream/bad!')[0]==400 and get('/api/players','POST')[0]==405
+        for p in ('/dev/streams','/dev/api/streams','/dev/api/streams/alpha/diagnostics','/dev/api/streams/alpha/diagnostics?session=1',
+                  '/dev/api/streams/alpha/sessions','/dev/api/streams/alpha/runs','/dashboard/alpha','/dashboard/missing','/dev/shadow',
+                  '/dev/api/shadow','/static/shadow.js','/static/shadow.css','/static/streams.js','/api/streams/alpha/state',
+                  '/overlay/alpha','/demo/leaderboard','/static/leaderboard.js','/static/overlay.js','/static/tracker.html'):
+            status,_,body=get(p);assert (status,json.loads(body))==(404,{'error':'not_found'}),p
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:  # Developer mode is unchanged.
+        assert b'data-site' not in request((server,None),'/')[2] and request((server,None),'/dev/api/streams')[0]==200
+    for kwargs in (dict(diagnostic_dashboard=True),dict(shadow_log=path)):
+        with pytest.raises(ValueError,match='public-only'):server_module.create_server(path,port=0,public_only=True,**kwargs)

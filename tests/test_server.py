@@ -128,6 +128,17 @@ def test_server_only_startup_prints_real_urls_and_does_not_capture(database, mon
     assert '/dashboard/CHANNEL' not in output
 
 
+def test_public_only_startup_prints_only_public_urls(database, monkeypatch, capsys):
+    def stop(self):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(server.ThreadingHTTPServer, 'serve_forever', stop)
+    assert server.main(['--db', str(database), '--port', '0', '--public-only']) == 0
+    output = capsys.readouterr().out
+    assert '/stream/demo' in output and '/live/overlay/demo' in output and '/dashboard/' not in output
+    assert server.main(['--db', str(database), '--port', '0', '--public-only', '--diagnostic-dashboard']) == 1
+    assert 'public-only' in capsys.readouterr().err
+
+
 def test_api_matches_real_store_and_is_not_cached(database, http_server):
     result = state(http_server)
     with Store(database, read_only=True) as store:

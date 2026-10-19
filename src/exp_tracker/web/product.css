@@ -1,6 +1,7 @@
 .product .brand { text-decoration:none; color:inherit; }
 .product a { color:#e8c78e; }
 .advanced { color:#e7c78c; font-size:12px; white-space:nowrap; }
+[data-site=public] .dev-link { display:none; }
 .welcome { padding:22px 4px 34px; }
 .eyebrow { color:#dfb976; letter-spacing:2px; font-size:10px; }
 .welcome h1 { font-size:clamp(32px,5vw,52px); line-height:1.05; text-transform:none; letter-spacing:-1.5px; margin:12px 0 16px; color:#fff0d6; }

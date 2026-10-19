@@ -35,6 +35,8 @@ SHADOW_ASSETS = {
 }
 DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
 PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
+# Public-only mode also serves these shared assets; everything else outside the product is refused.
+PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css'}
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
 
@@ -81,14 +83,18 @@ class Handler(BaseHTTPRequestHandler):
         product_api=re.fullmatch(r'/api/players/([^/]*)',path)
         product_history=re.fullmatch(r'/api/players/([^/]*)/history',path)
         product_page=re.fullmatch(r'/(stream|live/overlay)/([^/]*)',path)
-        if path in ('/','/streams','/api/players') or product_api or product_history or product_page or path in PRODUCT_ASSETS:
-            if not self.server.diagnostic_dashboard:
+        product = path in ('/','/streams','/api/players') or product_api or product_history or product_page or path in PRODUCT_ASSETS
+        if self.server.public_only and not (product or path in PUBLIC_ASSETS):
+            # Deny by default: developer, shadow, trusted-state and demo routes do not exist here.
+            self.reply(404,{'error':'not_found'});return
+        if product:
+            if not (self.server.diagnostic_dashboard or self.server.public_only):
                 self.reply(404,{'error':'not_found'});return
             try:
                 if path in PRODUCT_ASSETS:
                     name,kind=PRODUCT_ASSETS[path];self.reply(200,(WEB/name).read_bytes(),kind)
                 elif path in ('/','/streams'):
-                    self.reply(200,(WEB/'tracker.html').read_bytes(),'text/html')
+                    self.reply(200,self.page('tracker.html'),'text/html')
                 elif path=='/api/players':
                     # Requests only present published state; inline servers settle it first.
                     publisher=self.server.publisher
@@ -99,7 +105,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not CHANNEL.fullmatch(channel):self.reply(400,{'error':'invalid_channel'});return
                     if product_page:
                         with Store(self.server.database,read_only=True) as store:store._channel(channel)
-                        self.reply(200,(WEB/('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html')).read_bytes(),'text/html')
+                        self.reply(200,self.page('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html'),'text/html')
                         return
                     publisher=self.server.publisher
                     if not publisher.background:publisher.settle()
@@ -212,14 +218,22 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.reply(404, {"error": "not_found"})
 
+    def page(self, name):
+        body = (WEB / name).read_bytes()
+        # Public pages hide links to the developer routes this server refuses (see product.css).
+        return body.replace(b'<html lang="en">', b'<html lang="en" data-site="public">', 1) if self.server.public_only else body
+
     def reject_write(self):
         self.reply(405, {"error": "read_only"})
 
     do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = reject_write
 
 
-def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False,background=False):
-    """background=True runs the publisher thread; otherwise requests settle it inline."""
+def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False,background=False,public_only=False):
+    """background=True runs the publisher thread; otherwise requests settle it inline.
+    public_only serves only the homepage, character pages, OBS overlay and their APIs/assets."""
+    if public_only and (diagnostic_dashboard or shadow_log is not None):
+        raise ValueError('public-only mode excludes developer diagnostics and the shadow viewer')
     database = Path(database).resolve()
     with Store(database, read_only=True):
         pass  # Validate without creating, migrating or changing journal mode.
@@ -228,6 +242,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.database = database
     server.shadow_log = diagnostics
     server.diagnostic_dashboard = diagnostic_dashboard
+    server.public_only = public_only
     server.active_run_ids = set()
     server.coordinator_status = {}
     server.directory_cache = {}
@@ -237,7 +252,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.twitch_availability=StreamAvailability(enabled=twitch_status,auth=AppTokens(maintain=twitch_status))
     # Module-level datetime, so replay fixtures that pin this module's clock pin the publisher.
     server.publisher=Publisher(server,clock=lambda:datetime.now(timezone.utc),background=background)
-    if diagnostic_dashboard:server.publisher.start()
+    if diagnostic_dashboard or public_only:server.publisher.start()
     return server
 
 
@@ -247,26 +262,29 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--shadow-log", type=Path, help="Opt in to /dev/shadow for one private/artifacts JSONL; read-only")
     parser.add_argument('--diagnostic-dashboard', action='store_true', help='Enable the experimental homepage, live overlay and advanced SQLite diagnostics')
+    parser.add_argument('--public-only', action='store_true', help='Serve only the public homepage, character pages and OBS overlay; developer routes return 404')
     parser.add_argument('--twitch-status',action='store_true',help='Opt in to cached Helix live status using server environment credentials')
     args = parser.parse_args(argv)
     if not 0 <= args.port <= 65535:
         parser.error("port must be 0..65535")
     try:
         with create_server(args.db, port=args.port, shadow_log=args.shadow_log,
-                           diagnostic_dashboard=args.diagnostic_dashboard,twitch_status=args.twitch_status,background=True) as server:
+                           diagnostic_dashboard=args.diagnostic_dashboard,twitch_status=args.twitch_status,background=True,public_only=args.public_only) as server:
             print(f'Database: {server.database}', flush=True)
             print('Read-only HTTP server; capture is NOT started by this command.', flush=True)
-            print(f"Local read-only server: http://127.0.0.1:{server.server_port}/overlay/CHANNEL", flush=True)
+            if not server.public_only:
+                print(f"Local read-only server: http://127.0.0.1:{server.server_port}/overlay/CHANNEL", flush=True)
             if server.shadow_log:
                 print(f"UNVERIFIED shadow viewer: http://127.0.0.1:{server.server_port}/dev/shadow", flush=True)
-            if server.diagnostic_dashboard:
+            if server.diagnostic_dashboard or server.public_only:
                 print(f"EXP Tracker homepage: http://127.0.0.1:{server.server_port}/",flush=True)
                 with Store(server.database, read_only=True) as store:
                     channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login LIMIT 25')]
                 for channel in channels:
                     print(f"Character: http://127.0.0.1:{server.server_port}/stream/{channel}",flush=True)
                     print(f"Experimental OBS overlay (500x160): http://127.0.0.1:{server.server_port}/live/overlay/{channel}",flush=True)
-                    print(f"SQLite diagnostic dashboard: http://127.0.0.1:{server.server_port}/dashboard/{channel}", flush=True)
+                    if server.diagnostic_dashboard:
+                        print(f"SQLite diagnostic dashboard: http://127.0.0.1:{server.server_port}/dashboard/{channel}", flush=True)
                 if not channels:
                     print('No channels configured in this database.', flush=True)
             try:

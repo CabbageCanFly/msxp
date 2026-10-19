@@ -95,28 +95,76 @@ can sum past 100%; CPU s/s is the real ceiling, ≈1.0 for one Python process.
    5 full-day channels, then cached), `/dev/api/streams/{ch}/diagnostics`
    (≈60 ms and 744 KiB per request, uncached, arbitrary session/run queries),
    `/dashboard/*` and `/dev/*`. They are cheap to request repeatedly and expensive to
-   serve, so they must not be publicly reachable.
+   serve, so they must not be publicly reachable. **Addressed** by `--public-only`
+   ([below](#public-only-mode)).
 5. **Capture and serving are coupled.** `operation()` trusts only the in-process
    coordinator for live activity. A standalone `python -m exp_tracker.server` shows
    live channels as `coordinator_stopped` / `previous_unfinished_run`. The trial must
    therefore run `tools/multi_alpha.py` (capture + server in one process), and capture's
    in-process work shares the GIL that this benchmark measured without it.
 
+## Public-only mode
+
+`--public-only` (server and `tools/multi_alpha.py`; `create_server(public_only=True)`)
+serves only the public product and refuses everything else with
+`404 {"error": "not_found"}`, before any database access. This does not depend on
+proxy configuration.
+
+| Served | Routes |
+|---|---|
+| Homepage | `/`, `/streams`, `/api/players` |
+| Character page | `/stream/{ch}`, `/api/players/{ch}`, `/api/players/{ch}/history` |
+| Experimental OBS overlay | `/live/overlay/{ch}` (uses `/api/players/{ch}`) |
+| Assets | `/static/product.js`, `/static/product.css`, `/static/leaderboard.css`, `/static/leaderboard.svg`, `/static/overlay.css` |
+
+**Refused (404):** `/dev/*`, `/dashboard/*`, the shadow viewer and its assets, the
+directory script, the trusted-state API `/api/streams/{ch}/state` and its legacy
+`/overlay/{ch}` page, the fictional `/demo/leaderboard` and its script, and anything
+unlisted. Non-GET methods still return `405`.
+
+The background publisher, Twitch status and coordinator activity run as in developer
+mode. Public pages carry `data-site="public"`, which hides their Advanced, Design demo
+and detailed-history links. `--public-only` cannot be combined with
+`--diagnostic-dashboard` or `--shadow-log`: startup fails instead of silently choosing
+one. Without the flag, every launcher and test behaves as before.
+
+Public-only coordinator for the trial (Linux, from the checkout; the port comes from
+the config's `port`):
+
+```sh
+.venv/bin/python tools/multi_alpha.py --config private/multi-alpha/config.json --check --twitch-status
+.venv/bin/python tools/multi_alpha.py --config private/multi-alpha/config.json --continuous --twitch-status --public-only
+```
+
+The startup log prints `Public-only: developer diagnostics are disabled (404).`
+For operator diagnostics, use a separate developer server on another loopback port
+against the config's `database` (`DATABASE` below), reached through an SSH tunnel:
+`.venv/bin/python -m exp_tracker.server --db DATABASE --port 8766 --diagnostic-dashboard`.
+It shows live channels as not running (finding 5); its routes still compute per request.
+
+`tools/local_alpha.py` (single channel) and the standalone server without the flag
+keep developer mode.
+
 ## Linux VPS plan (4 vCPU / 8 GB), untested
 
-**Processes.** For the trial, keep one `multi_alpha` process (capture coordinator,
-refresher, HTTP on `127.0.0.1`). Streamlink, FFmpeg, Tesseract and the neural worker
+**Processes.** For the trial, keep one `multi_alpha --public-only` process (capture
+coordinator, refresher, HTTP on `127.0.0.1`). Streamlink, FFmpeg, Tesseract and the neural worker
 are already subprocesses and can use the other cores. Add Caddy (or nginx) as the only
 public listener. The workstation measured ≈6–16% of one core and ≈200 MiB peak tree
 RSS per capture channel ([live capture](live-capture.md)). Six channels plus a
 ≈200–350 MiB server fit 8 GB on paper; concurrent Linux capture is unmeasured.
 
-**Reverse proxy.** TLS, compression and a path allowlist. Untested Caddy sketch:
+**Reverse proxy.** TLS, compression and the same path allowlist as defence in depth.
+The fictional demo and the generic `/static/*` prefix are removed: no public page needs
+them. Untested Caddy sketch:
 
 ```caddy
 tracker.example.org {
     encode zstd gzip
-    @public path / /streams /stream/* /live/overlay/* /api/players /api/players/* /static/* /demo/leaderboard
+    @public {
+        path / /streams /stream/* /live/overlay/* /api/players /api/players/*
+        path /static/product.js /static/product.css /static/leaderboard.css /static/leaderboard.svg /static/overlay.css
+    }
     handle @public {
         reverse_proxy 127.0.0.1:8765
     }
@@ -143,7 +191,8 @@ that. After a restart, the homepage answers immediately with `warming` and chann
 publish progressively: ≈20 s for 5 channels, ≈43 s for 10 on this workstation.
 
 **Security.** Bind the app to `127.0.0.1` (already hardcoded); firewall everything but
-22/80/443; SSH keys only. Public paths are allowlisted at the proxy (finding 4).
+22/80/443; SSH keys only. Public paths are allowlisted by `--public-only` and again
+at the proxy.
 `ThreadingHTTPServer` has no request timeout or thread cap, so let the proxy buffer and
 time out slow clients. Unknown channels are bounded (404, no presentation state).
 
@@ -164,8 +213,7 @@ on it.
 1. **Before any public trial:** proxy with TLS, compression and the allowlist; systemd
    unit; daily verified off-host backup; run this benchmark on the VPS against a copy:
    `python tools/benchmark_homepage.py --directory private/vps-01 --channels 5 --viewers 100 --seconds 30`.
-2. **Separate public product from developer diagnostics** in the server: its own flag,
-   so `/dev/*` and `/dashboard/*` stay off even if the proxy is misconfigured. Small.
+2. ~~Separate public product from developer diagnostics~~: done, `--public-only`.
 3. **Shrink polled payloads:** send the 746 KiB chart only when it changes (separate
    endpoint or `ETag`), and drop per-window detail the pages do not render. This cuts
    bandwidth and presentation CPU at once.
