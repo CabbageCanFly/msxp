@@ -501,3 +501,34 @@ test('chart inspection supports focus, touch, Escape and viewport bounds without
   p.context.mark.listeners.pointerdown({pointerType:'touch'});assert.equal(p.run('tip.hidden'),false);
   p.context.mark.listeners.pointerdown({pointerType:'touch'});assert.equal(p.run('tip.hidden'),true);
 });
+
+test('inferred levels are labeled by provenance and never read like a level-HUD observation',()=>{
+  const p=page('player'),level=(status,value)=>({display_level:{evidence:{value,status,reason:status},value,timestamp:'2026-01-01T00:00:00Z',age_seconds:0},
+    level_context:{last_supported_level:42,source:'exp_derived',supported_at:'2026-01-01T00:00:00Z'}});
+  p.render(player(level('exp_derived',42)));
+  assert.equal(p.elements.level.textContent,'Lv. 42');assert.equal(p.elements.level.dataset.inferred,'true');
+  assert.match(p.elements.level.title,/Inferred from EXP and percentage/);
+  p.render(player(level('retained_level',42)));
+  assert.match(p.elements.level.title,/Last supported level, retained/);assert.match(p.elements.level.title,/exp_derived/);
+  const possible=level('retained_level',42);possible.level_context.transition={phase:'possible',from_level:42,to_level:43,before_bp:9992,after_bp:18,detected_at:'2026-01-01T00:01:30Z'};
+  p.render(player(possible));
+  assert.equal(p.elements.level.textContent,'Lv. 42→43?');assert.match(p.elements.level.title,/Possible level-up: percentage went from 99.92% to 0.18%/);
+  p.render(player(level('provisional_level_up',43)));
+  assert.equal(p.elements.level.textContent,'Lv. 43?');assert.match(p.elements.level.title,/Provisional level-up/);
+  p.render(player(level('agreement',42)));
+  assert.equal(p.elements.level.textContent,'Lv. 42');assert.equal(p.elements.level.dataset.inferred,'false');
+});
+
+test('inferred level-up banner and chart marker stay provisional until corroborated',()=>{
+  const event=status=>({kind:'inferred_level_up',inferred:true,status,level:43,previous_level:42,evidence:status==='corroborated'?'unique_exp_pair':'percentage_wrap_and_forward_progress',
+    timestamp:'2026-01-01T00:00:15Z',first_observed_at:'2026-01-01T00:00:15Z'});
+  const point=(seconds,level,bp)=>({timestamp:new Date(Date.UTC(2026,0,1,0,0,seconds)).toISOString(),level:{value:level},interval_seconds:15,connect_previous:false,reading:{bp,percentage:(bp/100).toFixed(2),evidence:'strict_percentage_only'}});
+  for(const [status,banner,marker] of [['provisional','Level 43 reached? (provisional)','Lv. 43?'],['corroborated','Level 43 reached (inferred)','Level 43!']]){
+    const p=page('player');p.render(player({display_level:{evidence:{value:43,status:'provisional_level_up'},value:43,age_seconds:0},level_events:[event(status)]}));
+    p.context.points=[point(0,42,9992),point(15,43,116)];
+    p.run('chartMode="percentage";data.history=points;drawHistory()');
+    assert.equal(p.elements['level-event'].textContent,banner);
+    assert.match(p.elements['level-event'].title,/Inferred from a percentage wrap after Lv. 42/);
+    assert.ok(p.elements['history-chart'].children.some(n=>n.tag==='text' && n.textContent===marker));
+  }
+});

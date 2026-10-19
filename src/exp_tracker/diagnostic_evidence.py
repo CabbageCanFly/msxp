@@ -11,13 +11,15 @@ from .exp_consistency import MODES, assess, infer_levels
 from .exp_requirements import community_table, requirement
 from .shadow_grammar import interpret_exp
 
-POLICY = 'experimental_level_v5'
-EXP_DERIVED_POLICY = 'exp_derived_level_v1'
-# Separate fresh frames, one unique table level and rising EXP; one pair never suffices.
+POLICY = 'experimental_level_v6'
+EXP_DERIVED_POLICY = 'exp_derived_level_v2'
+# Separate fresh frames, one unique table level and rising display; one pair never suffices.
+# Also the post-wrap percentage readings a possible level-up needs to become provisional.
 DERIVED_SAMPLES = 3
-# Like missing reader levels, unconfirming frames carry a confirmed level only briefly.
-DERIVED_CARRY = 2
-DERIVED_CARRY_SECONDS = 30
+# A near-100% to near-0% display is a level-up hypothesis, not proof. Heuristic, uncalibrated.
+WRAP_FROM_BP = 9500
+WRAP_TO_BP = 500
+LARGE_CHANGE_BP = 1000  # Same 10-point evidence gate as diagnostic_percentage.
 # A seed-quality gate, not calibrated correctness; repetition and corroboration are mandatory.
 NEURAL_SEED_SCORE = .90
 CONTEXT_SECONDS = 120
@@ -82,30 +84,161 @@ def _percentage(row, full):
     return pct['percentage'] if pct else None
 
 
+def _forward(state, s):
+    return ((s['bp'] is None or state['bp'] is None or 0 <= s['bp'] - state['bp'] < LARGE_CHANGE_BP)
+        and (s['exp'] is None or state['exp'] is None or s['exp'] >= state['exp']))
+
+
+def _numbers(state, s, when, **changes):
+    return {**state, 'last_at': when, 'bp': state['bp'] if s['bp'] is None else s['bp'],
+        'exp': state['exp'] if s['exp'] is None or s['bp'] is None else s['exp'], **changes}
+
+
+def _chain(samples):
+    return (len(samples) >= DERIVED_SAMPLES and samples[-1]['bp'] > samples[0]['bp']
+        and len({s['frame_sha256'] for s in samples}) == len(samples))
+
+
+def _established(level, s, when, source, previous=None):
+    return dict(level=level, confirmed=True, source=source, samples=[s], confirmed_at=when, supported_at=when,
+        last_at=when, exp=s['exp'], bp=s['bp'], unsupported=0, competing=None, transition=None,
+        last_transition=(previous or {}).get('last_transition'))
+
+
+def _resolved(tr, **changes):
+    return {**{k: v for k, v in tr.items() if k != 'before'}, **changes}
+
+
+def _revert(state, s, when, reason):
+    """The percentage wrap was not a level-up; keep the previous level and record why."""
+    tr = state['transition']
+    return _numbers(tr['before'], s, when, unsupported=tr['before']['unsupported'] + 1,
+        last_transition=_resolved(tr, phase='abandoned', abandoned_at=when, abandoned_reason=reason))
+
+
+def _corroborate(state, s, when, by):
+    tr = state['transition']
+    return {**_established(tr['to_level'], s, when, by),
+        'last_transition': _resolved(tr, phase='corroborated', corroborated_at=when, corroborated_by=by)}
+
+
+def _wrap(current, state, s, when):
+    return dict(from_level=current, to_level=current + 1, phase='possible', detected_at=when, before_bp=state['bp'],
+        after_bp=s['bp'], wrap_event_id=s['event_id'], wrap_frame=s['frame_sha256'], samples=[], before=state)
+
+
+def _transition_step(state, s, inference, level, when):
+    tr = state['transition']
+    if level == tr['to_level']:
+        new = _corroborate(state, s, when, 'unique_exp_pair')
+        return new, new['level'], 'exp_derived', 'level_up_corroborated_by_exp_pair'
+    if level is not None:
+        if level == tr['from_level'] and _forward(tr['before'], s):
+            return _revert(state, s, when, 'pair_supports_previous_level'), level, 'retained_level', 'level_up_hypothesis_abandoned'
+        return None, None, 'unavailable', 'level_up_hypothesis_contradicted'
+    shown = tr['to_level'] if tr['phase'] == 'provisional' else None
+    phase = 'provisional_level_up' if shown else 'possible_level_up'
+    if inference and tr['to_level'] not in inference['levels']:
+        s = {**s, 'exp': None}  # Integer withheld by exp_validity; the percentage remains.
+    if s['bp'] is None:
+        return {**state, 'last_at': when}, shown, phase, 'post_transition_unreadable'
+    last = tr['samples'][-1]['bp'] if tr['samples'] else tr['after_bp']
+    if 0 <= s['bp'] - last < LARGE_CHANGE_BP:
+        seen = {t['frame_sha256'] for t in tr['samples']} | {tr['wrap_frame']}
+        tr = {**tr, 'samples': tr['samples'] + [s] if s['frame_sha256'] and s['frame_sha256'] not in seen else tr['samples']}
+        # Never promote into a level whose requirement is disputed or missing.
+        if tr['phase'] == 'possible' and _chain(tr['samples']) and requirement(tr['to_level'])['to_next'] is not None:
+            tr.update(phase='provisional', provisional_at=when)
+        shown = tr['to_level'] if tr['phase'] == 'provisional' else None
+        return (_numbers(state, s, when, transition=tr, unsupported=state['unsupported'] + 1), shown,
+            'provisional_level_up' if shown else 'possible_level_up', 'post_transition_progress')
+    if _forward(tr['before'], s):
+        return _revert(state, s, when, 'percentage_returned_to_previous_level'), tr['from_level'], 'retained_level', 'level_up_hypothesis_abandoned'
+    return None, None, 'unavailable', 'level_up_hypothesis_contradicted'
+
+
 def _derived_step(state, row, inference, exp, bp):
-    """Advance the EXP-derived hypothesis on a safe frame without reader levels."""
-    when = datetime.fromisoformat(row['received_at'])
-    age = (when - datetime.fromisoformat(state['supported_at'])).total_seconds() if state else None
-    if state and age > CONFIRM_GAP_SECONDS: state = None
-    # A wrapped/decreasing display is never a level-up; a new level needs its own pairs.
-    orderly = bool(state and (bp is None or 0 <= bp - state['bp'] < 1000)
-        and (exp is None or state['exp'] is None or exp >= state['exp']))
-    level, frame = (inference or {}).get('unique_level'), row.get('frame_sha256')
-    if level is not None and frame:
-        sample = dict(event_id=row.get('event_id'), frame_sha256=frame, exp=exp, bp=bp, timestamp=row['received_at'])
-        same = orderly and state['level'] == level
-        samples = (state['samples'] if same else [])[-(DERIVED_SAMPLES - 1):] + [sample]
-        confirmed = same and state['confirmed'] or (len(samples) >= DERIVED_SAMPLES
-            and samples[-1]['exp'] > samples[0]['exp'] and len({s['frame_sha256'] for s in samples}) == len(samples))
-        state = dict(level=level, samples=samples, confirmed=confirmed, supported_at=row['received_at'], missing=0, exp=exp, bp=bp)
-        return state, level if confirmed else None, 'repeated_unique_exp_inference' if confirmed else 'exp_derived_confirmation_pending'
-    if inference and not (state and state['level'] in inference['levels'] and inference['status'] in ('unique', 'ambiguous')):
-        return None, None, 'exp_derived_' + inference['status']
-    if not state: return None, None, None
-    if not orderly: return None, None, 'exp_derived_progression_contradiction'
-    carried = state['confirmed'] and state['missing'] < DERIVED_CARRY and age <= DERIVED_CARRY_SECONDS
-    state = dict(state, missing=state['missing'] + 1, exp=state['exp'] if exp is None else exp, bp=state['bp'] if bp is None else bp)
-    return state, state['level'] if carried else None, 'short_exp_derived_context' if carried else 'exp_derived_confirmation_pending'
+    """One fresh frame without a selected reader level: (state, value, status, reason)."""
+    when = row['received_at']; frame = row.get('frame_sha256')
+    if state and (datetime.fromisoformat(when) - datetime.fromisoformat(state['last_at'])).total_seconds() > CONFIRM_GAP_SECONDS:
+        state = None
+    level = (inference or {}).get('unique_level')
+    s = dict(event_id=row.get('event_id'), frame_sha256=frame, exp=exp, bp=bp, timestamp=when)
+    if not state or not state['confirmed']:
+        if level is not None and frame:
+            same = bool(state and state['level'] == level and _forward(state, s))
+            samples = (state['samples'] if same else [])[-(DERIVED_SAMPLES - 1):] + [s]
+            confirmed = _chain(samples) and samples[-1]['exp'] > samples[0]['exp']
+            new = {**_established(level, s, when, 'exp_derived', state), 'samples': samples,
+                'confirmed': confirmed, 'confirmed_at': when if confirmed else None}
+            return new, level if confirmed else None, 'exp_derived' if confirmed else 'unavailable', (
+                'repeated_unique_exp_inference' if confirmed else 'exp_derived_confirmation_pending')
+        if inference and not (state and state['level'] in inference['levels']):
+            return None, None, 'unavailable', 'exp_derived_' + inference['status']
+        if not state: return None, None, 'unavailable', None
+        if not _forward(state, s): return None, None, 'unavailable', 'exp_derived_progression_contradiction'
+        return _numbers(state, s, when), None, 'unavailable', 'exp_derived_confirmation_pending'
+    if state['transition']:
+        return _transition_step(state, s, inference, level, when)
+    current = state['level']
+    if level == current:
+        if s['bp'] is not None and state['bp'] - s['bp'] >= LARGE_CHANGE_BP:
+            return None, None, 'unavailable', 'exp_derived_progression_contradiction'
+        return (_numbers(state, s, when, supported_at=when, unsupported=0, competing=None, source='exp_derived'),
+            current, 'exp_derived', 'exp_derived_level_renewed')
+    if level is not None:
+        if state['bp'] >= WRAP_FROM_BP and s['bp'] < WRAP_TO_BP and level == current + 1:
+            new = _corroborate({**state, 'transition': _wrap(current, state, s, when)}, s, when, 'unique_exp_pair')
+            return new, level, 'exp_derived', 'level_up_corroborated_by_exp_pair'
+        # Another unique level needs its own full chain; until then neither is shown.
+        competing = state['competing']
+        samples = competing['samples'] if competing and competing['level'] == level and _forward(competing['samples'][-1], s) else []
+        samples = (samples + [s] if frame else samples)[-DERIVED_SAMPLES:]
+        if _chain(samples) and samples[-1]['exp'] > samples[0]['exp']:
+            new = {**_established(level, s, when, 'exp_derived', state), 'samples': samples, 'replaced_level': current}
+            return new, level, 'exp_derived', 'exp_derived_level_replaced'
+        competing = dict(level=level, samples=samples) if samples else competing
+        return {**state, 'last_at': when, 'competing': competing}, None, 'conflict', 'competing_exp_derived_level'
+    state = {**state, 'unsupported': state['unsupported'] + 1}
+    if inference and current not in inference['levels']:
+        s = {**s, 'exp': None}  # Integer withheld by exp_validity; the percentage remains.
+    if s['bp'] is None or _forward(state, s):
+        return _numbers(state, s, when), current, 'retained_level', 'retained_last_supported_level'
+    if state['bp'] >= WRAP_FROM_BP and s['bp'] < WRAP_TO_BP:
+        # A wrap is a hypothesis: the previous level stays the last supported one.
+        return ({**state, 'last_at': when, 'bp': s['bp'], 'exp': s['exp'], 'transition': _wrap(current, state, s, when)},
+            None, 'possible_level_up', 'percentage_wrap')
+    if state['bp'] - s['bp'] < LARGE_CHANGE_BP:
+        # EXP loss or a misread: the level cannot fall, but continuity is no longer ordered.
+        return _numbers(state, s, when, decrease_at=when), current, 'retained_level', 'retained_after_percentage_decrease'
+    return None, None, 'unavailable', 'unexplained_percentage_decrease'
+
+
+def _reader_step(state, selected, status, s, when):
+    """A selected reader level renews, resolves or contradicts the retained level."""
+    if not state or not state['confirmed']: return None, None
+    tr = state['transition']
+    if tr and selected == tr['to_level']:
+        return _corroborate(state, s, when, 'reader_' + status), None
+    if selected == state['level']:
+        if tr: return {**_revert(state, s, when, 'reader_supports_previous_level'), 'supported_at': when, 'unsupported': 0}, None
+        return _numbers(state, s, when, supported_at=when, unsupported=0, source='reader_' + status), None
+    if status == 'agreement': return None, 'readers_agree_on_other_level'
+    return {**state, 'last_at': when}, 'reader_conflicts_exp_derived_level'
+
+
+def level_context(state, when):
+    """Public provenance of the retained level; never verification of it."""
+    if not state: return None
+    tr = state['transition'] and _resolved(state['transition'])
+    return dict(policy=EXP_DERIVED_POLICY, last_supported_level=state['level'] if state['confirmed'] else None,
+        candidate_level=None if state['confirmed'] else state['level'], source=state['source'],
+        confirmed_at=state['confirmed_at'], supported_at=state['supported_at'], last_observed_at=state['last_at'],
+        support_age_seconds=(datetime.fromisoformat(when) - datetime.fromisoformat(state['supported_at'])).total_seconds(),
+        unsupported_frames=state['unsupported'], sample_event_ids=[s['event_id'] for s in state['samples']],
+        transition=tr, last_transition=state['last_transition'],
+        competing_level=(state['competing'] or {}).get('level'), replaced_level=state.get('replaced_level'),
+        continuity='percentage_decrease_observed' if state.get('decrease_at') else 'ordered', verified=False, trusted=False)
 
 
 def _visual(row):
@@ -187,9 +320,13 @@ def project(rows, *, state=None, allow_context=True):
         if carried_gaps and anchor and row.get('received_at') and (
                 datetime.fromisoformat(row['received_at'])-datetime.fromisoformat(anchor['timestamp'])).total_seconds()>CONTEXT_SECONDS:
             adjacent=False
+        # Unreadable, stale or duplicate frames of the same source carry no evidence: they
+        # neither renew nor reset a retained level, which still needs fresh evidence <=120s.
+        hold=(adjacent and not fresh and (row.get('hud_count') or 0)<=1 and row.get('timing_mode')!='simulated'
+            and row.get('timestamp_ordered') is not False)
         if not adjacent or not fresh:
             recent.clear(); established=None; neural_context=False; missing=0; corroborated_at=None
-            anchor=None;context_conflicts=0;derived=None
+            anchor=None;context_conflicts=0;derived=derived if hold else None
             context_frames.clear()
         full=full_reading(row)
         direct=consistency(full,neural) if row.get('candidate') and neural is not None else None
@@ -258,32 +395,35 @@ def project(rows, *, state=None, allow_context=True):
                     or neural not in (None,anchor['value']) and score>=NEURAL_SEED_SCORE
                     or selected not in (None,anchor['value'])):
                 anchor=None;context_conflicts=0
-        # The EXP-derived hypothesis never outranks a reader level, verifies its own
-        # pairs or survives a disagreement with recent reader-supported context.
-        reader=next((v for v in (selected,visual,neural) if v is not None),None)
-        claimed_any=reader is not None or (row.get('neural_level') or {}).get('level') is not None
-        strict=full if safe and row.get('candidate') else None
-        inference=exp_derived(strict) if strict and (not claimed_any or derived) else None
+        # The derived/retained level never outranks a selected reader level, verifies its
+        # own pairs or survives a disagreement with recent reader-supported context.
+        derived_safe=fresh and not row.get('candidate_invalid') and not row.get('percentage_only_invalid')
+        strict=full if derived_safe and row.get('candidate') else None
+        inference=exp_derived(strict) if strict else None
         if inference:evidence['exp_derived']=inference
-        derived_value=derived_reason=None
-        if not safe:derived=None
-        elif claimed_any:
-            if derived and derived['confirmed'] and reader not in (None,derived['level']):
-                evidence['exp_derived_disagreement']=dict(exp_derived_level=derived['level'],reader_level=reader,
-                    reader_status=status,reader_reason=reason,trusted=False)
-                age=(datetime.fromisoformat(row['received_at'])-datetime.fromisoformat(derived['supported_at'])).total_seconds()
-                if status!='agreement' and derived['missing']<DERIVED_CARRY and age<=DERIVED_CARRY_SECONDS:
-                    selected=None;status,reason='conflict','reader_conflicts_exp_derived_level'
-                    evidence.update(value=None,status=status,reason=reason)
-                    derived=dict(derived,missing=derived['missing']+1)
-                else:derived=None
-            else:derived=None
+        pct=_percentage(row,full) if derived_safe else None
+        numbers=dict(event_id=row.get('event_id'),frame_sha256=frame,exp=int(full['exp']) if full else None,
+            bp=int(Decimal(pct)*100) if pct else None,timestamp=row.get('received_at'))
+        claims={k:v for k,v in (('visual',visual),('neural',(row.get('neural_level') or {}).get('level'))) if v is not None}
+        derived_value=derived_status=derived_reason=None
+        if not derived_safe:
+            if not hold:derived=None
+        elif selected is not None:
+            prior=level_context(derived,row['received_at'])
+            derived,derived_reason=_reader_step(derived,selected,status,numbers,row['received_at'])
+            if derived_reason:
+                evidence['exp_derived_disagreement']=dict(level_context=prior,reader_level=selected,
+                    reader_status=status,reader_reason=reason,resolution=derived_reason,trusted=False)
+            if derived_reason=='reader_conflicts_exp_derived_level':
+                selected=None;status,reason='conflict',derived_reason
+                evidence.update(value=None,status=status,reason=reason)
+        elif visual is not None:
+            if derived:derived={**derived,'last_at':row['received_at']}
+            derived_reason='unselected_visual_level'
         elif anchor and anchor['samples']>=2 and (inference or {}).get('unique_level') not in (None,anchor['value']):
             derived=None;derived_reason='recent_reader_level_disagrees'
         else:
-            pct=_percentage(row,full)
-            derived,derived_value,derived_reason=_derived_step(derived,row,inference,
-                int(full['exp']) if full else None,int(Decimal(pct)*100) if pct else None)
+            derived,derived_value,derived_status,derived_reason=_derived_step(derived,row,inference,numbers['exp'],numbers['bp'])
         # A recent independently reader-supported level may veto a WHOLE pair,
         # even when this frame cannot establish a level. It never repairs digits.
         pair_check=consistency(full,anchor['value']) if anchor and anchor['samples']>=2 and safe else None
@@ -315,13 +455,12 @@ def project(rows, *, state=None, allow_context=True):
                 evidence.update(value=selected,status='contextual',reason='recent_corroborated_level',
                     contextual=True,strict_window_eligible=False)
         if derived or derived_reason:
-            evidence['exp_derived_context']=dict(policy=EXP_DERIVED_POLICY,reason=derived_reason,
-                level=derived and derived['level'],confirmed=bool(derived and derived['confirmed']),
-                sample_event_ids=[s['event_id'] for s in derived['samples']] if derived else [],
-                unconfirmed_frames=derived and derived['missing'],supported_at=derived and derived['supported_at'],trusted=False)
-        if derived_value is not None and selected is None:
+            evidence['level_context']={**(level_context(derived,row.get('received_at') or row['attempted_at']) or {}),'reason':derived_reason}
+        if selected is None and derived_status not in (None,'unavailable'):
             selected=derived_value
-            evidence.update(value=selected,status='exp_derived',reason=derived_reason,strict_window_eligible=False)
+            evidence.update(value=selected,status=derived_status,reason=derived_reason,strict_window_eligible=False)
+            # Unconfirmed reader numbers stay visible; an obscured HUD can produce them.
+            if claims:evidence['unselected_reader_claims']=claims
         row['experimental_level']=evidence
         row['exp_validity']=pair_check if veto else consistency(full,selected)
         if evidence['status']=='exp_derived':
