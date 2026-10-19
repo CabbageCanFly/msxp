@@ -46,6 +46,8 @@ The [homepage performance investigation](docs/homepage-performance.md) measures 
 synthetic full-day channels and recommends incremental history checkpoints.
 The [incremental history follow-up](docs/incremental-history.md) resumes exact causal
 checkpoints per run and shares one player card per channel revision across viewers.
+The [card projection follow-up](docs/card-projection.md) removes repeated parsing and
+projection inside each card with exact reference parity, and records the remaining cost.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

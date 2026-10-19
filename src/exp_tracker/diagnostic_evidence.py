@@ -269,6 +269,11 @@ def _adjacent(before,row):
     except (TypeError,ValueError,KeyError): return False
 
 
+class Projected(list):
+    """A from-scratch project() result. project() never reads the fields it writes, so
+    projecting these rows again from scratch returns equal rows; callers may reuse them."""
+
+
 def project(rows, *, state=None, allow_context=True):
     """Only past, adjacent observations corroborate a level; no lookahead.
 
@@ -471,4 +476,4 @@ def project(rows, *, state=None, allow_context=True):
         state.update(recent=recent,previous=previous,established=established,established_at=established_at,
             neural_context=neural_context,missing=missing,corroborated_at=corroborated_at,
             anchor=anchor,context_conflicts=context_conflicts,context_frames=context_frames,capture_gaps=capture_gaps,derived=derived)
-    return output
+    return Projected(output) if state is None and allow_context else output

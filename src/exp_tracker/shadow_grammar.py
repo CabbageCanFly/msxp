@@ -1,5 +1,6 @@
 """Bounded full-EXP text hypotheses for display/review only. Never observations."""
 
+from functools import lru_cache
 import re
 
 from .parsing import parse_exp
@@ -73,6 +74,18 @@ def propose_full_exp(text, *, source_complete=None):
 
 
 def interpret_exp(text, *, source_complete=None):
+    """Memoized: a pure function of its arguments. Callers treat the result as read-only."""
+    if text is not None and type(text) is not str or source_complete is not None and type(source_complete) is not bool:
+        return _interpret_exp(text, source_complete=source_complete)
+    return _interpret_memo(text, source_complete)
+
+
+@lru_cache(maxsize=4096)  # A card rebuild parses each of ~800 recent texts about a dozen times.
+def _interpret_memo(text, source_complete):
+    return _interpret_exp(text, source_complete=source_complete)
+
+
+def _interpret_exp(text, *, source_complete=None):
     """Versioned diagnostic interpretations; v1 and both strict parsers stay frozen.
 
     Only punctuation is interpreted, never a missing digit. A standalone DD.DD%

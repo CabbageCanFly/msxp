@@ -5,7 +5,7 @@ from datetime import datetime,timedelta,timezone
 from fractions import Fraction
 
 from .diagnostic_progress import percentage_point,rational,quantization_pace,elapsed_seconds,difference_bounds
-from .diagnostic_evidence import project,full_reading,consistency
+from .diagnostic_evidence import project,full_reading,consistency,Projected
 from .diagnostic_percentage import boundary
 from .exp_requirements import requirement
 from .exp_consistency import MODES, assess
@@ -167,10 +167,10 @@ def cross_level_estimates(edges,details,amount,elapsed,endpoint):
     return result
 
 
-def recent_windows(snapshot,display_level,*,now,current_level_only=False):
+def recent_windows(snapshot,display_level,*,now,current_level_only=False,collected=None):
     """Independent supported intervals, summed across runs without cross-run subtraction."""
     from .pace_intervals import collect
-    collected=collect(snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
+    collected=collected or collect(snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
     result={}
     for minutes in WINDOWS:
         pace=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,
@@ -365,7 +365,8 @@ def observed_sequence(snapshot, *, now,completed=None,max_gap_seconds=OBSERVED_M
     """Endpoint comparisons across short disclosed holes, never connected pace/gains."""
     points=[];holes=[];previous=None;pending=[];last=None;break_reason='baseline';seen_frames=set()
     reviews={r['event_id']:r for r in snapshot['percentage_progress']['percentage_reviews']}
-    for row in project(snapshot['observations']):
+    rows=snapshot['observations']
+    for row in rows if type(rows) is Projected else project(rows):
         point,invalid=percentage_point(row);decision=reviews[row['event_id']]
         stamp=row.get('received_at') or row.get('attempted_at')
         # Context placeholders test ownership/order only; never supply a numeric endpoint.
@@ -583,7 +584,7 @@ def player(snapshot,*,now=None,recent_snapshot=None):
     movement=movement if movement and movement.get('change') in ('positive','zero') else None
     decision=progress.get('percentage_state')
     result=dict(channel=snapshot['channel'],character=snapshot['selected_character'],session_id=(snapshot['session'] or {}).get('id'),
-        percentage_state=decision,display_level=display_level,level_events=level_events(rows),
+        percentage_state=decision,display_level=display_level,level_events=None if recent_snapshot is not None else level_events(rows),
         level_context=level_evidence(rows[-1]).get('level_context') if rows else None,
         source_kind=snapshot.get('source_kind'),reading=latest,latest_attempt_at=(rows[-1].get('received_at') or rows[-1].get('attempted_at')) if rows else None,
         latest_attempt_status=rows[-1]['status'] if rows else 'waiting',
@@ -598,9 +599,12 @@ def player(snapshot,*,now=None,recent_snapshot=None):
         segment=historical,estimates=estimates(historical,historical['pace'],int(Fraction(historical['end_percentage'])*100)) if historical else estimates(None,None,0),
         label='EXPERIMENTAL / UNVERIFIED; early segment estimate, not a completed window')
     result['responsive_pace']=responsive_pace(snapshot,display_level,now=now)
-    result['recent_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now)
-    result['current_level_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now,current_level_only=True)
-    result['level_events']=level_events((recent_snapshot or snapshot)['observations'])
+    from .pace_intervals import collect
+    # Both scopes read one interval collection: same rows, clock and limit.
+    collected=collect(recent_snapshot or snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
+    result['recent_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now,collected=collected)
+    result['current_level_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now,current_level_only=True,collected=collected)
+    if recent_snapshot is not None:result['level_events']=level_events(recent_snapshot['observations'])
     result['recent_history']=dict(status=(recent_snapshot or snapshot).get('recent_history_status','ready'),
         source='sqlite_time_range' if recent_snapshot is not None else 'provided_snapshot',
         receipt=(recent_snapshot or snapshot).get('recent_history_receipt'),
