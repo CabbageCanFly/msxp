@@ -91,12 +91,18 @@ last-known levels and exposes early segment pace without relaxing fixed-window c
 Manage assignments with the [private roster CLI](docs/streamer-roster.md): add, disable,
 re-enable and inspect without deleting history; changes apply on controlled restart.
 
-[Checkpoint A1 manual administration](docs/manual-exp-admin.md) provides local
+[Manual administration (A1.1 / A2)](docs/manual-exp-admin.md) provides a local CLI and
+separate loopback-only browser dashboard for
 inspection, explicit-time Level / EXP baselines, historical reading corrections,
 audited amend/undo, clear and character renaming. New corrections require the
 existing character name, level, EXP and/or percentage, plus `--effective-at` or
 explicit `--now`; time never defaults silently. Public pages and the experimental
 OBS overlay refresh without another capture, and corrections never count as earned EXP.
+Launch the preview-first operator interface with
+`python -m exp_tracker.admin_server --db YOUR_DATABASE.sqlite3 --port 8766` and open
+the printed `http://127.0.0.1:8766/` URL. It reuses the existing correction rules,
+requires protected same-origin requests and never adds writes to the public server.
+Start with a synthetic/offline database; it does not start or restart capture.
 
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 1–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and

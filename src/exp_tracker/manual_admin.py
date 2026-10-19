@@ -24,6 +24,7 @@ def timestamp(value):
         if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})',value):
             raise ValueError
         if int(value[11:13])>23 or int(value[14:16])>59 or int(value[17:19])>59:raise ValueError
+        if not value.endswith('Z') and (int(value[-5:-3])>23 or int(value[-2:])>59):raise ValueError
         stamp=datetime.fromisoformat(value)
         utc(stamp)
         return stamp
@@ -65,7 +66,8 @@ def inspect(store, channel, character=None, session_id=None):
                                ' ORDER BY id DESC LIMIT 60',(cid,session_id) if session_id else (cid,)):
         event=next((e for e in points if e['kind']=='point' and e['target_kind']=='observation' and e['target_event_id']==str(row['id'])),None)
         records.append(dict(identity=row['id'],kind='observation',session_id=row['session_id'],timestamp=row['observed_at'],
-            original=dict(level=row['level'],current_exp=row['current_exp'],percentage_bp=row['percentage_bp']),
+            original=dict(level=row['level'],current_exp=row['current_exp'],percentage_bp=row['percentage_bp'],
+                          outcome=row['outcome'],reason=row['reason']),
             presentation=corrected_reading(event,event_id='observation:'+str(row['id'])) if event else None))
     return dict(channel=state['channel'],characters=state['characters'],selected_character_id=state['selected_character_id'],
         session=snap['session'] if snap else None,sessions=choices,reading=value.get('reading'),display_level=value.get('display_level'),

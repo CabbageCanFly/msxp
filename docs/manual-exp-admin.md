@@ -1,9 +1,83 @@
-# Manual Level / EXP administration (A1)
+# Manual Level / EXP administration (A1 / A2)
 
-Local CLI only. There are no HTTP write endpoints or browser administration forms.
-Commands neither capture video nor contact Twitch. Run from this worktree with its
+The CLI and separate local browser dashboard share A1.1's SQLite correction rules.
+The public server remains read-only. Neither interface captures video or contacts
+Twitch. Run from this worktree with its
 Python environment; set `PYTHONPATH=src` when using an interpreter from elsewhere.
 The database must already exist. Do not use an active database for offline trials.
+
+## Local browser dashboard (A2)
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+$db = 'private/offline-test/tracker.sqlite3' # Existing offline/synthetic database
+python -m exp_tracker.admin_server --db $db --port 8766
+# Open the exact URL printed by the command: http://127.0.0.1:8766/
+# Ctrl+C stops only this operator server.
+```
+
+This is a separate process and port from the read-only tracker server. Starting it
+only reads/validates the named database; it does not initialize or migrate it. A
+confirmed save opens the existing writer and can apply A1.1's additive migration;
+update any serving/writer installation before deliberately using an older database.
+No new schema migration is needed for A2. Nothing starts, stops or reconfigures the
+coordinator. Use a deliberate database path; the dashboard displays its absolute path.
+
+1. Select a Twitch channel and existing character. Session view includes closed
+   sessions and historical characters; selection does not switch live tracking.
+   Latest level/EXP/percentage/source, original readings, correction revisions and
+   rename history are shown. Use **Refresh readings and history** for new OCR or
+   external CLI changes; the operator page does not poll while you edit.
+2. **Establish baseline** requires level and numerical EXP and/or percentage. Enter
+   the complete timestamp with seconds and timezone. Manual entry starts blank;
+   **Use current timestamp** starts unchecked. That explicit choice freezes the
+   current UTC time **at preview**, so saving never silently changes the reviewed
+   effective time. Session scope can resolve from time, name an existing session,
+   or explicitly choose an unbound baseline.
+3. **Correct historical reading**: choose a session and a reading's **Correct**
+   button. It fills the immutable identity, type and exact original timestamp.
+   Enter corrected values and preview. For readings outside the bounded list,
+   enter the original identity/time from CLI inspection or Advanced diagnostics.
+   Both identity and timestamp are required in the browser contract.
+4. History's **Amend** and **Undo** buttons target the exact correction ID.
+   Amendment supplies a complete replacement and requires a reason. Undo requires
+   a reason and retracts that revision/lineage; it does not restore superseded
+   manual entries. To move an amendment to another character in the same channel,
+   select the destination character, choose Amend, and explicitly enter the previous
+   correction ID and the complete replacement scope/values. **Clear baseline from an
+   effective time** creates a new boundary; undo a point correction to remove it.
+5. **Rename this character** previews old/new names and the unchanged character ID.
+   Follow the coordinated roster workflow below before the next coordinator startup.
+6. **Preview changes** runs the real operation on a disposable SQLite backup. Review
+   supplied/estimated values, arithmetic warnings, scope, reason and audit provenance,
+   then **Confirm and save**. Editing any field or selection cancels the preview.
+   Cancel makes no source write. Preview row IDs/recorded times are provisional;
+   the saved receipt gives the real IDs and recorded time. Contradictory EXP and
+   percentage remain allowed with an explicit arithmetic warning, as in A1.1.
+
+The server retains at most 64 previews for 15 minutes; stopping it discards them.
+Save accepts only a preview ID and re-runs Store validation, including active
+revision and ownership checks. A renamed target requires a fresh preview. Retrying
+the same successfully saved preview returns its receipt rather than writing twice.
+Continuous OCR can arrive between preview/save: preview confirms the exact operator
+event, not a frozen public projection. Existing precedence/accounting remains in
+force, and fresh credible OCR can resume tracking after the effective time.
+
+The listener is **always IPv4 `127.0.0.1`**, with no configurable host. It accepts
+only the exact Host/port printed at startup, rejects cross-site requests, requires
+an exact same-origin Origin for POST, and requires a random process-local request
+token for all API reads/writes. The same-origin page supplies this token; there is
+no CORS, cookie authentication, URL token or remotely accessible write route.
+JSON writes are size-bounded, reject duplicate/unknown fields, and cannot bypass
+preview. Responses are uncached, scripts are local, and framing is prohibited.
+Opening `localhost` instead of the printed `127.0.0.1` URL is intentionally rejected.
+
+This trusts processes/users on the operator's machine; it is not multi-user login
+or protection against a compromised local account. Do not expose this port through
+a proxy, tunnel, port forward, OBS browser source or public hosting. The public
+server does not serve admin assets or gain any write endpoints. Keep serving public
+pages from its existing port. Numerical EXP crosses the dashboard JSON boundary as
+decimal strings so integers up to SQLite's limit retain their exact value.
 
 ## Required input and inspection
 
@@ -21,8 +95,8 @@ Every such operation, and `clear`, requires exactly one of:
 There is **no implicit current time**. Missing timestamps, timestamps without
 seconds/timezone, future timestamps, and using both options are rejected. The
 backend likewise requires an aware datetime or explicit `now=True`, exclusively.
-This is also the contract for A2's future form: manual datetime entry by default,
-with an explicit current-time choice. A2 itself is not included.
+The A2 form uses the same contract: manual datetime entry by default,
+with an explicit current-time choice.
 
 ```powershell
 $db = 'private/offline-test/tracker.sqlite3'
@@ -177,7 +251,7 @@ No active tracking database, coordinator, Twitch connection or other worktree is
 modified. No commit, merge, push or deployment is performed. Preview snapshots use
 the OS temporary directory and are deleted after validation.
 
-Final verification in this worktree: **2,119 Python passes**, **117 unavailable
+A1.1 verification: **2,119 Python passes**, **117 unavailable
 private-fixture skips**, **one Windows symlink-permission skip**; **97 Node passes**,
 zero Node skips. Focused regressions cover the operator contract, historical
 revisions, inference, isolation and coordinated renaming. `git diff --check` passed.
@@ -201,8 +275,44 @@ $env:PYTHONPATH = "$PWD\src"
 The adjacent existing interpreter supplied dependencies read-only; bytecode writes
 were disabled and imports targeted this worktree's `src`. No dependencies were added.
 
+The figures above describe A1.1 verification. A2 adds **55 operator API tests**;
+the focused admin/manual/publisher run passed **163 tests**, with **3 private-fixture
+skips**. The full Python suite passed **2,174 tests**, with **117 private-fixture
+skips and one Windows symlink-permission skip**. All **97 Node tests** passed.
+An existing OCR test now copies its cached fixture before deliberately mutating it,
+removing test-order pollution without changing production OCR policy. Logs are under
+`private/admin-a2/` (`python-focused-final.txt`, `python-review-final.txt`,
+`node-full.txt`). The real Chrome workflow verifies desktop/mobile layout, original
+OCR preservation, exact preview timestamps, public cache refresh and unchanged
+tracked EXP. The final synthetic database, desktop/mobile screenshots and browser
+receipt are under `private/admin-a2/browser-verified/`; its test servers have stopped.
+The browser also checks that a successful save retains its receipt and reports a
+subsequent refresh failure, so a read failure does not masquerade as a failed write.
+To reproduce
+the browser check with Python dependencies and Chrome already installed:
+
+```powershell
+node tools/admin.browser.mjs --python python --output private/admin-browser-review
+# Optional: --chrome 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+```
+
+This creates a **new** synthetic SQLite database, separate ephemeral operator/public
+servers, and a private Chrome profile. It refuses an existing synthetic database.
+It exercises preview, explicit-time validation, baseline creation, historical point
+correction, amendment, undo, clear, rename, character/channel isolation and automatic
+homepage/character/overlay publication without captured frames. Screenshots and a
+JSON verification receipt stay under the ignored output directory; owned test
+processes stop on completion. It requires a Node runtime with the built-in WebSocket
+API (verified with Node 24), Chrome and permission to use local loopback sockets.
+No packages, Twitch or private samples are needed.
+
 Known limits: point targeting uses exact source timestamps/identities, not fuzzy
 time matching; manual coordinates are excluded from earned-EXP endpoints; requirement
 data remains provisional; native HUD availability and bounded causal inference can
-delay a level-up. Naming is manual. A2 forms/authentication, live OCR validation and
-automatic roster/coordinator reconfiguration are outside this milestone.
+delay a level-up. Naming is manual. Browser lists are bounded to recent readings
+within the chosen session; this is not an unrestricted history search. Preview
+copies the SQLite database into the OS temporary directory and can be slow for a
+large database. Preview tickets and save receipts are held only in server memory;
+after a server restart or an uncertain network result, inspect audit history before
+submitting another operation. Live OCR validation, remote/multi-user administration
+and automatic roster/coordinator reconfiguration are outside this milestone.

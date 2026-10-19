@@ -1,0 +1,26 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #0d1523; color: #e6edf6; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 1060px; margin: auto; padding: 28px 20px 64px; }
+h1 { font-size: 2rem; margin: 6px 0; } h2 { font-size: 1.2rem; margin-top: 0; }
+p { line-height: 1.5; } .eyebrow { color: #9fbcdf; font-size: .85rem; }
+.muted { color: #a7b9ce; font-size: .9rem; overflow-wrap: anywhere; }
+section { margin-top: 22px; padding: 20px; background: #152236; border: 1px solid #344761; border-radius: 10px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+label { display: block; margin: 10px 0 16px; font-size: .95rem; }
+input, select, button { font: inherit; border: 1px solid #617c9e; border-radius: 5px; padding: 10px; }
+input, select { display: block; width: 100%; margin-top: 6px; background: #0d1929; color: inherit; min-width: 0; }
+.check { display: flex; align-items: center; gap: 10px; } .check input { width: auto; margin: 0; }
+button { background: #2a405c; color: #eff7ff; cursor: pointer; margin: 5px 6px 5px 0; }
+button:hover { background: #385676; } button:disabled { opacity: .5; cursor: default; }
+#preview-button, #save { background: #235b80; } :focus-visible { outline: 3px solid #8bceff; outline-offset: 3px; }
+fieldset { border: 1px solid #405670; margin: 16px 0; border-radius: 5px; min-width: 0; }
+legend { color: #bad5f3; } dl { display: grid; grid-template-columns: minmax(90px, 140px) 1fr; gap: 8px 16px; }
+dt { color: #a7b9ce; } dd { margin: 0; overflow-wrap: anywhere; }
+#status { padding: 12px 16px; background: #1c324a; border-radius: 5px; overflow-wrap: anywhere; }
+#status.error, .warning { color: #ffd3aa; } #status.error { border: 1px solid #d3a16d; }
+article { border-top: 1px solid #405670; padding: 12px 0; overflow-wrap: anywhere; }
+article h3 { font-size: 1rem; margin: 0 0 6px; } article p { margin: 6px 0; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; color: #bbd1e9; }
+summary { cursor: pointer; margin: 10px 0; } [hidden] { display: none !important; }
+@media(max-width: 500px) { main { padding: 18px 10px; } section { padding: 14px; } dl { grid-template-columns: 90px 1fr; } }
