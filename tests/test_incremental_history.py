@@ -174,3 +174,22 @@ def test_cold_restore_of_a_session_beyond_4096_rows_trims_instead_of_failing(tra
     recent=d.recent_snapshot('alpha',now=now)
     assert recent==d.recent_snapshot('alpha',now=now,checkpoints={})
     assert recent['recent_history_status']=='ready'
+
+
+def test_checkpoint_keeps_the_endpoint_before_the_window_for_the_boundary_pair(tracking):
+    """Saved Telfer1 at a rotation: a checkpoint saved at the comparison time had dropped the
+    last reading before the 24h start, so only the full replay saw the boundary-crossing pair."""
+    path,store,d=tracking;d.begin('r0','alpha',config('r0'))
+    for i in range(1,61):save(d,'r0',i,20*i,3300+i)  # 20..1200 s.
+    rotate(d,'r0','r1')
+    for i in range(1,61):save(d,'r1',i,85800+20*i,3400+i)  # The next day, 85820..87000 s.
+    rotate(d,'r1','r2');save(d,'r2',1,87010,3470)
+    now=NOW+timedelta(seconds=87010)  # 24h start at 610 s: between readings at 600 and 620 s.
+    checkpoints={}
+    d.rolling_history('alpha',now=now,checkpoints=checkpoints)  # r1 settles now: checkpoint saved at this clock.
+    assert checkpoints[('tracked','alpha',1)]['now']==now
+    full=d.rolling_history('alpha',now=now)
+    assert full['boundary_intervals_excluded']==1
+    assert d.rolling_history('alpha',now=now,checkpoints=checkpoints)==full
+    later=now+timedelta(seconds=5)  # Later windows resume from it too.
+    assert d.rolling_history('alpha',now=later,checkpoints=checkpoints)==d.rolling_history('alpha',now=later)

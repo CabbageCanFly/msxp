@@ -111,6 +111,14 @@ def stamp(row):
     return datetime.fromisoformat(row.get('received_at') or row['attempted_at'])
 
 
+def window_rows(rows,start):
+    """Checkpointed rows: from the last usable endpoint before start, which a later
+    window's boundary-crossing pair begins at, exactly as in a full replay."""
+    before=[datetime.fromisoformat(r['timestamp']) for r in rows if usable_endpoint(r) and datetime.fromisoformat(r['timestamp'])<start]
+    cutoff=max(before,default=start)
+    return [r for r in rows if datetime.fromisoformat(r['timestamp'])>=cutoff]
+
+
 def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,checkpoints=None):
     """One hour plus causal warmup, never a browser-sized raw history response."""
     from .diagnostics import rotation_link
@@ -227,7 +235,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
     try:
         state=replay(diagnostic,channel,start=start-timedelta(seconds=PACE_TREND_SECONDS),now=now,receipt=result,state=state,step=step,
             checkpoints=checkpoints,key=('tracked',channel,character),
-            keep=lambda s:dict(s,rows=[r for r in s['rows'] if datetime.fromisoformat(r['timestamp'])>=start]))
+            keep=lambda s:dict(s,rows=window_rows(s['rows'],start)))
     except HistoryLimit:
         limited=True
     result['exclusion_counts']=dict(state['exclusion_counts']);level=state['level']

@@ -371,23 +371,56 @@ re-imports. A synthetic regression test (69 rotated runs, 4,140 attempts, cold
 restore) fails on HEAD with this exact `NameError` and passes now, with checkpoint
 parity. A long-running server started from HEAD will hit this for any such session.
 
-**2. Unexplained: intermittent `rolling_history` parity assertion.**
-`test_saved_logs_match_full_replay_while_streamed[telfer1]` failed twice today, both
-inside full 8-worker pytest runs of about 13 minutes. The first was at
-`assert fast==full` (incremental vs full `rolling_history`); the second run's details
-were truncated. It passed in every controlled attempt:
+**2. Intermittent `rolling_history` parity assertion: a checkpoint replay bug,
+exposed by the live fixture (fixed).**
+`test_saved_logs_match_full_replay_while_streamed[telfer1]` failed twice in full
+8-worker runs. The test globs the live logs once, then reads each file again as the
+loop reaches it, about four minutes later for the newest file. A rotation in between
+leaves the read input ending at the old run's summary, with the new run's file not
+enumerated. That is a valid input (capture stopping right after a summary), and it is
+one the test rarely sees.
 
-- 18 replays with the logs cut at each minute of the first failure's window
-  (19:42–19:59Z);
-- a standalone replay of all current data (4,256 steps);
-- two standalone pytest runs (HEAD and working tree) on the same data;
-- a module-level 8-worker run.
+Frozen reproduction (`private/telfer1-frozen-01`, 90 files copied once from the live
+logs; live logs and database untouched):
 
-No record makes the test's clock step backwards, and the evidence cache deep-copies
-its results. The cause is not established. It is not explained by the live fixture's
-end point alone. Rerun under the full suite with output preserved before relaxing
-anything. Separately, the saved-log tests read logs that live capture still appends
-to; copying them into a frozen fixture would make failures repeatable.
+- the unmodified test passes on the full snapshot under 16 hash seeds, so iteration
+  order is not involved;
+- a sweep ending the input after every record in both failure windows found exactly
+  one mismatching endpoint. It is after the summary of run `bf772160` (step 4,254,
+  `now` 2026-10-19T21:11:56.888634Z), inside the second failing run's read window;
+- the unmodified test fails there deterministically (`private/telfer1-frozen-02-rotation`,
+  two seeds) at `assert fast==full`.
+
+Only `boundary_intervals_excluded` differed: 0 resumed vs 1 full. `tracked_exp`, all
+2,557 intervals and `exclusion_counts` matched. The 24h start was
+2026-10-18T21:11:56.888634Z. The full replay keeps every row of the selected runs and
+pairs the reading at 21:11:33.666 with 21:12:00.194 across it. The tracked checkpoint
+had been saved at that same clock, because the closing summary settled the final run,
+and its `keep` had dropped rows before its own 24h start. The resumed replay therefore
+had no reading before the boundary. Older checkpoints have an earlier cutoff and keep
+it, which is why the failure needs a run to close at the comparison time.
+
+Fix: a checkpoint keeps rows from the last usable endpoint before its start
+(`rolling_history.window_rows`). Resume requires the saved runs to prefix the current
+selection, and the clock never regresses, so every pair ending after the current
+start is built from identical readings. A synthetic test (two days, rotations, a
+checkpoint saved at the comparison clock) fails before the fix with exactly 0 vs 1 and
+passes now. After the fix, the endpoint sweep (19:54–20:09, 20:58–21:12:30 and
+21:12:30 to the end of the snapshot) finds no mismatch, and both frozen fixtures pass.
+
+Remaining:
+
+- The first failure (read window 19:55–20:08Z) is not reproduced: no Telfer1 run opened
+  or closed then, and every endpoint in it passes before and after the fix. Its
+  details were not captured.
+- The final pairing loop counts excluded pairs (`exclusion_counts`) with no time
+  filter. A full replay would also count an excluded pair entirely before the cutoff,
+  which a checkpoint no longer holds. The frozen Telfer1 full replay has zero excluded
+  pairs, so this is not demonstrated and is unchanged.
+- The test still reads growing live logs. A header-only new file or a half-written last
+  line would surface as `IndexError`/`JSONDecodeError`, not parity failures; neither was
+  observed. A committed frozen fixture is not possible (private samples), but reading
+  each file once, as `test_saved_publications_match_reference` does, would narrow it.
 
 ## Not measured
 

@@ -51,8 +51,12 @@ from the first run and replaces the checkpoint:
 | Each covered run keeps its configuration, summary, attempt count and last attempt ID | Late appends to an older unfinished run, a summary written later, out-of-band row insert or delete |
 | Work limits are re-applied with the restored receipt | `history_limit` stays identical to a full replay; never a truncated total |
 
-Intervals ending at or before the 24h start are pruned when saved; they can never
-re-enter a later window. Duplicate-detection sets, quarantine anchors and level context
+Readings before the 24h start are pruned when saved, except the last usable endpoint
+before it. A later window's boundary-crossing pair begins there, and
+`boundary_intervals_excluded` counts that pair. Until the parity fix described in
+[VPS readiness](vps-readiness.md#saved-telfer1-log-failures), a checkpoint saved at
+the comparison clock dropped that reading. Pairs ending earlier never re-enter a
+window's gains. Duplicate-detection sets, quarantine anchors and level context
 are kept exactly, bounded by the existing 1,024-run and 65,536-attempt limits.
 An in-place SQL edit that keeps a covered run's count and last ID is outside the
 persistence model and is not detected until the process restarts.
