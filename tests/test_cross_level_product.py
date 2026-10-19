@@ -1,4 +1,4 @@
-"""Elapsed windows retain independent EXP intervals on both sides of a level change."""
+"""Public windows subtract level/EXP endpoints; diagnostic graph gaps stay separate."""
 from copy import deepcopy
 from datetime import datetime,timedelta
 from fractions import Fraction
@@ -23,99 +23,99 @@ def levels():
         point(5,80,1010,'0.05',level=68)]
 
 
-def test_mixed_window_sums_independent_exp_not_cross_level_percentages():
-    rows=levels();original=deepcopy(rows);snap=snapshot(rows,80);now=NOW+timedelta(seconds=80)
-    strict=window_comparisons(snap,now=now);chart=history(snap)
-    windows=recent_windows(snap,None,now=now)
-    for w in windows.values():
-        pace=w['pace']
-        assert pace['levels']==[67,68] and pace['readings']==5
-        assert w['gain']['approximate']==188+332+575
-        assert pace['coverage_seconds']['approximate']==60  # Two agreeing readers establish the first new-level endpoint.
-        assert pace['estimates']['exp_per_hour']['value']['approximate']==1095*60
-        assert pace['estimates']['percentage_per_hour'] is None
-        assert w['observed']['difference_percentage_points'] is None
+def expected_net(snap,now,minutes=1440,level=None):
+    """Independent whole-EXP reference from the public graph's endpoint values."""
+    from exp_tracker.product import reading
+    points=[v for r in snap['observations'] if (v:=reading(r)) and v['fresh_at_capture']
+        and not r.get('crop_suspect') and not v['simulated'] and v['level']['value'] is not None
+        and now-timedelta(minutes=minutes)<=datetime.fromisoformat(v['timestamp'])<=now
+        and (level is None or v['level']['value']==level)]
+    if len(points)<2:return None
+    first,last=points[0],points[-1];a,b=first['level']['value'],last['level']['value']
+    if b<a:return None
+    totals=[requirement(i)['to_next'] for i in range(a,b)]
+    if any(t is None for t in totals):return None
+    def value(p):return int(p['exp']) if p['exp'] is not None else (p['bp']*requirement(p['level']['value'])['to_next']+5000)//10000
+    amount=sum(totals)+value(last)-value(first)
+    return amount if amount>=0 else None
+
+
+def test_mixed_window_subtracts_level_exp_coordinates():
+    rows=levels();snap=snapshot(rows,80);now=NOW+timedelta(seconds=80)
+    before=history(snap);strict=window_comparisons(snap,now=now)
+    expected=requirement(67)['to_next']-1757100+1010
+    for w in recent_windows(snap,None,now=now).values():
+        assert w['gain']['approximate']==expected
+        assert w['pace']['coverage_seconds']['approximate']==80
+        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==expected*45
+        assert w['pace']['estimates']['percentage_per_hour'] is None
+        assert w['pace']['estimates']['exp_per_hour']['transition_gain_included']
         assert w['eta']['level']==68
-        assert w['eta']['estimate']['seconds']['approximate']==pytest.approx((requirement(68)['to_next']-1010)/1095*60)
-        assert not pace['estimates']['exp_per_hour']['transition_gain_included']
-    assert strict==window_comparisons(snap,now=now) and chart==history(snap)
-    assert not chart[2]['connect_previous'] and chart[2]['gain'] is None
-    assert rows==original
+    assert history(snap)==before and window_comparisons(snap,now=now)==strict
+    assert not before[2]['connect_previous']
 
 
-def test_each_percentage_interval_uses_its_own_level_requirement_and_bounds():
+def test_percentage_endpoints_use_rounded_level_coordinates():
+    from exp_tracker.shadow_types import parse_percentage_only
     rows=levels()
-    from exp_tracker.shadow_grammar import interpret_exp
     for r in rows:
         text=f'[{r["candidate"]["percentage"]}%]'
-        r.update(candidate=None,raw_text=text,percentage_only_candidate=interpret_exp(text)['strict_percentage_only'])
-    now=NOW+timedelta(seconds=80);w=recent_windows(snapshot(rows,80),None,now=now)['5']
-    expected=Fraction(requirement(67)['to_next'],10000)+Fraction(4*requirement(68)['to_next'],10000)
-    assert fraction(w['gain'])==expected
-    rate=w['pace']['estimates']['exp_per_hour']
-    assert fraction(rate['value'])==expected*60
-    assert all(fraction(b['lower'])<=fraction(rate['value'])<=fraction(b['upper']) for b in rate['hypotheses'].values())
-    assert {r['level'] for r in rate['requirements']}=={67,68}
+        r.update(candidate=None,raw_text=text,percentage_only_candidate=parse_percentage_only(text))
+    w=recent_windows(snapshot(rows,80),None,now=NOW+timedelta(seconds=80))['5']
+    first=(9996*requirement(67)['to_next']+5000)//10000
+    last=(5*requirement(68)['to_next']+5000)//10000
+    assert w['gain']['approximate']==requirement(67)['to_next']-first+last
+    assert w['pace']['basis']=='displayed_percentage_endpoints'
+    assert w['pace']['coverage_seconds']['approximate']==80
 
 
 def test_current_level_filter_does_not_change_axis_or_cross_level_total_policy():
-    snap=snapshot(levels(),80);now=NOW+timedelta(seconds=80)
-    all_levels=recent_windows(snap,None,now=now)
-    only=recent_windows(snap,dict(value=67,display_only=True),now=now,current_level_only=True)
-    for m in all_levels:
-        assert only[m]['start']==all_levels[m]['start'] and only[m]['end']==all_levels[m]['end']
-        assert only[m]['pace']['levels']==[68] and only[m]['gain']['approximate']==907
-        assert only[m]['scope']=='current_level_only'
+    snap=snapshot(levels(),80);now=NOW+timedelta(seconds=80);original=deepcopy(snap)
+    all_levels=recent_windows(snap,dict(value=68),now=now)['5']
+    current=recent_windows(snap,dict(value=68),now=now,current_level_only=True)['5']
+    assert all_levels['gain']['approximate']==requirement(67)['to_next']-1757100+1010
+    assert current['gain']['approximate']==1010-103
+    assert current['pace']['coverage_seconds']['approximate']==40
+    assert snap==original
 
 
-def test_new_level_eta_can_use_previous_level_rate_without_counting_transition():
-    rows=levels()[:4];now=NOW+timedelta(seconds=60)
-    first=recent_windows(snapshot(rows[:3],40),None,now=NOW+timedelta(seconds=40))['5']
-    assert first['gain']['approximate']==188 and first['pace']['levels']==[67]
-    assert first['eta']['historical'] and first['eta']['level']==68
-    assert not recent_windows(snapshot(rows[:3],40),None,now=NOW+timedelta(seconds=40),current_level_only=True)['5']['available']
-    w=recent_windows(snapshot(rows,60),None,now=now)['5']
-    assert w['gain']['approximate']==520 and w['pace']['levels']==[67,68]
-    assert w['eta']['level']==68 and w['eta']['estimated_at']==rows[-1]['received_at']
-    assert w['eta']['estimate']['seconds']['approximate']==pytest.approx((requirement(68)['to_next']-435)/520*40)
-    assert not w['eta']['historical']
+def test_level_up_rate_and_eta_include_known_transition_gain():
+    rows=levels()[:3];w=recent_windows(snapshot(rows,40),dict(value=68),now=NOW+timedelta(seconds=40))['5']
+    expected=requirement(67)['to_next']-1757100+103
+    assert w['gain']['approximate']==expected
+    assert w['eta']['level']==68
+    assert w['pace']['estimates']['exp_per_hour']['transition_gain_included']
 
 
-def test_mixed_integer_percentage_bounds_preserve_each_basis_and_expire_by_time():
-    rows=levels()+[point(6,100,2000,'0.11',level=68),point(7,120,3010,'0.16',level=68)]
-    from exp_tracker.shadow_grammar import interpret_exp
-    rows[4].update(candidate=None,raw_text='[0.05%]',percentage_only_candidate=interpret_exp('[0.05%]')['strict_percentage_only'])
-    w=recent_windows(snapshot(rows,120),None,now=NOW+timedelta(seconds=120))['5']
-    expected=188+332+Fraction(9*requirement(68)['to_next'],10000)+1010
-    assert fraction(w['gain'])==expected
-    rate=w['pace']['estimates']['exp_per_hour']
-    assert all(fraction(b['lower'])<=fraction(rate['value'])<=fraction(b['upper']) for b in rate['hypotheses'].values())
-    expired=recent_windows(snapshot(rows,1000),None,now=NOW+timedelta(seconds=1000))['5']
-    assert not expired['available'] and expired['eta']['historical']
-    assert expired['eta']['estimate']==w['eta']['estimate']
+def test_mixed_numeric_percentage_window_uses_one_endpoint_pair():
+    from exp_tracker.shadow_types import parse_percentage_only
+    rows=levels();last=rows[-1];last.update(candidate=None,raw_text='[0.05%]',percentage_only_candidate=parse_percentage_only('[0.05%]'))
+    snap=snapshot(rows,80);w=recent_windows(snap,None,now=NOW+timedelta(seconds=80))['5']
+    expected=requirement(67)['to_next']-1757100+(5*requirement(68)['to_next']+5000)//10000
+    assert w['gain']['approximate']==expected and w['pace']['basis']=='mixed_exp_and_percentage_endpoints'
+    old=recent_windows(snap,None,now=NOW+timedelta(seconds=1000))['5']
+    assert old['gain'] is None and old['last_observed_pace']['retained_history']
 
 
-def test_unsupported_current_requirement_retains_older_rate_but_cannot_make_eta():
+def test_missing_transition_requirement_does_not_hide_current_numeric_gain():
     rows=levels()[:2]+[point(3,40,100,'0.01',level=100),point(4,60,200,'0.02',level=100)]
-    w=recent_windows(snapshot(rows,60),None,now=NOW+timedelta(seconds=60))['5']
-    assert w['gain']['approximate']==188 and w['pace']['levels']==[67]
-    assert w['eta'] is None
+    snap=snapshot(rows,60);now=NOW+timedelta(seconds=60)
+    w=recent_windows(snap,dict(value=100),now=now)['5']
+    assert w['gain'] is None and w['reason']=='level_transition_requirement_unavailable'
+    current=recent_windows(snap,dict(value=100),now=now,current_level_only=True)['5']
+    assert current['gain']['approximate']==100 and current['eta'] is None
 
 
-def test_disconnected_new_level_can_use_older_selected_window_rate_not_its_missing_gain():
+def test_larger_window_includes_disconnected_new_level_and_gap_time():
     rows=levels()[:2]+[point(3,600,435,'0.02',level=68)]
-    rows[-1]['neural_level']=None
     windows=recent_windows(snapshot(rows,600),None,now=NOW+timedelta(seconds=600))
-    assert not windows['5']['available'] and windows['5']['eta'] is None
-    w=windows['60']
-    assert w['gain']['approximate']==188 and w['eta']['level']==68
-    assert w['eta']['historical'] and w['eta']['estimated_at']==rows[-1]['received_at']
-    assert w['eta']['rate_observed_at']==rows[1]['received_at'] and w['eta']['rate_age_seconds']==580
-    assert w['pace']['coverage_seconds']['approximate']==20
+    assert windows['5']['gain'] is None
+    w=windows['60'];assert w['gain']['approximate']==requirement(67)['to_next']-1757100+435
+    assert w['pace']['coverage_seconds']['approximate']==600 and w['eta']['level']==68
 
 
 @pytest.mark.parametrize('boundary',['restart','session','source','stale','missing','loss'])
-def test_unsafe_boundary_never_adds_a_transition_interval(boundary):
+def test_acquisition_and_process_boundaries_do_not_exclude_level_up_gain(boundary):
     rows=levels()
     if boundary=='restart':
         for r in rows[2:]:r.update(run_id='restart',event_id=f'restart:{r["index"]}',index=r['index']-2)
@@ -125,7 +125,7 @@ def test_unsafe_boundary_never_adds_a_transition_interval(boundary):
     elif boundary=='missing':rows.insert(2,missing(8,30))
     else:rows[2]=point(3,40,1757100,'99.96')
     w=recent_windows(snapshot(rows,80),None,now=NOW+timedelta(seconds=80))['5']
-    assert w['pace'] and w['gain']['approximate']<=1095
+    assert w['pace'] and w['gain']['approximate']==requirement(67)['to_next']-1757100+1010
     assert not w['complete_window']
 
 
@@ -162,10 +162,10 @@ def test_saved_level68_checkpoint_includes_old_level_and_restores_after_restart(
         snap=d.snapshot('telfer1',now=now,limit=640);recent=d.recent_snapshot('telfer1',now=now)
         before=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts')]
         p=player(snap,now=now,recent_snapshot=recent)
-        assert p['recent_windows']['5']['gain']['approximate']==pytest.approx(13432.697)
-        assert p['recent_windows']['60']['gain']['approximate']==pytest.approx(55971.82)
+        assert p['recent_windows']['5']['gain']['approximate']==expected_net(recent,now,5)
+        assert p['recent_windows']['60']['gain']['approximate']==expected_net(recent,now,60)
         assert p['current_level_windows']['60']['gain']['approximate']==6753
-        assert p['recent_windows']['60']['pace']['readings']==36
+        assert p['recent_windows']['60']['pace']['readings']>=36
         assert p['recent_windows']['60']['eta']['level']==68
         assert p['level_events'][-1]['level']==68
         assert [r[0] for r in store.db.execute('select payload_json from diagnostic_attempts')]==before
@@ -179,12 +179,13 @@ def test_saved_65_to_66_and_unobserved_niru_advancement(tmp_path):
     with Store(tmp_path/'saved.sqlite3') as store:
         d,now=replay(store,'telfer1',['20261018T001050Z-b970792e'])
         snap=d.recent_snapshot('telfer1',now=now);w=recent_windows(snap,None,now=now)['60']
-        assert w['pace']['levels']==[65,66] and w['gain']['approximate']==pytest.approx(13444.9739)
-        assert w['pace']['coverage_seconds']['approximate']==pytest.approx(228.845713)
+        assert w['pace']['levels']==[65,66] and w['gain']['approximate']==expected_net(snap,now,60)
+        assert w['pace']['coverage_seconds']==w['pace']['span_seconds']
         d,now=replay(store,'niru',['20261018T211439Z-794bf39d','20261019T000710Z-bda4f628'],34)
         snap=d.recent_snapshot('niru',now=now);w=recent_windows(snap,None,now=now)['60']
         assert w['pace']['levels']==[57]  # level 56 was hours earlier, outside the actual window
-        assert w['gain']['approximate']==91765
+        # Numeric endpoints retain the 875s timeout gap (+34,537) and restart (+806).
+        assert w['gain']['approximate']==91765+34537+806
         old=d.rolling_history('niru',now=now)
         assert old['tracked_exp']['approximate']>w['gain']['approximate']
 
@@ -198,16 +199,16 @@ def test_unobserved_niru_level_advance_retains_both_sides_but_no_transition_gain
         assert p['recent_windows']['5']['gain']['approximate']==9330
         old=p['current_level_windows']['60']['gain']['approximate']
         w=p['recent_windows']['60'];assert old==9330
-        assert w['gain']['approximate']==102874
-        assert w['pace']['levels']==[56,57] and w['pace']['readings']==127
-        assert w['pace']['coverage_seconds']['approximate']==pytest.approx(2655.286408)
-        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(139475.12361913163)
+        assert w['gain']['approximate']==expected_net(d.recent_snapshot('niru',now=now),now,60)
+        assert w['pace']['levels']==[56,57] and w['pace']['readings']>=127
+        assert w['pace']['coverage_seconds']==w['pace']['span_seconds']
+        assert fraction(w['pace']['estimates']['exp_per_hour']['value'])==fraction(w['gain'])*3600/fraction(w['pace']['coverage_seconds'])
         by_id={r['event_id']:r for r in snap['observations']}
         pace=responsive_pace(d.recent_snapshot('niru',now=now),dict(value=57),now=now,minutes=60,pool_history=True,retain_history=False)
         for edge in pace['intervals']:
             a,b=(by_id[edge[k]] for k in ('first_event_id','last_event_id'))
-            assert a['experimental_level']['value']==b['experimental_level']['value']
-            if edge['basis']=='observed_exp_endpoints':
+            assert a['experimental_level']['value']<=b['experimental_level']['value']
+            if edge['basis']=='observed_exp_endpoints' and a['experimental_level']['value']==b['experimental_level']['value']:
                 assert edge['gain']['approximate']==int(full_reading(b)['exp'])-int(full_reading(a)['exp'])
         assert w['eta']['level']==57 and p['level_events']==[]
 
@@ -234,6 +235,6 @@ def test_same_level_rotation_stays_connected_but_level_reset_never_becomes_negat
     a=save('rotation-b',2,186,68,1);b=save('rotation-b',3,189,68,2)
     now=NOW+timedelta(seconds=189);snap=d.recent_snapshot('alpha',now=now)
     w=recent_windows(snap,None,now=now)['5']
-    assert w['pace']['levels']==[67,68] and w['gain']['approximate']==final_old-first+b-a
-    assert w['pace']['coverage_seconds']['approximate']==183
+    assert w['pace']['levels']==[67,68] and w['gain']['approximate']==requirement(67)['to_next']-first+b
+    assert w['pace']['coverage_seconds']['approximate']==186
     assert not w['complete_window'] and not store.db.execute('select 1 from observations').fetchone()

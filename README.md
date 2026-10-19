@@ -56,6 +56,9 @@ The [MVP level-evidence update](docs/mvp-level-evidence.md) displays unique arit
 levels immediately and uses complete grammar-recovered EXP in public pace/history.
 The [Telfer level-up follow-up](docs/telfer-levelup-and-window-gaps.md) accepts prompt
 reader agreement and bounded punctuation recovery, and documents recent-window gap totals.
+The [public-gain simplification](docs/numeric-gap-and-percentage-recovery.md) uses
+earliest/latest public EXP endpoints, including percentage estimates and known level-ups.
+It supersedes the earlier public interval restrictions; diagnostic evidence stays separate.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

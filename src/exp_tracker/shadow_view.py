@@ -11,7 +11,7 @@ import re
 import stat
 
 from .shadow_types import parse_percentage_only, partial_percentage
-from .diagnostic_geometry import suspect_crop
+from .diagnostic_geometry import suspect_crop,overlapping_hud_gap
 
 MAX_BYTES = 512 * 1024
 MAX_LINE = 64 * 1024
@@ -109,6 +109,7 @@ def observation(row):
     frame_hash=row.get('frame_sha256')
     return dict(frame_sha256=frame_hash if isinstance(frame_hash,str) and re.fullmatch(r'[0-9a-f]{64}',frame_hash) else None,
                 crop_suspect=suspect_crop(row),
+                overlapping_hud_gap=overlapping_hud_gap(row),
                 index=row.get('index') if type(row.get('index')) is int and 1 <= row['index'] <= 10000 else None,
                 channel=channel, source_kind=source.get('kind') if source.get('kind') in ('file', 'twitch') else 'unknown',
                 attempted_at=timestamp(row.get('attempted_at')), received_at=timestamp(row.get('received_at')),

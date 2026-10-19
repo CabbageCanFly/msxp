@@ -58,45 +58,27 @@ def test_matching_reacquisition_pools_only_valid_integer_edges(tracking):
 
 @pytest.mark.parametrize('kind',['conflict','level','loss','quarantine','duplicate','stale','crop','source','session','restart'])
 def test_hard_boundaries_block_crossing_and_keep_unrelated_same_context_intervals(tracking,kind):
+    from exp_tracker.pace_intervals import collect
+    from exp_tracker.product import reading
     _,_,d=tracking
     seed(d);missing(d);full(d,5,497281,33.20);full(d,6,498030,33.25);full(d,7,498779,33.30)
-    snap=d.snapshot('alpha',now=NOW+timedelta(seconds=90))
-    row=snap['observations'][4]
-    # Keep production evidence policies unchanged; inject a contradictory sanitized
-    # row/decision to isolate the presentation context gate.
-    if kind=='conflict': row['experimental_level'].update(status='conflict',reason='new_neural_level_requires_confirmation',neural=65)
-    elif kind=='level': row['experimental_level'].update(value=65,status='agreement',neural=65,visual=65)
-    elif kind=='stale': row.update(status='stale_local_frame',fresh_at_capture=False)
+    snap=d.snapshot('alpha',now=NOW+timedelta(seconds=90));row=snap['observations'][4]
+    if kind=='conflict':row['experimental_level'].update(status='conflict',value=None,neural=65)
+    elif kind=='level':row['experimental_level'].update(value=65,status='agreement',neural=65,visual=65)
+    elif kind=='stale':row.update(status='stale_local_frame',fresh_at_capture=False)
     elif kind=='crop':row['crop_suspect']=True
     elif kind=='duplicate':row['frame_sha256']=snap['observations'][2]['frame_sha256']
     elif kind=='source':row['source_identity']='b'*64
     elif kind=='session':row['session_id']=999
-    elif kind=='restart':row.update(run_id='restart',rotation_from=None)
+    elif kind=='restart':row['run_id']='restart'
     else:
-        decision=row['percentage_review']
-        decision.update(public_eligible=False,progress_eligible=False,reason='second_capture_required',status='pending_exp_decrease')
-        if kind=='loss':decision.update(public_eligible=True,progress_eligible=True,break_before='confirmed_change_new_baseline',status='corroborated_lower_baseline')
-        for v in snap['percentage_progress']['percentage_reviews']:
-            if v['event_id']==row['event_id']:v.update(decision)
-    # observed_sequence reprojects level evidence; preserve the injected evidence
-    # using its existing module seam rather than weakening real level validation.
-    import exp_tracker.product as module
-    from unittest.mock import patch
-    with patch.object(module,'project',lambda rows:rows):
-        pace=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-    if kind in ('level','source','session','restart'):
-        assert pace['readings']==2 and pace['coverage_seconds']['approximate']==15
-        assert pace['start']==snap['observations'][5]['received_at']
-    elif kind=='loss':
-        # The confirmed lower reading starts a new baseline, never ends an edge
-        # from the old one. Newly admitted level evidence can support its next edge.
-        assert pace['readings']==6 and pace['coverage_seconds']['approximate']==60
-        assert pace['interruptions']==1
-    else:
-        assert pace['readings']==5 and pace['coverage_seconds']['approximate']==45
-        assert pace['interruptions']==1
-    assert all(snap['observations'][4]['event_id']!=e['last_event_id'] for e in pace['intervals'])
-    if kind!='loss':assert all(snap['observations'][4]['event_id']!=e['first_event_id'] for e in pace['intervals'])
+        row['percentage_review'].update(public_eligible=kind=='loss',progress_eligible=kind=='loss',break_before='confirmed_change_new_baseline' if kind=='loss' else None)
+    pace=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
+    assert pace['total_gain']['approximate']==498779-494285
+    assert pace['coverage_seconds']['approximate']==90
+    strict=collect(snap,now=NOW+timedelta(seconds=90),read=reading,max_interval_seconds=300)
+    if kind in ('conflict','stale','crop','duplicate'):
+        assert all(row['event_id'] not in (e['before']['event_id'],e['after']['event_id']) for e in strict['intervals'])
 
 
 def test_pool_ages_without_new_captures_and_expired_history_is_not_current(tracking):
@@ -137,7 +119,7 @@ def test_contradictory_integer_on_pending_frame_is_not_a_soft_gap(tracking):
     full(d,6,498030,33.25);full(d,7,498779,33.30)
     pace=get(d,90)['responsive_pace']
     assert pace['active'] and pace['readings']==5
-    assert pace['coverage_seconds']['approximate']==45 and pace['interruptions']==1
+    assert pace['coverage_seconds']['approximate']==90 and pace['interruptions']==0
     assert all(e['first_event_id']!='run:5' and e['last_event_id']!='run:5' for e in pace['intervals'])
 
 
@@ -153,11 +135,12 @@ def test_unreadable_frames_do_not_conceal_conflicts_or_duplicate_pixels(tracking
     full(d,6,498030,33.25);full(d,7,498779,33.30);full(d,8,499528,33.35)
     pace=get(d,105)['responsive_pace']
     assert pace['active'] and pace['readings']==6
-    assert pace['coverage_seconds']['approximate']==60 and pace['interruptions']==1
+    assert pace['coverage_seconds']['approximate']==105
+    assert pace['interruptions']==0
     assert pace['intervals'][-1]['start']==(NOW+timedelta(seconds=90)).isoformat()
 
 
-def test_clean_rotation_retains_pool_but_unlinked_run_does_not(tracking):
+def test_clean_rotation_and_same_assignment_twitch_restart_retain_numeric_pool(tracking):
     _,_,d=tracking
     seed(d);missing(d);full(d,5,497281,33.20);full(d,6,498030,33.25);full(d,7,498779,33.30)
     snap=d.snapshot('alpha',now=NOW+timedelta(seconds=90))
@@ -172,7 +155,9 @@ def test_clean_rotation_retains_pool_but_unlinked_run_does_not(tracking):
     with patch.object(module,'project',lambda rows:rows):
         linked=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
         assert linked['readings']==6 and linked['interruptions']==0
-        assert linked['interval_counts']['endpoint_supported']==2
+        assert linked['total_gain']['approximate']==498779-494285
         snap['observations'][6]['rotation_from']=None
         unlinked=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-        assert not unlinked['active'] and unlinked['retained_history']
+        assert unlinked['active'] and not unlinked['retained_history']
+        assert unlinked['total_gain']==linked['total_gain']
+        assert unlinked['coverage_seconds']==linked['coverage_seconds']

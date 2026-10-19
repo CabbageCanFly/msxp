@@ -68,7 +68,7 @@ def test_public_player_shows_inferred_retained_possible_provisional_and_corrobor
     assert not store.db.execute('SELECT 1 FROM observations').fetchone()
 
 
-def test_uncertain_boundary_never_manufactures_exp_or_spans_levels(tracking):
+def test_corroborated_level_up_uses_table_endpoints_without_trusted_writes(tracking):
     _,store,d=tracking
     last=stream(d)
     for i,exp in enumerate((6200,6600,7000),last+1):attempt(d,i,exp=exp,total=T43)
@@ -78,13 +78,14 @@ def test_uncertain_boundary_never_manufactures_exp_or_spans_levels(tracking):
     rolling=Diagnostics(store).rolling_history('alpha',now=now)
     intervals=rolling['chart_intervals']
     assert intervals and {g['level'] for g in intervals}=={42,43}
-    for g in intervals:
-        start,end=datetime.fromisoformat(g['start']),datetime.fromisoformat(g['end'])
-        assert not start<wrap<=end and Fraction(g['value']['numerator'],g['value']['denominator'])>=0
-    # Unknown boundary EXP stays unknown: the total is exactly the per-level intervals.
+    assert any(datetime.fromisoformat(g['start'])<wrap<=datetime.fromisoformat(g['end']) for g in intervals)
+    assert all(Fraction(g['value']['numerator'],g['value']['denominator'])>=0 for g in intervals)
+    # Known level requirements supply the reset arithmetic, never an invented observation.
+    times={r['received_at'] for r in d.recent_snapshot('alpha',now=now)['observations']}
+    assert all(g['start'] in times and g['end'] in times for g in intervals)
     total=sum(Fraction(g['value']['numerator'],g['value']['denominator']) for g in intervals)
     assert Fraction(rolling['tracked_exp']['numerator'],rolling['tracked_exp']['denominator'])==total
-    assert total<T43  # Not a whole level, nor (100% - 99.92%) + 1.16%-style boundary arithmetic.
+    assert total==T42-352000+7000
     windows=rolling['windows']
     for small,large in zip(('5','10','15','30'),('10','15','30','60')):
         a,b=(Fraction(windows[m]['gain']['numerator'],windows[m]['gain']['denominator']) if windows[m]['gain'] else 0 for m in (small,large))

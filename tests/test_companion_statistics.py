@@ -43,7 +43,7 @@ def test_endpoint_pace_uses_full_elapsed_gap_and_combined_endpoint_quantization(
 
 
 @pytest.mark.parametrize('boundary', ['loss','anomaly','level','session','long_outage'])
-def test_new_pace_and_bars_do_not_cross_hard_boundaries(tracking,boundary):
+def test_public_net_and_strict_chart_have_independent_connection_policies(tracking,boundary):
     _,store,d=tracking
     for i,pct in enumerate(('33.00','33.05','33.10'),1):append(d,i,f'[{pct}%]',frame_sha256=f'{i:064x}')
     if boundary=='session':
@@ -52,7 +52,7 @@ def test_new_pace_and_bars_do_not_cross_hard_boundaries(tracking,boundary):
         return
     if boundary=='long_outage':
         for i in (4,5,6):append(d,i,None,status='capture_failed',received_at=None,current=False)
-        # Presentation smoothing now permits short holes, but never a >5-minute gap.
+        # The old points are outside this five-minute lookback, regardless of the gap.
         for i,seconds in ((7,350),(8,365)):
             stamp=(NOW+timedelta(seconds=seconds)).isoformat()
             append(d,i,f'[34.{i:02}%]',attempted_at=stamp,received_at=stamp)
@@ -67,9 +67,15 @@ def test_new_pace_and_bars_do_not_cross_hard_boundaries(tracking,boundary):
         for i,pct in ((5,'32.05' if boundary=='loss' else '33.15'),(6,'32.10' if boundary=='loss' else '33.20')):
             append(d,i,f'[{pct}%]',frame_sha256=f'{i:064x}')
     result=get(d,75)
-    assert result['responsive_pace']['readings']==(5 if boundary in ('anomaly','loss') else 3)
-    if boundary in ('anomaly','loss'):
-        assert result['responsive_pace']['interruptions']==1
+    if boundary=='loss':
+        assert result['recent_windows']['5']['gain'] is None
+        assert result['recent_windows']['5']['reason']=='observed_exp_decrease'
+        assert not result['responsive_pace']['active']  # Earlier rate can remain historical.
+    else:
+        assert result['responsive_pace']['readings']==(5 if boundary=='anomaly' else 6)
+        assert result['responsive_pace']['interruptions']==0
+        assert result['responsive_pace']['start']==NOW.isoformat()
+    if boundary=='anomaly':
         assert all(e['first_event_id']!='run:4' and e['last_event_id']!='run:4' for e in result['responsive_pace']['intervals'])
     points=history(d.snapshot('alpha',now=NOW+timedelta(seconds=75)))
     assert points[3]['gain'] is None and points[-1]['gain']

@@ -389,8 +389,8 @@ try {
     observed.push(...batches.map(batch=>({reading:batch.player.reading,windows:batch.player.windows})));
   }else if(verifyTracked){
     const packet=original.tracked_history;
-    assert.equal(packet.tracked_exp.approximate,41228);
-    assert.deepEqual([5,10,15,30,60].map(m=>packet.windows[m].gain.approximate),[4757,9994,14696,27764,41228]);
+    assert.equal(packet.tracked_exp.approximate,61110-18407);
+    assert.deepEqual([5,10,15,30,60].map(m=>packet.windows[m].gain.approximate),[4757,9994,14696,27764,42703]);
     assert.equal(packet.as_of,original.player.tracked_as_of);
     for(const minutes of [5,10,15,30,60]){
       await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
@@ -398,16 +398,16 @@ try {
       assert.equal(await detail.evaluate('data.tracked_history.as_of'),packet.as_of);
       const gain=packet.windows[minutes].gain.approximate;
       const bars=await detail.evaluate('bucketHistory(rollingData.chart_intervals.map(g=>({gain:g,connect_previous:true})),Date.parse(rollingData.as_of),60,windowMinutes*60).bins.reduce((s,b)=>s+(b.value??0),0)');
-      assert.ok(Math.abs(bars-gain)<.00001,'Bars and cards sum identical whole intervals');
+      assert.ok(Math.abs(bars-gain)<.00001,'Bars and cards match net endpoint progress');
     }
-    await detail.wait('rollingData?.tracked_exp?.approximate===41228');
-    assert.equal(await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber'),'~41,228');
+    await detail.wait('rollingData?.tracked_exp?.approximate===42703');
+    assert.equal(await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber'),'~42,703');
     await screenshot(detail,'tracked-exp-desktop',1440,1150);await screenshot(detail,'tracked-exp-mobile',390,1400);
     const tracked=await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber');
     await detail.evaluate('document.getElementById("current-level-only").click()');
     assert.equal(await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber'),tracked);
     await fixtureCommand('advance');const after=await api('/api/players/'+channel);
-    assert.ok(after.tracked_history.tracked_exp.approximate>41228);
+    assert.ok(after.tracked_history.tracked_exp.approximate>42703);
     await detail.wait(`data?.tracked_history?.tracked_exp?.approximate===${after.tracked_history.tracked_exp.approximate}`);
     await overlay.wait(`data?.player?.latest_attempt_at===${JSON.stringify(after.player.latest_attempt_at)}`);
     const history=await api('/api/players/'+channel+'/history');assert.equal(history.as_of,after.tracked_history.as_of);
@@ -433,8 +433,8 @@ try {
     await fixtureCommand('advance');
     const after=await api('/api/players/'+channel);
     assert.equal(after.player.display_level.value,68);
-    assert.equal(after.player.recent_windows['60'].gain.approximate,54663.82);
-    assert.equal(after.player.current_level_windows['60'].gain.approximate,5445);
+    assert.equal(after.player.recent_windows['60'].gain.approximate,60149);
+    assert.equal(after.player.current_level_windows['60'].gain.approximate,6753);
     await detail.wait('data?.player?.display_level?.value===68');
     await overlay.wait('data?.player?.display_level?.value===68');
     await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.display_level?.value===68`);
@@ -448,10 +448,10 @@ try {
       assert.ok(await detail.evaluate('document.querySelectorAll(".level-transition").length>0'));
     }
     const all=await detail.evaluate('document.getElementById("movement").dataset.fullNumber');
-    assert.equal(await detail.evaluate('document.getElementById("movement").dataset.fullNumber'),'+54,664 EXP');
+    assert.equal(await detail.evaluate('document.getElementById("movement").dataset.fullNumber'),'+60,149 EXP');
     await screenshot(detail,'cross-level-60min-desktop',1440,1050);await screenshot(detail,'cross-level-60min-mobile',390,1200);
     await detail.evaluate('document.getElementById("current-level-only").click()');
-    assert.equal(await detail.evaluate('document.getElementById("movement").textContent'),'+5,445 EXP');
+    assert.equal(await detail.evaluate('document.getElementById("movement").textContent'),'+6,753 EXP');
     assert.ok(await detail.evaluate('[...document.querySelectorAll("#history-chart circle")].every(p=>p.dataset.tipText.includes("Lv. 68"))'));
     assert.equal(await detail.evaluate('Date.parse(document.getElementById("history-chart").dataset.end)-Date.parse(document.getElementById("history-chart").dataset.start)'),3600000);
     const tracked=await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber');
@@ -467,7 +467,7 @@ try {
     await detail.wait('data?.player?.recent_windows["60"]?.available===false');
     const historical=await api('/api/players/'+channel);
     assert.deepEqual(historical.player.recent_windows['60'].eta.estimate,eta);
-    assert.equal(await detail.evaluate('document.getElementById("eta").textContent'),'~8h 28m');
+    assert.equal(await detail.evaluate('document.getElementById("eta").textContent'),'~8h 33m');
     await screenshot(detail,'cross-level-historical-eta',1100,1050);
     for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     observed.push({asOfReplay:true,after,historical});
@@ -478,13 +478,13 @@ try {
     assert.equal(await detail.evaluate('data.player.level_events.length'),0);
     assert.equal((await fixtureCommand('advance')).stage,'advance');
     const after=await api('/api/players/'+channel);
-    assert.equal(after.player.responsive_pace.active,true);assert.equal(after.player.responsive_pace.readings,2);
+    assert.equal(after.player.responsive_pace.active,true);assert.equal(after.player.responsive_pace.readings,4);
     assert.ok(after.player.responsive_pace.estimates.eta.seconds.approximate>0);assert.equal(after.player.windows['5'].eligible,false);
     await detail.wait('document.getElementById("level-event").textContent==="Level 66 reached!"');
     await overlay.wait(`data?.player?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
     await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
     assert.deepEqual(after.player.recent_windows['5'].pace.levels,[65,66]);
-    assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/last observed.*4 readings.*2 sequences/);
+    assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/4 readings/);
     assert.equal(await overlay.evaluate('document.getElementById("level").textContent'),'Lv. 66');
     assert.equal(await detail.evaluate('document.getElementById("history-chart").textContent.includes("99.97%")'),false);
     await screenshot(detail,'level-up-first-estimate',1100,1050);await screenshot(overlay,'level-up-overlay',500,160);

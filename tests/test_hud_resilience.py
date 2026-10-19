@@ -65,7 +65,7 @@ def test_unsafe_or_new_level_evidence_does_not_age_as_unreadable(tracking,change
     at(d,1,0,'[33.00%]');at(d,2,20,'[33.02%]')
     at(d,3,40,'[33.04%]',**change)
     p=present(d,40)
-    assert not (p['responsive_pace'] or {}).get('active')
+    assert bool((p['responsive_pace'] or {}).get('active'))==(change.get('visual_level')==65)
     if p['responsive_pace']:
         assert p['responsive_pace']['presentation']['state']!='aging'
 
@@ -101,11 +101,11 @@ def test_restart_restores_evidence_but_does_not_join_new_run(tracking):
             source=dict(kind='twitch',channel='alpha'),status='diagnostic_percentage_only',localization=dict(count=1),
             neural=dict(text='[34.00%]'),visual_level=64,visual_status='available')
         other.append('restart',raw)
-        assert not present(other,60)['responsive_pace']['active']
+        assert present(other,60)['responsive_pace']['active']
         stamp=(NOW+timedelta(seconds=80)).isoformat()
         other.append('restart',dict(raw,index=2,attempted_at=stamp,received_at=stamp,neural=dict(text='[34.02%]')))
         result=present(other,80)['responsive_pace']
-        assert result['active'] and result['readings']==2 and result['coverage_seconds']['approximate']==20
+        assert result['active'] and result['readings']==4 and result['coverage_seconds']['approximate']==80
 
 
 def test_real_sqlite_http_batches_official_status_separately_from_capture(tracking,monkeypatch):

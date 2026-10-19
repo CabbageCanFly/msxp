@@ -9,6 +9,7 @@ import pytest
 from exp_tracker.diagnostic_evidence import project
 from exp_tracker.diagnostic_progress import percentage_point
 from exp_tracker.product import player,reading,history,recent_windows,window_comparisons
+from exp_tracker.exp_requirements import requirement
 from exp_tracker.store import Store
 from exp_tracker.diagnostics import Diagnostics
 from tests.test_endpoint_pace import point,snapshot,missing
@@ -102,7 +103,7 @@ def saved_attempt(d,run,index,seconds,bp,source_kind='twitch'):
     return exp
 
 
-def test_sqlite_recent_windows_sum_both_sides_of_restart_without_crossing_it(tracking):
+def test_sqlite_recent_numeric_windows_include_bound_restart_and_actual_gap_time(tracking):
     path,store,d=tracking
     d.begin('first','alpha',config('first'))
     old=[saved_attempt(d,'first',i+1,i*60,3300+i*5) for i in range(3)]
@@ -113,16 +114,16 @@ def test_sqlite_recent_windows_sum_both_sides_of_restart_without_crossing_it(tra
     snap=d.snapshot('alpha',now=now,limit=640)
     strict=window_comparisons(snap,now=now)
     p=player(snap,now=now,recent_snapshot=d.recent_snapshot('alpha',now=now))
-    windows=p['recent_windows'];both=old[-1]-old[0]+new[-1]-new[0]
+    windows=p['recent_windows'];both=new[-1]-old[0]
     assert windows['5']['gain']['approximate']==new[-1]-new[0]
     for minutes in ('15','30','60'):
         w=windows[minutes]
         assert w['gain']['approximate']==both
-        assert w['pace']['coverage_seconds']['approximate']==240
-        assert w['pace']['readings']==6 and w['pace']['interruptions']==1
-        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==both*15
+        assert w['pace']['coverage_seconds']['approximate']==720
+        assert w['pace']['readings']==6 and w['pace']['interruptions']==0
+        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==both*5
         assert not w['complete_window']
-    assert windows['10']['gain']['approximate']==new[-1]-new[0]
+    assert windows['10']['gain']['approximate']==new[-1]-old[-1]
     assert p['windows']==strict
     with Store(path,read_only=True) as restarted:
         again=Diagnostics(restarted)
@@ -134,7 +135,9 @@ def test_sqlite_recent_windows_sum_both_sides_of_restart_without_crossing_it(tra
     assert not aged['recent_windows']['5']['available']
     assert aged['recent_windows']['30']['gain']==windows['30']['gain']
     store.end_session('alpha',at=later);store.start_session('alpha',at=later+timedelta(seconds=1))
-    assert not player(d.snapshot('alpha',now=later),now=later,recent_snapshot=d.recent_snapshot('alpha',now=later))['recent_windows']['60']['available']
+    saved=player(d.snapshot('alpha',now=later),now=later,recent_snapshot=d.recent_snapshot('alpha',now=later))
+    assert saved['recent_windows']['60']['gain']==windows['60']['gain']
+    assert not saved['recent_windows']['60']['pace']['active']
 
 
 def test_recent_sqlite_query_exceeds_browser_history_cap_and_keeps_clean_rotation(tracking):
@@ -188,10 +191,10 @@ def test_display_only_level_cannot_select_the_current_level_filter():
     for r in rows:r['neural_level']=None
     snap=snapshot(rows,60)
     mixed=recent_windows(snap,dict(value=67,display_only=True),now=NOW+timedelta(seconds=60))['5']
-    assert mixed['pace']['levels']==[67,68] and mixed['gain']['approximate']==350
+    assert mixed['pace']['levels']==[67,68] and mixed['gain']['approximate']==requirement(67)['to_next']-660960+435
     result=recent_windows(snap,dict(value=67,display_only=True),now=NOW+timedelta(seconds=60),current_level_only=True)['5']
-    assert result['pace']['level']==68 and result['pace']['readings']==2
-    assert result['gain']['approximate']==332
+    assert result['pace']['level']==67 and result['pace']['readings']==2
+    assert result['gain']['approximate']==18
 
 
 def test_selected_window_expires_gain_but_retains_its_own_dated_rate():

@@ -139,12 +139,16 @@ function spanText(seconds) { const s=Math.floor(seconds);return s<60?`${s}s`:`${
 function windowNote(p) {
   if(p.tracked_status && p.tracked_status!=='ready')return 'Tracked history unavailable';
   if(recentWindow(p)?.status==='history_limit')return 'Recent history unavailable';
+  const limitation={level_transition_requirement_unavailable:'Level transition EXP unavailable: missing level requirement',
+    percentage_requirement_unavailable:'Percentage EXP unavailable: missing level requirement',
+    observed_exp_decrease:'Observed EXP decreased',observed_level_decrease:'Observed level decreased',level_unavailable:'Level unavailable for EXP comparison'}[recentWindow(p)?.reason];
+  if(limitation)return limitation;
   const w=selectedWindow(p);
   const o=observedWindow(p);
   if(o) {
     const age=o.age_seconds+(performance.now()-receivedAt)/1000;
     const old=current(p).stale || failed || o.paused;
-    return `${spanText((o.coverage_seconds ?? o.span_seconds).approximate)} · ${o.readings} readings${o.interruptions?` · ${o.interruptions+1} sequences`:''}${old?` · last updated ${ageText(age)}`:w?.eligible?' · complete window':' · partial history'}`;
+    return `${spanText((o.coverage_seconds ?? o.span_seconds).approximate)} · ${o.readings} readings${o.interruptions?` · ${o.interruptions+1} sequences`:''}${o.span_seconds.approximate>=windowMinutes*60?' · complete window':' · partial history'}${old?` · last updated ${ageText(age)}`:''}`;
   }
   if(current(p).stale || failed)return 'Waiting for fresh readings';
   if(w?.eligible)return `Last ${windowMinutes} min · ${Math.round(w.coverage_seconds.approximate)}s observed · ${w.readings} readings`;
@@ -190,7 +194,7 @@ function etaText(value,compact=false) {
 }
 function rateTitle(rate) {
   if(!rate)return 'Needs two supported readings and a positive, comparable elapsed interval. Recent pace includes time between valid endpoints; complete-window rankings remain separate.';
-  return `Experimental estimate, not earned EXP. ${Object.entries(rate.hypotheses).map(([rule,b])=>`${rule}: ${numbers.format(Math.round(b.lower.approximate))}–${numbers.format(Math.round(b.upper.approximate))} EXP/h`).join('; ')}. Community requirement ${rate.requirement.version}; quantization bounds exclude OCR errors.`;
+  return `Experimental estimate, not earned EXP. ${Object.entries(rate.hypotheses ?? {}).map(([rule,b])=>`${rule}: ${numbers.format(Math.round(b.lower.approximate))}–${numbers.format(Math.round(b.upper.approximate))} EXP/h`).join('; ')}. Community requirement ${rate.requirement.version}; quantization bounds exclude OCR errors.`;
 }
 function metricValue(p,key) {
   if(key==='level')return levelTransition(p)?.to_level ?? displayLevel(p)?.value ?? null;
@@ -269,7 +273,7 @@ function renderPlayer() {
   el('movement').textContent=(observed || !s.stale && !failed) && (summary?.estimated_exp || movement!=null)?movementText(summary):'—';
   amount('movement',el('movement').textContent==='—'?'—':summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate,true)} EXP`:el('movement').textContent,el('movement').textContent);
   el('movement').dataset.paused=String(!!observed && (observed.paused || s.stale || failed));
-  el('movement').title=observed?`${observed.start} – ${observed.end}; ${movement!=null?'+'+movement+' percentage points. ':''}${observed.estimated_exp?'Supported EXP intervals; each level uses its own community requirement. ':''}${observed.unavailable_attempts} unavailable and ${observed.missing_attempts} missing attempts. Net gains across safe capture gaps up to 5 minutes count; intervals crossing the lookback boundary are excluded. Partial history is not a full-window rate. Not exact earned EXP; level-transition gains are excluded. Not used for ranking.`:'';
+  el('movement').title=observed?`${observed.start} – ${observed.end}; ${movement!=null?'+'+movement+' percentage points. ':''}Latest minus earliest usable EXP within the lookback window. Percentage-only endpoints use whole-EXP estimates from the community table. Capture gaps and restarts do not remove progress. Known level-ups include the intervening level requirements; Current level only compares observations at the displayed level. Pace uses the actual observed span. Partial history is not a full-window rate. Not used for ranking.`:windowNote(p);
   if(observed)el('movement').title=el('movement').dataset.fullNumber+'; '+el('movement').title;
   amount('rate',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate,true)}`:'—',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate)}`:'—');el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
@@ -288,7 +292,7 @@ function renderPlayer() {
   if(view==='player') {
     const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
     amount('tracked-exp',rolling?.tracked_exp?`~${expText(rolling.tracked_exp.approximate,true)}`:'—',rolling?.tracked_exp?`~${expText(rolling.tracked_exp.approximate)}`:'—');
-    el('tracked-exp').title=rolling?`${el('tracked-exp').dataset.fullNumber} EXP; ${rolling.start} – ${rolling.end}; selected character only. ${rolling.intervals} comparable intervals; ${Math.round(rolling.coverage_seconds.approximate)} captured seconds. Both direct OCR and percentage-based EXP estimates can contribute. Missing periods, losses and level transitions contribute no inferred gain. Not exact EXP earned today.`:'';
+    el('tracked-exp').title=rolling?`${el('tracked-exp').dataset.fullNumber} EXP; ${rolling.start} – ${rolling.end}; selected character only. Latest minus earliest usable EXP, including known level requirements across level-ups. Numeric EXP or rounded percentage-based estimates can contribute. Capture gaps and restarts do not remove progress. Not exact EXP earned today.`:'';
     const rollingAge=(performance.now()-rollingReceived)/1000;
     el('tracked-note').textContent=rollingFailed?(rolling?`Saved · updated ${ageText(rollingAge)}`:'History unavailable'):rolling?.status==='history_limit'?'History unavailable':rolling?(rolling.tracked_exp?`${spanText(rolling.coverage_seconds.approximate)} tracked`:'No comparable readings'):'Loading history';
     const early=p.early_pace,text=earlyText(p);
@@ -321,8 +325,13 @@ function bucketHistory(history,anchor,seconds,rangeSeconds=null) {
   let previousEnd=-Infinity;
   for(const row of history) {
     const g=row.gain,a=Date.parse(g?.start),b=Date.parse(g?.end),amount=g?.value?.approximate;
-    if(!row.connect_previous || !Number.isFinite(a) || !Number.isFinite(b) || b<=a || a<previousEnd || a<start || b>anchor || !Number.isFinite(amount) || amount<0)continue;
+    if(!row.connect_previous || !Number.isFinite(a) || !Number.isFinite(b) || b<=a || a<previousEnd || a<start || b>anchor || !Number.isFinite(amount) || amount<0 && g.policy!=='public_endpoint_window_v1')continue;
     previousEnd=b;
+    if(g.policy==='public_endpoint_window_v1') {
+      const bin=bins[Math.min(bins.length-1,Math.floor((b-start)/step))];
+      bin.value=(bin.value ?? 0)+amount;bin.covered=Math.min(seconds,bin.covered+(b-a)/1000);bin.intervals++;bin.gap=true;
+      continue;
+    }
     for(const bin of bins) {
       const overlap=Math.max(0,Math.min(b,bin.end,anchor)-Math.max(a,bin.start));
       if(!overlap)continue;
@@ -340,7 +349,8 @@ function drawExpHistory() {
   const svg=el('history-chart');svg.replaceChildren();
   delete svg.dataset.start;delete svg.dataset.end;
   const rolling=rollingData?.character_id===data?.player?.character?.id?rollingData:null;
-  const history=rolling?.chart_intervals?rolling.chart_intervals.map(g=>({gain:g,connect_previous:true,level:{value:g.level}})):data?.history ?? [],level=rolling?.current_level ?? displayLevel(data?.player ?? {})?.value;
+  const intervals=currentLevelOnly?rolling?.current_level_chart_intervals ?? rolling?.chart_intervals:rolling?.chart_intervals;
+  const history=intervals?intervals.map(g=>({gain:g,connect_previous:true,level:{value:g.level}})):data?.history ?? [],level=rolling?.current_level ?? displayLevel(data?.player ?? {})?.value;
   const rows=currentLevelOnly?history.filter(p=>p.level.value===level):history,anchor=Date.parse(rolling?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end ?? data?.player?.latest_attempt_at ?? history.at(-1)?.timestamp);
   const chart=bucketSeconds===1800 && rolling?{
     start:Date.parse(rolling.start),end:Date.parse(rolling.end),seconds:1800,range:86400,
@@ -351,18 +361,19 @@ function drawExpHistory() {
   svg.setAttribute('viewBox',`0 0 ${width} 250`);svg.setAttribute('aria-label','EXP history in fixed time buckets; gaps are missing data, faded bars have partial coverage');
   svg.dataset.start=new Date(chart.start).toISOString();svg.dataset.end=new Date(chart.end).toISOString();
   const max=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),scale=10**Math.floor(Math.log10(max)),top=Math.ceil(max/scale)*scale;
+  const bottom=Math.min(0,...chart.bins.map(b=>b.value ?? 0)),yValue=v=>200-(v-bottom)/(top-bottom)*160;
   const x=t=>54+(t-chart.start)/(chart.end-chart.start)*plotWidth;
   function shape(tag,attrs,title){const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(title)n.append(node('title','',title));svg.append(n);return n;}
   for(let i=0;i<=4;i++){
     const y=200-i*40;
     shape('line',{x1:54,x2:width-22,y1:y,y2:y,class:'chart-grid'});
-    shape('text',{x:44,y:y+4,'text-anchor':'end'}).textContent=expText(top*i/4);
+    shape('text',{x:44,y:y+4,'text-anchor':'end'}).textContent=expText(bottom+(top-bottom)*i/4);
   }
   for(const bin of chart.bins){
-    const left=x(bin.start)+2,w=Math.max(2,x(bin.end)-x(bin.start)-4),height=bin.value==null?0:Math.max(2,bin.value/top*160);
+    const left=x(bin.start)+2,w=Math.max(2,x(bin.end)-x(bin.start)-4),height=bin.value==null?0:Math.max(2,Math.abs(yValue(bin.value)-yValue(0)));
     const time=new Date(bin.start).toISOString();
-    const title=`${time} UTC · ${bin.state==='missing'?'No comparable readings':`${expText(bin.value)} EXP; ${Math.round(bin.covered)}s sampled / ${chart.seconds}s; ${bin.state} coverage. Allocation within intervals is a visualization estimate.`}`;
-    shape('rect',{x:left,y:bin.state==='missing'?205:200-height,width:w,height:bin.state==='missing'?2:height,rx:2,
+    const title=`${time} UTC · ${bin.state==='missing'?'No comparable readings':`${expText(bin.value)} EXP; ${Math.round(bin.covered)}s observed / ${chart.seconds}s; ${bin.state} coverage. Endpoint differences are recorded at the later observation; progress inside gaps is unknown.`}`;
+    shape('rect',{x:left,y:bin.state==='missing'?205:Math.min(yValue(bin.value),yValue(0)),width:w,height:bin.state==='missing'?2:height,rx:2,
       class:`exp-column ${bin.state}`},title);
     inspect(shape('rect',{x:left,y:25,width:w,height:183,fill:'transparent',class:'bar-hit'}),`bar:${bin.start}:${bin.end}`,
       `${localTime(bin.start)}\n${bin.value==null?'No reading':`~${expText(bin.value,true)} EXP`}\n${chart.seconds/60} min bucket · ${bin.state==='missing'?'No coverage':bin.state==='partial'?`Partial coverage · ${spanText(bin.covered)} captured`:'Complete coverage'}`);
@@ -376,7 +387,7 @@ function drawExpHistory() {
   }
   const count=chart.bins.filter(b=>b.value!=null).length;
   el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?chart.range/60+' min':chart.range/3600+' hours'} · UTC${current(data.player).stale || rollingFailed && bucketSeconds===1800?' · saved history':''}${count?'':' · building history'}`;
-  el('history-note').title='Supported same-level endpoint intervals contribute, each with its own level requirement. Their net gains are spread uniformly inside each interval for visualization only; unreadable intermediate captures are not observations. Unsafe gaps and level changes remain unknown. Faded bars have partial coverage; dashes are unknown, not zero. The 24h view always includes all levels.';
+  el('history-note').title='Observed endpoint differences are assigned to the bar containing the later observation. Missing observations are not reconstructed or spread through a gap. Known level-ups use the community EXP requirements. Faded bars have partial history; dashes are unknown, not zero. The 24h view always includes all levels.';
 }
 function drawHistory() {
   const focus=document.activeElement?.dataset?.tipKey,openKey=tipKey,position=tipPosition;

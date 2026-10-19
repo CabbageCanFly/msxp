@@ -9,7 +9,7 @@ from .diagnostic_evidence import project
 from .diagnostic_percentage import review
 from .diagnostic_progress import percentage_point,rational,elapsed_seconds
 from .product import reading,fraction,WINDOWS,PACE_TREND_SECONDS
-from .pace_intervals import collect,exp_interval,tracked_window,TRACKED_POLICY
+from .pace_intervals import collect_observed as collect,endpoint_interval,window_endpoints,usable_endpoint,PUBLIC_POLICY as TRACKED_POLICY
 
 MAX_RUNS=1024
 MAX_EVENTS=65536
@@ -123,9 +123,7 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
             (session,)).fetchone()[0]
         if earliest:start=datetime.fromisoformat(earliest)
     def step(state,run,batch):
-        # A different session can supply its own historical total, never a
-        # rate for the explicitly selected current session.
-        if run['session_id']!=session:return []
+        # select_runs already limits every independently bounded session to the selected character.
         if not rotation_link(state['previous_run'],run):state['level_state']={};state['percentage_state']={}
         for row in batch:
             when=row.get('received_at') or row['attempted_at']
@@ -164,7 +162,7 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     result=dict(base,observations=rows,percentage_progress=data,recent_history_status='ready',recent_history_receipt=receipt)
     if not _historical:
         from .product import recent_windows,PACE_TREND_SECONDS
-        from .pace_intervals import collect
+        from .pace_intervals import collect_observed as collect
         if not collect(result,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)['intervals']:
             # Cold-server restoration is bounded like other history queries.
             # Cache only compact static estimates, invalidated by any new event.
@@ -197,7 +195,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
         identity_verified=False,status='ready',tracked_exp=None,intervals=0,coverage_seconds=rational(Fraction(0)),
         unknown_seconds=rational(Fraction(86400)),context_attempts=0,source_bytes=0,run_count=0,
         boundary_intervals_excluded=0,basis_counts={},requirement_versions=[],buckets=[],windows={},current_level_windows={},
-        chart_intervals=[],scope='selected_character_independent_sessions_and_sources',exclusion_counts={})
+        chart_intervals=[],scope='selected_character_public_observation_endpoints',exclusion_counts={})
     limited=False
     def step(state,run,rows):
         if not rotation_link(state['previous_run'],run):
@@ -220,57 +218,74 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
         for excluded in collected['excluded']:
             reason=excluded['reason'] or 'unavailable'
             counts[reason]=counts.get(reason,0)+1
-        for edge in collected['intervals']:
-            gain=exp_interval(edge)
-            # Window membership is decided at the end, from this request's clock.
-            if gain:state['gains'].append(gain)
-            else:counts['unsupported_exp_requirement']=counts.get('unsupported_exp_requirement',0)+1
+        state['rows'].extend(collected['points'])
+        state['last_row']=rows[-1] if rows else state['last_row']
         state['previous_run']=run
         return decisions
     state=dict(level_state={},percentage_state={},interval_state={},last_time=None,previous_run=None,level=None,
-        gains=[],exclusion_counts={})
+        rows=[],last_row=None,exclusion_counts={})
     try:
         state=replay(diagnostic,channel,start=start-timedelta(seconds=PACE_TREND_SECONDS),now=now,receipt=result,state=state,step=step,
             checkpoints=checkpoints,key=('tracked',channel,character),
-            # An interval ending at or before this start can never re-enter a later window.
-            keep=lambda s:dict(s,gains=[g for g in s['gains'] if datetime.fromisoformat(g['end'])>start]))
+            keep=lambda s:dict(s,rows=[r for r in s['rows'] if datetime.fromisoformat(r['timestamp'])>=start]))
     except HistoryLimit:
         limited=True
     result['exclusion_counts']=dict(state['exclusion_counts']);level=state['level']
-    gains=[];total=Fraction(0);coverage=Fraction(0);versions=set()
-    for gain in state['gains']:
+    transition=(((state['last_row'] or {}).get('experimental_level') or {}).get('level_context') or {}).get('transition') or {}
+    if transition.get('phase')=='possible':level=transition['to_level']
+    gains=[];coverage=Fraction(0);versions=set()
+    points=sorted((r for r in state['rows'] if usable_endpoint(r)),key=lambda r:datetime.fromisoformat(r['timestamp']))
+    for before,after in zip(points,points[1:]):
+        if before['timestamp']==after['timestamp']:continue
+        gain,reason=endpoint_interval(before,after)
+        if gain is None:
+            result['exclusion_counts'][reason]=result['exclusion_counts'].get(reason,0)+1
+            continue
         a,b=datetime.fromisoformat(gain['start']),datetime.fromisoformat(gain['end'])
         if a<start<b:result['boundary_intervals_excluded']+=1
         if a>=start and b<=now:
             gains.append(gain)
             amount=fraction(gain['value']);duration=elapsed_seconds(a,b)
-            total+=amount;coverage+=duration;result['intervals']+=1
+            coverage+=duration;result['intervals']+=1
             basis=gain['basis'];result['basis_counts'][basis]=result['basis_counts'].get(basis,0)+1
             versions.add(gain['requirement']['version'])
-            first=(a-start)//timedelta(minutes=30);last=min(47,(b-start)//timedelta(minutes=30))
-            for bucket in bins[first:last+1]:
-                left=max(a,datetime.fromisoformat(bucket['start']));right=min(b,datetime.fromisoformat(bucket['end']))
-                if right<=left:continue
-                overlap=elapsed_seconds(left,right)
-                bucket['amount']=(bucket['amount'] or Fraction(0))+amount*overlap/duration
-                bucket['coverage']+=overlap;bucket['intervals']+=1
-                bucket['gap'] |= gain['kind']=='endpoint_supported'
+            # Recognized at the later endpoint; no invented distribution through gaps.
+            bucket=bins[min(47,(b-start)//timedelta(minutes=30))]
+            bucket['amount']=(bucket['amount'] or Fraction(0))+amount
+            bucket['coverage']=min(Fraction(1800),bucket['coverage']+duration)
+            bucket['intervals']+=1;bucket['gap']=True
     if limited:
         # Incomplete causal replay must not masquerade as a complete query or zero.
         result.update(status='history_limit',tracked_exp=None,basis_counts={});versions.clear()
         bins=[dict(b,amount=None,coverage=Fraction(0),intervals=0) for b in bins]
         coverage=Fraction(0);result['intervals']=0
-    elif result['intervals']:result['tracked_exp']=rational(total)
+    else:
+        _,daily,_=window_endpoints(state['rows'],start=start,end=now)
+        result['tracked_exp']=daily['value'] if daily else None
     if not limited:
         result['current_level']=level
-        result['windows']={str(m):tracked_window(gains,start=now-timedelta(minutes=m),end=now) for m in WINDOWS}
-        result['current_level_windows']={str(m):tracked_window(gains if level is not None else [],
-            start=now-timedelta(minutes=m),end=now,level=level) for m in WINDOWS}
+        from .product import recent_windows
+        last=state['last_row'];head=dict(observations=[last] if last else [],
+            run_id=last['run_id'] if last else None,percentage_progress=dict(reason='public_endpoint_window'))
+        collected=dict(points=state['rows'],latest=state['rows'][-1] if state['rows'] else None,
+            excluded=[],recoveries=[])
+        result['windows']=recent_windows(head,dict(value=level),now=now,collected=collected)
+        result['current_level_windows']=recent_windows(head,dict(value=level),now=now,current_level_only=True,collected=collected)
+        for metrics in (result['windows'],result['current_level_windows']):
+            for key,metric in list(metrics.items()):
+                pace=metric.get('pace')
+                metrics[key]={k:metric[k] for k in ('available','gain','observed','reason') if k in metric}
+                metrics[key].update(window_start=metric['start'],window_end=metric['end'],policy=TRACKED_POLICY,
+                    rate=pace['estimates']['exp_per_hour']['value'] if pace else None,
+                    level=pace['level'] if pace else None,levels=pace['levels'] if pace else [],trusted=False)
         # Copied: retained interval records must never be reachable from a response.
         result['chart_intervals']=deepcopy([{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
             for g in gains if datetime.fromisoformat(g['start'])>=now-timedelta(minutes=60)])
-        result['chart_status']='ready' if len(result['chart_intervals'])<=4096 else 'history_limit'
-        if result['chart_status']=='history_limit':result['chart_intervals']=[]
+        current=[r for r in state['rows'] if r['level']['value']==level and datetime.fromisoformat(r['timestamp'])>=now-timedelta(minutes=60)]
+        result['current_level_chart_intervals']=[{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
+            for a,b in zip(current,current[1:]) if (g:=endpoint_interval(a,b)[0])]
+        result['chart_status']='ready' if max(len(result['chart_intervals']),len(result['current_level_chart_intervals']))<=4096 else 'history_limit'
+        if result['chart_status']=='history_limit':result['chart_intervals']=[];result['current_level_chart_intervals']=[]
     result.update(coverage_seconds=rational(coverage),unknown_seconds=rational(Fraction(86400)-coverage),requirement_versions=sorted(versions),
         buckets=[dict(start=b['start'],end=b['end'],value=rational(b['amount']) if b['amount'] is not None else None,
             covered=rational(b['coverage']),intervals=b['intervals'],

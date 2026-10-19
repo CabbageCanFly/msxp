@@ -351,6 +351,7 @@ class Diagnostics:
             value['source_identity']=config.get('source_identity') if re.fullmatch(r'[0-9a-f]{64}',str(config.get('source_identity'))) else None
             value['coordinator_instance']=config.get('coordinator_instance') if re.fullmatch(r'[0-9a-f]{32}',str(config.get('coordinator_instance'))) else None
             value.update(assigned_channel=state['channel'], character_id=selected['id'], session_id=session['id'],
+                         run_start_reason=config.get('start_reason') if config.get('start_reason') in ('process_start','scheduled_rotation') else None,
                          run_interrupted=bool(row['summary_json'] and json.loads(row['summary_json']).get('interrupted')))
             localization = payload.get('localization')
             count = localization.get('count') if isinstance(localization, dict) else None

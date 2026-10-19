@@ -25,8 +25,8 @@ def test_completed_capture_retains_dated_comparable_piece_not_reset_tail(trackin
             assert not window['eligible']
         pace=p['responsive_pace']
         assert pace['readings']==6 and not pace['active']
-        assert pace['interruptions']==1  # Both safe pieces survive; ambiguity supplies no edge.
-        assert pace['coverage_seconds']['approximate']==60
+        assert pace['interruptions']==0  # Public endpoints bridge the missing acquisition.
+        assert pace['coverage_seconds']['approximate']==90
         assert pace['end']==(NOW+timedelta(seconds=90)).isoformat()
         assert pace['age_seconds']==1+age and pace['estimates']['eta'] is None
     assert not store.db.execute('select 1 from observations').fetchone()

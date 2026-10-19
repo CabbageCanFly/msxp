@@ -11,7 +11,7 @@ from exp_tracker.product import player
 from exp_tracker.store import Store
 from tests.test_product import tracking,NOW
 from tests.test_diagnostic_history import config
-from tests.test_tracked_exp_totals import save,nested
+from tests.test_tracked_exp_totals import save
 from tests.test_cross_level_product import SAVED
 
 
@@ -19,7 +19,7 @@ def same(d,channel,now,checkpoints):
     """Incremental and full replay: totals, buckets, windows, chart, receipts, rows and ETA inputs."""
     fast=d.rolling_history(channel,now=now,checkpoints=checkpoints);full=d.rolling_history(channel,now=now)
     assert fast==full
-    if fast['status']=='ready':nested(fast)
+    # This scenario includes losses: net gains need not grow with the lookback.
     recent=d.recent_snapshot(channel,now=now,checkpoints=checkpoints);reference=d.recent_snapshot(channel,now=now)
     assert recent==reference
     snap=d.snapshot(channel,now=now,limit=640)

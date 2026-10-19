@@ -145,7 +145,7 @@ def test_percentage_progress_cannot_consume_an_x_hypothesis_even_with_both_level
 def test_missing_attempts_retain_dated_rate_without_fake_intervals(tracking,missing):
     _,store,d=tracking
     for i in range(1,12):at(d,i,(i-1)*20,f'[33.{(i-1)*2:02}%]')
-    base=present(d,200)['responsive_pace'];rate=base['estimates']['exp_per_hour']['value']['approximate']
+    base=present(d,200)['responsive_pace']
     for i in range(12,12+missing):
         at(d,i,(i-1)*20,'?',status='malformed_or_unavailable',visual_level=None,neural_level=None)
     end=200+missing*20;value=present(d,end);p=value['responsive_pace']
@@ -153,7 +153,10 @@ def test_missing_attempts_retain_dated_rate_without_fake_intervals(tracking,miss
     assert p['presentation']['estimates']['exp_per_hour'] is not None
     assert p['presentation']['estimates']['eta'] is None
     assert p['coverage_seconds']['approximate']<=200
-    assert p['estimates']['exp_per_hour']['value']['approximate']==rate
+    assert p['end']==base['end']
+    # Aging the earliest point can change whole-EXP rounding by one EXP.
+    assert p['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(
+        sum(e['gain']['approximate'] for e in p['intervals'])*3600/p['coverage_seconds']['approximate'])
     assert not value['windows']['5']['eligible']
     expired=refresh(value,now=NOW+timedelta(seconds=200+1800),activity=dict(state='waiting'))
     assert expired['responsive_pace']['presentation']['state']=='paused'

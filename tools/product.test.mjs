@@ -238,6 +238,7 @@ test('observed windows show real partial endpoints without ranking them or relab
   p.render({...base,stale:true});
   assert.equal(p.elements.movement.textContent,'+3.55%');assert.equal(p.elements.movement.dataset.paused,'true');
   assert.match(p.elements['segment-note'].textContent,/last updated/);
+  assert.match(p.elements['segment-note'].textContent,/partial history/);
   assert.equal(p.elements['window-rate'].textContent,'Paused');
   p.run('failed=true;renderPlayer()');assert.match(p.elements['segment-note'].textContent,/last updated/);
 });
@@ -409,8 +410,11 @@ test('mixed-level EXP-only summaries remain visible and the filter selects its o
     difference_percentage_points:null,estimated_exp:{value:{approximate:gain}},coverage_seconds:{approximate:40},
     span_seconds:{approximate:60},readings:4,age_seconds:0},eta:{estimate:{seconds:{approximate:600}},age_seconds:0,window_minutes:5}});
   base.recent_windows={'5':metric(763)};base.current_level_windows={'5':metric(575)};
+  base.recent_windows['5'].pace={active:true,level:61,readings:4,age_seconds:0,span_seconds:{approximate:60},
+    estimates:{exp_per_hour:{value:{approximate:763*3600/60},requirement:{version:'test'},hypotheses:null},percentage_per_hour:null}};
   p.render(base);
   assert.equal(p.elements.movement.textContent,'+763 EXP');assert.doesNotMatch(p.elements.movement.title,/null/);
+  assert.equal(p.elements.rate.textContent,'~45,780');
   assert.equal(p.elements.eta.textContent,'~10m');
   p.elements['current-level-only'].listeners.change({target:{checked:true}});
   assert.equal(p.elements.movement.textContent,'+575 EXP');
@@ -443,6 +447,23 @@ test('bar lookbacks exclude a whole boundary-crossing interval just like tracked
   assert.equal(p.run('bucketHistory(rows,anchor,60,300).bins.reduce((s,b)=>s+(b.value??0),0)'),20);
   assert.equal(p.run('bucketHistory(rows,anchor,60,600).bins.reduce((s,b)=>s+(b.value??0),0)'),120);
   assert.ok(p.run('bucketHistory(rows,anchor,60,300).bins.filter(b=>b.value!=null).every(b=>b.state==="partial")'));
+});
+
+test('public endpoint bars record net changes at receipt without spreading capture gaps',()=>{
+  const p=page('player'),base=Date.parse('2026-01-01T00:00:00Z');p.context.anchor=base+300e3;
+  const interval=(a,b,value)=>({connect_previous:true,gain:{policy:'public_endpoint_window_v1',
+    start:new Date(base+a*1000).toISOString(),end:new Date(base+b*1000).toISOString(),value:{approximate:value}}});
+  p.context.rows=[interval(0,180,5000),interval(180,240,-1000)];
+  const chart=JSON.parse(p.run('JSON.stringify(bucketHistory(rows,anchor,60,300))'));
+  assert.deepEqual(chart.bins.map(b=>b.value),[null,null,null,5000,-1000]);
+  assert.equal(chart.bins.reduce((sum,b)=>sum+(b.value??0),0),4000);
+});
+
+test('missing level requirement is an explicit public window limitation',()=>{
+  const p=page('player'),base=player({recent_windows:{5:{available:false,gain:null,
+    reason:'level_transition_requirement_unavailable'}}});
+  p.render(base);assert.match(p.elements['segment-note'].textContent,/missing level requirement/);
+  assert.match(p.elements.movement.title,/Level transition EXP unavailable/);
 });
 
 test('EXP history has fixed axes and the 24h view waits for aggregated history',()=>{
@@ -482,8 +503,9 @@ test('public progress uses EXP with percentage fallback and exact provenance in 
     difference_percentage_points:'0.14',estimated_exp:{value:{approximate:2329.7904},requirement:{version:'synthetic'}},
     span_seconds:{approximate:45},readings:4,interruptions:0,age_seconds:1}}}});
   p.render(base);assert.equal(p.elements.movement.textContent,'+2,330 EXP');assert.match(p.elements.movement.title,/0.14 percentage points/);
-  assert.match(p.elements.movement.title,/safe capture gaps up to 5 minutes count/);
-  assert.match(p.elements.movement.title,/intervals crossing the lookback boundary are excluded/);
+  assert.match(p.elements.movement.title,/Capture gaps and restarts do not remove progress/);
+  assert.match(p.elements.movement.title,/Pace uses the actual observed span/);
+  assert.match(p.elements.movement.title,/Latest minus earliest usable EXP within the lookback window/);
   delete base.windows[5].observed.estimated_exp;p.render(base);assert.equal(p.elements.movement.textContent,'+0.14%');
   assert.equal(p.run('expText(1234567890)'),'1.23B');assert.equal(p.run('expText(45)'),'45');
 });

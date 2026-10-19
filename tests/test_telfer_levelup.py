@@ -66,7 +66,7 @@ def sequence():
     return rows
 
 
-def test_first_agreed_new_level_is_public_and_only_subsequent_gains_count():
+def test_first_agreed_new_level_is_public_and_known_reset_progress_counts():
     rows=sequence()
     for end in range(2,5):
         snap=snapshot(rows[:end],30*(end-1));last=snap['observations'][-1]
@@ -77,7 +77,7 @@ def test_first_agreed_new_level_is_public_and_only_subsequent_gains_count():
     assert chart[1]['gain'] is None
     assert [p['gain']['value']['approximate'] for p in chart[2:]]==[1568,1725]
     pace=responsive_pace(snap,dict(value=69),now=NOW+timedelta(seconds=90))
-    assert pace['total_gain']['approximate']==3293
+    assert pace['total_gain']['approximate']==requirement(68)['to_next']-int(rows[0]['candidate']['exp'])+3444==5113
 
 
 @pytest.mark.parametrize('changes',[
@@ -121,8 +121,9 @@ def test_public_projection_and_rolling_history_resume_without_trusted_writes(tra
             assert p['reading']['exp']==str((151,1719,3444)[index-2])
             assert not p['reading']['trusted']
     rolling=d.rolling_history('alpha',now=NOW+timedelta(seconds=45))
-    assert rolling['tracked_exp']['approximate']==3293
-    assert [g['value']['approximate'] for g in rolling['chart_intervals']]==[1568,1725]
+    assert rolling['tracked_exp']['approximate']==5113
+    assert [g['value']['approximate'] for g in rolling['chart_intervals']]==[1820,1568,1725]
+    assert rolling['current_level_windows']['5']['gain']['approximate']==3293
     assert not store.db.execute('select 1 from observations').fetchone()
 
 

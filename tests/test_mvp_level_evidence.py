@@ -94,7 +94,7 @@ def test_numeric_loss_within_one_percentage_bin_is_not_counted_as_a_gain():
     chart=history(snap)
     assert chart[1]['gain'] is None and chart[2]['gain']['value']['approximate']==8
     pace=responsive_pace(snap,dict(value=43),now=NOW+timedelta(seconds=30))
-    assert pace['total_gain']['approximate']==8
+    assert pace is None  # 82,338 - 82,342 is a net loss, despite the final +8 interval.
 
 
 def test_grammar_recovered_pair_can_corroborate_a_real_wrap_hypothesis():

@@ -9,13 +9,13 @@ import pytest
 
 from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.exp_requirements import requirement
-from exp_tracker.pace_intervals import collect,exp_interval,tracked_window
+from exp_tracker.pace_intervals import collect,collect_observed,exp_interval,tracked_window
 from exp_tracker.product import reading,fraction,player,tracked_statistics
 from exp_tracker.store import Store
 from tests.test_product import tracking,NOW
 from tests.test_diagnostics import attempt
 from tests.test_diagnostic_history import config,rotate
-from tests.test_cross_level_product import replay
+from tests.test_cross_level_product import replay,expected_net
 
 
 def save(d,run,index,seconds,bp,*,level=64,full=True,missing=False,**changes):
@@ -60,7 +60,7 @@ def test_new_35_minute_and_two_hour_characters_have_nested_totals(tracking,minut
     edges=collect(snap,now=now,read=reading,max_interval_seconds=300)['intervals']
     gains=[exp_interval(e) for e in edges]
     for m in ('5','10','15','30','60'):
-        assert result['windows'][m]['gain']==tracked_window(gains,start=now-timedelta(minutes=int(m)),end=now)['gain']
+        assert fraction(result['windows'][m]['gain'])==expected_net(snap,now,int(m))
     assert result['intervals']==minutes*3
     assert not store.db.execute('select 1 from observations').fetchone()
 
@@ -72,14 +72,14 @@ def test_supported_missing_endpoints_count_net_gain_and_all_elapsed_once(trackin
     for n in range(missing_count):save(d,'gaps',n+3,(n+2)*20,3310,missing=True)
     end=(missing_count+2)*20;save(d,'gaps',missing_count+3,end,3350,full=False)
     result=d.rolling_history('alpha',now=NOW+timedelta(seconds=end))
-    assert fraction(result['tracked_exp'])==Fraction(50*1497832,10000)
+    assert fraction(result['tracked_exp'])==Fraction((3350*1497832+5000)//10000-(3300*1497832+5000)//10000)
     assert result['coverage_seconds']['approximate']==end and result['intervals']==2
     assert result['chart_intervals'][-1]['kind']=='endpoint_supported'
     assert nested(result)[-1]==nested(result)[-2]
 
 
 @pytest.mark.parametrize('kind',['restart','session','source','level','loss','anomaly','stale','duplicate','incompatible'])
-def test_unsafe_boundaries_keep_independent_gains_but_never_subtract_across_them(tracking,kind):
+def test_public_boundaries_and_missed_captures_match_causal_replay(tracking,kind):
     _,store,d=tracking;d.begin('first','alpha',config('first'))
     save(d,'first',1,0,3300);save(d,'first',2,20,3305)
     run='first';base=3;level=64;bp=3310;changes={}
@@ -108,9 +108,10 @@ def test_unsafe_boundaries_keep_independent_gains_but_never_subtract_across_them
     from exp_tracker.diagnostic_progress import percentage_point
     rows=project(rows);decisions=review(rows,[percentage_point(r) for r in rows],now=now)
     for r,decision in zip(rows,decisions):r['percentage_review']=decision
-    edges=collect(dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions)),now=now,read=reading,max_interval_seconds=300)['intervals']
-    assert fraction(result['tracked_exp'])==sum((fraction(exp_interval(e)['value']) for e in edges if exp_interval(e)),Fraction(0))
-    assert result['tracked_exp']['approximate']>=0
+    edges=collect_observed(dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions)),now=now,read=reading,max_interval_seconds=300)['intervals']
+    reference=dict(observations=rows);expected=expected_net(reference,now)
+    assert (fraction(result['tracked_exp']) if result['tracked_exp'] else None)==expected
+    assert result['tracked_exp'] is None or result['tracked_exp']['approximate']>=0
     assert not store.db.execute('select 1 from observations').fetchone()
 
 
@@ -119,7 +120,7 @@ def test_window_edges_exclude_whole_crossing_intervals_and_never_prorate(trackin
     for i,sec in enumerate((0,20,40,60),1):save(d,'edges',i,sec,3300+i*5,full=False)
     now=NOW+timedelta(seconds=325);result=d.rolling_history('alpha',now=now)
     # 20->40 crosses the 5-minute start at 25s and is excluded in full.
-    assert fraction(result['windows']['5']['gain'])==Fraction(5*1497832,10000)
+    assert fraction(result['windows']['5']['gain'])==Fraction((3320*1497832+5000)//10000-(3315*1497832+5000)//10000)
     assert fraction(result['windows']['10']['gain'])==3*fraction(result['windows']['5']['gain'])
     nested(result)
     assert d.rolling_history('alpha',now=NOW+timedelta(days=2))['tracked_exp'] is None
@@ -146,7 +147,7 @@ def test_tracked_gain_does_not_depend_on_rate_warmup(tracking):
     save(d,'short',1,0,3300);save(d,'short',2,3,3301)
     now=NOW+timedelta(seconds=3);h=d.rolling_history('alpha',now=now)
     snap=d.snapshot('alpha',now=now);p=player(snap,now=now,recent_snapshot=d.recent_snapshot('alpha',now=now))
-    assert p['responsive_pace'] is None
+    assert p['responsive_pace']['coverage_seconds']['approximate']==3
     assert tracked_statistics(p,h,now=now)['recent_windows']['5']['gain']['approximate']>0
     nested(h)
 
@@ -249,7 +250,8 @@ def test_saved_emmies_exact_discrepancy_is_fixed_and_nested_after_sqlite_restart
         d,_=replay(store,'emmies',['20261019T001842Z-5817cb05','20261019T001945Z-65cc75a7','20261019T003226Z-cbe9ba29'],as_of=as_of)
         before=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
         result=d.rolling_history('emmies',now=as_of)
-        assert [float(v) for v in nested(result)]==[4757,9994,14696,27764,41228,41228]
+        # Both same-assignment restarts count: +698, and 18,800 -> 19,577 (+777).
+        assert [float(v) for v in nested(result)]==[4757,9994,14696,27764,42703,42703]
         snap=d.snapshot('emmies',now=as_of,limit=640)
         p=tracked_statistics(player(snap,now=as_of,recent_snapshot=d.recent_snapshot('emmies',now=as_of)),result,now=as_of)
         assert p['recent_windows']['60']['gain']==result['tracked_exp']

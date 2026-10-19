@@ -93,7 +93,7 @@ def _interpret_exp(text, *, source_complete=None):
     """
     base = dict(classification='rejected', proposals=[], trusted=False,
                 numerical_identity_verified=False, reason='no_bounded_interpretation')
-    result = dict(policy='bounded_exp_v7', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
+    result = dict(policy='bounded_exp_v8', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
                   strict_full=None, strict_percentage_only=None, full_exp={**base}, percentage={**base},
                   symbol_hypotheses=[], percentage_hypotheses=[], source_complete=source_complete, trusted=False)
     if not isinstance(text, str) or not text or len(text) > MAX_TEXT:
@@ -142,6 +142,38 @@ def _interpret_exp(text, *, source_complete=None):
                 edits=[dict(index=0,old='P',new='',category='exp_label_tail')],
                 field_span=[1,len(text)],image_verification='required',
                 source_completeness_verified=False,trusted=False,numerical_identity_verified=False)]}
+        return result
+    # One label-tail P before an independently complete numeric field; never strip arbitrary text.
+    if text.startswith('P') and len(text)>1 and text[1].isascii() and text[1].isdigit():
+        tail=interpret_exp(text[1:],source_complete=source_complete)
+        full=tail['strict_full'] or (tail['full_exp']['proposals'][0]['reading']
+            if tail['full_exp']['classification']=='unique_proposal' else None)
+        pct=tail['percentage']
+        if full or (pct['classification']=='unique_proposal' and pct['proposals'][0]['field_span'][0]>0):
+            for field in ('full_exp','percentage'):
+                prior=tail[field]['proposals']
+                reading=(full if field=='full_exp' else parse_percentage_only(f'[{full["percentage"]}%]')) if full else (
+                    prior[0]['reading'] if prior else None)
+                if reading is None or field=='full_exp' and source_complete is False:continue
+                edits=[dict(index=0,old='P',new='',category='exp_label_tail')]+[
+                    {**edit,'index':edit['index']+1} for edit in (prior[0]['edits'] if prior else [])]
+                if len(edits)>4:continue
+                interpretation=prior[0]['interpretation'] if prior else text[1:] if field=='full_exp' else f'[{reading["percentage"]}%]'
+                span=prior[0]['field_span'] if prior else [0,len(text)-1]
+                result[field]={**base,'classification':'unique_proposal','reason':'exp_label_tail_before_complete_field',
+                    'proposals':[dict(interpretation=interpretation,reading=reading,edits=edits,
+                        field_span=[span[0]+1,span[1]+1],image_verification='required',source_completeness_verified=False,
+                        trusted=False,numerical_identity_verified=False)]}
+            return result
+    # An actual '[' can identify the percentage even when the preceding EXP token is unreadable.
+    labelled=re.fullmatch(r'P[0-9][0-9A-Za-z,.?]*\[([0-9]{1,2}\.[0-9]{2})%([\]1])',text)
+    if labelled and (reading:=parse_percentage_only(f'[{labelled[1]}%]')) is not None:
+        edits=[dict(index=0,old='P',new='',category='exp_label_tail')]
+        if labelled[2]=='1':edits.append(dict(index=len(text)-1,old='1',new=']',category='closing_bracket'))
+        result['percentage']={**base,'classification':'unique_proposal','reason':'labelled_percentage_without_complete_exp',
+            'proposals':[dict(interpretation=f'[{labelled[1]}%]',reading=reading,edits=edits,
+                field_span=[text.index('['),len(text)],image_verification='required',source_completeness_verified=False,
+                trusted=False,numerical_identity_verified=False)]}
         return result
     # Only a complete, unique pair may supply a missing closing bracket; no digits are added.
     if text.endswith('%') and source_complete is not False:

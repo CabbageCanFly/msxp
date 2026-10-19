@@ -105,23 +105,20 @@ def test_missing_captures_hold_sample_then_next_endpoint_updates_without_warmup(
 
 @pytest.mark.parametrize('kind',['quarantine','conflict','stale','duplicate','invalid_exp','crop'])
 def test_unsafe_row_blocks_subtraction_but_retains_disjoint_intervals(synthetic_requirement,kind):
-    rows=[point(1,0,100000,'1.00'),point(2,20,200000,'2.00'),point(3,40,300000,'3.00'),
-        point(4,60,400000,'4.00'),point(5,80,500000,'5.00')]
+    from exp_tracker.pace_intervals import collect
+    from exp_tracker.product import reading
+    rows=[point(1,0,100000,'1.00'),point(2,20,200000,'2.00'),point(3,40,300000,'3.00'),point(4,60,400000,'4.00'),point(5,80,500000,'5.00')]
     if kind=='quarantine':rows[2].update(raw_text='50,000[0.50%]',candidate=dict(exp='50000',percentage='0.50'))
     elif kind=='conflict':rows[2]['neural_level'].update(level=57,text='57',score=.99)
     elif kind=='stale':rows[2].update(status='stale_local_frame',fresh_at_capture=False)
     elif kind=='duplicate':rows[2]['frame_sha256']=rows[1]['frame_sha256']
     elif kind=='invalid_exp':rows[2].update(raw_text='5,000[3.00%]',candidate=dict(exp='5000',percentage='3.00'))
     else:rows[2]['crop_suspect']=True
-    snap=snapshot(rows,80)
-    # After an isolated percentage anomaly the existing policy excludes the
-    # recovery interval too; the following clean edge still remains available.
-    if kind=='quarantine':
-        rows.append(point(6,100,600000,'6.00'));snap=snapshot(rows,100)
-    pace=responsive_pace(snap,dict(value=67),now=NOW+timedelta(seconds=100))
-    assert any(e['first_event_id']=='run:1' and e['last_event_id']=='run:2' for e in pace['intervals'])
-    assert all('run:3' not in (e['first_event_id'],e['last_event_id']) for e in pace['intervals'])
-    assert all(not (e['first_event_id']=='run:2' and e['last_event_id']=='run:4') for e in pace['intervals'])
+    snap=snapshot(rows,80);now=NOW+timedelta(seconds=80)
+    public=responsive_pace(snap,dict(value=67),now=now)
+    assert public['total_gain']['approximate']==400000 and public['coverage_seconds']['approximate']==80
+    strict=collect(snap,now=now,read=reading,max_interval_seconds=300)
+    assert all((e['before']['event_id'],e['after']['event_id'])!=('run:2','run:4') for e in strict['intervals'])
 
 
 def x_rows(text='401.128122.82X1',**changes):
@@ -156,28 +153,19 @@ def test_x_rejects_arithmetic_or_temporal_contradictions(text,reason):
 
 
 def test_x_can_start_a_new_baseline_without_crossing_or_repairing_an_anomaly():
+    from exp_tracker.pace_intervals import collect
+    from exp_tracker.product import reading
     rows=x_rows();bad=point(3,40,399979,'22.25')
     bad.update(raw_text='399.979122.25%1',candidate=None,status='malformed_or_unavailable')
     bad['neural_level'].update(level=57,text='57',score=.68772)
     rows[-1].update(index=4,event_id='run:4',received_at=(NOW+timedelta(seconds=60)).isoformat(),frame_sha256=f'{4:064x}')
-    rows.insert(2,bad)
-    pace=responsive_pace(snapshot(rows,60),dict(value=67),now=NOW+timedelta(seconds=60))
-    assert pace['conditional_recoveries'][0]['status']=='eligible_experimental'
-    assert pace['conditional_recoveries'][0]['starts_new_baseline']
-    assert pace['readings']==2
-    assert all(e['last_event_id']!='run:4' for e in pace['intervals'])
-    after=point(5,80,402319,'22.89');after.update(visual_level=None,visual_status='unavailable')
-    after['neural_level'].update(level=57,text='57',score=.71207)
-    recovered=responsive_pace(snapshot(rows+[after],80),dict(value=67),now=NOW+timedelta(seconds=80))
-    assert recovered['active']
-    assert recovered['intervals'][-1]['first_event_id']=='run:4'
-    assert recovered['intervals'][-1]['last_event_id']=='run:5'
-    assert all('run:3' not in (e['first_event_id'],e['last_event_id']) for e in recovered['intervals'])
-    # This nearby wrong digit also fits the percentage bin. Eligibility is NOT
-    # independent verification of pixels or ground truth.
-    nearby=responsive_pace(snapshot(x_rows('401.129122.82X1'),40),dict(value=67),now=NOW+timedelta(seconds=40))
-    assert nearby['conditional_recoveries'][0]['status']=='eligible_experimental'
-    assert not nearby['conditional_recoveries'][0]['numerical_identity_verified']
+    rows.insert(2,bad);snap=snapshot(rows,60);now=NOW+timedelta(seconds=60)
+    strict=collect(snap,now=now,read=reading,max_interval_seconds=300)
+    assert strict['recoveries'][0]['starts_new_baseline']
+    assert all(e['after']['event_id']!='run:4' for e in strict['intervals'])
+    public=responsive_pace(snap,dict(value=67),now=now)
+    assert public['total_gain']['approximate']==401128-397820
+    assert not public['conditional_recoveries'][0]['numerical_identity_verified']
 
 
 @pytest.mark.parametrize('kind',['one_prior','old_support','one_recent','ambiguous','competing_level','clipped','unsupported_requirement','missing_hash'])
@@ -212,11 +200,12 @@ def test_x_abstains_without_every_required_corroboration(kind,monkeypatch):
 
 
 def test_confirmed_new_level_after_a_gap_never_subtracts_old_exp():
-    rows=[point(1,0,1757000,'99.95'),point(2,20,1757300,'99.97'),missing(3,40),
-        point(4,60,103,'0.01',level=68),point(5,80,435,'0.02',level=68)]
-    pace=responsive_pace(snapshot(rows,80),dict(value=68),now=NOW+timedelta(seconds=80))
-    assert pace['level']==68
-    assert all(e['first_event_id'] not in ('run:1','run:2') for e in pace['intervals'])
+    rows=[point(1,0,1757000,'99.95'),point(2,20,1757300,'99.97'),missing(3,40),point(4,60,103,'0.01',level=68),point(5,80,435,'0.02',level=68)]
+    snap=snapshot(rows,80);now=NOW+timedelta(seconds=80)
+    pace=responsive_pace(snap,dict(value=68),now=now)
+    assert pace['total_gain']['approximate']==requirement(67)['to_next']-1757000+435
+    assert pace['estimates']['exp_per_hour']['transition_gain_included']
+    assert pace['coverage_seconds']['approximate']==80
 
 
 def test_conditional_recovery_is_queryable_after_restart_without_changing_sqlite(tracking):

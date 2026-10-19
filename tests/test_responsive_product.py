@@ -13,19 +13,20 @@ def test_two_reading_rate_is_tentative_and_separate_from_fixed_windows(tracking)
     p=get(d,15);pace=p['responsive_pace']
     assert pace['active'] and pace['tentative'] and pace['readings']==2
     assert pace['span_seconds']['approximate']==15
-    assert pace['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(179739.84)
+    assert pace['total_gain']['approximate']==748  # Difference of the two rounded EXP coordinates.
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==748*3600/15
     # Two independently supported endpoints may now show a tentative ETA.
     assert pace['estimates']['eta'] and pace['tentative']
     assert not p['windows']['5']['eligible'] and p['estimates']['exp_per_hour'] is None
     assert not store.db.execute('SELECT 1 FROM observations').fetchone()
 
 
-def test_two_readings_need_real_separation_and_rate_uses_actual_exp_when_consistent(tracking):
+def test_two_distinct_timestamps_supply_actual_exp_rate_without_a_duration_gate(tracking):
     _,_,d=tracking
     append(d,1,'494,285[33.00%]',candidate=[494285,33.0],status='diagnostic_pair')
     stamp=(NOW+timedelta(seconds=4)).isoformat()
     append(d,2,'495,034[33.05%]',candidate=[495034,33.05],status='diagnostic_pair',received_at=stamp,attempted_at=stamp)
-    assert get(d,4)['responsive_pace'] is None
+    assert get(d,4)['responsive_pace']['estimates']['exp_per_hour']['value']['approximate']==749*3600/4
     stamp=(NOW+timedelta(seconds=22)).isoformat()
     append(d,3,'495,783[33.10%]',candidate=[495783,33.10],status='diagnostic_pair',received_at=stamp,attempted_at=stamp)
     p=get(d,22)['responsive_pace']
@@ -61,12 +62,13 @@ def test_quarantine_and_confirmed_loss_do_not_contribute_to_responsive_pace(trac
         p=get(d,(i-1)*15)
         if i==3:assert not p['responsive_pace']['active']
         if i==4:assert not p['responsive_pace']['active']
-    assert p['responsive_pace']['readings']==4 and p['responsive_pace']['interruptions']==1
-    assert p['responsive_pace']['intervals'][-1]['start']==(NOW+timedelta(seconds=45)).isoformat()
+    assert p['recent_windows']['5']['gain'] is None
+    assert p['recent_windows']['5']['reason']=='observed_exp_decrease'
+    assert not p['responsive_pace']['active']
     assert all(e['first_event_id']!='run:3' and e['last_event_id']!='run:3' for e in p['responsive_pace']['intervals'])
 
 
-def test_corroborated_level_event_and_new_pace_never_connect_cross_level(tracking):
+def test_corroborated_level_event_allows_reset_arithmetic_while_raw_graph_stays_disconnected(tracking):
     _,_,d=tracking
     append(d,1,'[99.90%]');append(d,2,'[99.97%]')
     neural=dict(text='65',level=65,status='numeric_candidate',score=.99,preprocessing='neutral4')
@@ -75,7 +77,8 @@ def test_corroborated_level_event_and_new_pace_never_connect_cross_level(trackin
     for i,pct in ((4,'0.03'),(5,'0.08'),(6,'0.12')):append(d,i,f'[{pct}%]',visual_level=65,neural_level=neural,frame_sha256=f'{i:064x}')
     p=get(d,75)
     assert len(p['level_events'])==1 and p['level_events'][0]['level']==65
-    assert p['responsive_pace']['level']==65 and p['responsive_pace']['start']==(NOW+timedelta(seconds=30)).isoformat()
+    assert p['responsive_pace']['level']==65 and p['responsive_pace']['start']==NOW.isoformat()
+    assert p['responsive_pace']['estimates']['exp_per_hour']['transition_gain_included']
     points=history(d.snapshot('alpha',now=NOW+timedelta(seconds=75)))
     assert not points[2]['connect_previous'] and points[3]['connect_previous'] and points[4]['connect_previous']
     assert p['windows']['5']['eligible'] is False
@@ -88,13 +91,14 @@ def test_ambiguous_or_stale_intermediate_frames_cannot_seed_or_bridge_rate(track
     assert not (get(d,15)['responsive_pace'] or {}).get('active')
 
 
-def test_missing_requirement_allows_percentage_pace_without_numerical_exp(tracking):
+def test_missing_requirement_keeps_percentage_visible_and_explains_unavailable_exp(tracking):
     _,_,d=tracking
     for i,pct in ((1,'33.00'),(2,'33.05')):
         append(d,i,f'[{pct}%]',visual_level=100,neural_level=dict(text='100',level=100,status='numeric_candidate',score=.99))
-    pace=get(d,15)['responsive_pace']
-    assert pace['active'] and pace['estimates']['exp_per_hour'] is None
-    assert pace['estimates']['percentage_per_hour']
+    p=get(d,15)
+    assert p['reading']['percentage']=='33.05'
+    assert p['responsive_pace'] is None and p['recent_windows']['5']['gain'] is None
+    assert p['recent_windows']['5']['reason']=='percentage_requirement_unavailable'
 
 
 def test_level_event_needs_distinct_new_frames_and_never_crosses_session_or_restart(tracking):

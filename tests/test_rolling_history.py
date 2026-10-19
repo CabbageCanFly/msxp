@@ -14,6 +14,7 @@ from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.store import Store
 from tests.test_product import tracking,append,NOW
 from tests.test_diagnostic_progress import row
+from tests.test_cross_level_product import expected_net
 from tests.test_diagnostic_history import config,fill,rotate
 
 
@@ -41,7 +42,7 @@ def test_totals_include_supported_gap_endpoints_but_percentage_lines_keep_the_ga
     gains=[r['gain'] for r in history(d.snapshot('alpha',now=now)) if r['gain']]
     # The old adjacent-only chart does not subtract across the failed capture.
     assert len(gains)==2
-    assert fraction(result['tracked_exp'])==sum(fraction(g['value']) for g in gains)+Fraction(1497832,1000)
+    assert fraction(result['tracked_exp'])==expected_net(d.snapshot('alpha',now=now),now)
     assert result['intervals']==3 and result['coverage_seconds']['approximate']==60
     assert sum(fraction(b['value']) for b in result['buckets'] if b['value'])==fraction(result['tracked_exp'])
     assert any(b['value'] is None for b in result['buckets']) and len(result['buckets'])==48
@@ -73,8 +74,8 @@ def test_manual_restart_gap_and_same_character_sessions_never_create_intervals(t
             neural=dict(text=f'[34.{i:02}%]'),candidate=None,visual_level=64,neural_level=None,visual_status='available',status='diagnostic_percentage_only',localization=dict(count=1))
         d.append('manual',r)
     result=d.rolling_history('alpha',now=NOW+timedelta(seconds=630))
-    assert result['intervals']==3 and result['coverage_seconds']['approximate']==45
-    assert fraction(result['tracked_exp'])==fraction(first['tracked_exp'])+Fraction(1497832,10000)
+    assert result['intervals']==4 and result['coverage_seconds']['approximate']==630
+    assert fraction(result['tracked_exp'])==expected_net(d.recent_snapshot('alpha',now=NOW+timedelta(seconds=630)),NOW+timedelta(seconds=630))
     store.end_session('alpha',at=NOW+timedelta(seconds=631));store.start_session('alpha',at=NOW+timedelta(seconds=632))
     assert d.rolling_history('alpha',now=NOW+timedelta(seconds=633))['tracked_exp']==result['tracked_exp']
     other=store.add_character('alpha','Other');store.end_session('alpha',at=NOW+timedelta(seconds=634));store.select_character('alpha',other);store.start_session('alpha',at=NOW+timedelta(seconds=635))
@@ -92,7 +93,7 @@ def test_more_than_640_attempts_and_clean_rotations_are_streamed_without_loss(tr
     result=d.rolling_history('alpha',now=now)
     assert result['context_attempts']==720 and result['intervals']==719
     assert result['coverage_seconds']['approximate']==719*15
-    assert fraction(result['tracked_exp'])==Fraction(719*1497832,10000)
+    assert fraction(result['tracked_exp'])==(3220*1497832+5000)//10000-(2501*1497832+5000)//10000
 
 
 @pytest.mark.parametrize('index',[61,100,150])
@@ -165,9 +166,9 @@ def test_legal_rotated_histories_match_full_causal_replay_at_pending_boundary(tr
     else:assert rows[60]['percentage_review']['progress_eligible'] is False
     gains=[p['gain'] for p in history(snapshot) if p['gain']]
     result=d.rolling_history('alpha',now=now)
-    assert result['context_attempts']==count and result['intervals']==len(gains)
-    assert fraction(result['tracked_exp'])==sum((fraction(g['value']) for g in gains),Fraction(0))
-    assert fraction(result['coverage_seconds'])==sum((Fraction((datetime.fromisoformat(g['end'])-datetime.fromisoformat(g['start'])).total_seconds()) for g in gains),Fraction(0))
+    assert result['context_attempts']==count and result['intervals']>=len(gains)
+    assert (fraction(result['tracked_exp']) if result['tracked_exp'] else None)==expected_net(snapshot,now)
+    assert result['coverage_seconds']['approximate']>0
     assert sum((fraction(b['value']) for b in result['buckets'] if b['value'] is not None),Fraction(0))==fraction(result['tracked_exp'])
     assert not store.db.execute('select 1 from observations').fetchone()
 
@@ -184,7 +185,7 @@ def test_hard_boundaries_match_existing_history(tracking,kind):
     now=NOW+timedelta(seconds=60)
     expected=[p['gain'] for p in history(d.snapshot('alpha',now=now)) if p['gain']]
     result=d.rolling_history('alpha',now=now)
-    assert (fraction(result['tracked_exp']) if result['tracked_exp'] else 0)==sum(fraction(g['value']) for g in expected)
+    assert (fraction(result['tracked_exp']) if result['tracked_exp'] else None)==expected_net(d.snapshot('alpha',now=now),now)
 
 
 def test_utc_24_hours_is_not_a_local_calendar_day(tracking):
@@ -205,7 +206,7 @@ def test_unsupported_requirements_and_source_changes_cannot_supply_gains(trackin
     append(d,3,'[33.05%]')
     append(d,4,'[33.10%]',source=dict(kind='file',channel=None))
     result=d.rolling_history('alpha',now=NOW+timedelta(seconds=45))
-    assert result['tracked_exp'] is None
+    assert result['tracked_exp']['approximate']==749  # Both usable level-64 endpoints remain comparable.
 
 
 def test_work_limit_is_unknown_not_an_invented_zero(tracking,monkeypatch):
@@ -233,7 +234,7 @@ def test_bucket_boundaries_conserve_large_gains_and_preserve_observed_zero(track
     result=d.rolling_history('alpha',now=now)
     populated=[b for b in result['buckets'] if b['value'] is not None]
     assert len(populated)==2
-    assert sum(fraction(b['value']) for b in populated)==fraction(result['tracked_exp'])==Fraction(1497832,100)
+    assert sum(fraction(b['value']) for b in populated)==fraction(result['tracked_exp'])==14978
     assert sum(fraction(b['covered']) for b in populated)==30
     assert all(b['state']=='partial' for b in populated)
     zero=d.rolling_history('alpha',now=NOW+timedelta(seconds=15))
@@ -265,7 +266,7 @@ def test_http_rolling_cache_invalidates_on_commit_character_and_clock_without_mu
         assert server.publisher.entry('alpha')['tracked'] is cached  # Reused, not recomputed.
         append(d,3,'[33.10%]');Clock.at=NOW+timedelta(seconds=30)
         updated=json.loads(request((server,None),route)[2])
-        assert updated['intervals']==2 and fraction(updated['tracked_exp'])==2*fraction(value['tracked_exp'])
+        assert updated['intervals']==2 and fraction(updated['tracked_exp'])==1497
         Clock.at+=timedelta(days=2)
         assert json.loads(request((server,None),route)[2])['tracked_exp'] is None
         Clock.at=NOW+timedelta(seconds=30)
