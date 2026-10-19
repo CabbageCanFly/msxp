@@ -1,5 +1,8 @@
 # Conditional level inference from EXP and percentage
 
+Follow-up: [real level-up validation and final public presentation](final-levelup-validation.md)
+supersedes the earlier question-mark labels and synthetic-only wrap findings below.
+
 **Promising as cheap provisional level evidence; insufficient as the only level
 source or as numerical verification.** On the frozen 24-frame review set, unique
 nearest-rounded inference recovers all five missing OCR levels wherever a strict

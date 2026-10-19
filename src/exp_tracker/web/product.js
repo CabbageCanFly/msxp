@@ -62,15 +62,15 @@ function expTitle(r) {
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
 function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l.age_seconds+(performance.now()-receivedAt)/1000>p.stale_after_seconds); }
-// Inferred levels never read like a level-HUD observation: provisional values carry "?".
+// Public labels show the proposed level; provenance and uncertainty stay in hover text.
 const LEVEL_SOURCES={exp_derived:'Inferred from EXP and percentage with the provisional community table; not read from the level HUD.',
   retained_level:'Last supported level, retained across percentage-only readings; not re-verified since then.',
   provisional_level_up:'Provisional level-up inferred from a percentage wrap and forward progress; awaiting EXP or level-reader corroboration.'};
 function levelTransition(p) { const t=p.level_context?.transition;return t?.phase==='possible'?t:null; }
 function levelText(p) {
   const level=displayLevel(p),t=levelTransition(p);
-  if(t)return `${t.from_level}→${t.to_level}?`;
-  return level?.value==null?'—':`${level.value}${level.status==='provisional_level_up'?'?':''}`;
+  if(t)return String(t.to_level);
+  return level?.value==null?'—':String(level.value);
 }
 function levelTitle(p) {
   const l=displayLevel(p),saved=p.display_level,t=levelTransition(p),context=p.level_context;
@@ -193,7 +193,7 @@ function rateTitle(rate) {
   return `Experimental estimate, not earned EXP. ${Object.entries(rate.hypotheses).map(([rule,b])=>`${rule}: ${numbers.format(Math.round(b.lower.approximate))}–${numbers.format(Math.round(b.upper.approximate))} EXP/h`).join('; ')}. Community requirement ${rate.requirement.version}; quantization bounds exclude OCR errors.`;
 }
 function metricValue(p,key) {
-  if(key==='level')return displayLevel(p)?.value ?? null;
+  if(key==='level')return levelTransition(p)?.to_level ?? displayLevel(p)?.value ?? null;
   if(current(p).stale || failed)return null;
   if(key==='exp_hour')return current(p).metrics?.exp_per_hour?.value.approximate ?? null;
   return selectedWindow(p)?.eligible?Number(selectedWindow(p).difference_percentage_points):null;
@@ -374,7 +374,7 @@ function drawHistory() {
   if(chartMode==='exp')drawExpHistory();else drawPercentageHistory();
   const all=data?.history ?? [],anchor=Date.parse(data?.tracked_history?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end ?? data?.player?.latest_attempt_at ?? all.at(-1)?.timestamp);
   const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-windowMinutes*60000).at(-1);
-  const label=!event?'':event.inferred?(event.status==='corroborated'?`Level ${event.level} reached (inferred)`:`Level ${event.level} reached? (provisional)`):`Level ${event.level} reached!`;
+  const label=!event?'':event.inferred?(event.status==='corroborated'?`Level ${event.level} reached (inferred)`:`Level ${event.level} reached`):`Level ${event.level} reached!`;
   if(el('level-event').textContent!==label)el('level-event').textContent=label;
   el('level-event').hidden=!event;
   el('level-event').title=!event?'':event.inferred?`Inferred from a percentage wrap after Lv. ${event.previous_level} at ${event.first_observed_at}; ${event.status==='corroborated'?`corroborated by ${event.evidence}`:'not yet corroborated by EXP or a level reading'}. Cross-level EXP is not counted.`:`Confirmed at ${event.timestamp}; first seen ${event.first_observed_at}. Cross-level EXP is not counted.`;
@@ -417,7 +417,7 @@ function drawPercentageHistory() {
       const event=(data.player.level_events ?? []).find(e=>e.level===p.level.value && Date.parse(e.first_observed_at)<=p.time);
       shape('line',{x1:x(p.time),x2:x(p.time),y1:20,y2:180,class:'level-transition'});
       shape('text',{x:Math.min(width-75,x(p.time)+4),y:16,class:'level-transition-label'},'Level boundary; EXP across the transition is not counted').textContent=
-        !event?`Lv. ${p.level.value} seen`:event.inferred && event.status!=='corroborated'?`Lv. ${p.level.value}?`:`Level ${p.level.value}!`;
+        !event?`Lv. ${p.level.value} seen`:event.inferred && event.status!=='corroborated'?`Lv. ${p.level.value}`:`Level ${p.level.value}!`;
     }
     previousLevel=p.level.value;
   }

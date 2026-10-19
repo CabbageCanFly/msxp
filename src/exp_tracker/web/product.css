@@ -70,7 +70,7 @@
 .player-stats [data-paused="true"] { opacity:.7; }
 .product .level .level-note { display:block; margin:2px 0 0; font-size:8px; letter-spacing:0; }
 .live-overlay #level[data-last-known="true"] { border-style:dashed; }
-#level[data-inferred="true"] { font-style:italic; text-decoration:underline dotted; }
+#level[data-inferred="true"] { text-decoration:underline dotted; }
 @media(max-width:650px) { .early-pace { margin-left:14px; margin-right:14px; } }
 .companion-cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:0 25px 15px; }
 .companion-cards > div { min-height:164px; }
