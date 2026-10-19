@@ -36,8 +36,11 @@ and game-like, with useful approximate information even when some readings fail.
   chart. Missing coverage is unknown, never a zero bar or invented daily/session total.
 - Call partial-coverage sums “EXP tracked”, with captured coverage in secondary
   detail. A rolling 24-hour view follows the real clock even when capture stops.
-- Celebrate corroborated level-ups. Begin a new level-specific trend, leave gaps
-  open and never invent cross-level gains or character identity.
+- Selected periods include all supported levels by default. Sum independent EXP
+  intervals with each level's requirement; never sum percentage changes across
+  levels. Offer a current-level-only filter without changing the time axis or 24h total.
+- Celebrate corroborated level-ups and mark percentage resets. Leave transition
+  gains unknown unless supported, and use the current level's remaining EXP for ETA.
 - Reserve visible warnings for changes that affect interpretation: unresolved large
   jumps, connection problems, stale information and possible identity changes.
 - Prefer a working on-screen prototype, then refine it with real use. Test actual

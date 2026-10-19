@@ -176,11 +176,14 @@ def test_integer_rate_can_support_eta_inside_one_displayed_percentage_bin():
     assert eta['hypotheses'] is None and not eta['trusted']
 
 
-def test_display_only_level_cannot_select_or_mix_recent_calculation_levels():
+def test_display_only_level_cannot_select_the_current_level_filter():
     rows=[point(1,0,660960,'37.60'),point(2,20,660978,'37.60'),
         point(3,40,103,'0.01',level=68),point(4,60,435,'0.02',level=68)]
     for r in rows:r['neural_level']=None
-    result=recent_windows(snapshot(rows,60),dict(value=67,display_only=True),now=NOW+timedelta(seconds=60))['5']
+    snap=snapshot(rows,60)
+    mixed=recent_windows(snap,dict(value=67,display_only=True),now=NOW+timedelta(seconds=60))['5']
+    assert mixed['pace']['levels']==[67,68] and mixed['gain']['approximate']==350
+    result=recent_windows(snap,dict(value=67,display_only=True),now=NOW+timedelta(seconds=60),current_level_only=True)['5']
     assert result['pace']['level']==68 and result['pace']['readings']==2
     assert result['gain']['approximate']==332
 

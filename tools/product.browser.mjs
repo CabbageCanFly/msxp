@@ -15,15 +15,16 @@ const verifyHistorical=databaseArgument==='--verify-historical';
 const verifyResilience=databaseArgument==='--verify-resilience';
 const verifyNumerical=databaseArgument==='--verify-numerical-windows';
 const verifyETA=databaseArgument==='--verify-eta-followup';
+const verifyCrossLevel=databaseArgument==='--verify-cross-level';
 const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
-const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA?null:databaseArgument;
+const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA || verifyCrossLevel?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
 let fixture=null,fixtureCommand=null;
-if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA){
+if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA || verifyCrossLevel){
   const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyETA?['--eta-followup']:verifyNumerical?['--numerical-windows']:verifyResilience?['--resilience']:verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyCrossLevel?['--cross-level']:verifyETA?['--eta-followup']:verifyNumerical?['--numerical-windows']:verifyResilience?['--resilience']:verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
   let buffer='',waiting=null;const messages=[];
   fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
   const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
@@ -84,13 +85,16 @@ try {
     if(!pace.interval_counts || pace.interruptions)assert.ok((await detail.evaluate('document.getElementById("early-value").textContent')).includes(`${(pace.interruptions ?? 0)+1} sequence`));
   }
   const recent=await detail.evaluate('({start:document.getElementById("history-chart").dataset.start,end:document.getElementById("history-chart").dataset.end,note:document.getElementById("history-note").textContent})');
-  if(recent.start)assert.equal(Date.parse(recent.end)-Date.parse(recent.start),1800000);
-  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 5 min');
-  if(!original.player.windows['5'].eligible)assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),(original.player.recent_windows?.['5']?.observed ?? original.player.windows['5'].observed)?.available?'Not complete yet':'Building history');
+  if(recent.start)assert.equal(Date.parse(recent.end)-Date.parse(recent.start),300000);
+  const initialObserved=original.player.recent_windows?.['5']?.observed ?? original.player.windows['5'].observed;
+  const savedWindow=initialObserved?.historical || original.player.stale && ['completed','interrupted'].includes(original.player.capture_lifecycle);
+  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),`${savedWindow?'Saved':'Last'} 5 min`);
+  if(!original.player.windows['5'].eligible)assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),initialObserved?.available?(original.player.stale || initialObserved.paused?'Paused':'Not complete yet'):'Building history');
   await screenshot(detail,'character-desktop',1440,1050);
   await screenshot(detail,'character-mobile',390,1200);
   await detail.evaluate('document.querySelectorAll("[data-window]")[2].click()');
-  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 15 min');
+  const saved15=(original.player.recent_windows?.['15']?.observed ?? original.player.windows['15'].observed)?.historical || original.player.stale && ['completed','interrupted'].includes(original.player.capture_lifecycle);
+  assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),`${saved15?'Saved':'Last'} 15 min`);
   await screenshot(detail,'character-15-minute',1440,1050);
   await detail.evaluate('document.querySelector("[data-chart=percentage]").click()');
   const numerical=await detail.evaluate('document.querySelectorAll("#history-chart circle").length');
@@ -322,7 +326,7 @@ try {
     for(const seconds of [60,300]){
       await detail.evaluate(`document.querySelector('[data-bucket="${seconds}"]').click()`);
       const span=await detail.evaluate('Date.parse(document.getElementById("history-chart").dataset.end)-Date.parse(document.getElementById("history-chart").dataset.start)');
-      assert.equal(span,seconds===60?1800000:7200000);
+      assert.equal(span,await detail.evaluate('windowMinutes*60000'));
     }
     for(const page of [detail,board,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     writeFileSync(join(output,'rolling-stages.json'),JSON.stringify(stages,null,2));observed.push(...stages);
@@ -356,10 +360,10 @@ try {
     await screenshot(board,'observed-homepage',1440,1050);
     await screenshot(overlay,'observed-overlay',500,160);
     await detail.wait('rollingData?.buckets?.length===48');
-    for(const [seconds,span] of [[60,1800000],[300,7200000],[1800,86400000]]){
+    for(const seconds of [60,300,1800]){
       await detail.evaluate(`document.querySelector('[data-bucket="${seconds}"]').click()`);
       const bounds=await detail.evaluate('({a:document.getElementById("history-chart").dataset.start,b:document.getElementById("history-chart").dataset.end})');
-      assert.equal(Date.parse(bounds.b)-Date.parse(bounds.a),span);
+      assert.equal(Date.parse(bounds.b)-Date.parse(bounds.a),seconds===1800?86400000:await detail.evaluate('windowMinutes*60000'));
       assert.ok(await detail.evaluate('document.querySelectorAll(".exp-column:not(.missing)").length>0'));
       assert.ok(await detail.evaluate('document.querySelectorAll(".exp-column.missing").length>0'));
     }
@@ -382,6 +386,49 @@ try {
     await screenshot(detail,'observed-stale',1100,1050);
     for(const page of [detail,board,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     observed.push(...batches.map(batch=>({reading:batch.player.reading,windows:batch.player.windows})));
+  }else if(verifyCrossLevel){
+    assert.equal(original.player.display_level.value,67);
+    await fixtureCommand('advance');
+    const after=await api('/api/players/'+channel);
+    assert.equal(after.player.display_level.value,68);
+    assert.equal(after.player.recent_windows['60'].gain.approximate,54663.82);
+    assert.equal(after.player.current_level_windows['60'].gain.approximate,5445);
+    await detail.wait('data?.player?.display_level?.value===68');
+    await overlay.wait('data?.player?.display_level?.value===68');
+    await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.display_level?.value===68`);
+    await detail.evaluate('document.querySelector("[data-chart=percentage]").click()');
+    for(const minutes of [5,10,15,30,60]){
+      await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
+      assert.equal(await detail.evaluate('document.getElementById("eta-stat").hidden'),false);
+      const result=await detail.evaluate('({start:document.getElementById("history-chart").dataset.start,end:document.getElementById("history-chart").dataset.end,levels:[...document.querySelectorAll("#history-chart circle")].map(p=>p.dataset.tipText),movement:document.getElementById("movement").textContent})');
+      assert.equal(Date.parse(result.end)-Date.parse(result.start),minutes*60000);
+      assert.ok(result.levels.some(t=>t.includes('Lv. 67')) && result.levels.some(t=>t.includes('Lv. 68')));
+      assert.ok(await detail.evaluate('document.querySelectorAll(".level-transition").length>0'));
+    }
+    const all=await detail.evaluate('document.getElementById("movement").dataset.fullNumber');
+    assert.equal(await detail.evaluate('document.getElementById("movement").dataset.fullNumber'),'+54,664 EXP');
+    await screenshot(detail,'cross-level-60min-desktop',1440,1050);await screenshot(detail,'cross-level-60min-mobile',390,1200);
+    await detail.evaluate('document.getElementById("current-level-only").click()');
+    assert.equal(await detail.evaluate('document.getElementById("movement").textContent'),'+5,445 EXP');
+    assert.ok(await detail.evaluate('[...document.querySelectorAll("#history-chart circle")].every(p=>p.dataset.tipText.includes("Lv. 68"))'));
+    assert.equal(await detail.evaluate('Date.parse(document.getElementById("history-chart").dataset.end)-Date.parse(document.getElementById("history-chart").dataset.start)'),3600000);
+    const tracked=await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber');
+    await screenshot(detail,'current-level-only-mobile',390,1200);
+    await detail.evaluate('document.getElementById("current-level-only").click()');
+    assert.equal(await detail.evaluate('document.getElementById("movement").dataset.fullNumber'),all);
+    assert.equal(await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber'),tracked);
+    const eta=after.player.recent_windows['60'].eta.estimate;
+    await fixtureCommand('restart');
+    await detail.wait('data?.player?.capture_lifecycle==="unfinished" && data?.player?.recent_windows["60"]?.eta?.historical===true');
+    await screenshot(detail,'cross-level-restart',1100,1050);
+    await fixtureCommand('expire');
+    await detail.wait('data?.player?.recent_windows["60"]?.available===false');
+    const historical=await api('/api/players/'+channel);
+    assert.deepEqual(historical.player.recent_windows['60'].eta.estimate,eta);
+    assert.equal(await detail.evaluate('document.getElementById("eta").textContent'),'~8h 30m');
+    await screenshot(detail,'cross-level-historical-eta',1100,1050);
+    for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+    observed.push({asOfReplay:true,after,historical});
   }else if(verifyLevelUp){
     assert.equal(original.player.display_level.value,65);assert.equal(original.player.level_events.length,0);
     assert.equal((await fixtureCommand('levelup')).stage,'levelup');
@@ -390,11 +437,12 @@ try {
     assert.equal((await fixtureCommand('advance')).stage,'advance');
     const after=await api('/api/players/'+channel);
     assert.equal(after.player.responsive_pace.active,true);assert.equal(after.player.responsive_pace.readings,2);
-    assert.equal(after.player.responsive_pace.estimates.eta,null);assert.equal(after.player.windows['5'].eligible,false);
+    assert.ok(after.player.responsive_pace.estimates.eta.seconds.approximate>0);assert.equal(after.player.windows['5'].eligible,false);
     await detail.wait('document.getElementById("level-event").textContent==="Level 66 reached!"');
     await overlay.wait(`data?.player?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
     await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.reading?.event_id===${JSON.stringify(after.player.reading.event_id)}`);
-    assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/first estimate.*2 readings/);
+    assert.deepEqual(after.player.recent_windows['5'].pace.levels,[65,66]);
+    assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/last observed.*4 readings.*2 sequences/);
     assert.equal(await overlay.evaluate('document.getElementById("level").textContent'),'Lv. 66');
     assert.equal(await detail.evaluate('document.getElementById("history-chart").textContent.includes("99.97%")'),false);
     await screenshot(detail,'level-up-first-estimate',1100,1050);await screenshot(overlay,'level-up-overlay',500,160);
@@ -405,6 +453,7 @@ try {
     await board.wait(`data?.players.find(p=>p.channel===${JSON.stringify(channel)})?.latest_attempt_at===${JSON.stringify(final.player.latest_attempt_at)}`);
     assert.match(await detail.evaluate('document.getElementById("early-value").textContent'),/last observed/);
     assert.equal(final.player.responsive_pace.active,false);
+    assert.equal(await overlay.evaluate('document.getElementById("eta").textContent'),'—');
     for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     await screenshot(board,'recent-trend-homepage',1440,1050);await screenshot(board,'recent-trend-homepage-mobile',390,1200);
     await screenshot(detail,'current-level-history',1100,1050);await screenshot(detail,'current-level-history-mobile',390,1200);

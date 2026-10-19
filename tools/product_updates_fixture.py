@@ -319,6 +319,55 @@ def eta_followup_trial(database,port):
             finally:http.shutdown();thread.join(2)
 
 
+def cross_level_trial(database,port):
+    """Original 67/68 and 57 crops/logs, isolated SQLite with an explicit as-of clock."""
+    root=Path('private/multi-alpha/runs')
+    saved={c:[json.loads(s) for s in (root/'20261019T003226Z-cbe9ba29'/c/'capture.jsonl').read_text().splitlines()]
+        for c in ('telfer1','niru')}
+    import exp_tracker.server as server_module
+    import exp_tracker.diagnostics as diagnostic_module
+    class Clock(datetime):
+        at=None
+        @classmethod
+        def now(cls,tz=None):return cls.at
+    server_module.datetime=diagnostic_module.datetime=Clock
+    with Store(database) as store:
+        d=Diagnostics(store)
+        for channel,records in saved.items():
+            store.add_channel(channel);cid=store.add_character(channel,'Saved review');store.select_character(channel,cid)
+            store.start_session(channel,at=datetime.fromisoformat(records[1]['attempted_at']))
+            for path in (root/'20261019T001945Z-65cc75a7'/channel).rglob('capture.jsonl'):d.replay(channel,path)
+            d.begin(records[0]['run_id'],channel,records[0])
+        last=0
+        def stage(stop):
+            nonlocal last
+            stamps=[]
+            for channel,records in saved.items():
+                for r in records:
+                    if r['type']=='attempt' and last<r['index']<=stop:d.append(records[0]['run_id'],r)
+                    if r['type']=='attempt' and r['index']<=stop and r.get('received_at'):stamps.append(r['received_at'])
+            last=stop;Clock.at=datetime.fromisoformat(max(stamps))
+        stage(4)
+        with create_server(database,port=port,diagnostic_dashboard=True) as http:
+            http.quiet=True;thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+            print(json.dumps(dict(ready=True,port=http.server_port,clock='explicit_saved_as_of')),flush=True)
+            try:
+                for action in ('advance','restart','expire'):
+                    command=next(sys.stdin,None)
+                    if command is None:break
+                    if command.strip()!=action:raise ValueError('Ordered saved replay only')
+                    if action=='advance':stage(10)
+                    elif action=='restart':
+                        configuration=dict(saved['telfer1'][0],run_id='cross-level-fixture-restart',
+                            start_reason='process_start',previous_run_id=None,coordinator_instance='f'*32)
+                        d.begin(configuration['run_id'],'telfer1',configuration)
+                    else:Clock.at+=timedelta(hours=2)
+                    assert not store.db.execute('select 1 from observations').fetchone()
+                    print(json.dumps(dict(stage=action,as_of=Clock.at.isoformat())),flush=True)
+                for _ in sys.stdin:raise ValueError('Replay complete')
+            finally:http.shutdown();thread.join(2)
+
+
 def main():
     cli=argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--directory',type=Path,required=True)
@@ -331,12 +380,16 @@ def main():
     cli.add_argument('--resilience',action='store_true',help='Actual unreadable-HUD replay, mocked Helix and coordinator activity')
     cli.add_argument('--numerical-windows',action='store_true',help='Saved wrong-pair veto and selected-window card replay')
     cli.add_argument('--eta-followup',action='store_true',help='Saved short HUD gap, token recovery and dated ETA restoration')
+    cli.add_argument('--cross-level',action='store_true',help='Saved 67/68 level reset and preceding run, as-of clock')
     args=cli.parse_args()
     directory=args.directory.resolve()
     if not any(directory.is_relative_to(Path(p).resolve()) for p in ('private','artifacts')):
         raise ValueError('Private test directory required')
     database=directory/'updates.sqlite3'
     if database.exists():raise ValueError('Never overwrite an existing database')
+    if args.cross_level:
+        cross_level_trial(database,args.port)
+        return
     if args.eta_followup:
         eta_followup_trial(database,args.port)
         return

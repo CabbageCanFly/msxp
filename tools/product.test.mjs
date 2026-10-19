@@ -97,15 +97,14 @@ test('window buttons use only eligible window metrics; overlay keeps its existin
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"movement").map(r=>r.rank))')),[null,null]);
 });
 
-test('recent graph excludes distant runs, spans actual points, and retains gaps on a longer selection',()=>{
+test('recent graph has a fixed selected time axis, all supported levels and retained gaps',()=>{
   const p=page('player');p.render(player());
   const point=(timestamp,bp=100)=>({event_id:timestamp,timestamp,interval_seconds:15,level:{value:64},reading:{bp,percentage:(bp/100).toFixed(2),evidence:'strict_percentage_only'}});
   p.context.points=[point('2026-01-01T00:00:00Z'),point('2026-01-01T00:06:00Z'),point('2026-01-01T00:06:15Z',101)];
   p.run('chartMode="percentage";data.history=points;drawHistory()');
-  assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:06:00.000Z');
-  // The fixture's level-64 points are gaps on the level-60 player, not readings.
-  assert.match(p.elements['history-note'].textContent,/0 readings.*2 unavailable.*15s displayed/);
-  p.buttons[1].listeners.click();assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:00:00.000Z');
+  assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:01:15.000Z');
+  assert.match(p.elements['history-note'].textContent,/2 readings.*last 5 min/);
+  p.buttons[1].listeners.click();assert.equal(p.elements['history-chart'].dataset.start,'2025-12-31T23:56:15.000Z');
   assert.ok(p.elements['history-chart'].children.some(n=>n.attributes.class==='gap'));
   assert.ok(!p.elements['history-chart'].children.some(n=>n.tag==='polyline'));
   p.elements['history-chart'].clientWidth=340;p.run('drawHistory()');
@@ -134,7 +133,7 @@ test('percentage chart counts numerical points separately from missing and unkno
     {event_id:'c',timestamp:'2026-01-01T00:00:30Z',level:{value:null},reading:{bp:591,percentage:'5.91',evidence:'strict_full'}},
     {event_id:'d',timestamp:'2026-01-01T00:00:45Z',level:{value:60},reading:{bp:592,percentage:'5.92',evidence:'strict_full'}}];
   p.run('chartMode="percentage";data.history=points;drawHistory()');
-  assert.match(p.elements['history-note'].textContent,/2 readings.*2 unavailable.*45s displayed/);
+  assert.match(p.elements['history-note'].textContent,/2 readings.*2 unavailable.*last 5 min/);
   const shapes=p.elements['history-chart'].children;
   assert.equal(shapes.filter(n=>n.tag==='circle').length,2);
   assert.equal(shapes.filter(n=>n.tag==='path').length,2);
@@ -327,7 +326,7 @@ test('character ETA is a dated static duration through failed polls, missing OCR
   delete base.recent_windows[60].eta;p.render(base);assert.equal(p.elements.eta.textContent,'—');
 });
 
-test('current-level chart separates level-up, missing samples and quarantine; only guarded edges get lines',()=>{
+test('all-level chart marks resets and current-only filtering retains the fixed time axis',()=>{
   const p=page('player'),base=player({display_level:{evidence:{value:66},value:66,age_seconds:0},level_events:[{level:66,timestamp:'2026-01-01T00:00:15Z',first_observed_at:'2026-01-01T00:00:15Z'}]});
   p.render(base);
   const point=(seconds,level,bp,connect_previous=false)=>({timestamp:new Date(Date.UTC(2026,0,1,0,0,seconds)).toISOString(),level:{value:level},interval_seconds:15,connect_previous,reading:bp==null?null:{bp,percentage:(bp/100).toFixed(2),evidence:'strict_full'}});
@@ -337,8 +336,29 @@ test('current-level chart separates level-up, missing samples and quarantine; on
   assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,2);
   assert.ok(!shapes.some(n=>n.tag==='text' && n.textContent==='99.97%'));
   assert.equal(p.elements['level-event'].textContent,'Level 66 reached!');
-  assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:00:15.000Z');
+  assert.equal(p.elements['history-chart'].dataset.start,'2025-12-31T23:56:15.000Z');
+  assert.equal(shapes.filter(n=>n.tag==='circle').length,5);
+  assert.equal(shapes.filter(n=>n.attributes.class==='level-transition').length,1);
+  p.elements['current-level-only'].listeners.change({target:{checked:true}});
+  assert.equal(p.elements['history-chart'].dataset.start,'2025-12-31T23:56:15.000Z');
+  assert.equal(p.elements['history-chart'].children.filter(n=>n.tag==='circle').length,4);
   assert.match(p.elements['history-note'].textContent,/Lv. 66/);
+});
+
+test('mixed-level EXP-only summaries remain visible and the filter selects its own cards',()=>{
+  const p=page('player'),base=player();
+  const metric=gain=>({status:'ready',observed:{available:true,start:'2026-01-01T00:00:00Z',end:'2026-01-01T00:01:00Z',
+    difference_percentage_points:null,estimated_exp:{value:{approximate:gain}},coverage_seconds:{approximate:40},
+    span_seconds:{approximate:60},readings:4,age_seconds:0},eta:{estimate:{seconds:{approximate:600}},age_seconds:0,window_minutes:5}});
+  base.recent_windows={'5':metric(763)};base.current_level_windows={'5':metric(575)};
+  p.render(base);
+  assert.equal(p.elements.movement.textContent,'+763 EXP');assert.doesNotMatch(p.elements.movement.title,/null/);
+  assert.equal(p.elements.eta.textContent,'~10m');
+  p.elements['current-level-only'].listeners.change({target:{checked:true}});
+  assert.equal(p.elements.movement.textContent,'+575 EXP');
+  p.elements['current-level-only'].listeners.change({target:{checked:false}});
+  assert.equal(p.elements.movement.textContent,'+763 EXP');
+  assert.equal(p.elements['eta-stat'].hidden,false);
 });
 
 test('EXP bars split only valid captured intervals, conserve amounts, and preserve missing versus zero',()=>{
@@ -362,10 +382,10 @@ test('EXP history has fixed axes and the 24h view waits for aggregated history',
   const p=page('player');p.render(player());
   p.context.rows=[{connect_previous:true,gain:{start:'2026-01-01T00:00:00Z',end:'2026-01-01T00:00:15Z',value:{approximate:100}}}];
   p.run('data.history=rows;data.player.latest_attempt_at="2026-01-01T00:00:15Z";drawHistory()');
-  assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column missing').length,29);
+  assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column missing').length,4);
   assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column partial').length,1);
   p.run('data.served_at="2026-01-01T00:00:15Z"');
-  for(const [bucket,seconds] of [[60,1800],[300,7200],[1800,86400]]){
+  for(const [bucket,seconds] of [[60,300],[300,300],[1800,86400]]){
     p.run(`bucketSeconds=${bucket};drawHistory()`);
     assert.equal(Date.parse(p.elements['history-chart'].dataset.end)-Date.parse(p.elements['history-chart'].dataset.start),seconds*1000);
   }

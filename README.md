@@ -37,6 +37,9 @@ corroborated `X` punctuation can supply separately labeled experimental evidence
 The [numerical/window update](docs/numerical-windows-eta.md) rejects contradictory
 whole pairs using recent level evidence, fixes slow-cadence level confirmation,
 and supplies saved 5–60-minute card statistics with stable next-level estimates.
+The [cross-level history update](docs/cross-level-history.md) keeps independently
+supported earlier-level EXP inside those periods, with a current-level-only filter
+and current-level ETA targets. Unknown transition gains remain excluded.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

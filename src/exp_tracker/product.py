@@ -19,7 +19,7 @@ OBSERVED_MAX_GAP_SECONDS=60
 OBSERVED_MAX_MISSING=2
 
 
-def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=False,retain_history=True,collected=None):
+def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=False,retain_history=True,collected=None,current_level_only=False):
     """Net endpoint rates; unreadable samples are holes, unsafe evidence is a boundary."""
     from .pace_intervals import collect,POLICY
     rows=snapshot['observations']
@@ -30,8 +30,11 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
     all_edges=collected['intervals']
     supported_level=(collected.get('latest') or {}).get('level',{}).get('value')
     edges=([e for e in all_edges if e['identity']==collected['identity']
-        and e['after']['level']['value']==supported_level] if pool_history else
+        and (not current_level_only or e['after']['level']['value']==supported_level)] if pool_history else
         [e for e in all_edges if e['epoch']==collected['epoch']])
+    edges=[e for e in edges if datetime.fromisoformat(e['after']['timestamp'])<=now]
+    if pool_history and len({e['after']['level']['value'] for e in edges})>1:
+        edges=[e for e in edges if requirement(e['after']['level']['value'])['to_next'] is not None]
     retained=False
     if not edges and retain_history and not pool_history:
         historical=[e for e in all_edges if e['identity']==collected['identity']
@@ -68,11 +71,11 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
         direct_exp=all(p['exp'] is not None and p['exp_validity']['status']=='consistent' for p in (a,b))
         basis='observed_exp_endpoints' if direct_exp else 'displayed_percentage_endpoints'
         gain=Fraction(int(b['exp'])-int(a['exp'])) if direct_exp else (
-            Fraction((b['bp']-a['bp'])*calculated['exp_per_hour']['requirement']['to_next'],10000) if calculated['exp_per_hour'] else None)
+            Fraction((b['bp']-a['bp'])*requirement(b['level']['value'])['to_next'],10000) if requirement(b['level']['value'])['to_next'] is not None else None)
         if gain is not None:amount+=gain
         basis_counts[basis]=basis_counts.get(basis,0)+1
         details.append(dict(first_event_id=a['event_id'],last_event_id=b['event_id'],start=a['timestamp'],end=b['timestamp'],
-            kind=e['kind'],basis=basis,gain=rational(gain) if gain is not None else None,
+            kind=e['kind'],basis=basis,level=b['level']['value'],requirement=requirement(b['level']['value']),gain=rational(gain) if gain is not None else None,
             elapsed_seconds=rational(elapsed_seconds(datetime.fromisoformat(a['timestamp']),datetime.fromisoformat(b['timestamp']))),
             missing_event_ids=e['missing_event_ids'],unrecorded_attempts=e['unrecorded_attempts']))
     basis=next(iter(basis_counts)) if len(basis_counts)==1 else 'mixed_endpoint_evidence'
@@ -86,6 +89,16 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
                 calculated['eta']=dict(seconds=rational(Fraction(remaining)*elapsed/amount),
                     hypotheses=(calculated['eta'] or {}).get('hypotheses'),
                     basis='integer_endpoint_rate_and_provisional_requirement',trusted=False)
+    levels=sorted({e['after']['level']['value'] for e in edges})
+    endpoint=last
+    candidate=collected.get('latest')
+    if (pool_history and candidate and candidate['level']['value']!=last['level']['value']
+            and datetime.fromisoformat(candidate['timestamp'])<=now
+            and 0<(datetime.fromisoformat(candidate['timestamp'])-datetime.fromisoformat(last['timestamp'])).total_seconds()<=seconds):
+        endpoint=candidate
+    if len(levels)>1 or pool_history and endpoint['level']['value']!=last['level']['value']:
+        # Different level percentages have different denominators. Only EXP is pooled.
+        calculated=cross_level_estimates(edges,details,amount,elapsed,endpoint)
     ids={p['event_id'] for e in edges for p in (e['before'],e['after'])}
     values={p['event_id']:p for e in edges for p in (e['before'],e['after'])}
     tentative=len(ids)<3 or elapsed<30
@@ -96,7 +109,7 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
             or any(p['evidence']=='conditional_symbol' for p in values.values())):calculated['eta']=None
     saved_eta=deepcopy(calculated['eta'])
     if not active:calculated['eta']=None  # Live/OBS contract; dated character ETA is separate.
-    return dict(active=active,tentative=tentative,level=last['level']['value'],start=first['timestamp'],end=last['timestamp'],
+    return dict(active=active,tentative=tentative,level=endpoint['level']['value'],levels=levels,eta_at=endpoint['timestamp'],start=first['timestamp'],end=last['timestamp'],
         source_kind=edges[-1]['identity'][2],source_identity=edges[-1]['identity'][3],
         readings=len(ids),last_observed_eta=saved_eta,span_seconds=rational(elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))),
         coverage_seconds=rational(elapsed),interruptions=len(groups)-1,estimates=calculated,basis=basis,
@@ -111,22 +124,65 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
         denominator='actual_elapsed_between_valid_endpoints_including_missing_capture_gaps')
 
 
-def recent_windows(snapshot,display_level,*,now):
+def cross_level_estimates(edges,details,amount,elapsed,endpoint):
+    """Independent same-level gains; the level-transition interval stays unknown."""
+    result=estimates(None,None,0)
+    if any(d['gain'] is None for d in details):return result
+    groups=[]
+    for edge,detail in zip(edges,details):
+        a,b=edge['before'],edge['after'];basis=detail['basis']
+        if groups and groups[-1][1]['event_id']==a['event_id'] and groups[-1][2]==basis:
+            groups[-1]=(groups[-1][0],b,basis)
+        else:groups.append((a,b,basis))
+    bounds={}
+    for rule in ('nearest_half_up','truncation'):
+        lower=upper=Fraction(0)
+        for a,b,basis in groups:
+            total=requirement(b['level']['value'])['to_next']
+            if total is None:return result
+            if basis=='observed_exp_endpoints':
+                lower+=int(b['exp'])-int(a['exp']);upper+=int(b['exp'])-int(a['exp'])
+            else:
+                lo,hi,_=difference_bounds(a['bp'],b['bp'])[rule]
+                lower+=lo*total/10000;upper+=hi*total/10000
+        bounds[rule]=dict(lower=rational(lower*3600/elapsed),upper=rational(upper*3600/elapsed))
+    req=requirement(endpoint['level']['value'])
+    result['exp_per_hour']=dict(value=rational(amount*3600/elapsed),requirement=req,hypotheses=bounds,
+        requirements=[requirement(level) for level in sorted({d['level'] for d in details})],
+        basis='independent_same_level_exp_intervals',transition_gain_included=False)
+    remaining=percentage_exp(endpoint['bp'],endpoint['level'])
+    if amount<=0 or not remaining:return result
+    eta_bounds={}
+    for rule,rates in bounds.items():
+        bins=remaining['hypotheses']['truncate' if rule=='truncation' else rule]
+        low,high=fraction(rates['lower']),fraction(rates['upper'])
+        if low<=0 or high<=0 or not bins['count']:return result
+        eta_bounds[rule]=dict(lower_seconds=rational(Fraction(req['to_next']-bins['max'])*3600/high),
+            upper_seconds=rational(Fraction(req['to_next']-bins['min'])*3600/low))
+    rest=Fraction(req['to_next'])-fraction(remaining['value'])
+    if endpoint['exp'] is not None and endpoint['exp_validity']['status']=='consistent':rest=Fraction(req['to_next']-int(endpoint['exp']))
+    if rest>0:result['eta']=dict(seconds=rational(rest*elapsed/amount),hypotheses=eta_bounds,
+        basis='current_level_remaining_and_pooled_exp_rate',trusted=False)
+    return result
+
+
+def recent_windows(snapshot,display_level,*,now,current_level_only=False):
     """Independent supported intervals, summed across runs without cross-run subtraction."""
     from .pace_intervals import collect
     collected=collect(snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
     result={}
     for minutes in WINDOWS:
         pace=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,
-            retain_history=False,collected=collected)
+            retain_history=False,collected=collected,current_level_only=current_level_only)
         observed=dict(available=False)
         if pace:
-            change=fraction(pace['estimates']['percentage_per_hour']['value'])*fraction(pace['coverage_seconds'])/36
+            percentage=pace['estimates']['percentage_per_hour']
+            change=fraction(percentage['value'])*fraction(pace['coverage_seconds'])/36 if percentage else None
             observed=dict(available=True,start=pace['start'],end=pace['end'],span_seconds=pace['span_seconds'],
                 coverage_seconds=pace['coverage_seconds'],readings=pace['readings'],interruptions=pace['interruptions'],
                 unavailable_attempts=pace['missing_attempts'],missing_attempts=0,paused=not pace['active'],
                 age_seconds=max(0,(now-datetime.fromisoformat(pace['end'])).total_seconds()),historical=not pace['active'],
-                difference_percentage_points=f'{int(change)//100}.{int(change)%100:02}',
+                difference_percentage_points=f'{int(change)//100}.{int(change)%100:02}' if change is not None else None,
                 estimated_exp=dict(value=pace['total_gain'],basis=pace['basis'],
                     requirement=pace['estimates']['exp_per_hour']['requirement']) if pace['total_gain'] is not None else None,
                 policy='independent_endpoint_intervals_v1',trusted=False)
@@ -134,34 +190,38 @@ def recent_windows(snapshot,display_level,*,now):
             status=snapshot.get('recent_history_status','ready'),available=pace is not None,
             gain=pace['total_gain'] if pace else None,pace=({k:v for k,v in pace.items()
                 if k not in ('intervals','conditional_recoveries','excluded','latest_endpoint')} if pace else None),
-            observed=observed,scope='selected_character_session_source_and_supported_level',trusted=False,complete_window=False)
+            observed=observed,scope='current_level_only' if current_level_only else 'all_supported_levels_within_character_session_source',trusted=False,complete_window=False)
         if pace is None:
-            previous=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,collected=collected)
+            previous=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only)
             result[str(minutes)]['last_observed_pace']=({k:v for k,v in previous.items()
                 if k not in ('intervals','conditional_recoveries','excluded','latest_endpoint')} if previous else None)
         current_basis=pace or result[str(minutes)].get('last_observed_pace')
         # Date the estimate at an observation, not at a poll that merely removes
         # old intervals. The gain/rate cards keep their actual current windows.
-        basis=responsive_pace(snapshot,display_level,now=datetime.fromisoformat(current_basis['end']),
-            minutes=minutes,pool_history=True,collected=collected) if current_basis else None
+        basis=responsive_pace(snapshot,display_level,now=datetime.fromisoformat(current_basis.get('eta_at',current_basis['end'])),
+            minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only) if current_basis else None
         eta=basis and basis['last_observed_eta']
         # An old duration survives missing OCR, never an affirmative new level or
         # confirmed reset. No subtraction or countdown crosses the boundary.
         blocked=bool(basis and any(
-            r.get('received_at') and r['received_at']>basis['end'] and (
+            r.get('received_at') and r['received_at']>basis.get('eta_at',basis['end']) and (
                 (r.get('experimental_level') or {}).get('value') not in (None,basis['level']) or
                 (r.get('experimental_level') or {}).get('status')=='conflict' or
                 (r.get('percentage_review') or {}).get('break_before')=='confirmed_change_new_baseline')
             for r in snapshot['observations']))
-        result[str(minutes)]['eta']=dict(estimate=deepcopy(eta),estimated_at=basis['end'],
+        result[str(minutes)]['eta']=dict(estimate=deepcopy(eta),estimated_at=basis.get('eta_at',basis['end']),
             window_minutes=minutes,start=basis['start'],level=basis['level'],readings=basis['readings'],
             source_identity=basis['source_identity'],source_kind=basis['source_kind'],
             coverage_seconds=basis['coverage_seconds'],tentative=basis['tentative'],
+            levels=basis['levels'],
+            rate_observed_at=basis['end'],rate_age_seconds=max(0,(now-datetime.fromisoformat(basis['end'])).total_seconds()),
             rate=basis['estimates']['exp_per_hour']['value'],
-            historical=not current_basis['active'],age_seconds=max(0,(now-datetime.fromisoformat(basis['end'])).total_seconds()),
+            historical=not current_basis['active'],age_seconds=max(0,(now-datetime.fromisoformat(basis.get('eta_at',basis['end']))).total_seconds()),
             static_duration=True,trusted=False) if eta and not blocked else None
         if not basis and not blocked:
             result[str(minutes)]['eta']=deepcopy(snapshot.get('historical_etas',{}).get(str(minutes)))
+            saved=result[str(minutes)]['eta']
+            if current_level_only and saved and saved.get('levels')!=[saved['level']]:result[str(minutes)]['eta']=None
         saved=result[str(minutes)]['eta']
         if saved and any(k in snapshot and snapshot[k]!=saved[k] for k in ('source_kind','source_identity')):
             result[str(minutes)]['eta']=None
@@ -498,6 +558,8 @@ def player(snapshot,*,now=None,recent_snapshot=None):
         label='EXPERIMENTAL / UNVERIFIED; early segment estimate, not a completed window')
     result['responsive_pace']=responsive_pace(snapshot,display_level,now=now)
     result['recent_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now)
+    result['current_level_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now,current_level_only=True)
+    result['level_events']=level_events((recent_snapshot or snapshot)['observations'])
     result['recent_history']=dict(status=(recent_snapshot or snapshot).get('recent_history_status','ready'),
         source='sqlite_time_range' if recent_snapshot is not None else 'provided_snapshot',
         receipt=(recent_snapshot or snapshot).get('recent_history_receipt'),
@@ -518,7 +580,8 @@ def refresh(value,*,now=None,activity=None):
     value['latest_attempt_age_seconds']=(now-datetime.fromisoformat(value['latest_attempt_at'])).total_seconds() if value.get('latest_attempt_at') else None
     value['stale']=age is None or age<0 or age>value['stale_after_seconds'] or not latest['fresh_at_capture']
     value['activity']=activity or dict(state='coordinator_stopped')
-    paces=[value.get('responsive_pace')]+[w.get(k) for w in value.get('recent_windows',{}).values() for k in ('pace','last_observed_pace')]
+    window_metrics=list(value.get('recent_windows',{}).values())+list(value.get('current_level_windows',{}).values())
+    paces=[value.get('responsive_pace')]+[w.get(k) for w in window_metrics for k in ('pace','last_observed_pace')]
     for pace in paces:
         if not pace:continue
         pace['age_seconds']=max(0,(now-datetime.fromisoformat(pace['end'])).total_seconds())
@@ -553,10 +616,11 @@ def refresh(value,*,now=None,activity=None):
             metric.update(eligible=False,state='stale',reason='stale_or_simulated_reading',estimates=estimates(None,None,0))
     if value.get('early_pace') and (value['stale'] or latest and latest['simulated']):
         value['early_pace'].update(active=False,reason='stale_or_simulated_reading')
-    for metric in list(value.get('windows',{}).values())+list(value.get('recent_windows',{}).values()):
+    for metric in list(value.get('windows',{}).values())+window_metrics:
         eta=metric.get('eta')
         if eta:
             eta['age_seconds']=max(0,(now-datetime.fromisoformat(eta['estimated_at'])).total_seconds())
+            if eta.get('rate_observed_at'):eta['rate_age_seconds']=max(0,(now-datetime.fromisoformat(eta['rate_observed_at'])).total_seconds())
             eta['historical'] = (value['stale'] or not (metric.get('pace') or {}).get('active')
                 or (metric.get('pace') or {}).get('presentation',{}).get('state')!='observed')
         if 'eligibility_checks' in metric:
@@ -585,17 +649,23 @@ def interval_gain(previous,row,value,connected):
 
 def history(snapshot):
     points=[]
-    comparisons={c['event_id']:c for c in snapshot['percentage_progress']['comparisons']}
-    previous=None;previous_row=None
+    comparisons={c['event_id']:c for c in snapshot['percentage_progress'].get('comparisons',[])}
+    previous=None;previous_row=None;previous_point=None
     for row in snapshot['observations']:
         value=reading(row)
         comparison=comparisons.get(row['event_id'])
         connected=bool(comparison and comparison['reason']=='contiguous_diagnostic_endpoints' and comparison['change'] in ('positive','zero'))
+        point,invalid=percentage_point(row)
+        eligible=bool(point and invalid is None and row.get('percentage_review',{}).get('progress_eligible'))
+        if 'comparisons' not in snapshot['percentage_progress']:
+            if point:point['interval_seconds']=row['interval_seconds']
+            connected=bool(eligible and previous_point and not row['percentage_review'].get('break_before')
+                and boundary(previous_point,point,row) is None and point['bp']>=previous_point['bp'])
         gain=interval_gain(previous,row,value,connected) if previous_row and not previous_row.get('crop_suspect') else None
         points.append(dict(event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'],percentage_review=row.get('percentage_review'),
             connect_previous=connected,gain=gain,
             reading=value,status=row['status'],fresh_at_capture=row['fresh_at_capture'],
             interval_seconds=row['interval_seconds'],level=level_evidence(row),
             break_reason=comparison['reason'] if comparison else None))
-        previous=value;previous_row=row
+        previous=value;previous_row=row;previous_point=point if eligible else None
     return points

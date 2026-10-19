@@ -103,3 +103,7 @@
 .history-chart circle.sample { stroke:transparent; stroke-width:12px; }
 .recent-card [data-paused="true"] { opacity:.65; }
 @media(max-width:650px) { .companion-cards { margin:0 14px 12px; gap:8px; } .companion-cards > div { flex-basis:120px; } .companion-cards .early-pace { flex-basis:100%; } .companion-cards strong,.companion-cards #eta { font-size:24px; } .comparison-details { margin-left:14px; margin-right:14px; } .chart-modes button { font-size:11px; padding:6px 10px; } }
+
+.level-filter { display:flex; align-items:center; gap:.4rem; color:#d8c9af; font-size:.85rem; }
+.level-transition { stroke:#e9bf69; stroke-dasharray:3 4; opacity:.7; }
+.level-transition-label { fill:#f0c86d; font-size:11px; }
