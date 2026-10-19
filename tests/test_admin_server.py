@@ -64,6 +64,7 @@ def test_page_inspection_and_preview_never_write(admin):
     assert "frame-ancestors 'none'" in headers['Content-Security-Policy']
     assert headers['Cache-Control'] == 'no-store'
     assert request(server, '/admin.js')[0] == request(server, '/admin.css')[0] == 200
+    assert request(server, '/admin-time.js')[0] == 200
     assert server.server_address[0] == '127.0.0.1'
     assert request(server, '/api/channels')[2]['channels'][0]['login'] == 'alpha'
     result = request(server)[2]

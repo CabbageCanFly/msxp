@@ -217,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == '/' and not url.query:
                 body = (WEB/'admin.html').read_bytes().replace(b'__ADMIN_TOKEN__', self.server.token.encode())
                 self.reply(200, body, 'text/html')
-            elif url.path in ('/admin.js', '/admin.css') and not url.query:
+            elif url.path in ('/admin.js', '/admin-time.js', '/admin.css') and not url.query:
                 self.reply(200, (WEB/url.path[1:]).read_bytes(), 'text/javascript' if url.path.endswith('.js') else 'text/css')
             elif url.path == '/api/channels' and not url.query:
                 with Store(self.server.database, read_only=True) as store:

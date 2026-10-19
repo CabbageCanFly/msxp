@@ -103,6 +103,10 @@ Launch the preview-first operator interface with
 the printed `http://127.0.0.1:8766/` URL. It reuses the existing correction rules,
 requires protected same-origin requests and never adds writes to the public server.
 Start with a synthetic/offline database; it does not start or restart capture.
+The dashboard opens on **Set level and EXP**, with native local date/time controls
+and a review before saving. **Past readings → Fix**, history **Edit / Undo**, and
+the separate **Rename character** action fill in their targets automatically.
+Daylight-saving ambiguities require a choice; technical details stay in Advanced.
 
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 1–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and

@@ -18,7 +18,7 @@ def main():
     args = parser.parse_args()
     path = args.output.resolve()/'synthetic.sqlite3'
     if path.exists():parser.error('synthetic database already exists; choose a new output directory')
-    start = datetime.now(timezone.utc)-timedelta(minutes=10)
+    start = (datetime.now(timezone.utc)-timedelta(minutes=10)).replace(microsecond=123456)
     with Store(path) as store:
         store.add_channel('alpha'); cid = store.add_character('alpha', 'Tricia')
         store.add_character('alpha', 'Other')
@@ -41,12 +41,12 @@ def main():
                     localization=dict(count=1), frame_sha256=f'{offset+i:064x}'))
             if run == 'old':
                 old_session = sid
-                store.end_session('alpha', at=start+timedelta(seconds=100))
+                store.end_session('alpha', at=start+timedelta(seconds=200))
     with AdminServer(path, 0) as admin, create_server(path, port=0, public_only=True, background=True) as public:
         public.quiet = True
         threading.Thread(target=public.serve_forever, daemon=True).start()
         print(json.dumps(dict(admin=admin.origin, public=f'http://127.0.0.1:{public.server_port}',
-                              cid=cid, session=sid, old_session=old_session, stamps=stamps)), flush=True)
+                              cid=cid, session=sid, old_session=old_session, boundary=(start+timedelta(seconds=200)).isoformat(), stamps=stamps)), flush=True)
         try:
             admin.serve_forever()
         finally:

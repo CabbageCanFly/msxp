@@ -16,44 +16,65 @@ python -m exp_tracker.admin_server --db $db --port 8766
 # Ctrl+C stops only this operator server.
 ```
 
+After updating an existing A2 checkout, restart the local admin server and reload
+the browser so the new date/time helper is served. Capture does not need a restart.
+
 This is a separate process and port from the read-only tracker server. Starting it
 only reads/validates the named database; it does not initialize or migrate it. A
 confirmed save opens the existing writer and can apply A1.1's additive migration;
 update any serving/writer installation before deliberately using an older database.
 No new schema migration is needed for A2. Nothing starts, stops or reconfigures the
-coordinator. Use a deliberate database path; the dashboard displays its absolute path.
+coordinator. Use a deliberate database path; its absolute path is shown in Advanced.
 
-1. Select a Twitch channel and existing character. Session view includes closed
-   sessions and historical characters; selection does not switch live tracking.
-   Latest level/EXP/percentage/source, original readings, correction revisions and
-   rename history are shown. Use **Refresh readings and history** for new OCR or
-   external CLI changes; the operator page does not poll while you edit.
-2. **Establish baseline** requires level and numerical EXP and/or percentage. Enter
-   the complete timestamp with seconds and timezone. Manual entry starts blank;
-   **Use current timestamp** starts unchecked. That explicit choice freezes the
-   current UTC time **at preview**, so saving never silently changes the reviewed
-   effective time. Session scope can resolve from time, name an existing session,
-   or explicitly choose an unbound baseline.
-3. **Correct historical reading**: choose a session and a reading's **Correct**
-   button. It fills the immutable identity, type and exact original timestamp.
-   Enter corrected values and preview. For readings outside the bounded list,
-   enter the original identity/time from CLI inspection or Advanced diagnostics.
-   Both identity and timestamp are required in the browser contract.
-4. History's **Amend** and **Undo** buttons target the exact correction ID.
-   Amendment supplies a complete replacement and requires a reason. Undo requires
-   a reason and retracts that revision/lineage; it does not restore superseded
-   manual entries. To move an amendment to another character in the same channel,
-   select the destination character, choose Amend, and explicitly enter the previous
-   correction ID and the complete replacement scope/values. **Clear baseline from an
-   effective time** creates a new boundary; undo a point correction to remove it.
-5. **Rename this character** previews old/new names and the unchanged character ID.
-   Follow the coordinated roster workflow below before the next coordinator startup.
-6. **Preview changes** runs the real operation on a disposable SQLite backup. Review
-   supplied/estimated values, arithmetic warnings, scope, reason and audit provenance,
-   then **Confirm and save**. Editing any field or selection cancels the preview.
-   Cancel makes no source write. Preview row IDs/recorded times are provisional;
-   the saved receipt gives the real IDs and recorded time. Contradictory EXP and
-   percentage remain allowed with an explicit arithmetic warning, as in A1.1.
+1. Choose the **Twitch channel** and **Character name**. The latest available level,
+   EXP and percentage appear above the form. Selection does not change live tracking.
+2. **Set level and EXP**: choose a **Date** and **Time** using the browser's calendar
+   and time controls, then enter the level and numerical EXP, EXP percentage, or both.
+   The date/time start blank. **Use current date and time** is unchecked until you
+   deliberately choose it. An ordinary correction's reason is optional.
+3. **Review changes** shows a plain-English summary and the exact numerical EXP if
+   entered. Derived values are labeled approximate (`~`). **EXP values don't match**
+   warns about inconsistent inputs; both entered values are still preserved. Choose
+   **Save changes**, or **Back to editing** to change the form without saving.
+4. **Past readings**: choose a recorded period and click **Fix** on a reading. Its
+   character, original timestamp, identity and available values are filled in for you.
+   Change only the incorrect values. The original timestamp is retained to full
+   microsecond precision even though native controls display whole seconds. Editing
+   the date/time deliberately replaces that preserved timestamp; the backend will
+   reject a historical target whose exact original time no longer matches.
+5. **Correction history**: **Edit** fills the correction and **Undo** selects it for
+   removal. Both require a reason. There are no correction IDs to type. Undo does
+   not revive an older superseded manual entry; original game readings remain intact.
+6. **Rename character**, beside the character picker, is a separate short form with
+   its own review. Names change in place and keep all history. Coordinate the roster
+   label before the next coordinator startup, as described below.
+
+Dates in the form, cards and review use the browser's local timezone, displayed by
+name beside the date/time fields. Local input is converted to a UTC ISO timestamp
+for the unchanged backend. Seconds are supported; choosing a whole minute means
+zero seconds. A local time skipped by a daylight-saving change is rejected. When
+the clocks repeat a time, **Which time?** requires a deliberate choice and shows
+the timezone offsets for both occurrences. No earlier/later occurrence is silently
+selected. Exact source timestamps already identify their occurrence and do not
+need another choice until edited. **Advanced → Paste an exact ISO timestamp instead**
+accepts a complete timestamp with timezone and optional microseconds, including a
+specific offset during a repeated hour. Current-time selection freezes the exact
+UTC instant **when you review**, and saving keeps that reviewed time.
+
+Recording selection normally happens automatically. Only an ambiguous boundary
+asks you to choose a recording, labeled with readable local dates. Advanced retains
+the recording override, an explicit **Outside recorded play times** choice,
+**Stop using a manual starting point** (the existing clear operation), and manual
+original-identity entry for older readings outside the bounded list. To move an
+existing correction to another character/session or change a point's target, the
+full audited CLI remains available below. No backend operations were removed.
+
+Technical IDs, raw JSON, exact source timestamps and saved receipts are under
+collapsed **Advanced details**. Use **Refresh** for new game readings or external
+CLI changes; the operator page does not poll while you edit. Browsing an older
+period does not replace the latest-information card above the form. Changing the
+channel/character clears the draft. Nothing is written until review and save;
+review IDs/recorded times are provisional until the saved receipt is returned.
 
 The server retains at most 64 previews for 15 minutes; stopping it discards them.
 Save accepts only a preview ID and re-runs Store validation, including active
@@ -95,8 +116,8 @@ Every such operation, and `clear`, requires exactly one of:
 There is **no implicit current time**. Missing timestamps, timestamps without
 seconds/timezone, future timestamps, and using both options are rejected. The
 backend likewise requires an aware datetime or explicit `now=True`, exclusively.
-The A2 form uses the same contract: manual datetime entry by default,
-with an explicit current-time choice.
+The A2 form uses the same explicit-time contract through local date/time controls
+or its Advanced ISO input, with a separate current-time choice.
 
 ```powershell
 $db = 'private/offline-test/tracker.sqlite3'
@@ -275,7 +296,7 @@ $env:PYTHONPATH = "$PWD\src"
 The adjacent existing interpreter supplied dependencies read-only; bytecode writes
 were disabled and imports targeted this worktree's `src`. No dependencies were added.
 
-The figures above describe A1.1 verification. A2 adds **55 operator API tests**;
+The figures above describe A1.1 verification. A2 added **55 operator API tests**;
 the focused admin/manual/publisher run passed **163 tests**, with **3 private-fixture
 skips**. The full Python suite passed **2,174 tests**, with **117 private-fixture
 skips and one Windows symlink-permission skip**. All **97 Node tests** passed.
@@ -288,6 +309,17 @@ tracked EXP. The final synthetic database, desktop/mobile screenshots and browse
 receipt are under `private/admin-a2/browser-verified/`; its test servers have stopped.
 The browser also checks that a successful save retains its receipt and reports a
 subsequent refresh failure, so a read failure does not masquerade as a failed write.
+The usability redesign retains the same **55 passing API tests** and **2,174 Python
+passes**, with the same 117 private-fixture skips and one Windows permission skip.
+The **111 Node passes** include 14 new local-time tests for seasonal offsets,
+repeated/skipped times, half-hour clock changes, quarter-hour zones and invalid
+dates. Chrome exercises the native date/time form, percentage-only and numeric-only
+entries, Fix/Edit/Undo, exact microseconds, recording ambiguity, daylight-saving
+choices, rename, empty states, keyboard navigation/Enter submission and mobile
+review. Public updates and unchanged tracked EXP are checked too. Latest logs are
+under `private/admin-usability/`; screenshots, the synthetic database and the
+browser verification receipt are in `private/admin-usability/browser-final/`.
+
 To reproduce
 the browser check with Python dependencies and Chrome already installed:
 
