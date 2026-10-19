@@ -162,15 +162,3 @@ def test_homepage_and_character_api_share_one_card_computation_per_revision(trac
         home=json.loads(request((server,None),'/api/players')[2]);character=json.loads(request((server,None),'/api/players/alpha')[2])
         assert len(calls)==2 and character['history'][-1]['timestamp']==(NOW+timedelta(seconds=100)).isoformat()
         assert home['players'][0]['latest_attempt_at']==character['player']['latest_attempt_at']
-
-
-def test_spent_rebuild_budget_serves_last_completed_card_but_builds_new_channels(tracking):
-    _,store,d=tracking;d.begin('one','alpha',config('one',interval=20))
-    for i in range(1,4):save(d,'one',i,i*20,3300+i*5)
-    cache={};now=NOW+timedelta(seconds=80)
-    d.directory(cache,now=now)
-    save(d,'one',4,80,3320);store.add_channel('beta')
-    served=d.directory(cache,now=now,budget_seconds=0)
-    assert [c['channel'] for c in served['streams']]==['alpha','beta']
-    assert served['streams'][0]['last_attempt_at']==(NOW+timedelta(seconds=60)).isoformat()
-    assert d.directory(cache,now=now)['streams'][0]['last_attempt_at']==(NOW+timedelta(seconds=80)).isoformat()

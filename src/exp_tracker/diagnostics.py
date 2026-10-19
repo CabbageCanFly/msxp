@@ -9,7 +9,6 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
-import time
 
 from .shadow_view import MAX_LINE, MAX_ROWS, ShadowLog, observation, timestamp
 from .store import Store, utc
@@ -46,6 +45,26 @@ def due(player,built_at,now):
     history_due=(any(w['available'] for w in player['recent_windows'].values())
         and (now-datetime.fromisoformat(built_at)).total_seconds()>=10)
     return pace_due or history_due
+
+
+def present_card(card,*,now,active_runs=None,coordinator_status=None):
+    """Time presentation of a cached card as a new dict; the cached card is never mutated."""
+    card = deepcopy(card)
+    def age(when):
+        return (now-datetime.fromisoformat(when)).total_seconds() if when else None
+    local_age = age(card['last_attempt_at'])
+    percentage_age = age((card['percentage'] or {}).get('timestamp'))
+    card.update(age_seconds=max(0,local_age) if local_age is not None else None,
+        percentage_age_seconds=max(0,percentage_age) if percentage_age is not None else None,
+        percentage_stale=percentage_age is None or percentage_age<0 or percentage_age>card['stale_after_seconds'],
+        stale=local_age is None or local_age<0 or local_age>card['stale_after_seconds'] or card['last_attempt_noncurrent'])
+    if card['stale'] or percentage_age is None or percentage_age<0 or percentage_age>card['stale_after_seconds']:
+        card['pace']=None
+    if card['run_status']=='unfinished' and active_runs is not None and card['run_id'] in active_runs:
+        card['run_status']='active'
+    card['operation']=operation(card,(coordinator_status or {}).get(card['channel']),now)
+    card['player']=refresh(card['player'],now=now,activity=card['operation'])
+    return card
 
 
 def rotation_link(previous, current):
@@ -451,41 +470,16 @@ class Diagnostics:
                 lifecycle={k:snap[k] for k in ('run_status','historical','unfinished_run_count')}))
         return cache[head['login']]
 
-    def directory(self, cache, *, now=None, active_runs=None,coordinator_status=None,checkpoints=None,eta_cache=None,budget_seconds=None):
-        """Cache compact cards by committed revision; never retain full histories.
-
-        With a budget, stale cards are rebuilt newest-revision-first until it is spent;
-        the rest are served as their last completed card, aged by refresh().
-        """
+    def directory(self, cache, *, now=None, active_runs=None,coordinator_status=None,checkpoints=None,eta_cache=None):
+        """Cache compact cards by committed revision; never retain full histories."""
         now = now or datetime.now(timezone.utc)
         cards = []
         with self.store._transaction():
             heads=self.heads()
-            stale=[h for h in heads[:25] if h['login'] not in cache or cache[h['login']][0]!=tuple(h)
-                or due(cache[h['login']][1]['player'],cache[h['login']][1]['recent_as_of'],now)]
-            stale.sort(key=lambda h:(h['login'] in cache,h['login'] in cache and cache[h['login']][0]==tuple(h),
-                cache[h['login']][1]['recent_as_of'] if h['login'] in cache else ''))
-            started=time.monotonic()
-            for head in stale:
-                if budget_seconds is not None and head['login'] in cache and time.monotonic()-started>=budget_seconds:continue
+            for head in heads[:25]:
                 self.card(cache,head,now=now,checkpoints=checkpoints,eta_cache=eta_cache)
             for head in heads[:25]:
-                card = deepcopy(cache[head['login']][1])
-                def age(when):
-                    return (now-datetime.fromisoformat(when)).total_seconds() if when else None
-                local_age = age(card['last_attempt_at'])
-                percentage_age = age((card['percentage'] or {}).get('timestamp'))
-                card.update(age_seconds=max(0,local_age) if local_age is not None else None,
-                    percentage_age_seconds=max(0,percentage_age) if percentage_age is not None else None,
-                    percentage_stale=percentage_age is None or percentage_age<0 or percentage_age>card['stale_after_seconds'],
-                    stale=local_age is None or local_age<0 or local_age>card['stale_after_seconds'] or card['last_attempt_noncurrent'])
-                if card['stale'] or percentage_age is None or percentage_age<0 or percentage_age>card['stale_after_seconds']:
-                    card['pace']=None
-                if card['run_status']=='unfinished' and active_runs is not None and card['run_id'] in active_runs:
-                    card['run_status']='active'
-                card['operation']=operation(card,(coordinator_status or {}).get(card['channel']),now)
-                card['player']=refresh(card['player'],now=now,activity=card['operation'])
-                cards.append(card)
+                cards.append(present_card(cache[head['login']][1],now=now,active_runs=active_runs,coordinator_status=coordinator_status))
             allowed = {head['login'] for head in heads[:25]}
             for key in list(cache):
                 if key not in allowed: del cache[key]

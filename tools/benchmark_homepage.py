@@ -3,7 +3,8 @@
 One full-day 20-second channel is written through the normal Diagnostics append and
 rotation path, then cloned per channel with SQL. An in-process read-only server is
 timed over HTTP in cold, warm and newly-appended (cache-invalidated) states, then
-under a bounded concurrent viewer load. ``--full-replay`` disables causal checkpoints.
+under a bounded concurrent viewer load, with the background publisher. ``--full-replay``
+disables causal checkpoints.
 """
 import argparse
 from contextlib import closing
@@ -77,25 +78,6 @@ def clone(db,channels,start):
                 FROM diagnostic_attempts WHERE run_id LIKE 'c00-%' ORDER BY id''',(prefix,name,session))
 
 
-class TimedLock:
-    def __init__(self):self.lock=threading.Lock();self.wait=0.0;self.held=0.0;self.since=0.0
-    def __enter__(self):
-        tick=time.perf_counter();self.lock.acquire();self.since=time.perf_counter();self.wait+=self.since-tick
-    def __exit__(self,*_):self.held+=time.perf_counter()-self.since;self.lock.release()
-
-
-SPENT={}
-def timed(name,function):
-    def wrapper(*args,**kwargs):
-        tick=time.perf_counter()
-        try:return function(*args,**kwargs)
-        finally:SPENT[name]=SPENT.get(name,0.0)+time.perf_counter()-tick
-    return wrapper
-
-
-for name in ('directory','rolling_history','recent_snapshot'):setattr(Diagnostics,name,timed(name,getattr(Diagnostics,name)))
-
-
 PROCESS=psutil.Process(os.getpid())
 def cpu():
     times=PROCESS.cpu_times();return times.user+times.system
@@ -115,49 +97,55 @@ def nested(packet):
 
 
 def measure(db,channels,open_runs,next_n,start,repeat,full_replay=False,viewers=0,seconds=0):
-    server=create_server(db,port=0,diagnostic_dashboard=True);server.quiet=True
+    """Background publisher: requests only read published state; the refresher computes it."""
+    used=cpu();tick=time.monotonic()
+    server=create_server(db,port=0,diagnostic_dashboard=True,background=True);server.quiet=True
     if full_replay:server.checkpoints=None
-    server.history_lock=TimedLock();server.directory_lock=TimedLock()
     baseline=threading.active_count()
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     result=dict(channels=channels);n=dict.fromkeys((f'bench_{i:02d}' for i in range(channels)),next_n)
-    def scenario(label,action):
-        SPENT.clear();server.history_lock.wait=server.history_lock.held=server.directory_lock.wait=0.0
-        used=cpu();ms,body=action()
-        result[label]=dict(ms=round(ms,1),cpu_ms=round((cpu()-used)*1000),**{k:round(v*1000,1) for k,v in SPENT.items()},
-            history_lock_wait_ms=round(server.history_lock.wait*1000,1),history_lock_held_ms=round(server.history_lock.held*1000,1),
-            directory_lock_wait_ms=round(server.directory_lock.wait*1000,1))
-        return body
+    publisher=server.publisher
     def append(names):
         # A new capture for each named channel: the latest revision changes, as in live operation.
+        stamps={}
         with Store(db) as store:
             d=Diagnostics(store)
             for name in names:
-                i=int(name[-2:]);d.append(open_runs.replace('c00-',f'c{i:02d}-'),payload(name,n[name]%60+1,n[name],start,datetime.now(timezone.utc)))
+                i=int(name[-2:]);stamps[name]=datetime.now(timezone.utc)
+                d.append(open_runs.replace('c00-',f'c{i:02d}-'),payload(name,n[name]%60+1,n[name],start,stamps[name]))
                 n[name]+=1
+        return stamps
+    def published(stamps):
+        """Seconds until every appended capture is visible through the HTTP API."""
+        tick=time.monotonic()
+        while time.monotonic()-tick<600:
+            players={p['channel']:p for p in get(server,'/api/players')[1]['players']}
+            if all(players.get(c,{}).get('latest_attempt_at')==s.isoformat() for c,s in stamps.items()):return round(time.monotonic()-tick,2)
+            time.sleep(.05)
+        raise AssertionError('Publication did not arrive')
+    def stats():
+        value=dict(publisher.stats);return dict(builds=value['builds'],build_seconds=value['build_seconds'],presentations=value['presentations'],present_seconds=value['present_seconds'])
     names=[f'bench_{i:02d}' for i in range(channels)]
     try:
-        body=scenario('home_cold',lambda:get(server,'/api/players'))
-        assert len(body['players'])==channels
+        ms,body=get(server,'/api/players')
+        result['cold_first_response_ms']=round(ms,1);result['cold_first_warming']=len(body.get('warming',[]))
+        while len(get(server,'/api/players')[1]['players'])<channels:time.sleep(.1)
+        result['cold_full_availability_seconds']=round(time.monotonic()-tick,1);result['cold_cpu_seconds']=round(cpu()-used,1)
         warm=[get(server,'/api/players')[0] for _ in range(repeat)]
         result['home_warm_ms']=dict(median=round(statistics.median(warm),1),max=round(max(warm),1))
-        append(names[:1]);scenario('home_one_new_capture',lambda:get(server,'/api/players'))
-        append(names);body=scenario('home_all_new_captures',lambda:get(server,'/api/players'))
-        # Every channel changed, so every packet is recomputed at this response's clock.
-        served=datetime.fromisoformat(body['served_at'].replace('Z','+00:00'))
-        assert all(datetime.fromisoformat(p['tracked_as_of'])==served for p in body['players'])
-        result['nested_values']=min(nested(get(server,f'/api/players/{name}/history')[1]) for name in names)
         warm=[get(server,'/api/players/bench_00')[0] for _ in range(repeat)]
         result['character_warm_ms']=dict(median=round(statistics.median(warm),1),max=round(max(warm),1))
-        append(names[:1]);scenario('character_new_capture',lambda:get(server,'/api/players/bench_00'))
-        if channels>1:
-            # Unrelated reader while the homepage replays every changed channel.
-            append(names);other=names[-1];get(server,f'/api/players/{other}')  # other's own cache is fresh
-            append([n_ for n_ in names if n_!=other]);done={}
-            homepage=threading.Thread(target=lambda:done.update(home=get(server,'/api/players')[0]));homepage.start()
-            time.sleep(.05);done['other']=get(server,f'/api/players/{other}')[0];homepage.join()
-            result['concurrent_homepage_ms']=round(done['home'],1);result['concurrent_unchanged_character_ms']=round(done['other'],1)
-        if viewers:result['viewers']=load(server,names,append,viewers,seconds)
+        before=stats()
+        result['one_capture_visible_seconds']=[published(append(names[:1])) for _ in range(3)]
+        result['all_captures_visible_seconds']=published(append(names))
+        after=stats()
+        result['refresh_build_ms_mean']=round((after['build_seconds']-before['build_seconds'])/max(1,after['builds']-before['builds'])*1000)
+        result['present_ms_mean']=round((after['present_seconds']-before['present_seconds'])/max(1,after['presentations']-before['presentations'])*1000,1)
+        result['nested_values']=min(nested(get(server,f'/api/players/{name}/history')[1]) for name in names)
+        if viewers:
+            before=stats();result['viewers']=load(server,names,append,viewers,seconds);after=stats()
+            result['viewers'].update(refresher_builds=after['builds']-before['builds'],refresher_busy_fraction=round((after['build_seconds']-before['build_seconds'])/result['viewers']['seconds'],2),
+                presentations=after['presentations']-before['presentations'],present_busy_fraction=round((after['present_seconds']-before['present_seconds'])/result['viewers']['seconds'],3))
         result['rss_mib']=round(PROCESS.memory_info().rss/2**20)
     finally:
         server.shutdown();thread.join(5);server.server_close()

@@ -276,7 +276,7 @@ def fraction(value):
     return Fraction(value['numerator'],value['denominator'])
 
 
-def tracked_statistics(value,data,*,now):
+def tracked_statistics(value,data,*,now,pace_as_of=None):
     """One saved-character/as-of packet supplies every public tracked-EXP total."""
     value['tracked_as_of']=data['as_of'];value['tracked_status']=data['status']
     as_of=datetime.fromisoformat(data['as_of'])
@@ -294,7 +294,7 @@ def tracked_statistics(value,data,*,now):
             metric.update(gain=tracked.get('gain'),observed=tracked.get('observed',dict(available=False)),
                 available=tracked.get('available',False),tracked_status=data['status'],tracked_as_of=data['as_of'],
                 tracked_scope=data['scope'],start=(as_of-timedelta(minutes=int(minutes))).isoformat(),end=data['as_of'],
-                pace_as_of=now.isoformat())
+                pace_as_of=(pace_as_of or now).isoformat())
     return value
 
 

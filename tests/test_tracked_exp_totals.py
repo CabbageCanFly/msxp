@@ -190,15 +190,17 @@ def test_http_totals_share_one_asof_packet_through_cache_and_clock_expiry(tracki
     assert not store.db.execute('select 1 from observations').fetchone()
 
 
-def test_refreshing_an_existing_history_cache_entry_does_not_evict_another_channel(tracking):
-    from exp_tracker.server import Handler
-    _,store,d=tracking;save(d,'run',1,0,3300);save(d,'run',2,20,3305)
-    handler=object.__new__(Handler)
-    cache={'alpha':(None,0,None),**{f'other{i}':(None,0,None) for i in range(24)}}
-    handler.server=SimpleNamespace(history_lock=threading.Lock(),history_cache=cache,checkpoints={})
-    result=handler.tracked(store,'alpha',NOW+timedelta(seconds=20))
-    assert result['tracked_exp']['approximate']>0
-    assert len(cache)==25 and all(f'other{i}' in cache for i in range(24))
+def test_rebuilding_one_published_channel_keeps_the_other_channels_entry(tracking,monkeypatch):
+    import exp_tracker.server as module
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return NOW+timedelta(seconds=60)
+    monkeypatch.setattr(module,'datetime',Clock)
+    path,store,d=tracking;save(d,'run',1,0,3300);save(d,'run',2,20,3305);store.add_channel('beta')
+    with module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        server.publisher.settle();beta=server.publisher.entry('beta')
+        save(d,'run',3,40,3310);server.publisher.settle()
+        assert server.publisher.entry('beta') is beta and server.publisher.entry('alpha')['tracked']['intervals']==2
 
 
 def test_saved_emmies_exact_discrepancy_is_fixed_and_nested_after_sqlite_restart(tmp_path):

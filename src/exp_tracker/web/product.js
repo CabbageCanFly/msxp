@@ -13,7 +13,7 @@ const sorts={exp_hour:'Estimated pace over the selected window; community requir
 let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=5,chartMode='exp',bucketSeconds=60,pollTimer=null,activeController=null;
 let rollingData=null,rollingReceived=0,rollingRevision=null,rollingFailed=false,rollingController=null,rollingTimer=null;
 let tip=null,tipKey=null,tipPosition=null,tipDismissed=false,lastPointer=null;
-let currentLevelOnly=false;
+let currentLevelOnly=false,warming=false;
 const el=id=>document.getElementById(id);
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
 function hideTip() { if(tip)tip.hidden=true;tipKey=null;tipPosition=null; }
@@ -227,7 +227,7 @@ function renderBoard() {
   [...el('entries').querySelectorAll('.exp-number')].filter(n=>n.clientWidth>0 && n.scrollWidth>n.clientWidth+1).forEach(n=>{n.textContent=n.dataset.compactNumber;});
   if(focus) [...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
-  el('board-count').textContent=data?`${rows.length} character${rows.length===1?'':'s'} · saved stream readings`:failed?'Tracker unavailable':'Loading your party…';
+  el('board-count').textContent=data?`${rows.length} character${rows.length===1?'':'s'} · saved stream readings${data.warming?.length?` · preparing ${data.warming.length} more`:''}`:failed?'Tracker unavailable':'Loading your party…';
   el('ranking-count').textContent=`${rows.filter(r=>r.rank!=null).length} eligible · ${rows.length} shown`;
   el('ranking-note').textContent=sort==='level'?'Your party, by level':`Comparing complete ${windowMinutes}-minute windows`;
   el('ranking-note').title=sorts[sort]+(sort==='level'?'':` ${windowMinutes}-minute window; ≥90% contiguous coverage, no interpolation.`);
@@ -237,7 +237,7 @@ function renderBoard() {
 }
 function renderPlayer() {
   const p=data?.player,r=p?.reading;
-  if(!p) { el('status').textContent=failed?'Tracker unavailable':'Waiting for EXP';return; }
+  if(!p) { el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return; }
   const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (view==='player' && p.recent_windows?null:s.metrics);
   if(view==='overlay') { el('streamer').textContent=sourceText(p);el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
   else { el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=sourceText(p); }
@@ -438,7 +438,10 @@ async function poll() {
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000),requested=performance.now();
   activeController=controller;
   try {
-    const response=await fetch(endpoint,{cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error();
+    const response=await fetch(endpoint,{cache:'no-store',signal:controller.signal});
+    // The server is still building this channel's first published state after a restart.
+    warming=response.status===503 && (await response.json().catch(()=>({}))).error==='warming_up';
+    if(!response.ok)throw new Error();
     data=await response.json();receivedAt=requested;failed=false;
     if(view==='player' && data.tracked_history){rollingData=data.tracked_history;rollingReceived=performance.now();rollingFailed=false;}
     if(view==='board')renderBoard();else { renderPlayer();if(view==='player'){drawHistory();if(Array.isArray(data.history))pollRolling();} }

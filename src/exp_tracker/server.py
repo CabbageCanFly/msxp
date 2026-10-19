@@ -1,7 +1,7 @@
 """Local read-only state API and OBS overlay: python -m exp_tracker.server --db PATH."""
 
 import argparse
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -9,13 +9,13 @@ import re
 import sqlite3
 import sys
 import threading
-import time
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
 from .diagnostics import Diagnostics, operation
-from .product import refresh,reading,tracked_statistics,PACE_TREND_SECONDS
+from .product import reading,PACE_TREND_SECONDS
+from .publisher import Publisher
 from .pace_intervals import collect
 from .twitch_probe import StreamAvailability
 from .twitch_auth import AppTokens
@@ -38,61 +38,27 @@ PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/prod
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
 
-# Homepage requests rebuild stale cards for at most this long, then serve the last
-# completed cards; the browser abandons a request after five seconds.
-REBUILD_BUDGET_SECONDS=1.5
-
-
 class TrackerHTTPServer(ThreadingHTTPServer):
     def server_close(self):
         super().server_close()
+        publisher=getattr(self,'publisher',None)
+        if publisher:publisher.close()
         availability=getattr(self,'twitch_availability',None)
         if availability:availability.auth.close()
 
 
 class Handler(BaseHTTPRequestHandler):
-    def tracked(self,store,channel,now):
-        with self.server.history_lock,store._transaction():
-            streamer=store._channel(channel)
-            revision=store.db.execute('SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id '
-                'WHERE '+('a.session_id IN (SELECT id FROM sessions WHERE streamer_id=? AND character_id=?)' if store.schema_version>=4 else 'r.streamer_id=? AND r.character_id=?'),
-                (streamer['id'],streamer['selected_character_id'])).fetchone()[0]
-            key=(streamer['selected_character_id'],revision)
-            cached=self.server.history_cache.get(channel)
-            if cached is None or cached[0]!=key or time.monotonic()-cached[1]>=30 or abs((now-datetime.fromisoformat(cached[2]['as_of'])).total_seconds())>=30:
-                value=Diagnostics(store).rolling_history(channel,now=now,checkpoints=self.server.checkpoints)
-                if channel not in self.server.history_cache and len(self.server.history_cache)>=25:self.server.history_cache.pop(next(iter(self.server.history_cache)))
-                self.server.history_cache[channel]=(key,time.monotonic(),value)
-            return self.server.history_cache[channel][2]
-
-    def broadcasts(self,players):
-        # Query only compact latest source metadata; no history projection per card.
-        with Store(self.server.database,read_only=True) as store:
-            rows=store.db.execute('''SELECT s.login,r.configuration_json AS config,
-                (SELECT payload_json FROM diagnostic_attempts WHERE run_id=r.run_id ORDER BY attempt_index DESC LIMIT 1) AS payload
-                FROM streamers s LEFT JOIN diagnostic_runs r ON r.rowid=(
-                    SELECT rowid FROM diagnostic_runs WHERE streamer_id=s.id ORDER BY rowid DESC LIMIT 1)
-                ORDER BY s.login LIMIT 25''').fetchall()
-        channels=[r['login'] for r in rows if (json.loads(r['config'] or '{}').get('source_kind') or
-            json.loads(r['payload'] or '{}').get('source',{}).get('kind'))=='twitch']
-        now=datetime.now(timezone.utc)
-        statuses=self.server.twitch_availability.snapshot(channels,now=now)
-        for value in players:
-            value['twitch']=statuses.get(value['channel'],dict(status='not_applicable' if value['source_kind']=='file' else 'unknown',reason='source_unavailable'))
-            status=value['twitch']
-            status['capture_disagreement']=bool(status['status']=='offline' and value.get('latest_attempt_at') and status.get('checked_at')
-                and datetime.fromisoformat(value['latest_attempt_at'])>=datetime.fromisoformat(status['checked_at'])-timedelta(seconds=60)
-                and value['latest_attempt_status']!='capture_failed')
-        return [refresh(p,now=now,activity=p.get('activity')) for p in players]
-
     def log_message(self, format, *args):
         if not getattr(self.server, 'quiet', False):
             super().log_message(format, *args)
 
-    def reply(self, status, body, content_type="application/json"):
-        payload = json.dumps(body, allow_nan=False).encode() if content_type == "application/json" else body
+    def reply(self, status, body, content_type="application/json", headers=()):
+        # Bytes are a body the publisher already serialized for every viewer.
+        payload = json.dumps(body, allow_nan=False).encode() if content_type == "application/json" and not isinstance(body, bytes) else body
         self.send_response(status)
         self.send_header("Content-Type", content_type + "; charset=utf-8")
+        for name, value in headers:
+            self.send_header(name, value)
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         if status == 405:
@@ -121,34 +87,26 @@ class Handler(BaseHTTPRequestHandler):
                 elif path in ('/','/streams'):
                     self.reply(200,(WEB/'tracker.html').read_bytes(),'text/html')
                 elif path=='/api/players':
-                    with Store(self.server.database,read_only=True) as store:
-                        with self.server.directory_lock:
-                            data=Diagnostics(store).directory(self.server.directory_cache,active_runs=self.server.active_run_ids.copy(),coordinator_status=self.server.coordinator_status.copy(),
-                                checkpoints=self.server.checkpoints,eta_cache=self.server.eta_cache,budget_seconds=REBUILD_BUDGET_SECONDS)
-                        # Outside directory_lock: character pages only wait for card rebuilds.
-                        now=datetime.fromisoformat(data['served_at'])
-                        for row in data['streams']:tracked_statistics(row['player'],self.tracked(store,row['player']['channel'],now),now=now)
-                    self.reply(200,dict(players=self.broadcasts([r['player'] for r in data['streams']]),served_at=data['served_at'],truncated=data['truncated'],experimental=True,poll_seconds=2))
+                    # Requests only present published state; inline servers settle it first.
+                    publisher=self.server.publisher
+                    if not publisher.background:publisher.settle()
+                    self.reply(200,publisher.homepage())
                 else:
                     channel=(product_api[1] if product_api else product_history[1] if product_history else product_page[2]).lower()
                     if not CHANNEL.fullmatch(channel):self.reply(400,{'error':'invalid_channel'});return
-                    with Store(self.server.database,read_only=True) as store:
-                        streamer=store._channel(channel)
-                        if product_history:
-                            now=datetime.now(timezone.utc)
-                            self.reply(200,dict(self.tracked(store,channel,now),served_at=utc(now)))
-                        elif product_api:
-                            now=datetime.now(timezone.utc)
-                            # The homepage's per-revision card: one computation for every viewer.
-                            with self.server.directory_lock,store._transaction():
-                                diagnostics=Diagnostics(store)
-                                _,card,extras=diagnostics.card(self.server.directory_cache,diagnostics.heads(channel)[0],now=now,
-                                    checkpoints=self.server.checkpoints,eta_cache=self.server.eta_cache)
-                            value=refresh(card['player'],now=now,activity=operation(extras['lifecycle'],self.server.coordinator_status.get(channel),now))
-                            tracked=self.tracked(store,channel,now);tracked_statistics(value,tracked,now=now)
-                            self.reply(200,dict(player=self.broadcasts([value])[0],tracked_history=tracked,history=extras['history'],truncated=extras['truncated'],served_at=utc(now),experimental=True,poll_seconds=2))
-                        else:
-                            self.reply(200,(WEB/('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html')).read_bytes(),'text/html')
+                    if product_page:
+                        with Store(self.server.database,read_only=True) as store:store._channel(channel)
+                        self.reply(200,(WEB/('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html')).read_bytes(),'text/html')
+                        return
+                    publisher=self.server.publisher
+                    if not publisher.background:publisher.settle()
+                    body=publisher.character(channel) if product_api else publisher.history(channel)
+                    if body is None:
+                        with Store(self.server.database,read_only=True) as store:store._channel(channel)  # Unknown: 404.
+                        publisher.want(channel)
+                        self.reply(503,{'error':'warming_up','retry_after_seconds':2},headers=[('Retry-After','2')])
+                    else:
+                        self.reply(200,body)
             except ValueError as error:
                 self.reply(404 if str(error)=='unknown channel' else 503,{'error':'unknown_channel' if str(error)=='unknown channel' else 'database_unavailable'})
             except sqlite3.Error:
@@ -253,7 +211,8 @@ class Handler(BaseHTTPRequestHandler):
     do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = reject_write
 
 
-def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False):
+def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False,background=False):
+    """background=True runs the publisher thread; otherwise requests settle it inline."""
     database = Path(database).resolve()
     with Store(database, read_only=True):
         pass  # Validate without creating, migrating or changing journal mode.
@@ -266,11 +225,12 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.coordinator_status = {}
     server.directory_cache = {}
     server.directory_lock = threading.Lock()
-    server.history_cache={}
     server.eta_cache={}
     server.checkpoints={}  # Exact resumable causal replay state; see rolling_history.replay().
-    server.history_lock=threading.Lock()
     server.twitch_availability=StreamAvailability(enabled=twitch_status,auth=AppTokens(maintain=twitch_status))
+    # Module-level datetime, so replay fixtures that pin this module's clock pin the publisher.
+    server.publisher=Publisher(server,clock=lambda:datetime.now(timezone.utc),background=background)
+    server.publisher.start()
     return server
 
 
@@ -286,7 +246,7 @@ def main(argv=None):
         parser.error("port must be 0..65535")
     try:
         with create_server(args.db, port=args.port, shadow_log=args.shadow_log,
-                           diagnostic_dashboard=args.diagnostic_dashboard,twitch_status=args.twitch_status) as server:
+                           diagnostic_dashboard=args.diagnostic_dashboard,twitch_status=args.twitch_status,background=True) as server:
             print(f'Database: {server.database}', flush=True)
             print('Read-only HTTP server; capture is NOT started by this command.', flush=True)
             print(f"Local read-only server: http://127.0.0.1:{server.server_port}/overlay/CHANNEL", flush=True)

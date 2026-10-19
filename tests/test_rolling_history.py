@@ -260,9 +260,9 @@ def test_http_rolling_cache_invalidates_on_commit_character_and_clock_without_mu
         assert value['intervals']==1 and value['trusted'] is False
         assert len(value['buckets'])==48 and len(body)<24000
         assert not any(key in body.decode() for key in ('raw_text','source_identity','payload_json','sqlite3','frame_sha256'))
-        cached=server.history_cache['alpha'][2]
+        cached=server.publisher.entry('alpha')['tracked']
         assert json.loads(request((server,None),route)[2])==value
-        assert server.history_cache['alpha'][2] is cached
+        assert server.publisher.entry('alpha')['tracked'] is cached  # Reused, not recomputed.
         append(d,3,'[33.10%]');Clock.at=NOW+timedelta(seconds=30)
         updated=json.loads(request((server,None),route)[2])
         assert updated['intervals']==2 and fraction(updated['tracked_exp'])==2*fraction(value['tracked_exp'])

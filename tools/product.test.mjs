@@ -29,6 +29,14 @@ test('character page tab names the channel before any reading; overlay keeps its
   assert.equal(page().context.document.title,undefined);
 });
 
+test('a warming server is described as preparing history, not as unavailable',async()=>{
+  const p=page('player',()=>Promise.resolve({ok:false,status:503,json:()=>Promise.resolve({error:'warming_up'})}));
+  await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(p.elements.status.textContent,'Preparing saved history…');
+  const board=page('board',()=>new Promise(()=>{}));board.context.fixture={players:[],warming:['beta']};
+  board.run("el('entries').querySelectorAll=()=>[];data=fixture;renderBoard()");assert.match(board.elements['board-count'].textContent,/preparing 1 more/);
+});
+
 test('ETA rounds once to the nearest minute and retains day, hour and minute detail',()=>{
   const p=page('player');
   for(const [seconds,expected] of [[24*60+31,'~25m'],[3600+22*60+12,'~1h 22m'],[7*3600+43*60+28,'~7h 43m'],

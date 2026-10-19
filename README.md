@@ -50,6 +50,8 @@ The [card projection follow-up](docs/card-projection.md) removes repeated parsin
 projection inside each card with exact reference parity, and records the remaining cost.
 The [EXP-derived level search](docs/exp-inference-performance.md) restores pre-merge cold
 replay cost with an exact integer interval search over requirements.
+[Background publishing](docs/background-publishing.md) moves card, history and Twitch
+work out of HTTP requests; viewers read one shared, timestamped publication.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a
