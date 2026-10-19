@@ -563,28 +563,74 @@ test('public inferred levels omit question marks and preserve hover provenance',
   assert.match(p.elements.level.title,/Last supported level, retained/);assert.match(p.elements.level.title,/exp_derived/);
   const possible=level('retained_level',42);possible.level_context.transition={phase:'possible',from_level:42,to_level:43,before_bp:9992,after_bp:18,detected_at:'2026-01-01T00:01:30Z'};
   p.render(player(possible));
-  assert.equal(p.elements.level.textContent,'Lv. 43');assert.match(p.elements.level.title,/Possible level-up: percentage went from 99.92% to 0.18%/);
+  assert.equal(p.elements.level.textContent,'Lv. 42');assert.match(p.elements.level.title,/Possible level-up: percentage went from 99.92% to 0.18%/);
   p.render(player(level('provisional_level_up',43)));
   assert.equal(p.elements.level.textContent,'Lv. 43');assert.match(p.elements.level.title,/Provisional level-up/);
   p.render(player(level('agreement',42)));
   assert.equal(p.elements.level.textContent,'Lv. 42');assert.equal(p.elements.level.dataset.inferred,'false');
 });
 
-test('homepage, character and overlay show the proposed level through every transition phase',()=>{
+test('homepage, character and overlay show supported levels through every transition phase',()=>{
   for(const phase of ['possible','provisional','corroborated'])for(const view of ['board','player','overlay']){
     const fixture=player({display_level:{value:phase==='possible'?42:43,age_seconds:0,
       evidence:{value:phase==='possible'?42:43,status:phase==='possible'?'retained_level':phase==='provisional'?'provisional_level_up':'exp_derived'}},
       level_context:{transition:phase==='corroborated'?null:{phase,from_level:42,to_level:43,before_bp:9992,after_bp:18,detected_at:'2026-01-01T00:01:30Z'}}});
     const p=page(view);p.context.sample=fixture;
+    const expected=phase==='possible'?42:43;
     if(view==='board'){
-      assert.equal(p.run('metricValue(sample,"level")'),43);
-      assert.equal(p.run('entry({player:sample,value:43,rank:1}).children[1].children[1].textContent'),'43');
+      assert.equal(p.run('metricValue(sample,"level")'),expected);
+      assert.equal(p.run('entry({player:sample,value:metricValue(sample,"level"),rank:1}).children[1].children[1].textContent'),String(expected));
     }else{
-      p.render(fixture);assert.equal(p.elements.level.textContent,'Lv. 43');
+      p.render(fixture);assert.equal(p.elements.level.textContent,`Lv. ${expected}`);
       assert.match(p.elements.level.title,phase==='possible'?/Possible level-up/:phase==='provisional'?/Provisional level-up/:/Inferred from EXP/);
     }
     assert.equal(fixture.display_level.value,phase==='possible'?42:43);
   }
+});
+
+test('suspected wrap and unreadable HUD keep level 43 with its 99.97 percent bar until accepted evidence',()=>{
+  const stamp='2026-01-01T00:00:00Z',old={exp:'391048',percentage:'99.97',bp:9997,evidence:'strict_full',timestamp:stamp,level:{value:43,status:'exp_derived'}},
+    saved={value:43,age_seconds:45,timestamp:stamp,last_known:true,evidence:old.level},
+    transition={phase:'possible',from_level:43,to_level:44,before_bp:9997,after_bp:3,detected_at:'2026-01-01T00:00:15Z'};
+  for(const view of ['board','player','overlay']){
+    const p=page(view),pending=player({reading:old,display_level:saved,stale:true,level_events:[],
+      latest_attempt_status:'unavailable',latest_attempt_at:'2026-01-01T00:00:45Z',latest_attempt_age_seconds:0,
+      level_context:{last_supported_level:43,transition}}),original=JSON.stringify(pending);
+    p.context.sample=pending;
+    if(view==='board'){
+      assert.equal(p.run('metricValue(sample,"level")'),43);
+      assert.equal(p.run('entry({player:sample,value:43,rank:1}).children[1].children[1].textContent'),'43');
+      assert.match(p.run('statusText(sample)'),/Possible level-up detected.*awaiting confirmation/);
+    }else{
+      p.render(pending);assert.equal(p.elements.level.textContent,'Lv. 43');
+      assert.equal(p.elements.progress.value,99.97);assert.equal(p.elements.percentage.textContent,'99.97%');
+      assert.match(p.elements.status.textContent,/Possible level-up detected.*awaiting confirmation/);
+      assert.match(p.elements.level.title,/Lv. 43 is the last supported level; Lv. 44 needs/);
+      if(view==='player'){
+        p.context.points=[{event_id:'old',timestamp:stamp,level:old.level,reading:old,interval_seconds:15},
+          {event_id:'wrap',timestamp:transition.detected_at,level:{value:null,status:'possible_level_up'},reading:null,interval_seconds:15}];
+        p.run('data.history=points;chartMode="percentage";currentLevelOnly=true;drawHistory()');
+        assert.match(p.elements['history-note'].textContent,/Lv. 43/);
+        assert.equal(p.elements['level-event'].hidden,true);
+        assert.ok(!p.elements['history-chart'].children.some(n=>/44/.test(n.textContent ?? '')));
+      }
+      for(const accepted of [true,false]){
+        const level=accepted?44:43,reading={...old,exp:accepted?'5000':'391100',percentage:accepted?'1.17':'99.98',bp:accepted?117:9998,level:{value:level,status:'exp_derived'}};
+        p.render(player({reading,display_level:{...saved,value:level,evidence:reading.level},
+          level_context:{last_supported_level:level,transition:null,last_transition:{...transition,phase:accepted?'corroborated':'abandoned'}}}));
+        assert.equal(p.elements.level.textContent,`Lv. ${level}`);assert.equal(p.elements.progress.value,reading.bp/100);
+        assert.doesNotMatch(p.elements.status.textContent,/Possible level-up/);
+      }
+    }
+    assert.equal(JSON.stringify(pending),original); // Rendering preserves the pending evidence.
+  }
+});
+
+test('a possible transition without a supported level keeps the unknown display',()=>{
+  const p=page('player');p.render(player({reading:null,display_level:null,
+    level_context:{transition:{phase:'possible',from_level:43,to_level:44}}}));
+  assert.equal(p.elements.level.textContent,'Lv. —');assert.equal(p.elements.progress.hidden,true);
+  assert.equal(p.run('metricValue(data.player,"level")'),null);
 });
 
 test('inferred level-up banner and chart marker stay provisional until corroborated',()=>{

@@ -62,14 +62,13 @@ function expTitle(r) {
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
 function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l.age_seconds+(performance.now()-receivedAt)/1000>p.stale_after_seconds); }
-// Public labels show the proposed level; provenance and uncertainty stay in hover text.
+// Public labels follow accepted display evidence; possible wraps stay in the status and hover text.
 const LEVEL_SOURCES={exp_derived:'Inferred from EXP and percentage with the provisional community table; not read from the level HUD.',
   retained_level:'Last supported level, retained across percentage-only readings; not re-verified since then.',
   provisional_level_up:'Provisional level-up inferred from a percentage wrap and forward progress; awaiting EXP or level-reader corroboration.'};
 function levelTransition(p) { const t=p.level_context?.transition;return t?.phase==='possible'?t:null; }
 function levelText(p) {
-  const level=displayLevel(p),t=levelTransition(p);
-  if(t)return String(t.to_level);
+  const level=displayLevel(p);
   return level?.value==null?'—':String(level.value);
 }
 function levelTitle(p) {
@@ -177,10 +176,11 @@ function statusText(p) {
   const now=Date.parse(data?.served_at ?? data?.player?.latest_attempt_at)+(performance.now()-receivedAt);
   if(p.twitch?.valid_until && now>Date.parse(p.twitch.valid_until))status='unknown';
   const capture=captureText(p);
-  if(status==='live')return `Twitch live · ${p.latest_attempt_status==='capture_failed'?'Capture unavailable':capture}`;
-  if(status==='offline')return `Twitch offline · ${p.twitch.capture_disagreement?'Recent capture differs':capture}`;
-  if(status==='unknown' && p.latest_attempt_status==='capture_failed')return `Live status unknown · Capture unavailable`;
-  return capture;
+  const pending=levelTransition(p)?' · Possible level-up detected — awaiting confirmation':'';
+  if(status==='live')return `Twitch live · ${p.latest_attempt_status==='capture_failed'?'Capture unavailable':capture}${pending}`;
+  if(status==='offline')return `Twitch offline · ${p.twitch.capture_disagreement?'Recent capture differs':capture}${pending}`;
+  if(status==='unknown' && p.latest_attempt_status==='capture_failed')return `Live status unknown · Capture unavailable${pending}`;
+  return capture+pending;
 }
 function etaText(value,compact=false) {
   const seconds=value?.seconds?.approximate;
@@ -197,7 +197,7 @@ function rateTitle(rate) {
   return `Experimental estimate, not earned EXP. ${Object.entries(rate.hypotheses ?? {}).map(([rule,b])=>`${rule}: ${numbers.format(Math.round(b.lower.approximate))}–${numbers.format(Math.round(b.upper.approximate))} EXP/h`).join('; ')}. Community requirement ${rate.requirement.version}; quantization bounds exclude OCR errors.`;
 }
 function metricValue(p,key) {
-  if(key==='level')return levelTransition(p)?.to_level ?? displayLevel(p)?.value ?? null;
+  if(key==='level')return displayLevel(p)?.value ?? null;
   if(current(p).stale || failed)return null;
   if(key==='exp_hour')return current(p).metrics?.exp_per_hour?.value.approximate ?? null;
   return selectedWindow(p)?.eligible?Number(selectedWindow(p).difference_percentage_points):null;
@@ -286,7 +286,7 @@ function renderPlayer() {
   if(pace)el('rate').title=`${pace.label}; ${paceSample(pace.source)}. ${rateTitle(m?.exp_per_hour)}`;
   if(view==='overlay') {
     if(el('eta').clientWidth>0 && el('eta').scrollWidth>el('eta').clientWidth+1)el('eta').textContent=etaText(eta,true);
-    if(pace && !pace.active && !failed && !p.twitch && !p.percentage_state?.pending_since && !['capture_finished','capture_interrupted','historical_session','stopped','coordinator_stopped'].includes(p.activity?.state))el('status').textContent=`Last estimate ${ageText(pace.age)}`;
+    if(pace && !pace.active && !failed && !p.twitch && !levelTransition(p) && !p.percentage_state?.pending_since && !['capture_finished','capture_interrupted','historical_session','stopped','coordinator_stopped'].includes(p.activity?.state))el('status').textContent=`Last estimate ${ageText(pace.age)}`;
     el('rate-label').textContent=pace && !pace.active?'Last EXP / hour':'EXP / hour';
   }
   if(view==='player') {

@@ -3,6 +3,8 @@ from datetime import datetime,timedelta
 from fractions import Fraction
 import json
 
+import pytest
+
 from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.exp_requirements import requirement
 from exp_tracker.server import create_server
@@ -104,6 +106,35 @@ def test_misread_wrap_leaves_level_and_events_unchanged(tracking):
     p=get(d,6*15)
     assert p['display_level']['value']==42 and p['display_level']['evidence']['status']=='retained_level'
     assert p['level_context']['last_transition']['phase']=='abandoned' and p['level_events']==[]
+
+
+@pytest.mark.parametrize('outcome',['unreadable','confirmed','false_candidate'])
+def test_level43_wrap_keeps_accepted_values_until_existing_confirmation(tracking,outcome):
+    _,store,d=tracking
+    attempt(d,1,exp=391048,pct='99.97',total=T43)
+    attempt(d,2,pct='0.03')
+    attempt(d,3,pct='0.03',current=False,status='unavailable',reasons=['missing_hud'],
+        neural=None,localization=dict(count=0))
+    p=get(d,30)
+    assert p['display_level']['value']==43
+    assert (p['reading']['exp'],p['reading']['percentage'])==('391048','99.97')
+    assert p['level_context']['transition']['phase']=='possible'
+    assert p['level_context']['transition']['to_level']==44 and p['level_events']==[]
+    chart=d.recent_snapshot('alpha',now=NOW+timedelta(seconds=30))
+    from exp_tracker.product import history
+    assert [point['level']['value'] for point in history(chart)]==[43,None,None]
+    raw=[r[0] for r in store.db.execute('SELECT payload_json FROM diagnostic_attempts ORDER BY id')]
+    if outcome!='unreadable':
+        confirmed=outcome=='confirmed'
+        exp=5000 if confirmed else 391100
+        total=requirement(44)['to_next'] if confirmed else T43
+        attempt(d,4,exp=exp,total=total);p=get(d,45)
+        assert p['display_level']['value']==(44 if confirmed else 43)
+        assert (p['reading']['exp'],p['reading']['percentage'])==(str(exp),display(exp,total))
+        assert p['level_context']['last_transition']['phase']==('corroborated' if confirmed else 'abandoned')
+        assert [e['level'] for e in p['level_events']]==([44] if confirmed else [])
+    assert raw==[r[0] for r in store.db.execute('SELECT payload_json FROM diagnostic_attempts ORDER BY id LIMIT 3')]
+    assert not store.db.execute('SELECT 1 FROM observations').fetchone()
 
 
 def test_http_api_exposes_level_provenance_without_raw_ocr(tracking):
