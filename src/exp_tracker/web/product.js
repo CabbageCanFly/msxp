@@ -3,6 +3,8 @@
 const view=document.body.dataset.view;
 const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?location.pathname.split('/')[2]:null;
 const endpoint=channel?`/api/players/${encodeURIComponent(channel)}`:'/api/players';
+// The server lowercases logins; an empty path keeps the static HTML title.
+if(view==='player' && channel)document.title=`${channel.toLowerCase()} · EXP Tracker`;
 const numbers=new Intl.NumberFormat('en-US'),shortNumber=new Intl.NumberFormat('en-US',{maximumSignificantDigits:3});
 const wholeNumbers=new Intl.NumberFormat('en-US',{maximumFractionDigits:0}),localDates=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'long'});
 const sorts={exp_hour:'Estimated pace over the selected window; community requirements are provisional.',

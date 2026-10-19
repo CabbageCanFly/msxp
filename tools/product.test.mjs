@@ -24,6 +24,11 @@ function player(changes={}){return {channel:'alpha',character:{label:'Main'},sou
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
 
+test('character page tab names the channel before any reading; overlay keeps its own title',()=>{
+  assert.equal(page('player').context.document.title,'alpha · EXP Tracker');
+  assert.equal(page().context.document.title,undefined);
+});
+
 test('ETA rounds once to the nearest minute and retains day, hour and minute detail',()=>{
   const p=page('player');
   for(const [seconds,expected] of [[24*60+31,'~25m'],[3600+22*60+12,'~1h 22m'],[7*3600+43*60+28,'~7h 43m'],
