@@ -54,6 +54,8 @@ replay cost with an exact integer interval search over requirements.
 work out of HTTP requests; viewers read one shared, timestamped publication.
 The [MVP level-evidence update](docs/mvp-level-evidence.md) displays unique arithmetic
 levels immediately and uses complete grammar-recovered EXP in public pace/history.
+The [Telfer level-up follow-up](docs/telfer-levelup-and-window-gaps.md) accepts prompt
+reader agreement and bounded punctuation recovery, and documents recent-window gap totals.
 
 Open the **[real-data EXP Tracker website](docs/product-preview.md)** at `/` or
 `/streams`: a progress leaderboard, character pages at `/stream/CHANNEL`, and a

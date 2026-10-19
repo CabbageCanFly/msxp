@@ -67,7 +67,7 @@ def test_new_pace_and_bars_do_not_cross_hard_boundaries(tracking,boundary):
         for i,pct in ((5,'32.05' if boundary=='loss' else '33.15'),(6,'32.10' if boundary=='loss' else '33.20')):
             append(d,i,f'[{pct}%]',frame_sha256=f'{i:064x}')
     result=get(d,75)
-    assert result['responsive_pace']['readings']==(5 if boundary in ('anomaly','loss') else 2)
+    assert result['responsive_pace']['readings']==(5 if boundary in ('anomaly','loss') else 3)
     if boundary in ('anomaly','loss'):
         assert result['responsive_pace']['interruptions']==1
         assert all(e['first_event_id']!='run:4' and e['last_event_id']!='run:4' for e in result['responsive_pace']['intervals'])

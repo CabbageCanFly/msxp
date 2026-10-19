@@ -11,7 +11,7 @@ from .exp_consistency import MODES, assess, infer_indexed, requirement_index
 from .exp_requirements import community_table, requirement
 from .shadow_grammar import interpret_exp
 
-POLICY = 'experimental_level_v7'
+POLICY = 'experimental_level_v8'
 EXP_DERIVED_POLICY = 'exp_derived_level_v3'
 # Repeated forward evidence is still required for a wrap or a competing level.
 DERIVED_SAMPLES = 3
@@ -357,11 +357,11 @@ def project(rows, *, state=None, allow_context=True):
             if claimed is not None and neural is None:
                 established=None; neural_context=False; recent.clear(); corroborated_at=None
                 status,reason='conflict','invalid_neural_level_evidence'
-            elif established is not None and neural is not None and neural!=established and not (carried_gaps and visual==neural):
+            elif established is not None and neural is not None and neural!=established and visual!=neural:
                 established=None; neural_context=False; recent.clear(); corroborated_at=None
                 status,reason='conflict','new_neural_level_requires_confirmation'
             elif neural is not None:
-                if recent and recent[-1]['level']!=neural: recent.clear()
+                if recent and recent[-1]['level']!=neural: recent.clear(); corroborated_at=None
                 recent.append(dict(level=neural,score=score,strict_support=strict_support,conflict=conflict,
                     arithmetic_conflict=bool(direct and direct['status']=='invalid')))
                 if strict_support: corroborated_at=row['received_at']

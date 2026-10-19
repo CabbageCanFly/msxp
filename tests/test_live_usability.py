@@ -35,8 +35,8 @@ def test_new_supported_level_replaces_badge_but_new_session_does_not_inherit_it(
     _,store,d=tracking
     append(d,1,'[33.00%]');append(d,2,'[33.05%]')
     append(d,3,'[34.00%]',visual_level=65,neural_level=dict(text='65',level=65,status='numeric_candidate',score=.99))
-    # A contradictory first frame is not a confirmed transition.
-    assert get(d)['display_level']['value']==64
+    # Agreement of both readers replaces the display immediately; accounting still breaks.
+    assert get(d)['display_level']['value']==65
     append(d,4,'[34.05%]',visual_level=65,neural_level=dict(text='65',level=65,status='numeric_candidate',score=.99))
     assert get(d,45)['display_level']['value']==65
     store.end_session('alpha',at=NOW+timedelta(seconds=60))
@@ -58,7 +58,7 @@ def test_early_pace_is_independent_of_completed_windows_and_ages_without_mutatio
 
 def test_exp_label_tail_is_only_a_complete_percentage_hypothesis():
     result=interpret_exp('P[90.78%]')
-    assert result['policy']=='bounded_exp_v6'
+    assert result['policy']=='bounded_exp_v7'
     assert result['symbol_hypotheses']==[]  # The existing label-tail rule is unchanged.
     assert parse_percentage_only('P[90.78%]') is None
     assert not result['full_exp']['proposals'] and result['strict_percentage_only'] is None

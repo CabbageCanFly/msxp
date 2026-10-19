@@ -124,7 +124,8 @@ def test_context_cannot_complete_a_strict_window_or_mask_a_level_up():
         example(4,'103[0.01%]',visual=68,level=68),example(5,'435[0.02%]',visual=68,level=68),
         example(6,'800[0.04%]',visual=68,level=68)]
     projected=project(rows)
-    assert projected[-3]['experimental_level']['value'] is None
+    assert projected[-3]['experimental_level']['value']==68
+    assert projected[-3]['experimental_level']['status']=='agreement'
     assert projected[-2]['experimental_level']['value']==68
     assert not projected[-2]['experimental_level'].get('contextual')
     # The existing transition detector still requires two supported captures.

@@ -75,9 +75,9 @@ def test_corroborated_level_event_and_new_pace_never_connect_cross_level(trackin
     for i,pct in ((4,'0.03'),(5,'0.08'),(6,'0.12')):append(d,i,f'[{pct}%]',visual_level=65,neural_level=neural,frame_sha256=f'{i:064x}')
     p=get(d,75)
     assert len(p['level_events'])==1 and p['level_events'][0]['level']==65
-    assert p['responsive_pace']['level']==65 and p['responsive_pace']['start']>=(NOW+timedelta(seconds=45)).isoformat()
+    assert p['responsive_pace']['level']==65 and p['responsive_pace']['start']==(NOW+timedelta(seconds=30)).isoformat()
     points=history(d.snapshot('alpha',now=NOW+timedelta(seconds=75)))
-    assert not points[3]['connect_previous'] and points[4]['connect_previous']
+    assert not points[2]['connect_previous'] and points[3]['connect_previous'] and points[4]['connect_previous']
     assert p['windows']['5']['eligible'] is False
 
 

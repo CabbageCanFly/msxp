@@ -93,7 +93,7 @@ def _interpret_exp(text, *, source_complete=None):
     """
     base = dict(classification='rejected', proposals=[], trusted=False,
                 numerical_identity_verified=False, reason='no_bounded_interpretation')
-    result = dict(policy='bounded_exp_v6', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
+    result = dict(policy='bounded_exp_v7', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
                   strict_full=None, strict_percentage_only=None, full_exp={**base}, percentage={**base},
                   symbol_hypotheses=[], percentage_hypotheses=[], source_complete=source_complete, trusted=False)
     if not isinstance(text, str) or not text or len(text) > MAX_TEXT:
@@ -143,6 +143,23 @@ def _interpret_exp(text, *, source_complete=None):
                 field_span=[1,len(text)],image_verification='required',
                 source_completeness_verified=False,trusted=False,numerical_identity_verified=False)]}
         return result
+    # Only a complete, unique pair may supply a missing closing bracket; no digits are added.
+    if text.endswith('%') and source_complete is not False:
+        closed=interpret_exp(text+']',source_complete=source_complete)
+        full=closed['strict_full'] or (closed['full_exp']['proposals'][0]['reading']
+            if closed['full_exp']['classification']=='unique_proposal' else None)
+        if full and closed['percentage']['classification'] in ('raw_strict','unique_proposal'):
+            for field,reading in (('full_exp',full),('percentage',parse_percentage_only(f'[{full["percentage"]}%]'))):
+                prior=closed[field]['proposals']
+                edits=(prior[0]['edits'] if prior else [])+[dict(index=len(text),old='',new=']',category='closing_bracket')]
+                if len(edits)>4:return result
+                interpretation=text+']' if field=='full_exp' else f'[{full["percentage"]}%]'
+                if prior:interpretation=prior[0]['interpretation']
+                result[field]={**base,'classification':'unique_proposal','reason':'complete_pair_missing_closing_bracket',
+                    'proposals':[dict(interpretation=interpretation,reading=reading,edits=edits,
+                        field_span=[0,len(text)],image_verification='required',source_completeness_verified=False,
+                        trusted=False,numerical_identity_verified=False)]}
+            return result
     if not text.endswith(('%]', '%1', '%|')):
         # Missing '%' is not ordinary recovery evidence. Keep a bounded review
         # hypothesis separate; no consumer may use it as a percentage endpoint.
@@ -168,7 +185,11 @@ def _interpret_exp(text, *, source_complete=None):
             continue
         # A numeral-like opener needs a grouped prefix. An explicit bracket can
         # anchor a percentage even when the numeric EXP prefix is unusable.
-        if char == '1' and not re.fullmatch(GROUPED, prefix):
+        # One mixed double separator is an extra dot at an otherwise valid group boundary.
+        extra=re.fullmatch(r'[0-9]{1,3}(?:[,.][0-9]{3})*(?:\.,|,\.)[0-9]{3}(?:[,.][0-9]{3})*',prefix)
+        dot=prefix.index('.',re.search(r'\.,|,\.',prefix).start()) if extra else None
+        grouped_prefix=prefix if dot is None else prefix[:dot]+prefix[dot+1:]
+        if char == '1' and not re.fullmatch(GROUPED, grouped_prefix):
             continue
         if prefix and not re.fullmatch(r'[0-9.,]+', prefix):
             continue
@@ -189,10 +210,11 @@ def _interpret_exp(text, *, source_complete=None):
                       image_verification='required', field_span=[index, len(text)],
                       source_completeness_verified=False)
         percentages.append(dict(**common, interpretation=f'[{normalized}%]', reading=only))
-        grouped = re.fullmatch(rf'(?:{GROUPED}|[0-9]+)', prefix)
+        grouped = re.fullmatch(rf'(?:{GROUPED}|[0-9]+)', grouped_prefix)
         if source_complete is not False and grouped and ',' not in token:
             full_edits = [dict(index=i, old='.', new=',', category='exp_grouping')
-                          for i, c in enumerate(prefix) if c == '.'] + edits
+                          for i, c in enumerate(prefix) if c == '.' and i!=dot] + edits
+            if dot is not None:full_edits.insert(0,dict(index=dot,old='.',new='',category='extra_exp_grouping'))
             if len(full_edits) <= 4:
                 interpretation = list(text)
                 for edit in full_edits:

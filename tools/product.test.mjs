@@ -482,6 +482,8 @@ test('public progress uses EXP with percentage fallback and exact provenance in 
     difference_percentage_points:'0.14',estimated_exp:{value:{approximate:2329.7904},requirement:{version:'synthetic'}},
     span_seconds:{approximate:45},readings:4,interruptions:0,age_seconds:1}}}});
   p.render(base);assert.equal(p.elements.movement.textContent,'+2,330 EXP');assert.match(p.elements.movement.title,/0.14 percentage points/);
+  assert.match(p.elements.movement.title,/safe capture gaps up to 5 minutes count/);
+  assert.match(p.elements.movement.title,/intervals crossing the lookback boundary are excluded/);
   delete base.windows[5].observed.estimated_exp;p.render(base);assert.equal(p.elements.movement.textContent,'+0.14%');
   assert.equal(p.run('expText(1234567890)'),'1.23B');assert.equal(p.run('expText(45)'),'45');
 });

@@ -64,7 +64,7 @@ def test_two_prior_strict_percentage_fields_make_a_causal_experimental_point():
     value=reading(last)
     assert value['percentage']=='94.55' and value['exp'] is None and value['evidence']=='grammar_recovered'
     assert last['raw_text']=='194.55%]' and rows==original
-    assert not value['trusted'] and value['grammar_policy']=='bounded_exp_v6'
+    assert not value['trusted'] and value['grammar_policy']=='bounded_exp_v7'
     assert percentage_point(last)[0]['comparison_eligible']
     # Streaming history pages preserve exactly the same causal format context.
     state={};projected=project(rows)

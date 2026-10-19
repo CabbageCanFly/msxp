@@ -65,8 +65,9 @@ def test_unsafe_or_new_level_evidence_does_not_age_as_unreadable(tracking,change
     at(d,1,0,'[33.00%]');at(d,2,20,'[33.02%]')
     at(d,3,40,'[33.04%]',**change)
     p=present(d,40)
-    assert not p['responsive_pace']['active']
-    assert p['responsive_pace']['presentation']['state']!='aging'
+    assert not (p['responsive_pace'] or {}).get('active')
+    if p['responsive_pace']:
+        assert p['responsive_pace']['presentation']['state']!='aging'
 
 
 def test_completed_offline_and_stationary_rates_never_look_like_current_decay(tracking):

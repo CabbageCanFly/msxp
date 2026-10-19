@@ -151,6 +151,46 @@ def test_tracked_gain_does_not_depend_on_rate_warmup(tracking):
     nested(h)
 
 
+@pytest.mark.parametrize('end,expected',[(300,5000),(300.000001,4000),(360,4000),(600,None)])
+def test_exact_five_minute_capture_gap_and_whole_interval_cutoff(tracking,end,expected):
+    from tests.test_exp_level_product import attempt as append
+    from tests.test_exp_level_inference import display
+    _,store,d=tracking
+    for i,exp in enumerate((10000,11000,None,None,None,15000),1):
+        stamp=(NOW+timedelta(seconds=(i-1)*60)).isoformat()
+        pct=display(exp or 0,requirement(64)['to_next'])
+        changes=dict(attempted_at=stamp,received_at=stamp,visual_level=64,visual_status='available',
+            neural_level=dict(status='numeric_candidate',text='64',level=64,score=.99))
+        if exp is None:
+            changes.update(received_at=None,current=False,status='capture_failed',localization=dict(count=0),neural=None)
+        append(d,i,exp=exp,pct=pct,**changes)
+    now=NOW+timedelta(seconds=end);rolling=d.rolling_history('alpha',now=now)
+    p=tracked_statistics(player(d.snapshot('alpha',now=now),now=now),rolling,now=now)
+    values=nested(rolling)
+    assert values[0]==expected and values[1:]==[5000]*5
+    assert all(p['recent_windows'][m]['gain']==rolling['windows'][m]['gain'] for m in rolling['windows'])
+    assert [e['value']['approximate'] for e in rolling['chart_intervals']]==[1000,4000]
+    assert rolling['coverage_seconds']['approximate']==300
+    if end==300:
+        pace=p['recent_windows']['5']['pace']
+        assert pace['coverage_seconds']['approximate']==300
+        assert pace['estimates']['exp_per_hour']['value']['approximate']==60000
+    assert not store.db.execute('select 1 from observations').fetchone()
+
+
+@pytest.mark.parametrize('seconds,expected',[(300,5000),(300.000001,None)])
+def test_endpoint_gap_limit_includes_exactly_five_minutes(seconds,expected):
+    from tests.test_endpoint_pace import point,snapshot,missing
+    from tests.test_exp_level_inference import display
+    total=requirement(67)['to_next']
+    rows=[point(1,0,10000,display(10000,total)),missing(2,60),
+        point(3,seconds,15000,display(15000,total))]
+    now=NOW+timedelta(seconds=seconds)
+    edges=collect(snapshot(rows,seconds),now=now,read=reading,max_interval_seconds=300)['intervals']
+    result=tracked_window([exp_interval(e) for e in edges],start=NOW,end=now)
+    assert (result['gain']['approximate'] if result['gain'] else None)==expected
+
+
 def test_current_level_filter_uses_supported_level_even_when_its_percentage_is_unreadable(tracking):
     _,_,d=tracking;d.begin('levels','alpha',config('levels'))
     save(d,'levels',1,0,3300);save(d,'levels',2,20,3305)
