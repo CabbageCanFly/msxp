@@ -1,15 +1,23 @@
 """Versioned read-time evidence only; never changes raw candidates or trusted state."""
 
 from collections import deque
+from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
+from functools import lru_cache
 import math
 
-from .exp_consistency import MODES, assess
-from .exp_requirements import requirement
+from .exp_consistency import MODES, assess, infer_levels
+from .exp_requirements import community_table, requirement
 from .shadow_grammar import interpret_exp
 
-POLICY = 'experimental_level_v4'
+POLICY = 'experimental_level_v5'
+EXP_DERIVED_POLICY = 'exp_derived_level_v1'
+# Separate fresh frames, one unique table level and rising EXP; one pair never suffices.
+DERIVED_SAMPLES = 3
+# Like missing reader levels, unconfirming frames carry a confirmed level only briefly.
+DERIVED_CARRY = 2
+DERIVED_CARRY_SECONDS = 30
 # A seed-quality gate, not calibrated correctness; repetition and corroboration are mandatory.
 NEURAL_SEED_SCORE = .90
 CONTEXT_SECONDS = 120
@@ -38,6 +46,66 @@ def consistency(full, level):
     status = 'consistent' if 'consistent' in statuses else 'invalid' if all(s=='inconsistent' for s in statuses) else 'indeterminate'
     return {**result, 'status':status, 'hypotheses':checks,
             'reason':'contradicts_both_display_hypotheses' if status=='invalid' else 'conditional_table_agreement' if status=='consistent' else 'unavailable_numeric'}
+
+
+@lru_cache(maxsize=4096)  # Long-running servers see a new pair nearly every frame.
+def _exp_derived(exp, percentage):
+    data, sha = community_table()
+    table = {int(k): v for k, v in data['to_next'].items()}
+    hypotheses = {mode: infer_levels(int(exp), percentage, table, mode) for mode in MODES}
+    levels = sorted({level for value in hypotheses.values() for level in value['levels']})
+    result = dict(policy=EXP_DERIVED_POLICY, exp=exp, percentage=percentage, table_version=data['version'],
+        table_sha256=sha, supported_levels=[min(table), max(table)], levels=levels, unique_level=None,
+        hypotheses={mode: value['levels'] for mode, value in hypotheses.items()},
+        source='exp_and_percentage_arithmetic', visual=False, trusted=False, authoritative=False)
+    if any(value['status'] == 'invalid_input' for value in hypotheses.values()):
+        return {**result, 'status': 'invalid_input', 'levels': []}
+    bp = int(Decimal(percentage) * 100)
+    # Disputed/missing 90+ requirements are assumed >= level 89's. A pair that could
+    # need such a requirement (including every 0.00%) is outside supported coverage.
+    if bp == 0 or 20000 * int(exp) >= (2 * bp - 1) * max(table.values()):
+        return {**result, 'status': 'outside_supported_coverage'}
+    return {**result, 'status': 'unique' if len(levels) == 1 else 'ambiguous' if levels else 'incompatible',
+            'unique_level': levels[0] if len(levels) == 1 else None}
+
+
+def exp_derived(full):
+    """Table-only level candidates for one pair; neither visual evidence nor digit verification."""
+    return None if full is None else deepcopy(_exp_derived(full['exp'], full['percentage']))
+
+
+def _percentage(row, full):
+    if full: return full['percentage']
+    parsed = interpret_exp(row.get('raw_text'))
+    pct = parsed['strict_percentage_only'] or (parsed['percentage']['proposals'][0]['reading']
+        if parsed['percentage']['classification'] == 'unique_proposal' else None)
+    return pct['percentage'] if pct else None
+
+
+def _derived_step(state, row, inference, exp, bp):
+    """Advance the EXP-derived hypothesis on a safe frame without reader levels."""
+    when = datetime.fromisoformat(row['received_at'])
+    age = (when - datetime.fromisoformat(state['supported_at'])).total_seconds() if state else None
+    if state and age > CONFIRM_GAP_SECONDS: state = None
+    # A wrapped/decreasing display is never a level-up; a new level needs its own pairs.
+    orderly = bool(state and (bp is None or 0 <= bp - state['bp'] < 1000)
+        and (exp is None or state['exp'] is None or exp >= state['exp']))
+    level, frame = (inference or {}).get('unique_level'), row.get('frame_sha256')
+    if level is not None and frame:
+        sample = dict(event_id=row.get('event_id'), frame_sha256=frame, exp=exp, bp=bp, timestamp=row['received_at'])
+        same = orderly and state['level'] == level
+        samples = (state['samples'] if same else [])[-(DERIVED_SAMPLES - 1):] + [sample]
+        confirmed = same and state['confirmed'] or (len(samples) >= DERIVED_SAMPLES
+            and samples[-1]['exp'] > samples[0]['exp'] and len({s['frame_sha256'] for s in samples}) == len(samples))
+        state = dict(level=level, samples=samples, confirmed=confirmed, supported_at=row['received_at'], missing=0, exp=exp, bp=bp)
+        return state, level if confirmed else None, 'repeated_unique_exp_inference' if confirmed else 'exp_derived_confirmation_pending'
+    if inference and not (state and state['level'] in inference['levels'] and inference['status'] in ('unique', 'ambiguous')):
+        return None, None, 'exp_derived_' + inference['status']
+    if not state: return None, None, None
+    if not orderly: return None, None, 'exp_derived_progression_contradiction'
+    carried = state['confirmed'] and state['missing'] < DERIVED_CARRY and age <= DERIVED_CARRY_SECONDS
+    state = dict(state, missing=state['missing'] + 1, exp=state['exp'] if exp is None else exp, bp=state['bp'] if bp is None else bp)
+    return state, state['level'] if carried else None, 'short_exp_derived_context' if carried else 'exp_derived_confirmation_pending'
 
 
 def _visual(row):
@@ -69,15 +137,19 @@ def _adjacent(before,row):
 
 
 def project(rows, *, state=None, allow_context=True):
-    """Only past, adjacent observations corroborate a level; no lookahead or EXP-derived choice."""
+    """Only past, adjacent observations corroborate a level; no lookahead.
+
+    EXP-derived levels are a separate, explicitly labeled fallback for frames without
+    any reader level; they never become reader evidence or a reader-supported anchor.
+    """
     output=[]; recent=deque(maxlen=3); previous=None; established=None; established_at=None; neural_context=False; missing=0; corroborated_at=None
-    anchor=None; context_conflicts=0;context_frames=deque(maxlen=12);capture_gaps=0
+    anchor=None; context_conflicts=0;context_frames=deque(maxlen=12);capture_gaps=0;derived=None
     if state:
         recent=state['recent'];previous=state['previous'];established=state['established'];established_at=state['established_at']
         neural_context=state['neural_context'];missing=state['missing'];corroborated_at=state['corroborated_at']
         anchor=state.get('anchor');context_conflicts=state.get('context_conflicts',0)
         context_frames=state.get('context_frames',context_frames)
-        capture_gaps=state.get('capture_gaps',0)
+        capture_gaps=state.get('capture_gaps',0);derived=state.get('derived')
     for original in rows:
         row=dict(original); visual=_visual(row); neural,score=_neural(row)
         frame=row.get('frame_sha256')
@@ -117,7 +189,7 @@ def project(rows, *, state=None, allow_context=True):
             adjacent=False
         if not adjacent or not fresh:
             recent.clear(); established=None; neural_context=False; missing=0; corroborated_at=None
-            anchor=None;context_conflicts=0
+            anchor=None;context_conflicts=0;derived=None
             context_frames.clear()
         full=full_reading(row)
         direct=consistency(full,neural) if row.get('candidate') and neural is not None else None
@@ -186,6 +258,32 @@ def project(rows, *, state=None, allow_context=True):
                     or neural not in (None,anchor['value']) and score>=NEURAL_SEED_SCORE
                     or selected not in (None,anchor['value'])):
                 anchor=None;context_conflicts=0
+        # The EXP-derived hypothesis never outranks a reader level, verifies its own
+        # pairs or survives a disagreement with recent reader-supported context.
+        reader=next((v for v in (selected,visual,neural) if v is not None),None)
+        claimed_any=reader is not None or (row.get('neural_level') or {}).get('level') is not None
+        strict=full if safe and row.get('candidate') else None
+        inference=exp_derived(strict) if strict and (not claimed_any or derived) else None
+        if inference:evidence['exp_derived']=inference
+        derived_value=derived_reason=None
+        if not safe:derived=None
+        elif claimed_any:
+            if derived and derived['confirmed'] and reader not in (None,derived['level']):
+                evidence['exp_derived_disagreement']=dict(exp_derived_level=derived['level'],reader_level=reader,
+                    reader_status=status,reader_reason=reason,trusted=False)
+                age=(datetime.fromisoformat(row['received_at'])-datetime.fromisoformat(derived['supported_at'])).total_seconds()
+                if status!='agreement' and derived['missing']<DERIVED_CARRY and age<=DERIVED_CARRY_SECONDS:
+                    selected=None;status,reason='conflict','reader_conflicts_exp_derived_level'
+                    evidence.update(value=None,status=status,reason=reason)
+                    derived=dict(derived,missing=derived['missing']+1)
+                else:derived=None
+            else:derived=None
+        elif anchor and anchor['samples']>=2 and (inference or {}).get('unique_level') not in (None,anchor['value']):
+            derived=None;derived_reason='recent_reader_level_disagrees'
+        else:
+            pct=_percentage(row,full)
+            derived,derived_value,derived_reason=_derived_step(derived,row,inference,
+                int(full['exp']) if full else None,int(Decimal(pct)*100) if pct else None)
         # A recent independently reader-supported level may veto a WHOLE pair,
         # even when this frame cannot establish a level. It never repairs digits.
         pair_check=consistency(full,anchor['value']) if anchor and anchor['samples']>=2 and safe else None
@@ -196,11 +294,8 @@ def project(rows, *, state=None, allow_context=True):
         strong=strong and (status=='agreement' or score is not None and score>=NEURAL_SEED_SCORE)
         if strong and consistency(full,selected)['status']!='invalid':
             hits=anchor['samples']+1 if anchor and anchor['value']==selected else 1
-            parsed=interpret_exp(row.get('raw_text'))
-            pct=parsed['strict_percentage_only'] or (parsed['percentage']['proposals'][0]['reading']
-                if parsed['percentage']['classification']=='unique_proposal' else None)
             anchor=dict(value=selected,timestamp=row['received_at'],event_id=row.get('event_id'),samples=hits,
-                full=full,percentage=full['percentage'] if full else pct['percentage'] if pct else None)
+                full=full,percentage=_percentage(row,full))
             context_conflicts=0
         elif allow_context and anchor and anchor['samples']>=2 and safe:
             support=consistency(full,anchor['value'])
@@ -219,11 +314,22 @@ def project(rows, *, state=None, allow_context=True):
                 selected=anchor['value']
                 evidence.update(value=selected,status='contextual',reason='recent_corroborated_level',
                     contextual=True,strict_window_eligible=False)
+        if derived or derived_reason:
+            evidence['exp_derived_context']=dict(policy=EXP_DERIVED_POLICY,reason=derived_reason,
+                level=derived and derived['level'],confirmed=bool(derived and derived['confirmed']),
+                sample_event_ids=[s['event_id'] for s in derived['samples']] if derived else [],
+                unconfirmed_frames=derived and derived['missing'],supported_at=derived and derived['supported_at'],trusted=False)
+        if derived_value is not None and selected is None:
+            selected=derived_value
+            evidence.update(value=selected,status='exp_derived',reason=derived_reason,strict_window_eligible=False)
         row['experimental_level']=evidence
         row['exp_validity']=pair_check if veto else consistency(full,selected)
+        if evidence['status']=='exp_derived':
+            # The level came from these same OCR pairs; agreement would be circular.
+            row['exp_validity'].update(status='indeterminate',reason='level_derived_from_exp_pairs')
         output.append(row); previous=row
     if state is not None:
         state.update(recent=recent,previous=previous,established=established,established_at=established_at,
             neural_context=neural_context,missing=missing,corroborated_at=corroborated_at,
-            anchor=anchor,context_conflicts=context_conflicts,context_frames=context_frames,capture_gaps=capture_gaps)
+            anchor=anchor,context_conflicts=context_conflicts,context_frames=context_frames,capture_gaps=capture_gaps,derived=derived)
     return output

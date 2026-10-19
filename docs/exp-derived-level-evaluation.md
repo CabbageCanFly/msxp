@@ -211,3 +211,56 @@ ambiguity, missing/invalid inputs, exact halfway rounding, separate truncation,
 unsupported table coverage, contradiction policies and self-consistent wrong pairs.
 `git diff --check` and prior-input hash checks pass. No neural OCR was rerun;
 the optional saved pixel-level baseline was not expanded or recalibrated.
+
+## Read-time integration: `experimental_level_v5`
+
+Follow-up to the evaluation above. `infer_levels` moved unchanged into
+`exp_tracker.exp_consistency` (the tool re-exports it). `diagnostic_evidence.exp_derived`
+applies it to the bundled `community-exp-v2` table and `project()` exposes the result
+as `experimental_level.exp_derived` with per-hypothesis level lists, table version/hash,
+`visual:false`, `trusted:false` and `authoritative:false`.
+
+**One pair.** Only strict full pairs (candidate equal to its raw-text parse) are used;
+grammar repairs, contradictory candidates and quarantined rows supply nothing. The
+candidate set is the union of nearest-half-up and truncation levels within levels
+1–89: `unique` only when that union is a singleton, otherwise `ambiguous` or
+`incompatible`. Levels 90–99 (disputed) and 100–200 (missing) are never candidates.
+Because those requirements are unknown, a pair whose largest compatible requirement,
+`20000·E/(2·bp−1)`, could reach level 89's requirement is `outside_supported_coverage`.
+That includes every 0.00% reading. **Assumption:** unpublished requirements are at
+least level 89's. The supported 1–89 table is nondecreasing; 90+ is unverified.
+
+**Confirmation.** A derived level is selected only on frames with no reader level:
+no Tesseract, no neural claim and no reader carry. Selection needs 3 fresh, adjacent
+captures with the same unique level, distinct `frame_sha256`, nondecreasing EXP and
+percentage, and a strict EXP increase from first to last sample. The existing
+adjacency and freshness gates still reset it: stale, duplicate frame, restart,
+source/character/session change, >120s gap, multiple HUDs, crop suspicion. Status
+`exp_derived` is set with `strict_window_eligible:false`, and `exp_validity` becomes
+`indeterminate` / `level_derived_from_exp_pairs` because agreement with the same
+pairs would be circular. Percentage pace may use the level, but direct EXP-endpoint
+gains, reader-supported anchors, conditional symbol recovery, `display_level` and
+`level_events` still require reader statuses.
+
+**Continuation.** After confirmation, ambiguous pairs that still include the level,
+plus percentage-only or unreadable frames, carry it for at most 2 frames within 30s
+of the last unique pair (`short_exp_derived_context`). A later unique same-level pair
+renews it within 120s. A decreasing or wrapped display, a pair excluding the level,
+or a unique different level abstains and must reconfirm. So a level-up needs 3 new
+pairs and is never inferred from a percentage wrap.
+
+**Readers.** A reader level always ends the fallback. While a confirmed derived level
+is fresh, a different single-reader level is `conflict` /
+`reader_conflicts_exp_derived_level`, with `exp_derived_disagreement` recorded, for
+at most 2 frames; ordinary reader behavior then resumes. Two agreeing readers win
+immediately, and the disagreement is still recorded. A recent reader-supported
+anchor with another level blocks derivation (`recent_reader_level_disagrees`) and
+keeps its whole-pair veto.
+
+**Measured:** synthetic tests only (`tests/test_exp_level_inference.py`). Examples:
+278,125 / 77.92% → {42} under both rules; 2 / 0.04% → nearest {14}, truncation {13},
+so ambiguous; 100 / 0.02% → ambiguous; 0/0.00, 1/0.00 and 1000/0.01 → outside coverage;
+2345/92.74 and 1241/99.82 → incompatible. **Untested:** saved private captures were
+not replayed for this change. Static/AFK EXP never confirms. Coherent wrong digits
+within one level's bin (74,050 vs 74,059 / 25.17%) remain undetectable. Neither table
+applicability nor the client rounding rule is verified. No character identity is inferred.
