@@ -39,6 +39,9 @@ CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 
 
 class TrackerHTTPServer(ThreadingHTTPServer):
+    # The socketserver default of 5 refused connections at 100 viewers while a build held the GIL.
+    request_queue_size = 128
+
     def server_close(self):
         super().server_close()
         publisher=getattr(self,'publisher',None)
