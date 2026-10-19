@@ -461,12 +461,18 @@ async function poll() {
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000),requested=performance.now();
   activeController=controller;
   try {
-    const response=await fetch(endpoint,{cache:'no-store',signal:controller.signal});
+    // Name the chart history and tracked packet already held; the server omits them while unchanged.
+    const held=channel && data?.history!==undefined && data.tracked_history!==undefined && data.history_revision && data.tracked_revision;
+    const response=await fetch(held?`${endpoint}?history=${data.history_revision}&tracked=${data.tracked_revision}`:endpoint,{cache:'no-store',signal:controller.signal});
     // The first publication or a changed character/session is not ready yet.
     warming=response.status===503 && (await response.json().catch(()=>({}))).error==='warming_up';
     if(warming){data=null;rollingData=null;rollingRevision=null;}
     if(!response.ok)throw new Error();
-    data=await response.json();receivedAt=requested;failed=false;
+    const body=await response.json();
+    // An omitted section is the same revision this page holds; anything else arrives in full.
+    if(held && body.history===undefined && body.history_revision===data.history_revision)body.history=data.history;
+    if(held && body.tracked_history===undefined && body.tracked_revision===data.tracked_revision)body.tracked_history=data.tracked_history;
+    data=body;receivedAt=requested;failed=false;
     if(view==='player' && data.tracked_history){rollingData=data.tracked_history;rollingReceived=performance.now();rollingFailed=false;}
     if(view==='board')renderBoard();else { renderPlayer();if(view==='player'){drawHistory();if(Array.isArray(data.history))pollRolling();} }
   } catch { failed=true;if(view==='board')renderBoard();else renderPlayer(); }

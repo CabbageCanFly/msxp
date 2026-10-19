@@ -160,7 +160,7 @@ def measure(db,channels,open_runs,next_n,start,repeat,full_replay=False,viewers=
 
 def viewer_process(port,names,first,count,viewers,start_at,seconds,queue):
     """Viewers first..first+count-1 in their own process, so client CPU never shares the server's GIL."""
-    samples={'home':[],'character':[],'history':[]};timeouts=dict.fromkeys(samples,0);errors=dict.fromkeys(samples,0);reasons={};lock=threading.Lock()
+    samples={'home':[],'character':[],'history':[]};timeouts=dict.fromkeys(samples,0);errors=dict.fromkeys(samples,0);sizes=dict.fromkeys(samples,0);reasons={};lock=threading.Lock()
     stop=start_at+seconds
     def fetch(kind,path):
         tick=time.perf_counter()
@@ -176,13 +176,16 @@ def viewer_process(port,names,first,count,viewers,start_at,seconds,queue):
         with lock:
             if ms>5000:timeouts[kind]+=1  # The browser aborts the whole request at 5 s.
             else:samples[kind].append(ms)
+            sizes[kind]+=len(data)
         return json.loads(data)
     def viewer(i):
         kind='home' if i%2==0 else 'character';channel=names[i//2%len(names)]
         path='/api/players' if kind=='home' else f'/api/players/{channel}'
-        time.sleep(max(0,start_at-time.time())+i*2/viewers);polls=0
+        time.sleep(max(0,start_at-time.time())+i*2/viewers);polls=0;known=''
         while time.time()<stop:
-            body=fetch(kind,path)
+            body=fetch(kind,path+known)
+            # Like product.js: name the chart history and tracked packet already held, so unchanged ones are omitted.
+            if kind=='character' and body and body.get('history_revision'):known=f"?history={body['history_revision']}&tracked={body['tracked_revision']}"
             if body:
                 for p in body['players'] if kind=='home' else [body['player']]:
                     values=[w['gain'] for w in p['recent_windows'].values() if w.get('gain')]
@@ -193,7 +196,7 @@ def viewer_process(port,names,first,count,viewers,start_at,seconds,queue):
     threads=[threading.Thread(target=viewer,args=(i,)) for i in range(first,first+count)]
     for t in threads:t.start()
     for t in threads:t.join()
-    queue.put((samples,timeouts,errors,reasons))
+    queue.put((samples,timeouts,errors,reasons,sizes))
 
 
 def load(server,names,append,viewers,seconds):
@@ -230,12 +233,13 @@ def load(server,names,append,viewers,seconds):
     for t in threads:t.join()
     lags.sort();ages.sort()
     result=dict(viewers=viewers,client_processes=len(clients),seconds=round(wall,1),server_cpu_seconds_per_second=cpu_rate,peak_rss_mib=round(rss[0]/2**20),
-        capture_to_publication_s=dict(count=len(lags),unpublished=len(pending),p50=round(lags[len(lags)//2],2),p95=round(lags[int(.95*(len(lags)-1))],2),max=round(lags[-1],2)) if lags else dict(unpublished=len(pending)),
+        capture_to_publication_s=dict(count=len(lags),unpublished=len(pending),p50=round(statistics.median(lags),2),p95=round(lags[int(.95*(len(lags)-1))],2),max=round(lags[-1],2)) if lags else dict(unpublished=len(pending)),
         error_reasons={k:sum(r[3].get(k,0) for r in results) for r in results for k in r[3]},
         oldest_entry_age_s=dict(p50=round(ages[len(ages)//2],1),p95=round(ages[int(.95*(len(ages)-1))],1),max=round(ages[-1],1)) if ages else None)
     for kind in ('home','character','history'):
         values=sorted(v for samples,*_ in results for v in samples[kind])
         result[kind]=dict(requests=len(values),timeouts=sum(r[1][kind] for r in results),errors=sum(r[2][kind] for r in results),
+            kib_per_response=round(sum(r[4][kind] for r in results)/max(1,len(values))/1024,1),
             **(dict(p50_ms=round(statistics.median(values)),p95_ms=round(values[int(.95*(len(values)-1))]),
             p99_ms=round(values[int(.99*(len(values)-1))]),max_ms=round(values[-1])) if values else {}))
     return result

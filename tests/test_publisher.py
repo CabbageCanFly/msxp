@@ -13,7 +13,7 @@ import exp_tracker.server as server_module
 import exp_tracker.diagnostics as diagnostics_module
 from exp_tracker.diagnostics import Diagnostics,operation
 from exp_tracker.product import refresh,tracked_statistics
-from exp_tracker.publisher import broadcast,encode
+from exp_tracker.publisher import broadcast,encode,revision
 from exp_tracker.store import Store,utc
 from exp_tracker.twitch_probe import StreamAvailability
 from tests.test_product import tracking,NOW
@@ -64,6 +64,7 @@ def reference(store,server,channel,now):
 def published(server,channel):
     body=json.loads(server.publisher.character(channel))
     for key in ('served_at','experimental','poll_seconds'):body.pop(key)
+    assert (body.pop('history_revision'),body.pop('tracked_revision'))==(revision(body['history']),revision(body['tracked_history']))
     return body
 
 
@@ -467,3 +468,53 @@ def test_public_only_publishes_in_background_and_refuses_developer_routes(tracki
         assert b'data-site' not in request((server,None),'/')[2] and request((server,None),'/dev/api/streams')[0]==200
     for kwargs in (dict(diagnostic_dashboard=True),dict(shadow_log=path)):
         with pytest.raises(ValueError,match='public-only'):server_module.create_server(path,port=0,public_only=True,**kwargs)
+
+
+def test_character_polls_omit_only_sections_the_viewer_already_holds(tracking,clock,monkeypatch):
+    path,store,d=tracking;d.begin('one','alpha',config('one',interval=20))
+    for i in range(1,4):save(d,'one',i,i*20,3300+i*5)
+    clock.at=NOW+timedelta(seconds=60)
+    from tests.test_server import request
+    with server_module.create_server(path,port=0,public_only=True) as server:
+        p=server.publisher;p.settle()
+        def body(known=(None,None)):
+            with p.lock:p.presented.clear()  # Each call presents afresh at the pinned clock.
+            return json.loads(p.character('alpha',known))
+        first=body();held=(first['history_revision'],first['tracked_revision'])  # First load: everything.
+        assert held==(revision(first['history']),revision(first['tracked_history'])) and first['history']
+        same=body(held)
+        assert 'history' not in same and 'tracked_history' not in same and same['player']==first['player']
+        assert (same['history_revision'],same['tracked_revision'])==held
+        assert body((held[0],'0'*16))['tracked_history']==first['tracked_history'] and 'history' not in body((held[0],'0'*16))
+        # Over HTTP, only valid revisions count; anything else is a full body.
+        status,_,raw=request((server,None),f'/api/players/alpha?history={held[0]}&tracked={held[1]}')
+        assert status==200 and 'history' not in json.loads(raw)
+        for query in ('?history=x&tracked=y',f'?history={held[0]}&history={held[0]}&tracked={held[1]}',f'?history={held[0].upper()}&tracked={held[1]}'):
+            assert 'history' in json.loads(request((server,None),'/api/players/alpha'+query)[2]),query
+        # A new capture changes the chart history; the old revision gets the new rows.
+        save(d,'one',4,80,3330);clock.at=NOW+timedelta(seconds=80);p.settle()
+        after=body(held)
+        assert after['history_revision']!=held[0] and after['history'][-1]['timestamp']==(NOW+timedelta(seconds=80)).isoformat()
+        assert after['tracked_revision']!=held[1] and after['tracked_history']==p.entry('alpha')['tracked']
+        held=(after['history_revision'],after['tracked_revision'])
+        # Time-only refresh: each section is resent exactly when its content changed.
+        clock.at+=timedelta(seconds=31);p.settle();entry=p.entry('alpha');aged=body(held)
+        assert ('history' in aged)==(revision(entry['extras']['history'])!=held[0])
+        assert ('tracked_history' in aged)==(revision(entry['tracked'])!=held[1]) and aged['tracked_revision']==revision(entry['tracked'])
+        held=(aged['history_revision'],aged['tracked_revision'])
+        # A publication between the decision and the presentation is sent in full, never mislabeled.
+        present=p.present
+        def publish_first(key,build,runtime=''):
+            save(d,'one',5,round((clock.at-NOW).total_seconds())+1,3340);clock.at+=timedelta(seconds=2);p.settle()
+            return present(key,build,runtime)
+        monkeypatch.setattr(p,'present',publish_first)
+        raced=json.loads(p.character('alpha',held));monkeypatch.setattr(p,'present',present)
+        assert raced['history_revision']!=held[0] and raced['history']==p.entry('alpha')['extras']['history']
+        held=(raced['history_revision'],raced['tracked_revision'])
+        # Character change: new identity, new revisions, full sections.
+        other=store.add_character('alpha','Other');store.end_session('alpha',at=clock.at);store.select_character('alpha',other);store.start_session('alpha',at=clock.at)
+        p.settle();changed=body(held)
+        assert changed['tracked_history']['character_id']==other and 'history' in changed
+        # Presentation state stays bounded per channel whatever revisions viewers send.
+        for i in range(20):p.character('alpha',(f'{i:016x}',f'{i:016x}'))
+        assert len([k for k in p.present_locks if k[:2]==('character','alpha')])<=4

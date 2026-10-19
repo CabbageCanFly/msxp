@@ -109,7 +109,12 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     publisher=self.server.publisher
                     if not publisher.background:publisher.settle()
-                    body=publisher.character(channel) if product_api else publisher.history(channel)
+                    if product_api:
+                        query=parse_qs(urlsplit(self.path).query)  # The request line is already bounded.
+                        # Revisions of the chart history and tracked packet the page already holds; anything else means none.
+                        known=tuple(v[0] if (v:=query.get(name)) and len(v)==1 and re.fullmatch(r'[0-9a-f]{16}',v[0]) else None for name in ('history','tracked'))
+                        body=publisher.character(channel,known)
+                    else:body=publisher.history(channel)
                     if body is None:
                         with Store(self.server.database,read_only=True) as store:store._channel(channel)  # Unknown: 404.
                         with publisher.lock:

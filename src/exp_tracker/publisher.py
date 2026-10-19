@@ -3,9 +3,11 @@
 One refresher builds each due channel's card and tracked-EXP packet together, in one
 read transaction, and publishes them as an immutable entry. Requests never build cards,
 replay history or call Twitch. They time-present the latest entries and reuse the
-serialized body for at most PRESENT_SECONDS of as-of clock.
+serialized body for at most PRESENT_SECONDS of as-of clock. A character poll that names the
+content revisions it already holds is sent the chart history and tracked packet only when changed.
 """
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import threading
 import time
@@ -32,6 +34,11 @@ def broadcast(players, statuses, now):
 
 def encode(body):
     return json.dumps(body, allow_nan=False).encode()
+
+
+def revision(value):
+    """Content revision of a published section: equal content, equal revision."""
+    return hashlib.sha256(encode(value)).hexdigest()[:16]
 
 
 class Publisher:
@@ -156,7 +163,8 @@ class Publisher:
             self.stats['failures'] += 1; self.stats['last_error'] = type(error).__name__
             return
         seconds = time.perf_counter() - tick
-        entry = dict(key=tuple(head), built_at=now.isoformat(), card=card, extras=extras, tracked=tracked, build_seconds=seconds)
+        entry = dict(key=tuple(head), built_at=now.isoformat(), card=card, extras=extras, tracked=tracked, build_seconds=seconds,
+            revisions=(revision(extras['history']), revision(tracked)))
         with self.lock:
             self.entries[login] = entry; self.generation += 1; self.wanted.discard(login)
         self.failures.pop(login, None)
@@ -214,15 +222,26 @@ class Publisher:
     def entry(self, channel):
         with self.lock:return self.entries.get(channel)
 
-    def character(self, channel):
-        """Serialized character body, or None while the channel has no published entry."""
-        if self.entry(channel) is None:return None
+    def character(self, channel, known=(None, None)):
+        """Serialized character body, or None while the channel has no published entry.
+
+        known: the viewer's (history, tracked) revisions. A section is omitted only when the
+        presented entry still has that revision, so the viewer's copy is the published one.
+        """
+        entry = self.entry(channel)
+        if entry is None:return None
+        held = tuple(k if k == r else None for k, r in zip(known, entry['revisions']))
         def build(now):
             entry = self.entry(channel)
             if entry is None:raise LookupError(channel)
-            return encode(dict(player=broadcast([self.player(entry, now)], self.statuses, now)[0], tracked_history=entry['tracked'],
-                history=entry['extras']['history'], truncated=entry['extras']['truncated'], served_at=utc(now), experimental=True, poll_seconds=2))
-        try:return self.present(('character', channel), build, self.runtime(channel))
+            body = dict(player=broadcast([self.player(entry, now)], self.statuses, now)[0])
+            if held[1] != entry['revisions'][1]:body['tracked_history'] = entry['tracked']
+            if held[0] != entry['revisions'][0]:body['history'] = entry['extras']['history']
+            return encode(dict(body, history_revision=entry['revisions'][0], tracked_revision=entry['revisions'][1],
+                truncated=entry['extras']['truncated'], served_at=utc(now), experimental=True, poll_seconds=2))
+        # Bounded keys; the held revisions are runtime, so a cached body is only reused for the same ones.
+        key = ('character', channel, held[0] is not None, held[1] is not None)
+        try:return self.present(key, build, self.runtime(channel) + json.dumps(held))
         except LookupError:return None
 
     def history(self, channel):

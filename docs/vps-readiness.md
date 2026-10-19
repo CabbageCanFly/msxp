@@ -88,8 +88,9 @@ can sum past 100%; CPU s/s is the real ceiling, ≈1.0 for one Python process.
 
    Each `recent_windows` / `current_level_windows` entry is ≈8.5 KiB. At 100 viewers
    that is **≈40 MiB/s (≈330 Mbit/s) uncompressed**, or ≈2 MiB/s (≈16 Mbit/s) gzipped.
-   The character poll resends the unchanged 746 KiB chart every 2 s. Proxy compression
-   is mandatory; trimming payloads is the largest bandwidth and presentation-CPU lever.
+   The character poll resent the unchanged 746 KiB chart every 2 s. **Addressed** for
+   character pages and overlays ([conditional history](#conditional-character-history));
+   the homepage and per-window detail are unchanged. Proxy compression is still mandatory.
 4. **One flag exposes per-request developer endpoints.** The public product requires
    `--diagnostic-dashboard`, which also serves `/dev/api/streams` (5.7 s cold on
    5 full-day channels, then cached), `/dev/api/streams/{ch}/diagnostics`
@@ -214,9 +215,9 @@ on it.
    unit; daily verified off-host backup; run this benchmark on the VPS against a copy:
    `python tools/benchmark_homepage.py --directory private/vps-01 --channels 5 --viewers 100 --seconds 30`.
 2. ~~Separate public product from developer diagnostics~~: done, `--public-only`.
-3. **Shrink polled payloads:** send the 746 KiB chart only when it changes (separate
-   endpoint or `ETag`), and drop per-window detail the pages do not render. This cuts
-   bandwidth and presentation CPU at once.
+3. **Shrink polled payloads:** ~~send the chart only when it changes~~ (done,
+   [conditional history](#conditional-character-history)). Remaining: the homepage
+   (≈100–220 KiB per player) and per-window detail the pages do not render.
 4. **Measure capture + server together on the VPS** with the real channel count. If
    process CPU nears 0.8 s/s, publish coordinator activity across processes (a
    heartbeat row or status file). Capture and the public server can then run
@@ -225,6 +226,62 @@ on it.
    writes published bodies for the HTTP process, as recorded in background publishing.
    Persisting checkpoints would shorten cold start.
 6. Retention for run logs and old attempts.
+
+## Conditional character history
+
+`/api/players/{ch}` now carries `history_revision` and `tracked_revision`: 16-hex content
+hashes of the published chart rows and tracked-EXP packet, computed once per build by the
+refresher. `product.js` (character page and OBS overlay) names the revisions it holds:
+`/api/players/{ch}?history=…&tracked=…`. The server omits `history` / `tracked_history`
+only when the presented entry still has exactly that revision, so an omitted section is
+always the viewer's own copy of the current publication. A changed section, a new
+character or session, a first load, a reconnect after a newer publication, or any
+missing or invalid value gets the section in full. Requests without parameters (tests,
+older pages, scripts) get the unchanged full body.
+
+- **Consistency:** equal content gives an equal revision, so a time-only rebuild that
+  changes only the tracked `as_of` resends only the tracked packet. If a publication
+  lands between the decision and the presentation, the section is sent in full. Warming
+  clears the page's copy, so a character change always starts from a full body. A body
+  that omits a section the page cannot match is never merged; the next poll asks for
+  everything.
+- **Bounded state:** at most four presentation keys per channel (section held or not).
+  The held revisions are part of the cache's runtime match, so a body is reused only for
+  the same ones.
+- Unchanged: the homepage, `/api/players/{ch}/history`, publisher scheduling, EXP
+  eligibility, level inference, stored history and trusted accounting.
+
+Measurements: Windows workstation, single process, loopback. "Before" is HEAD's `src`
+on the same data, measured back to back.
+
+| Character body | Before | Unchanged poll now | Full body now |
+|---|---:|---:|---:|
+| Synthetic full day, 132 chart rows | 747 KiB (26 KiB gzip) | **117 KiB (8 KiB gzip)** | 747 KiB |
+| Real Shiphtur (live DB, read-only), 110 rows | 785 KiB (35 KiB gzip) | **179 KiB (14 KiB gzip)** | 786 KiB |
+| Presentation, median (synthetic / real) | 6.6 / 12.2 ms | **3.3 / 7.1 ms** | 6.2 / 11.7 ms |
+
+The refresher adds 3.8 ms per build for both hashes (a cold full-day build is ≈2 s).
+Bounded load (`benchmark_homepage.py --channels 2 --viewers 40 --seconds 20`; the
+benchmark's character viewers now echo revisions like the page): mean character response
+**1,053 → 341 KiB**. This includes the full bodies sent after each capture and refresh.
+Server CPU was 0.24 → 0.23 s/s; character p50/p95 17/136 → 10/106 ms. Latency and CPU
+differences at this load are within noise.
+
+Public-field audit (public-only bodies from the live 10-channel database, read-only):
+no file paths, URLs, capture or OBS credentials, Twitch tokens or stream playlists.
+Values present but unused by the pages, all low sensitivity:
+
+- `source_identity`: a SHA-256 of the source kind and Twitch login, of an HLS input
+  URL, or of the local video's absolute path. It reveals a URL or path only if that
+  value can be guessed.
+- run, session and character IDs.
+- coordinator activity timings: run ID, next due time, requested and actual intervals,
+  skipped deadlines.
+- OCR diagnostic reason codes and neural-reader level fields.
+- the public requirement-table SHA-256.
+
+Removing them needs a public serializer for the nested pace/window structures. That is
+deferred, because exact-parity tests compare those structures.
 
 ## Not measured
 

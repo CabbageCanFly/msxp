@@ -646,3 +646,43 @@ test('inferred level-up banner and chart marker stay provisional until corrobora
     assert.ok(p.elements['history-chart'].children.some(n=>n.tag==='text' && n.textContent===marker));
   }
 });
+
+for(const view of ['player','overlay'])test(`${view} polls name held history revisions, reuse unchanged sections and refetch in full after warming`,async()=>{
+  const requests=[],settle=async()=>{for(let i=0;i<4;i++)await new Promise(resolve=>setImmediate(resolve));};
+  const rows=label=>[{event_id:label,timestamp:'2026-01-01T00:00:00Z'}],tracked=label=>({as_of:'2026-01-01T00:00:00Z',label});
+  const body=(changes={})=>({player:player(),history_revision:'a'.repeat(16),tracked_revision:'b'.repeat(16),...changes});
+  let reply=body({history:rows('first'),tracked_history:tracked('first')});
+  const p=page(view,url=>{requests.push(url);return reply instanceof Error?Promise.reject(reply):Promise.resolve({ok:reply.status!==503,status:reply.status??200,json:async()=>reply});});
+  await settle();
+  assert.equal(requests[0],'/api/players/alpha');  // First load: nothing held, full body.
+  const first=p.run('data.history');
+  reply=body({player:player({reading:{...player().reading,percentage:'6.00',bp:600}})});  // Both sections unchanged and omitted.
+  await p.run('poll()');
+  assert.equal(requests.at(-1),`/api/players/alpha?history=${'a'.repeat(16)}&tracked=${'b'.repeat(16)}`);
+  assert.equal(p.run('data.history'),first);assert.equal(p.run('data.tracked_history.label'),'first');
+  assert.equal(p.elements.percentage.textContent,'6.00%');  // Live values still update.
+  reply=body({history_revision:'c'.repeat(16),history:rows('second')});  // History changed, tracked unchanged.
+  await p.run('poll()');
+  assert.equal(p.run('data.history[0].event_id'),'second');assert.equal(p.run('data.tracked_history.label'),'first');
+  reply=new Error('offline');await p.run('poll()');assert.equal(p.run('failed'),true);
+  reply=body({history_revision:'c'.repeat(16)});await p.run('poll()');  // Reconnect keeps the held revisions.
+  assert.equal(requests.at(-1),`/api/players/alpha?history=${'c'.repeat(16)}&tracked=${'b'.repeat(16)}`);
+  assert.equal(p.run('failed'),false);assert.equal(p.run('data.history[0].event_id'),'second');
+  reply={status:503,error:'warming_up'};await p.run('poll()');assert.equal(p.run('data'),null);  // Character change.
+  reply=body({player:player({character:{id:2,label:'New character'}}),history_revision:'d'.repeat(16),tracked_revision:'e'.repeat(16),history:rows('new'),tracked_history:tracked('new')});
+  await p.run('poll()');
+  assert.equal(requests.at(-1),'/api/players/alpha');assert.equal(p.run('data.history[0].event_id'),'new');assert.equal(p.run('data.tracked_history.label'),'new');
+  reply=body({history_revision:'f'.repeat(16),tracked_revision:'e'.repeat(16)});await p.run('poll()');  // Omitted but not the held revision: never reused.
+  assert.equal(p.run('data.history'),undefined);
+  reply=body({history_revision:'f'.repeat(16),tracked_revision:'e'.repeat(16),history:rows('healed'),tracked_history:tracked('new')});await p.run('poll()');
+  assert.equal(requests.at(-1),'/api/players/alpha');assert.equal(p.run('data.history[0].event_id'),'healed');
+});
+
+test('homepage polls never name history revisions',async()=>{
+  const requests=[];let open;const gate=new Promise(resolve=>{open=resolve;});
+  const p=page('board',url=>{requests.push(url);return gate.then(()=>({ok:true,status:200,json:async()=>({players:[player()]})}));});
+  p.run("el('entries').querySelectorAll=()=>[]");open();
+  for(let i=0;i<4;i++)await new Promise(resolve=>setImmediate(resolve));
+  await p.run('poll()');
+  assert.deepEqual(requests,['/api/players','/api/players']);assert.equal(p.run('data.players.length'),1);assert.equal(p.run('failed'),false);
+});
