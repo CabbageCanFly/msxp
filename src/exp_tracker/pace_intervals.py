@@ -93,6 +93,8 @@ def conditional_percent(row, support, previous):
 
 def endpoint_interval(before,after):
     """Net EXP in level/EXP coordinates; no capture-connection eligibility."""
+    if before.get('manual_epoch') != after.get('manual_epoch'):
+        return None,'manual_correction'
     a,b=before['level']['value'],after['level']['value']
     if a is None or b is None:return None,'level_unavailable'
     if b<a:return None,'observed_level_decrease'
@@ -123,6 +125,25 @@ def window_endpoints(points,*,start,end,level=None):
         and (level is None or p['level']['value']==level)]
     selected=[p for p in in_window if usable_endpoint(p)]
     selected.sort(key=lambda p:datetime.fromisoformat(p['timestamp']))
+    if len({p.get('manual_epoch') for p in selected})>1:
+        from itertools import groupby
+        used=[];gains=[];coverage=Fraction(0)
+        for _,group in groupby(selected,key=lambda p:p.get('manual_epoch')):
+            part=list(group)
+            if len(part)<2 or part[0]['timestamp']==part[-1]['timestamp']:continue
+            gain,_=endpoint_interval(part[0],part[-1])
+            if gain:
+                used.extend(part);gains.append(gain)
+                coverage+=elapsed_seconds(datetime.fromisoformat(part[0]['timestamp']),datetime.fromisoformat(part[-1]['timestamp']))
+        if not gains:return selected,None,'manual_correction_baseline_required'
+        combined=dict(gains[-1],start=used[0]['timestamp'],first_event_id=used[0]['event_id'],
+            value=rational(sum((Fraction(g['value']['numerator'],g['value']['denominator']) for g in gains),Fraction(0))),
+            coverage_seconds=rational(coverage),manual_boundaries=True,
+            requirements=[r for g in gains for r in g['requirements']],
+            transition_gain_included=any(g['transition_gain_included'] for g in gains),
+            basis=gains[0]['basis'] if len({g['basis'] for g in gains})==1 else 'mixed_exp_and_percentage_endpoints')
+        if combined['value']['numerator']<0:return used,None,'observed_exp_decrease'
+        return used,combined,None
     if len(selected)<2 or selected[0]['timestamp']==selected[-1]['timestamp']:
         if len(in_window)>=2 and len(selected)<2:
             return selected,None,'level_unavailable' if any(p['level']['value'] is None for p in in_window) else 'percentage_requirement_unavailable'
@@ -145,7 +166,7 @@ def collect_observed(snapshot, *, now, read, max_interval_seconds, state=None):
     character=(snapshot.get('selected_character') or {}).get('id')
     for row in snapshot['observations']:
         value=recovered.get(row['event_id']) or read(row)
-        if value and value['fresh_at_capture'] and not value['simulated'] and not row.get('crop_suspect') and (character is None or row.get('character_id')==character):
+        if value and value['fresh_at_capture'] and not value['simulated'] and row.get('timestamp_ordered') is not False and not row.get('crop_suspect') and (character is None or row.get('character_id')==character):
             try:
                 when=datetime.fromisoformat(value['timestamp'])
                 if when.utcoffset() is None or when>now:raise ValueError
@@ -153,7 +174,7 @@ def collect_observed(snapshot, *, now, read, max_interval_seconds, state=None):
             value=dict(value,source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),run_id=row.get('run_id'),index=row.get('index'))
             points.append(value)
             if not usable_endpoint(value):continue
-            if previous and datetime.fromisoformat(previous['timestamp'])<when:
+            if previous and previous.get('manual_epoch')==value.get('manual_epoch') and datetime.fromisoformat(previous['timestamp'])<when:
                 edges.append(dict(before=previous,after=value,epoch=0,
                     identity=(row.get('assigned_channel') or row.get('channel'),row.get('channel'),row.get('source_kind'),row.get('source_identity'),row.get('character_id'),row.get('session_id')),
                     kind='endpoint_supported' if holes else 'direct',missing_event_ids=list(holes),
@@ -186,7 +207,7 @@ def collect(snapshot, *, now, read, max_interval_seconds,state=None):
             source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),
             character_id=row.get('character_id'),session_id=row.get('session_id'),run_id=row.get('run_id'),
             index=row.get('index'),coordinator_instance=row.get('coordinator_instance'),timestamp=stamp,
-            interval_seconds=row.get('interval_seconds',15),level=evidence.get('value'),
+            interval_seconds=row.get('interval_seconds',15),level=evidence.get('value'),manual_epoch=row.get('manual_epoch'),
             run_interrupted=row.get('run_interrupted') is True,
             operator_interrupted=row.get('status')=='capture_failed' and row.get('reasons')==['operator_interrupted'])
         key=tuple(context[k] for k in ('channel','source_channel','source_kind','source_identity','character_id','session_id'))
@@ -215,7 +236,7 @@ def collect(snapshot, *, now, read, max_interval_seconds,state=None):
             and when>datetime.fromisoformat(prior_attempt['timestamp'])
             and 0<(when-datetime.fromisoformat(previous['timestamp'])).total_seconds()<=max_interval_seconds)
         if restart:edge='interrupted_restart'
-        if edge in ('source_changed','character_or_session_changed','run_boundary','nonincreasing_timestamp'):
+        if edge in ('manual_correction','source_changed','character_or_session_changed','run_boundary','nonincreasing_timestamp'):
             hard=edge
             if edge=='run_boundary':epoch+=1
         frame=row.get('frame_sha256')
@@ -243,7 +264,7 @@ def collect(snapshot, *, now, read, max_interval_seconds,state=None):
         if hard:
             previous=None;holes=[];unrecorded=0;numeric_gap=False
             if hard!='incompatible_full_exp':support=[]
-        baseline_only=hard in ('run_boundary','source_changed','character_or_session_changed','level_changed',
+        baseline_only=hard in ('manual_correction','run_boundary','source_changed','character_or_session_changed','level_changed',
             'confirmed_change_new_baseline','excluded_suspected_ocr_interval')
         usable=bool((not hard or baseline_only) and fresh and point and invalid is None and decision['progress_eligible'])
         recovery=None

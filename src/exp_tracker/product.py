@@ -12,7 +12,7 @@ from .exp_consistency import MODES, assess
 
 WINDOWS=(5,10,15,30,60)
 # Public level provenance: readers first, then labeled EXP-derived/retained/provisional context.
-DISPLAY_LEVEL_STATUSES=('agreement','provisional_neural','exp_derived','retained_level','provisional_level_up')
+DISPLAY_LEVEL_STATUSES=('agreement','provisional_neural','exp_derived','retained_level','provisional_level_up','manual_admin')
 PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
 PACE_MIN_SECONDS=5
 PACE_TREND_SECONDS=300
@@ -42,9 +42,11 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
             if gain:retained=True;break
     if gain is None:return None
     first,last=selected[0],selected[-1];elapsed=elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))
+    span=elapsed
+    if gain.get('coverage_seconds'):elapsed=fraction(gain['coverage_seconds'])
     amount=fraction(gain['value']);rate=amount*3600/elapsed;req=requirement(last['level']['value'])
     percentage=None
-    if first['level']['value']==last['level']['value']:
+    if first['level']['value']==last['level']['value'] and not gain.get('manual_boundaries'):
         percentage=dict(value=rational(Fraction(last['bp']-first['bp'])*36/elapsed),**quantization_pace(first['bp'],last['bp'],elapsed))
     calculated=estimates(dict(requirement=req),percentage,last['bp']) if percentage else estimates(None,None,0)
     hypotheses=(calculated['exp_per_hour'] or {}).get('hypotheses')
@@ -69,7 +71,7 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
                 missing_event_ids=detail.get('missing_event_ids',[]),unrecorded_attempts=detail.get('unrecorded_attempts',0)))
     return dict(active=active,tentative=len(selected)<3 or elapsed<30,level=last['level']['value'],levels=sorted({p['level']['value'] for p in selected}),
         eta_at=last['timestamp'],start=first['timestamp'],end=last['timestamp'],source_kind=last.get('source_kind'),source_identity=last.get('source_identity'),
-        readings=len(selected),last_observed_eta=saved_eta,span_seconds=rational(elapsed),coverage_seconds=rational(elapsed),interruptions=0,
+        readings=len(selected),last_observed_eta=saved_eta,span_seconds=rational(span),coverage_seconds=rational(elapsed),interruptions=int(bool(gain.get('manual_boundaries'))),
         estimates=calculated,basis=gain['basis'],interval_counts={kind:sum(d['kind']==kind for d in details) for kind in ('direct','endpoint_supported')},intervals=details,total_gain=gain['value'],
         basis_counts={gain['basis']:1},missing_attempts=len(collected['excluded'])+sum(d['unrecorded_attempts'] for d in details),
         evidence_counts={kind:sum(p['evidence']==kind for p in selected) for kind in ('strict_full','strict_percentage_only','grammar_recovered','conditional_symbol')},
@@ -276,8 +278,8 @@ def reading(row):
     return dict(event_id=point['event_id'],timestamp=point['timestamp'],percentage=point['percentage'],
         bp=point['bp'],exp=exp,estimated_exp=percentage_exp(point['bp'],level) if exp is None else None,
         exp_validity=row['exp_validity'],evidence=point['evidence'],grammar_policy=point['grammar_policy'],
-        fresh_at_capture=point['fresh_at_capture'] and point['capture_acquired'],level=level,
-        simulated=row.get('timing_mode')=='simulated',trusted=False)
+        fresh_at_capture=point['fresh_at_capture'] and point['capture_acquired'] and row.get('manual_resume_eligible',True),level=level,
+        simulated=row.get('timing_mode')=='simulated',trusted=False,manual_epoch=row.get('manual_epoch'))
 
 
 def observed_sequence(snapshot, *, now,completed=None,max_gap_seconds=OBSERVED_MAX_GAP_SECONDS,max_missing=OBSERVED_MAX_MISSING,
@@ -294,7 +296,8 @@ def observed_sequence(snapshot, *, now,completed=None,max_gap_seconds=OBSERVED_M
             source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),
             character_id=row.get('character_id'),session_id=row.get('session_id'),run_id=row.get('run_id'),
             index=row.get('index'),coordinator_instance=row.get('coordinator_instance'),timestamp=stamp,
-            interval_seconds=row.get('interval_seconds',15),level=(row.get('experimental_level') or {}).get('value'))
+            interval_seconds=row.get('interval_seconds',15),level=(row.get('experimental_level') or {}).get('value'),
+            manual_epoch=row.get('manual_epoch'))
         hard=None;valid_time=False
         try:
             when=datetime.fromisoformat(stamp)
@@ -497,7 +500,7 @@ def player(snapshot,*,now=None,recent_snapshot=None):
                 and row.get('fresh_at_capture') and row.get('capture_acquired') and row.get('hud_count')==1
                 and level['value'] is not None and level['status'] in DISPLAY_LEVEL_STATUSES):
             display_level=dict(value=level['value'],timestamp=stamp,event_id=row['event_id'],
-                evidence=level,display_only=True,trusted=False)
+                evidence=level,display_only=True,trusted=False,manual_epoch=row.get('manual_epoch'))
     progress=snapshot['percentage_progress'];segment=progress['current_segment']
     usable=bool(latest and segment and segment['last_event_id']==latest['event_id'] and rows and rows[-1]['event_id']==latest['event_id'])
     movement=progress.get('latest_movement') if usable else None
@@ -514,6 +517,9 @@ def player(snapshot,*,now=None,recent_snapshot=None):
             difference_percentage_points=segment['difference_percentage_points'],evidence_counts=segment['evidence_counts']) if usable else None,
         estimates=estimates(segment,progress['current_pace'],latest['bp']) if usable else estimates(None,None,0),
         windows=window_comparisons(snapshot,now=now),trusted=False,experimental=True)
+    from .manual import present
+    present(result,snapshot)
+    display_level=result['display_level']
     historical=next((s for s in reversed(progress['segments']) if s['pace']),None)
     result['early_pace']=dict(active=bool(usable and progress['current_pace']),reason=progress['reason'],
         segment=historical,estimates=estimates(historical,historical['pace'],int(Fraction(historical['end_percentage'])*100)) if historical else estimates(None,None,0),
@@ -537,7 +543,7 @@ def player(snapshot,*,now=None,recent_snapshot=None):
         result.update(reading=endpoint,original_percentage_state=decision,
             percentage_state=dict(policy='conditional_percent_v1',status='accepted_experimental_recovery',
                 public_eligible=True,progress_eligible=False,reason='responsive_endpoint_only',trusted=False))
-    return refresh(result,now=now)
+    return refresh(present(result,snapshot),now=now)
 
 
 def refresh(value,*,now=None,activity=None):

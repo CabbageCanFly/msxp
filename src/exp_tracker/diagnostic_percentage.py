@@ -15,7 +15,8 @@ def boundary(before,point,row):
         and before['index']==60 and point['index']==1
         and point['source_identity'] is not None and point['source_identity']==before['source_identity']
         and point['coordinator_instance'] is not None and point['coordinator_instance']==before['coordinator_instance'])
-    return ('source_changed' if any(point[k]!=before[k] for k in ('channel','source_channel','source_kind','source_identity')) else
+    return ('manual_correction' if point.get('manual_epoch')!=before.get('manual_epoch') else
+        'source_changed' if any(point[k]!=before[k] for k in ('channel','source_channel','source_kind','source_identity')) else
         'character_or_session_changed' if any(point[k]!=before[k] for k in ('character_id','session_id')) else
         'run_boundary' if point['run_id']!=before['run_id'] and not rotated else
         'level_changed' if point['level']!=before['level'] else
@@ -68,6 +69,9 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
                 support_event_ids=[c['point']['event_id'] for c in strict_percentage_context],max_age_seconds=120)
             if supported:point['comparison_eligible']=True
             else:invalid='percentage_bracket_context_required';value['eligibility_reason']=invalid
+        if anchor and point:
+            if point.get('manual_epoch')!=anchor['point'].get('manual_epoch'):
+                anchor=pending=None;strict_percentage_context=[]
         if anchor and point:
             changed=any(point[k]!=anchor['point'][k] for k in ('channel','source_channel','source_kind','source_identity','character_id','session_id'))
             if (changed or invalid is None and point['level'] is not None and point['level']!=anchor['level']

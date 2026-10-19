@@ -91,6 +91,11 @@ last-known levels and exposes early segment pace without relaxing fixed-window c
 Manage assignments with the [private roster CLI](docs/streamer-roster.md): add, disable,
 re-enable and inspect without deleting history; changes apply on controlled restart.
 
+[Checkpoint A1 manual corrections](docs/manual-exp-admin.md) add local CLI commands
+to inspect, set and clear Level / EXP baselines, with append-only provenance and
+correction boundaries that never count as earned EXP. Public pages and the
+experimental OBS overlay update without another capture.
+
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 1–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and
 separately gated experimental percentage progress. Start with the offline
@@ -160,7 +165,7 @@ existing SQLite state. Start with an existing demo database:
 Start-Process 'http://127.0.0.1:8765/overlay/demo'
 ```
 
-The read-only server supports schemas 3 and 4; writer initialization migrates to 4.
+The read-only server supports schemas 3, 4 and 5; writer initialization migrates to 5.
 The linked guide covers creating a demo,
 explicitly migrating old databases, saved real OCR state and timed synthetic
 updates. HTTP never creates/migrates databases or writes tracking state.

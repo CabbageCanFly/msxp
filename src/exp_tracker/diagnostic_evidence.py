@@ -293,13 +293,19 @@ def project(rows, *, state=None, allow_context=True):
     """
     output=[]; recent=deque(maxlen=3); previous=None; established=None; established_at=None; neural_context=False; missing=0; corroborated_at=None
     anchor=None; context_conflicts=0;context_frames=deque(maxlen=12);capture_gaps=0;derived=None
+    manual_epoch=None;manual_released=False
     if state:
         recent=state['recent'];previous=state['previous'];established=state['established'];established_at=state['established_at']
         neural_context=state['neural_context'];missing=state['missing'];corroborated_at=state['corroborated_at']
         anchor=state.get('anchor');context_conflicts=state.get('context_conflicts',0)
         context_frames=state.get('context_frames',context_frames)
         capture_gaps=state.get('capture_gaps',0);derived=state.get('derived')
+        manual_epoch=state.get('manual_epoch');manual_released=state.get('manual_released',False)
     for original in rows:
+        if original.get('manual_epoch') != manual_epoch:
+            recent.clear();previous=None;established=None;established_at=None;neural_context=False
+            missing=0;corroborated_at=None;anchor=None;context_conflicts=0;capture_gaps=0;derived=None
+            manual_epoch=original.get('manual_epoch');manual_released=False
         row=dict(original); visual=_visual(row); neural,score=_neural(row)
         frame=row.get('frame_sha256')
         fresh=(row.get('fresh_at_capture') is True and row.get('capture_acquired') is True
@@ -478,14 +484,28 @@ def project(rows, *, state=None, allow_context=True):
             evidence.update(value=selected,status=derived_status,reason=derived_reason,strict_window_eligible=False)
             # Unconfirmed reader numbers stay visible; an obscured HUD can produce them.
             if claims:evidence['unselected_reader_claims']=claims
+        manual=row.get('manual_context')
+        if manual and manual['level'] is not None and fresh:
+            if status in ('agreement','provisional_neural') and selected is not None:
+                manual_released=True
+            if not manual_released:
+                from .manual import level_evidence
+                evidence=level_evidence(manual)
+                evidence.update(reader_evidence=dict(value=selected,status=status),visual=visual,neural=neural)
+                selected=manual['level'];derived=None
         row['experimental_level']=evidence
         row['exp_validity']=pair_check if veto else consistency(full,selected)
         if evidence['status']=='exp_derived':
             # The level came from these same OCR pairs; agreement would be circular.
             row['exp_validity'].update(status='indeterminate',reason='level_derived_from_exp_pairs')
+        if row.get('manual_epoch') is not None:
+            row['manual_resume_eligible']=bool(fresh and not row.get('candidate_invalid')
+                and not row.get('percentage_only_invalid') and row['exp_validity']['status']!='invalid'
+                and evidence['status']!='conflict')
         output.append(row); previous=row
     if state is not None:
         state.update(recent=recent,previous=previous,established=established,established_at=established_at,
             neural_context=neural_context,missing=missing,corroborated_at=corroborated_at,
-            anchor=anchor,context_conflicts=context_conflicts,context_frames=context_frames,capture_gaps=capture_gaps,derived=derived)
+            anchor=anchor,context_conflicts=context_conflicts,context_frames=context_frames,capture_gaps=capture_gaps,derived=derived,
+            manual_epoch=manual_epoch,manual_released=manual_released)
     return Projected(output) if state is None and allow_context else output

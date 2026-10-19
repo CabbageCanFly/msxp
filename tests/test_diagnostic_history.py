@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from exp_tracker.diagnostics import Diagnostics
-from exp_tracker.schema import STATEMENTS,MIGRATION_2,MIGRATION_3
+from exp_tracker.schema import STATEMENTS,MIGRATION_2,MIGRATION_3,VERSION
 from exp_tracker.store import Store
 from exp_tracker.server import create_server
 from tests.test_server import request
@@ -110,7 +110,7 @@ def test_v3_read_compatibility_and_v4_additive_migration_preserve_payloads(tmp_p
     assert before==path.read_bytes()
     with Store(path) as store:
         row=store.db.execute('SELECT payload_json,session_id FROM diagnostic_attempts').fetchone()
-        assert row[0]==raw and row[1]==1 and store.schema_version==4
+        assert row[0]==raw and row[1]==1 and store.schema_version==VERSION
         assert not store.db.execute('PRAGMA foreign_key_check').fetchall()
         assert len(Diagnostics(store).snapshot('alpha')['observations'])==1
 

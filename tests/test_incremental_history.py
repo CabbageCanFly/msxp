@@ -114,7 +114,7 @@ def test_checkpoint_store_is_bounded(tracking,monkeypatch):
     monkeypatch.setattr(rolling_history,'MAX_CHECKPOINTS',2)
     checkpoints={('stale',n):{} for n in range(2)}
     d.rolling_history('alpha',now=NOW+timedelta(seconds=80),checkpoints=checkpoints)
-    assert len(checkpoints)==2 and ('tracked','alpha',1) in checkpoints
+    assert len(checkpoints)==2 and ('tracked','alpha',1,()) in checkpoints
 
 
 @pytest.mark.parametrize('channel',['emmies','niru','telfer1'])
