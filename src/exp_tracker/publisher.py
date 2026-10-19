@@ -19,6 +19,15 @@ from .store import Store, utc
 PRESENT_SECONDS = 1  # A presented body is reused for at most this long.
 TRACKED_SECONDS = 30  # Tracked windows age even without a new capture, as before.
 RETRY_SECONDS = (5, 60)  # Failed channel refresh: exponential backoff bounds.
+# Never in public responses, at any depth: internal identities, capture scheduling, and
+# diagnostics no public page reads. Calculations, publisher state and /dev keep them.
+PRIVATE_FIELDS = frozenset({
+    'source_identity', 'coordinator_instance', 'run_id', 'run_ids', 'session_id',
+    'updated_at', 'next_due_at', 'expected_completion_seconds', 'requested_interval_seconds',
+    'actual_interval_seconds', 'skipped_deadlines',
+    'excluded', 'holes', 'latest_endpoint', 'last_observed_eta', 'eligibility_checks',
+    'evidence_counts', 'published_alternatives'})
+CHARACTER_ONLY = ('current_level_windows', 'tracked_current_level_windows')  # Only the character page's level toggle reads them.
 
 
 def broadcast(players, statuses, now):
@@ -34,6 +43,13 @@ def broadcast(players, statuses, now):
 
 def encode(body):
     return json.dumps(body, allow_nan=False).encode()
+
+
+def public(value):
+    """The same values without PRIVATE_FIELDS."""
+    if isinstance(value, dict):return {k: public(v) for k, v in value.items() if k not in PRIVATE_FIELDS}
+    if isinstance(value, list):return [public(v) for v in value]
+    return value
 
 
 def revision(value):
@@ -163,8 +179,10 @@ class Publisher:
             self.stats['failures'] += 1; self.stats['last_error'] = type(error).__name__
             return
         seconds = time.perf_counter() - tick
+        # Projected once per publication; requests present only these public copies.
+        shown = dict(player=public(card['player']), history=public(extras['history']), tracked=public(tracked))
         entry = dict(key=tuple(head), built_at=now.isoformat(), card=card, extras=extras, tracked=tracked, build_seconds=seconds,
-            revisions=(revision(extras['history']), revision(tracked)))
+            public=shown, revisions=(revision(shown['history']), revision(shown['tracked'])))
         with self.lock:
             self.entries[login] = entry; self.generation += 1; self.wanted.discard(login)
         self.failures.pop(login, None)
@@ -200,8 +218,10 @@ class Publisher:
 
     def player(self, entry, now):
         card = entry['card']
-        value = refresh(card['player'], now=now, activity=operation(entry['extras']['lifecycle'], self.server.coordinator_status.get(card['channel']), now))
-        return tracked_statistics(value, entry['tracked'], now=now, pace_as_of=datetime.fromisoformat(card['recent_as_of']))
+        value = refresh(entry['public']['player'], now=now, activity=operation(entry['extras']['lifecycle'], self.server.coordinator_status.get(card['channel']), now))
+        value = tracked_statistics(value, entry['public']['tracked'], now=now, pace_as_of=datetime.fromisoformat(card['recent_as_of']))
+        value['activity'] = public(value['activity'])  # The coordinator's runtime state joins at presentation.
+        return value
 
     def homepage(self):
         def build(now):
@@ -210,10 +230,13 @@ class Publisher:
             for head in heads:
                 entry = entries.get(head['login'])
                 if entry is None:warming.append(head['login']);continue
-                card = present_card(entry['card'], now=now, active_runs=self.server.active_run_ids.copy(),
+                card = present_card(dict(entry['card'], player=entry['public']['player']), now=now, active_runs=self.server.active_run_ids.copy(),
                     coordinator_status=self.server.coordinator_status.copy())
-                players.append(tracked_statistics(card['player'], entry['tracked'], now=now,
-                    pace_as_of=datetime.fromisoformat(entry['card']['recent_as_of'])))
+                value = tracked_statistics(card['player'], entry['public']['tracked'], now=now,
+                    pace_as_of=datetime.fromisoformat(entry['card']['recent_as_of']))
+                value['activity'] = public(value['activity'])
+                for field in CHARACTER_ONLY:del value[field]
+                players.append(value)
             body = dict(players=broadcast(players, statuses, now), served_at=utc(now), truncated=truncated, experimental=True, poll_seconds=2)
             if warming:body['warming'] = warming
             return encode(body)
@@ -235,8 +258,8 @@ class Publisher:
             entry = self.entry(channel)
             if entry is None:raise LookupError(channel)
             body = dict(player=broadcast([self.player(entry, now)], self.statuses, now)[0])
-            if held[1] != entry['revisions'][1]:body['tracked_history'] = entry['tracked']
-            if held[0] != entry['revisions'][0]:body['history'] = entry['extras']['history']
+            if held[1] != entry['revisions'][1]:body['tracked_history'] = entry['public']['tracked']
+            if held[0] != entry['revisions'][0]:body['history'] = entry['public']['history']
             return encode(dict(body, history_revision=entry['revisions'][0], tracked_revision=entry['revisions'][1],
                 truncated=entry['extras']['truncated'], served_at=utc(now), experimental=True, poll_seconds=2))
         # Bounded keys; the held revisions are runtime, so a cached body is only reused for the same ones.
@@ -249,6 +272,6 @@ class Publisher:
         def build(now):
             entry = self.entry(channel)
             if entry is None:raise LookupError(channel)
-            return encode(dict(entry['tracked'], served_at=utc(now)))
+            return encode(dict(entry['public']['tracked'], served_at=utc(now)))
         try:return self.present(('history', channel), build)
         except LookupError:return None

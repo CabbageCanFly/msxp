@@ -90,7 +90,8 @@ can sum past 100%; CPU s/s is the real ceiling, ≈1.0 for one Python process.
    that is **≈40 MiB/s (≈330 Mbit/s) uncompressed**, or ≈2 MiB/s (≈16 Mbit/s) gzipped.
    The character poll resent the unchanged 746 KiB chart every 2 s. **Addressed** for
    character pages and overlays ([conditional history](#conditional-character-history));
-   the homepage and per-window detail are unchanged. Proxy compression is still mandatory.
+   the homepage is reduced by the [public projection](#public-projection). Proxy
+   compression is still mandatory.
 4. **One flag exposes per-request developer endpoints.** The public product requires
    `--diagnostic-dashboard`, which also serves `/dev/api/streams` (5.7 s cold on
    5 full-day channels, then cached), `/dev/api/streams/{ch}/diagnostics`
@@ -215,9 +216,10 @@ on it.
    unit; daily verified off-host backup; run this benchmark on the VPS against a copy:
    `python tools/benchmark_homepage.py --directory private/vps-01 --channels 5 --viewers 100 --seconds 30`.
 2. ~~Separate public product from developer diagnostics~~: done, `--public-only`.
-3. **Shrink polled payloads:** ~~send the chart only when it changes~~ (done,
-   [conditional history](#conditional-character-history)). Remaining: the homepage
-   (≈100–220 KiB per player) and per-window detail the pages do not render.
+3. ~~Shrink polled payloads~~: done, [conditional history](#conditional-character-history)
+   and the [public projection](#public-projection). What remains is duplicated pace
+   estimates (`estimates` and `presentation.estimates`) and exact rationals beside
+   approximations. Trimming them would change what the pages read.
 4. **Measure capture + server together on the VPS** with the real channel count. If
    process CPU nears 0.8 s/s, publish coordinator activity across processes (a
    heartbeat row or status file). Capture and the public server can then run
@@ -269,7 +271,8 @@ differences at this load are within noise.
 
 Public-field audit (public-only bodies from the live 10-channel database, read-only):
 no file paths, URLs, capture or OBS credentials, Twitch tokens or stream playlists.
-Values present but unused by the pages, all low sensitivity:
+Values present but unused by the pages, all low sensitivity. The first three groups
+are now removed by the [public projection](#public-projection):
 
 - `source_identity`: a SHA-256 of the source kind and Twitch login, of an HLS input
   URL, or of the local video's absolute path. It reveals a URL or path only if that
@@ -277,11 +280,114 @@ Values present but unused by the pages, all low sensitivity:
 - run, session and character IDs.
 - coordinator activity timings: run ID, next due time, requested and actual intervals,
   skipped deadlines.
-- OCR diagnostic reason codes and neural-reader level fields.
-- the public requirement-table SHA-256.
+- OCR diagnostic reason codes and neural-reader level fields (kept: pages show them
+  in provenance tooltips).
+- the public requirement-table SHA-256 (kept; see the line-ending note below).
 
-Removing them needs a public serializer for the nested pace/window structures. That is
-deferred, because exact-parity tests compare those structures.
+## Public projection
+
+The refresher projects each publication once (`publisher.public`). Requests present
+only that copy. The card, tracked packet, checkpoints, numerical policy, trusted
+accounting and `/dev` diagnostics keep the full data. `PRIVATE_FIELDS` are removed at
+any depth in `/api/players`, `/api/players/{ch}` and `/api/players/{ch}/history`, in
+both public-only and developer mode:
+
+| Group | Fields | Why |
+|---|---|---|
+| Identity | `source_identity`, `coordinator_instance`, `run_id`, `run_ids`, `session_id` | Internal; no page reads them |
+| Capture scheduling (coordinator activity) | `updated_at`, `next_due_at`, `expected_completion_seconds`, `requested_interval_seconds`, `actual_interval_seconds`, `skipped_deadlines` | `activity.state` (and `reason`) stay; the timings are used server-side before projection |
+| Diagnostics | `excluded`, `holes`, `latest_endpoint`, `last_observed_eta`, `eligibility_checks`, `evidence_counts`, `published_alternatives` | Large; never named by `product.js` |
+
+The homepage also drops `current_level_windows` and `tracked_current_level_windows`.
+Only the character page's "Current level only" toggle reads them, so the character
+endpoint and the OBS overlay keep them. Selection used `product.js` itself: a field
+goes only if no code names it and no generic iteration reaches it. Rounding hypotheses
+(rate and EXP tooltips), exact rationals and ETA bounds stay.
+
+**Equivalence.** The bodies were measured on a verified snapshot of the live 9-channel
+database at a pinned clock. Every new homepage, character and history body equals
+`public()` of HEAD's body, minus the homepage's current-level maps, and no private
+field remains anywhere. The only other difference was `requirement.sha256`, an artifact
+of the line endings described below. Publisher parity tests compare against
+`public()` of the full-replay reference, including the saved Emmies, Niru and Telfer1
+logs.
+
+| Live snapshot, 9 channels | Before | After |
+|---|---:|---:|
+| Homepage body | 913 KiB (72 KiB gzip) | **396 KiB (35 KiB gzip)** |
+| Homepage presentation, median | 49.7 ms | **37.0 ms** |
+| Character, unchanged poll (largest / smallest) | 195 / 21 KiB | **120 / 19 KiB** |
+| Character, full body (largest) | 695 KiB | 648 KiB |
+| Character presentation, unchanged poll (largest) | 6.6 ms | 6.2 ms |
+
+Projection costs the refresher under 1 ms per build (0.3–0.9 ms on real players;
+builds take 0.9–2.7 s). Peak RSS rises ≈6 MiB at 5 channels for the public copies.
+
+Bounded load: `benchmark_homepage.py --channels 5 --viewers 40 --seconds 20`, two
+runs each. "Before" ran from an exported HEAD tree. `tools/shadow_capture.py` prepends
+its own checkout's `src` to `sys.path`, so `PYTHONPATH` alone cannot select older code
+for this benchmark.
+
+| Synthetic, 5 channels | HEAD (run 1 / 2) | Now (run 1 / 2) |
+|---|---|---|
+| Homepage KiB per response | 646 / 644 | **347 / 346** |
+| Mean presentation | 97.7 / 89.3 ms | **41.5 / 65.9 ms** |
+| Homepage p50 / p95 | 42 / 405, 47 / 266 ms | 31 / 204, 28 / 144 ms |
+| Character p50 / p95 | 29 / 336, 49 / 284 ms | 27 / 235, 25 / 138 ms |
+| Server CPU | 0.53 / 0.52 s/s | 0.52 / 0.51 s/s |
+| Timeouts / errors | 0 / 0 | 0 / 0 |
+
+Latency at this load varies widely between identical runs: an accidental same-code
+pair differed by 143 vs 358 ms at p95. Treat the latency rows as "not worse"; the byte
+and presentation reductions are the reliable results.
+
+**Line endings and the requirement-table hash.** `requirement.sha256` and each run's
+`requirements_sha256` hash the table file's bytes. This Windows checkout has CRLF; a
+Linux checkout (or `git archive`) has LF, so the same table gets a different hash on
+the VPS. Only run-rotation continuity compares stored hashes, and only between
+consecutive runs of one coordinator, so a migration is unaffected. Displayed and
+recorded hashes will still differ between machines. Pin the line endings (for example
+a `.gitattributes` entry) before comparing evidence across machines.
+
+## Saved Telfer1 log failures
+
+Two separate problems surfaced with the saved Telfer1 logs, which the running
+capture keeps appending to.
+
+**1. Reproducible: refresher builds raised `NameError` (fixed).**
+`rolling_history.recent_snapshot` re-imported `collect` and `PACE_TREND_SECONDS`
+locally. Python therefore treated both as locals of the whole function, so the nested
+`step()` saw unbound closure cells. Only the `_historical and len(rows) > 4096` branch
+uses them in `step()`. That branch runs on a cold restore (no attempt in the last 65
+minutes) of a session longer than 4,096 attempts. Telfer1's live session crossed
+4,096 at step 4,200.
+
+From then on every Telfer1 build failed. The publisher kept serving the last good
+entry with honest, growing ages, as designed for failures, and
+`test_saved_publications_match_reference[telfer1]` failed on
+`latest_attempt_age_seconds` (publisher stats: `failures: 2, last_error: NameError`).
+The module-level imports already provide both names, so the fix deletes the
+re-imports. A synthetic regression test (69 rotated runs, 4,140 attempts, cold
+restore) fails on HEAD with this exact `NameError` and passes now, with checkpoint
+parity. A long-running server started from HEAD will hit this for any such session.
+
+**2. Unexplained: intermittent `rolling_history` parity assertion.**
+`test_saved_logs_match_full_replay_while_streamed[telfer1]` failed twice today, both
+inside full 8-worker pytest runs of about 13 minutes. The first was at
+`assert fast==full` (incremental vs full `rolling_history`); the second run's details
+were truncated. It passed in every controlled attempt:
+
+- 18 replays with the logs cut at each minute of the first failure's window
+  (19:42–19:59Z);
+- a standalone replay of all current data (4,256 steps);
+- two standalone pytest runs (HEAD and working tree) on the same data;
+- a module-level 8-worker run.
+
+No record makes the test's clock step backwards, and the evidence cache deep-copies
+its results. The cause is not established. It is not explained by the live fixture's
+end point alone. Rerun under the full suite with output preserved before relaxing
+anything. Separately, the saved-log tests read logs that live capture still appends
+to; copying them into a frozen fixture would make failures repeatable.
 
 ## Not measured
 

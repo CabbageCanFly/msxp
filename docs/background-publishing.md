@@ -57,6 +57,9 @@ instead of repeating it.
 | `/api/players/{ch}` | Cached bytes, or one presentation of that entry per second; chart history and tracked packet omitted while the page holds their [revisions](vps-readiness.md#conditional-character-history) |
 | `/api/players/{ch}/history` | Cached bytes of the published tracked packet |
 
+All three present the entry's [public projection](vps-readiness.md#public-projection),
+made once per build.
+
 Moved out of requests: card rebuilds, 24h/recent history replay (cold or resumed), the
 Twitch Helix lookup, and the latest-source query.
 

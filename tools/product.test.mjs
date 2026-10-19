@@ -686,3 +686,25 @@ test('homepage polls never name history revisions',async()=>{
   await p.run('poll()');
   assert.deepEqual(requests,['/api/players','/api/players']);assert.equal(p.run('data.players.length'),1);assert.equal(p.run('failed'),false);
 });
+
+test('homepage ranks and renders the same without character-only current-level windows',()=>{
+  const window=(gain,eligible)=>({available:true,gain:{approximate:gain},eligible,estimates:player().estimates,difference_percentage_points:'0.20',
+    readings:10,coverage_seconds:{approximate:300},span_seconds:{approximate:300}});
+  // Current-level values differ deliberately: any homepage read of them would change the output.
+  const observed=gain=>({available:true,age_seconds:1,readings:10,coverage_seconds:{approximate:300},span_seconds:{approximate:300},estimated_exp:{value:{approximate:gain}}});
+  const full=[['a',900,64],['b',300,65],['c',600,64]].map(([channel,gain,level])=>player({channel,reading:{...player().reading,level:{value:level,status:'agreement'}},
+    tracked_status:'ready',windows:{5:window(gain,true),60:window(gain*2,true)},recent_windows:{5:window(gain,true),60:window(gain*2,true)},
+    tracked_windows:{5:{observed:observed(gain)},60:{observed:observed(gain*2)}},
+    current_level_windows:{5:{...window(10000-gain,true),reason:'observed_exp_decrease'},60:window(1,false)},
+    tracked_current_level_windows:{5:{observed:observed(7)},60:{observed:observed(8)}}}));
+  const shown=full.map(({current_level_windows,tracked_current_level_windows,...rest})=>rest);
+  const board=fixtures=>{
+    const p=page('board');p.run("el('entries').querySelectorAll=()=>[]");p.context.fixtures=fixtures;const results=[];
+    for(const minutes of [5,60])for(const sort of ['exp_hour','level','movement']){
+      p.run(`windowMinutes=${minutes};sort='${sort}';data={players:fixtures};renderBoard()`);
+      results.push(p.run(`JSON.stringify([ranked(fixtures,'${sort}').map(r=>[r.player.channel,r.value,r.rank]),el('entries').children])`));
+    }
+    return results;
+  };
+  assert.deepEqual(board(shown),board(full));
+});

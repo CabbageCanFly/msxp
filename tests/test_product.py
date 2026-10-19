@@ -6,6 +6,7 @@ import pytest
 from exp_tracker.store import Store
 from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.product import player
+from exp_tracker.publisher import public
 from exp_tracker.server import create_server
 from tests.test_server import request
 
@@ -144,7 +145,7 @@ def test_product_and_diagnostic_apis_share_integer_veto_without_rewriting_saved_
         diagnostic=json.loads(request((server,None),'/dev/api/streams/alpha/diagnostics')[2])['observations'][-1]
         assert p==board and p['exp'] is None and p['percentage']=='45.14'
         assert p['level']['value']==65 and p['exp_validity']['status']=='invalid'
-        assert diagnostic['candidate']['exp']=='2458' and diagnostic['exp_validity']==p['exp_validity']
+        assert diagnostic['candidate']['exp']=='2458' and public(diagnostic['exp_validity'])==p['exp_validity']  # Public omits diagnostics only.
         assert diagnostic['visual_level']==63 and diagnostic['neural_level']['level']==65
     assert [r[0] for r in store.db.execute('select payload_json from diagnostic_attempts')]==payloads
     assert not store.db.execute('select 1 from observations').fetchone()

@@ -13,7 +13,7 @@ import exp_tracker.server as server_module
 import exp_tracker.diagnostics as diagnostics_module
 from exp_tracker.diagnostics import Diagnostics,operation
 from exp_tracker.product import refresh,tracked_statistics
-from exp_tracker.publisher import broadcast,encode,revision
+from exp_tracker.publisher import PRIVATE_FIELDS,broadcast,encode,public,revision
 from exp_tracker.store import Store,utc
 from exp_tracker.twitch_probe import StreamAvailability
 from tests.test_product import tracking,NOW
@@ -58,7 +58,7 @@ def reference(store,server,channel,now):
     twitch=[channel] if row and (json.loads(row['config'] or '{}').get('source_kind') or json.loads(row['payload'] or '{}').get('source',{}).get('kind'))=='twitch' else []
     statuses=server.twitch_availability.snapshot(twitch,now=now)
     body=dict(player=broadcast([value],statuses,now)[0],tracked_history=tracked,history=extras['history'],truncated=extras['truncated'])
-    return json.loads(encode(body))
+    return public(json.loads(encode(body)))  # Public responses never carry PRIVATE_FIELDS.
 
 
 def published(server,channel):
@@ -495,12 +495,12 @@ def test_character_polls_omit_only_sections_the_viewer_already_holds(tracking,cl
         save(d,'one',4,80,3330);clock.at=NOW+timedelta(seconds=80);p.settle()
         after=body(held)
         assert after['history_revision']!=held[0] and after['history'][-1]['timestamp']==(NOW+timedelta(seconds=80)).isoformat()
-        assert after['tracked_revision']!=held[1] and after['tracked_history']==p.entry('alpha')['tracked']
+        assert after['tracked_revision']!=held[1] and after['tracked_history']==p.entry('alpha')['public']['tracked']
         held=(after['history_revision'],after['tracked_revision'])
         # Time-only refresh: each section is resent exactly when its content changed.
         clock.at+=timedelta(seconds=31);p.settle();entry=p.entry('alpha');aged=body(held)
-        assert ('history' in aged)==(revision(entry['extras']['history'])!=held[0])
-        assert ('tracked_history' in aged)==(revision(entry['tracked'])!=held[1]) and aged['tracked_revision']==revision(entry['tracked'])
+        assert ('history' in aged)==(revision(entry['public']['history'])!=held[0])
+        assert ('tracked_history' in aged)==(revision(entry['public']['tracked'])!=held[1]) and aged['tracked_revision']==revision(entry['public']['tracked'])
         held=(aged['history_revision'],aged['tracked_revision'])
         # A publication between the decision and the presentation is sent in full, never mislabeled.
         present=p.present
@@ -509,7 +509,7 @@ def test_character_polls_omit_only_sections_the_viewer_already_holds(tracking,cl
             return present(key,build,runtime)
         monkeypatch.setattr(p,'present',publish_first)
         raced=json.loads(p.character('alpha',held));monkeypatch.setattr(p,'present',present)
-        assert raced['history_revision']!=held[0] and raced['history']==p.entry('alpha')['extras']['history']
+        assert raced['history_revision']!=held[0] and raced['history']==p.entry('alpha')['public']['history']
         held=(raced['history_revision'],raced['tracked_revision'])
         # Character change: new identity, new revisions, full sections.
         other=store.add_character('alpha','Other');store.end_session('alpha',at=clock.at);store.select_character('alpha',other);store.start_session('alpha',at=clock.at)
@@ -518,3 +518,34 @@ def test_character_polls_omit_only_sections_the_viewer_already_holds(tracking,cl
         # Presentation state stays bounded per channel whatever revisions viewers send.
         for i in range(20):p.character('alpha',(f'{i:016x}',f'{i:016x}'))
         assert len([k for k in p.present_locks if k[:2]==('character','alpha')])<=4
+
+
+def test_public_responses_omit_private_fields_while_internal_state_keeps_them(tracking,clock):
+    path,store,d=tracking;d.begin('one','alpha',config('one',interval=20))
+    for i in range(1,8):save(d,'one',i,i*20,3300+i*5)
+    save(d,'one',8,160,3340,missing=True)
+    clock.at=NOW+timedelta(seconds=165)
+    from tests.test_server import request
+    from exp_tracker.publisher import CHARACTER_ONLY
+    def keys(value,found):
+        if isinstance(value,dict):
+            for k,v in value.items():found.add(k);keys(v,found)
+        elif isinstance(value,list):
+            for v in value:keys(v,found)
+        return found
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        server.coordinator_status['alpha']=dict(state='waiting',run_id='one',updated_at=clock.at.isoformat(),next_due_at=clock.at.isoformat(),
+            requested_interval_seconds=20,actual_interval_seconds=20.1,skipped_deadlines=0)
+        get=lambda p:json.loads(request((server,None),p)[2])
+        home,character,packet=get('/api/players'),get('/api/players/alpha'),get('/api/players/alpha/history')
+        assert not keys([home,character,packet],set())&PRIVATE_FIELDS
+        player=home['players'][0]
+        assert player['activity']==character['player']['activity']=={'state':'waiting'}
+        # The homepage drops only the current-level maps; every other public value equals the character page's.
+        assert not set(CHARACTER_ONLY)&set(player) and all(character['player'][f] for f in CHARACTER_ONLY)
+        assert player=={k:v for k,v in character['player'].items() if k not in CHARACTER_ONLY}
+        assert packet=={**character['tracked_history'],'served_at':packet['served_at']}
+        # Calculations, publisher state and developer diagnostics keep the full data.
+        entry=server.publisher.entry('alpha')
+        assert {'source_identity','run_id','run_ids','session_id','excluded','holes','latest_endpoint','eligibility_checks'}<=keys(entry['card']['player'],set())
+        assert {'source_identity','run_id','session_id'}<=keys(get('/dev/api/streams/alpha/diagnostics'),set())
