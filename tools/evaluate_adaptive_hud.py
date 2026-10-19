@@ -57,7 +57,7 @@ def score(output, expected, truth, size):
     wanted={key:expected[key] for key in ('level','current_exp','percentage')} if expected['complete'] else None
     accepted=result['status']=='accepted'
     correct=reading==wanted and wanted is not None
-    regions={key:Region(**value).pixels(*size) for key,value in result['regions'].items()}
+    regions={key:Region(**value).pixels(*size) for key,value in result['regions'].items() if value is not None}
     contained={}
     location=False
     if truth and len(regions)==2:

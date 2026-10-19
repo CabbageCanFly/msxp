@@ -1,6 +1,6 @@
 """Private browser-test server: immutable saved replay + explicitly synthetic window control.
 
-No OCR, network capture, HTTP writes or source retiming. stdin accepts only 'advance'.
+No OCR, network capture, HTTP writes or source retiming. stdin controls replay stages.
 """
 import argparse
 from datetime import datetime,timedelta,timezone
@@ -13,6 +13,65 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 from exp_tracker.store import Store
 from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.server import create_server
+
+
+def log_trial(database,port,path,*,commands=None):
+    """Step forward through one saved log; future rows never enter the preview DB."""
+    from exp_tracker.shadow_view import ShadowLog,MAX_LINE
+    from exp_tracker.diagnostics import MAX_REPLAY_BYTES
+    path=ShadowLog(path).validate_path()
+    with path.open('rb') as handle:payload=handle.read(MAX_REPLAY_BYTES+1)
+    lines=payload.splitlines()
+    if len(payload)>MAX_REPLAY_BYTES or not payload.endswith(b'\n') or not 3<=len(lines)<=62 or any(len(s)>MAX_LINE for s in lines):
+        raise ValueError('Expected a completed shadow log, at most 60 attempts / 4 MiB')
+    records=[json.loads(s) for s in lines]
+    configuration=records[0];summary=records[-1];rows=records[1:-1]
+    if configuration.get('type')!='configuration' or summary.get('type')!='summary' or any(r.get('type')!='attempt' for r in rows):
+        raise ValueError('Expected configuration, attempts and summary')
+    if any(r.get('source',{}).get('kind')!='file' for r in rows):
+        raise ValueError('This step-through preview requires local-video evidence')
+    seconds=[r['source']['requested_video_offset_seconds'] for r in rows]
+    if any(type(t) not in (int,float) or not 0<=t<=86400 for t in seconds) or seconds!=sorted(set(seconds)):
+        raise ValueError('Expected distinct increasing video offsets')
+    import exp_tracker.server as server_module
+    import exp_tracker.diagnostics as diagnostic_module
+    previous=(server_module.datetime,diagnostic_module.datetime)
+    class Clock(datetime):
+        at=datetime.fromisoformat(rows[0]['received_at'])
+        @classmethod
+        def now(cls,tz=None):return cls.at
+    server_module.datetime=diagnostic_module.datetime=Clock
+    try:
+        with Store(database) as store:
+            channel='video_review';store.add_channel(channel)
+            cid=store.add_character(channel,'Local video replay');store.select_character(channel,cid)
+            store.start_session(channel,at=Clock.at)
+            d=Diagnostics(store);run=configuration.get('run_id') or 'video-review'
+            d.begin(run,channel,configuration);last=0
+            def stage(stop):
+                nonlocal last
+                for row in rows[last:stop]:d.append(run,row)
+                last=stop;Clock.at=datetime.fromisoformat(rows[last-1]['received_at'])
+                if last==len(rows):d.append(run,summary)
+                assert not store.db.execute('SELECT 1 FROM observations').fetchone()
+                print(json.dumps(dict(through_seconds=seconds[last-1],attempts=last,as_of=Clock.at.isoformat(),offline=True)),flush=True)
+            stage(1)
+            with create_server(database,port=port,diagnostic_dashboard=True) as http:
+                http.quiet=True;thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+                print(f'Offline preview: http://127.0.0.1:{http.server_port}/stream/{channel}\nEnter video seconds, next, or all; forward only. Ctrl+C stops.',flush=True)
+                try:
+                    for line in sys.stdin if commands is None else commands:
+                        action=line.strip()
+                        try:
+                            stop=(last+1 if action=='next' else len(rows) if action=='all' else
+                                  sum(t<=float(action) for t in seconds))
+                        except ValueError:
+                            print('Enter video seconds, next, or all.',flush=True);continue
+                        if not last<stop<=len(rows):
+                            print('Choose a later sampled video time.',flush=True);continue
+                        stage(stop)
+                finally:http.shutdown();thread.join(2)
+    finally:server_module.datetime,diagnostic_module.datetime=previous
 
 
 def window_trial(database,port):
@@ -419,6 +478,7 @@ def main():
     cli=argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--directory',type=Path,required=True)
     cli.add_argument('--port',type=int,required=True)
+    cli.add_argument('--replay-log',type=Path,help='Isolated forward-only preview of a completed local-video shadow log')
     cli.add_argument('--usability',action='store_true',help='Saved two-stream trial, explicitly as-of replay clock')
     cli.add_argument('--level-up',action='store_true',help='Saved level-up trial; as-of replay, no source retiming')
     cli.add_argument('--windows',action='store_true',help='Saved fixed-window/60-attempt rotation review')
@@ -435,6 +495,9 @@ def main():
         raise ValueError('Private test directory required')
     database=directory/'updates.sqlite3'
     if database.exists():raise ValueError('Never overwrite an existing database')
+    if args.replay_log:
+        directory.mkdir(parents=True,exist_ok=False)
+        return log_trial(database,args.port,args.replay_log)
     if args.tracked_exp:
         tracked_exp_trial(database,args.port)
         return

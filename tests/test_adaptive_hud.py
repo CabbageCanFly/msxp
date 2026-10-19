@@ -88,7 +88,7 @@ def test_vertical_hp_box_contamination_uses_bare_exp_mp_and_lv_without_moving_ho
 
 
 @pytest.mark.parametrize('broken',[
-    lambda t:t[:3],lambda t:t[:2]+t[3:],
+    lambda t:t[:2]+t[3:],
     lambda t:[{**a,'y':a['y']+50} if a['text']=='MP' else a for a in t],
     lambda t:[{**a,'x':a['x']+50} if a['text']=='EXP' else a for a in t],
 ])
@@ -116,7 +116,7 @@ def test_anchor_prefix_is_bounded(text,expected):
     assert hud.label({'text':text})==expected
 
 
-def test_second_localization_scale_only_used_after_no_layout(monkeypatch):
+def test_empty_localization_searches_both_scales(monkeypatch):
     monkeypatch.setattr(hud,'configure_tesseract',lambda:None)
     calls=[]
     def ocr(image,*args):
@@ -125,6 +125,66 @@ def test_second_localization_scale_only_used_after_no_layout(monkeypatch):
     monkeypatch.setattr(hud,'_ocr',ocr)
     assert not hud.locate(Image.new('RGB',(100,100)))
     assert calls==[(200,200),(300,300)]
+
+
+def test_three_anchor_hud_keeps_exp_geometry_without_inventing_level():
+    full=hud.layouts(anchors(),(500,400))[0]
+    partial=hud.layouts(anchors()[:3],(500,400))[0]
+    assert partial['regions']['exp']==full['regions']['exp']
+    assert partial['regions']['level'] is None and partial['anchors']['lv'] is None
+    assert partial['anchor_mode']=='hp_mp_exp' and 'anchor_mode' not in full
+
+
+@pytest.mark.parametrize('index,change',[(0,dict(confidence=.39)),(1,dict(text='MP5/5')),
+    (2,dict(text='EXP123')),(2,dict(x=142)),(2,dict(y=42)),(0,dict(width=1)),
+    (2,dict(height=4))])
+def test_three_anchor_layout_requires_confident_bare_aligned_labels(index,change):
+    tokens=anchors()[:3];tokens[index].update(change)
+    assert not hud.layouts(tokens,(500,400))
+
+
+@pytest.mark.parametrize('x,y',[(460,40),(100,199)])
+def test_exp_only_field_outside_frame_is_rejected(x,y):
+    assert not hud.layouts(anchors(x,y)[:3],(500,200))
+
+
+def test_overlapping_duplicate_tokens_merge_but_other_huds_remain():
+    tokens=anchors()[:3]
+    duplicate={**tokens[1],'x':tokens[1]['x']+.2}
+    assert len(hud.layouts(tokens+[duplicate],(500,400)))==1
+    mixed=hud.layouts(anchors()+anchors(100,200)[:3],(500,400))
+    assert len(mixed)==2 and sum(c['regions']['level'] is None for c in mixed)==1
+
+
+def test_disputed_exp_anchors_are_not_collapsed_into_one_choice():
+    tokens=anchors()
+    tokens[2]['x']-=3
+    tokens.append({**tokens[2],'x':tokens[2]['x']+6})
+    assert len(hud.layouts(tokens,(500,400)))==2
+
+
+def test_cross_scale_candidates_merge_without_hiding_second_hud(monkeypatch):
+    monkeypatch.setattr(hud,'configure_tesseract',lambda:None)
+    calls=[]
+    def ocr(image,*args):
+        scale=image.width/500
+        calls.append(scale)
+        tokens=anchors() if scale==2 else anchors()+anchors(100,200)[:3]
+        return [{**t,**{k:t[k]*scale for k in ('x','y','width','height')}} for t in tokens]
+    monkeypatch.setattr(hud,'_ocr',ocr)
+    result=hud.locate(Image.new('RGB',(500,400)))
+    assert calls==[2,3] and len(result)==2
+
+
+def test_cross_scale_complete_hud_supplies_level_for_same_exp_only_group(monkeypatch):
+    monkeypatch.setattr(hud,'configure_tesseract',lambda:None)
+    def ocr(image,*args):
+        scale=image.width/500
+        tokens=anchors()[:3] if scale==2 else anchors()
+        return [{**t,**{k:t[k]*scale for k in ('x','y','width','height')}} for t in tokens]
+    monkeypatch.setattr(hud,'_ocr',ocr)
+    result=hud.locate(Image.new('RGB',(500,400)))
+    assert len(result)==1 and result[0]['regions']['level'] is not None
 
 
 def candidate():

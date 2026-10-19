@@ -1,4 +1,4 @@
-"""Isolated, read-only HUD localization/normalization experiment (not capture integration).
+"""Experimental HUD localization shared by offline evaluation and shadow capture.
 
 No game assets or calibration ship here. Bank paths resolve relative to its JSON:
 {"profiles": [{"path": "glyph-profile.json", "anchor_step": 109.0}]}.
@@ -34,7 +34,7 @@ def label(token):
 
 
 def layouts(tokens, size):
-    """Bind all four anchors. Distances are relative to the HP/MP spacing."""
+    """Bind a classic HUD row; level coordinates require a matching LV anchor."""
     width, height = size
     candidates = []
     for hp in (t for t in tokens if label(t) == "HP"):
@@ -51,18 +51,27 @@ def layouts(tokens, size):
                       and 1.6 * step <= hp["x"] - t["x"] <= 2.2 * step
                       and -.04 * step <= t["y"] - hp["y"] <= .15 * step]
             for exp in exps:
-                for lv in levels:
+                for lv in levels or [None]:
+                    if lv is None and not (
+                            abs(exp['x']-mp['x']-step)<=.05*step
+                            and max(abs(t['y']-hp['y']) for t in (mp,exp))<=.04*step
+                            and all(re.fullmatch(name+r'[.:]?',t['text'],re.I)
+                                    and t.get('confidence',0)>=.4
+                                    and .05*step<=t['height']<=.15*step
+                                    and .08*step<=t['width']<=.30*step
+                                    for name,t in (('HP',hp),('MP',mp),('EXP',exp)))):
+                        continue
                     origin_x,origin_y=hp['x'],hp['y']
                     field_step=step
                     # Correct an HP-token outlier only when MP/EXP and LV/MP independently agree.
-                    mp_exp=exp['x']-mp['x'];lv_mp=(mp['x']-lv['x'])/2.9
+                    mp_exp=exp['x']-mp['x'];lv_mp=(mp['x']-lv['x'])/2.9 if lv else 0
                     correction=None
                     if (mp_exp>0 and abs(lv_mp-mp_exp)<=.03*mp_exp
                             and .05*mp_exp<abs(step-mp_exp)<=.15*mp_exp
                             and abs(mp['y']-exp['y'])<=.04*mp_exp):
                         field_step=lv_mp;origin_x=mp['x']-field_step;origin_y=mp['y']
                         correction='hp_outlier_mp_exp_lv_consensus'
-                    elif all(re.fullmatch(pattern,t['text'],re.I) for pattern,t in (
+                    elif lv is not None and all(re.fullmatch(pattern,t['text'],re.I) for pattern,t in (
                             (r'LV[.:]?',lv),(r'MP[.:]?',mp),(r'EXP[.:]?',exp))):
                         # A tall MP token can move its left edge. Check its residual against stable outer labels.
                         outer_step=(exp['x']-lv['x'])/3.9
@@ -78,21 +87,48 @@ def layouts(tokens, size):
                         origin_y=vertical
                         correction=(correction+'+' if correction else '')+'hp_vertical_outlier'
                     # shortcut: one classic HUD layout family; reject other layouts until validated.
-                    boxes = dict(level=(lv["x"] + .29 * field_step, lv["y"] - .04 * field_step,
-                                        lv["x"] + .62 * field_step, lv["y"] + .17 * field_step),
-                                 exp=(origin_x + 2.26 * field_step, origin_y + .015 * field_step,
+                    boxes = dict(exp=(origin_x + 2.26 * field_step, origin_y + .015 * field_step,
                                       origin_x + 3.12 * field_step, origin_y + .105 * field_step))
+                    if lv is not None:
+                        boxes['level']=(lv['x']+.29*field_step,lv['y']-.04*field_step,
+                                        lv['x']+.62*field_step,lv['y']+.17*field_step)
                     if any(x0 < 0 or y0 < 0 or x1 > width or y1 > height
                            for x0,y0,x1,y1 in boxes.values()):
                         continue
                     regions = {key: Region(x0/width,y0/height,x1/width,y1/height)
                                for key,(x0,y0,x1,y1) in boxes.items()}
+                    regions.setdefault('level',None)
                     candidate = dict(regions=regions, anchor_step=field_step,
                                      anchors={"hp":hp,"mp":mp,"exp":exp,"lv":lv})
                     if correction: candidate['anchor_correction']=correction
+                    if lv is None: candidate['anchor_mode']='hp_mp_exp'
                     if candidate not in candidates:
                         candidates.append(candidate)
-    return candidates
+    return merge_layouts(candidates,size)
+
+
+def merge_layouts(candidates,size):
+    """Collapse repeated geometry, retaining separate HUDs and disputed level boxes."""
+    result=[]
+    for candidate in candidates:
+        for index,other in enumerate(result):
+            tolerance=.05*min(candidate['anchor_step'],other['anchor_step'])
+            if abs(candidate['anchor_step']-other['anchor_step'])>tolerance:
+                continue
+            if any(abs(candidate['anchors'][name][axis]-other['anchors'][name][axis])>tolerance
+                   for name in ('mp','exp') for axis in ('x','y')):
+                continue
+            if any(max(abs(a-b) for a,b in zip(candidate['regions'][field].pixels(*size),
+                                              other['regions'][field].pixels(*size)))>tolerance
+                   for field in ('exp','level') if candidate['regions'][field] is not None
+                   and other['regions'][field] is not None):
+                continue
+            if other['regions']['level'] is None and candidate['regions']['level'] is not None:
+                result[index]=candidate
+            break
+        else:
+            result.append(candidate)
+    return result
 
 
 def locate(image):
@@ -100,6 +136,7 @@ def locate(image):
     if image.width * image.height > 4096 * 2160:
         return []
     configure_tesseract()
+    candidates=[]
     for magnification in (2.0,3.0):
         scale = min(magnification, math.sqrt(1920 * 1080 * magnification**2 / (image.width * image.height)))
         gray = image.convert("L").resize((round(image.width*scale),round(image.height*scale)),
@@ -108,10 +145,9 @@ def locate(image):
         for token in tokens:
             for key in ("x","y","width","height"):
                 token[key] /= scale
-        candidates=layouts(tokens, image.size)
-        if candidates:
-            return candidates
-    return []
+        candidates.extend(layouts(tokens, image.size))
+    # Both scales must contribute to uniqueness, including partly obscured HUDs.
+    return merge_layouts(candidates,image.size)
 
 
 def level_reading(crop):
@@ -146,7 +182,8 @@ def level_reading(crop):
 
 def recognize_fields(image, candidate, bank):
     regions=candidate['regions']
-    level,attempts=level_reading(image.crop(regions['level'].pixels(*image.size)))
+    level,attempts=(level_reading(image.crop(regions['level'].pixels(*image.size)))
+                    if regions['level'] is not None else (None,[]))
     crop=image.crop(regions['exp'].pixels(*image.size))
     matches=[]
     probes=[]
