@@ -345,6 +345,7 @@ class Diagnostics:
         interval = configuration['interval']
         summary = json.loads(run['summary_json']) if run['summary_json'] else None
         result.update(run_id=run['run_id'], observations=observations, interval_seconds=interval,
+            source_identity=configuration.get('source_identity') if re.fullmatch(r'[0-9a-f]{64}',str(configuration.get('source_identity'))) else None,
             source_kind=configuration.get('source_kind') if configuration.get('source_kind') in ('file','twitch') else (observations[-1]['source_kind'] if observations else None),
             stale_after_seconds=max(45, 3 * interval),
             run_status=('interrupted' if summary.get('interrupted') else 'completed') if summary else 'unfinished')
@@ -379,11 +380,11 @@ class Diagnostics:
         with self.store._transaction():
             return aggregate(self,channel,now=now or datetime.now(timezone.utc))
 
-    def recent_snapshot(self,channel,*,now):
+    def recent_snapshot(self,channel,*,now,eta_cache=None):
         from .rolling_history import recent_snapshot
-        if self.db.in_transaction:return recent_snapshot(self,channel,now=now)
+        if self.db.in_transaction:return recent_snapshot(self,channel,now=now,eta_cache=eta_cache)
         with self.store._transaction():
-            return recent_snapshot(self,channel,now=now)
+            return recent_snapshot(self,channel,now=now,eta_cache=eta_cache)
 
     def directory(self, cache, *, now=None, active_runs=None,coordinator_status=None):
         """Cache compact cards by committed revision; never retain full histories."""

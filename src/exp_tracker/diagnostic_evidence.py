@@ -9,7 +9,7 @@ from .exp_consistency import MODES, assess
 from .exp_requirements import requirement
 from .shadow_grammar import interpret_exp
 
-POLICY = 'experimental_level_v3'
+POLICY = 'experimental_level_v4'
 # A seed-quality gate, not calibrated correctness; repetition and corroboration are mandatory.
 NEURAL_SEED_SCORE = .90
 CONTEXT_SECONDS = 120
@@ -56,7 +56,7 @@ def _neural(row):
 
 def _adjacent(before,row):
     try:
-        a,b=datetime.fromisoformat(before['received_at']),datetime.fromisoformat(row['received_at'])
+        a,b=(datetime.fromisoformat(r.get('received_at') or r['attempted_at']) for r in (before,row))
         elapsed=(b-a).total_seconds()
         rotated=(row.get('rotation_from')==before.get('run_id') and before.get('index')==60 and row.get('index')==1
             and row.get('source_identity') is not None and row.get('source_identity')==before.get('source_identity')
@@ -71,12 +71,13 @@ def _adjacent(before,row):
 def project(rows, *, state=None, allow_context=True):
     """Only past, adjacent observations corroborate a level; no lookahead or EXP-derived choice."""
     output=[]; recent=deque(maxlen=3); previous=None; established=None; established_at=None; neural_context=False; missing=0; corroborated_at=None
-    anchor=None; context_conflicts=0;context_frames=deque(maxlen=12)
+    anchor=None; context_conflicts=0;context_frames=deque(maxlen=12);capture_gaps=0
     if state:
         recent=state['recent'];previous=state['previous'];established=state['established'];established_at=state['established_at']
         neural_context=state['neural_context'];missing=state['missing'];corroborated_at=state['corroborated_at']
         anchor=state.get('anchor');context_conflicts=state.get('context_conflicts',0)
         context_frames=state.get('context_frames',context_frames)
+        capture_gaps=state.get('capture_gaps',0)
     for original in rows:
         row=dict(original); visual=_visual(row); neural,score=_neural(row)
         frame=row.get('frame_sha256')
@@ -87,6 +88,33 @@ def project(rows, *, state=None, allow_context=True):
             and (row.get('neural_level') or {}).get('source_complete') is not False
             and not row.get('crop_suspect') and (not frame or frame not in context_frames))
         adjacent=bool(previous and _adjacent(previous,row))
+        # A failed acquisition carries no numerical point and cannot renew the
+        # reader-supported anchor. Stale/duplicate/competing evidence still resets.
+        ordinary_gap=(allow_context and adjacent and anchor and anchor['samples']>=2 and capture_gaps<2
+            and (row.get('status') in ('missing_hud','capture_failed') or
+                row.get('status')=='unavailable' and row.get('reasons')==['missing_hud'])
+            and row.get('hud_count') in (None,0)
+            and visual is None and neural is None and (row.get('neural_level') or {}).get('level') is None
+            and (row.get('neural_level') or {}).get('source_complete') is not False
+            and not row.get('raw_text') and not row.get('crop_suspect')
+            and row.get('timestamp_ordered') is not False and row.get('timing_mode')!='simulated'
+            and (row.get('local_age_seconds') is None or row['local_age_seconds']<=15)
+            and (not frame or frame not in context_frames)
+            and 0<(datetime.fromisoformat(row.get('received_at') or row['attempted_at'])-
+                datetime.fromisoformat(anchor['timestamp'])).total_seconds()<=CONTEXT_SECONDS)
+        if ordinary_gap:
+            capture_gaps+=1
+            row['experimental_level']=dict(policy=POLICY,value=None,status='unavailable',
+                reason='ordinary_unreadable_context_preserved',context_gap_attempts=capture_gaps,
+                context_expires_at_seconds=CONTEXT_SECONDS,visual=None,neural=None,trusted=False)
+            row['exp_validity']=consistency(None,None)
+            if frame:context_frames.append(frame)
+            output.append(row);previous=row
+            continue
+        carried_gaps=capture_gaps;capture_gaps=0
+        if carried_gaps and anchor and row.get('received_at') and (
+                datetime.fromisoformat(row['received_at'])-datetime.fromisoformat(anchor['timestamp'])).total_seconds()>CONTEXT_SECONDS:
+            adjacent=False
         if not adjacent or not fresh:
             recent.clear(); established=None; neural_context=False; missing=0; corroborated_at=None
             anchor=None;context_conflicts=0
@@ -104,7 +132,7 @@ def project(rows, *, state=None, allow_context=True):
             if claimed is not None and neural is None:
                 established=None; neural_context=False; recent.clear(); corroborated_at=None
                 status,reason='conflict','invalid_neural_level_evidence'
-            elif established is not None and neural is not None and neural!=established:
+            elif established is not None and neural is not None and neural!=established and not (carried_gaps and visual==neural):
                 established=None; neural_context=False; recent.clear(); corroborated_at=None
                 status,reason='conflict','new_neural_level_requires_confirmation'
             elif neural is not None:
@@ -143,6 +171,8 @@ def project(rows, *, state=None, allow_context=True):
         else:
             reason='failed_stale_or_ambiguous_capture'
         evidence.update(value=selected,status=status,reason=reason,temporal_samples=len(recent))
+        if carried_gaps and adjacent and fresh and selected is not None:
+            evidence.update(context_gap_attempts=carried_gaps,strict_window_eligible=False)
         # Context never seeds itself or renews its own expiry. Two supported reader
         # observations establish the hypothesis; arithmetic can only corroborate it.
         safe=(fresh and not row.get('crop_suspect') and (claimed is None or neural is not None)
@@ -195,5 +225,5 @@ def project(rows, *, state=None, allow_context=True):
     if state is not None:
         state.update(recent=recent,previous=previous,established=established,established_at=established_at,
             neural_context=neural_context,missing=missing,corroborated_at=corroborated_at,
-            anchor=anchor,context_conflicts=context_conflicts,context_frames=context_frames)
+            anchor=anchor,context_conflicts=context_conflicts,context_frames=context_frames,capture_gaps=capture_gaps)
     return output

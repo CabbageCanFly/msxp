@@ -31,17 +31,18 @@ def test_matching_reacquisition_pools_only_valid_integer_edges(tracking):
     full(d,5,497281,33.20)
     before=get(d,60)
     snap=d.snapshot('alpha',now=NOW+timedelta(seconds=60))
-    assert snap['observations'][-1]['experimental_level']['status']=='pending'
-    assert not snap['observations'][-1]['percentage_review']['progress_eligible']
-    assert not before['responsive_pace']['active']
-    assert before['responsive_pace']['readings']==2
+    # One ordinary missing HUD no longer discards the corroborated reader context.
+    assert snap['observations'][-1]['experimental_level']['status']=='provisional_neural'
+    assert snap['observations'][-1]['percentage_review']['progress_eligible']
+    assert before['responsive_pace']['active']
+    assert before['responsive_pace']['readings']==3
     full(d,6,498030,33.25);full(d,7,498779,33.30)
     snap=d.snapshot('alpha',now=NOW+timedelta(seconds=90))
     frozen_windows=window_comparisons(snap,now=NOW+timedelta(seconds=90))
     frozen_history=history(snap)
     pace=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-    assert pace['active'] and pace['readings']==4 and pace['interruptions']==0
-    assert pace['interval_counts']==dict(direct=2,endpoint_supported=1)
+    assert pace['active'] and pace['readings']==5 and pace['interruptions']==0
+    assert pace['interval_counts']==dict(direct=3,endpoint_supported=1)
     assert pace['coverage_seconds']['approximate']==75 and pace['span_seconds']['approximate']==75
     assert pace['basis']=='observed_exp_endpoints'
     assert pace['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(3745*3600/75)
@@ -49,7 +50,7 @@ def test_matching_reacquisition_pools_only_valid_integer_edges(tracking):
     assert pace['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']==pytest.approx(11.52)
     assert window_comparisons(snap,now=NOW+timedelta(seconds=90))==frozen_windows
     assert history(snap)==frozen_history
-    assert not frozen_history[4]['connect_previous'] and not frozen_history[5]['connect_previous']
+    assert not frozen_history[4]['connect_previous'] and frozen_history[5]['connect_previous']
     assert frozen_history[6]['connect_previous']
     assert not any(w['eligible'] for w in frozen_windows.values())
     assert not store.db.execute('SELECT 1 FROM observations').fetchone()
@@ -86,10 +87,16 @@ def test_hard_boundaries_block_crossing_and_keep_unrelated_same_context_interval
     if kind in ('level','source','session','restart'):
         assert pace['readings']==2 and pace['coverage_seconds']['approximate']==15
         assert pace['start']==snap['observations'][5]['received_at']
+    elif kind=='loss':
+        # The confirmed lower reading starts a new baseline, never ends an edge
+        # from the old one. Newly admitted level evidence can support its next edge.
+        assert pace['readings']==5 and pace['coverage_seconds']['approximate']==45
+        assert pace['interruptions']==1
     else:
         assert pace['readings']==4 and pace['coverage_seconds']['approximate']==30
         assert pace['interruptions']==1
-    assert all(snap['observations'][4]['event_id'] not in (e['first_event_id'],e['last_event_id']) for e in pace['intervals'])
+    assert all(snap['observations'][4]['event_id']!=e['last_event_id'] for e in pace['intervals'])
+    if kind!='loss':assert all(snap['observations'][4]['event_id']!=e['first_event_id'] for e in pace['intervals'])
 
 
 def test_pool_ages_without_new_captures_and_expired_history_is_not_current(tracking):
@@ -164,8 +171,8 @@ def test_clean_rotation_retains_pool_but_unlinked_run_does_not(tracking):
     snap['run_id']='rotated'
     with patch.object(module,'project',lambda rows:rows):
         linked=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-        assert linked['readings']==4 and linked['interruptions']==0
-        assert linked['interval_counts']['endpoint_supported']==1
+        assert linked['readings']==5 and linked['interruptions']==0
+        assert linked['interval_counts']['endpoint_supported']==2
         snap['observations'][6]['rotation_from']=None
         unlinked=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
         assert not unlinked['active'] and unlinked['retained_history']

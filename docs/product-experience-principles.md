@@ -28,6 +28,8 @@ and game-like, with useful approximate information even when some readings fail.
   independent valid intervals around unsafe boundaries. Keep chart gaps separate.
 - Missing captures hold a dated last-observed rate, rather than implying zero gain.
   Expire old intervals by time and preserve the distinction from a current estimate.
+- Keep a supported next-level duration as a dated, static historical estimate when
+  live pace pauses; identify its window basis instead of clearing the card on OCR gaps.
 - Twitch broadcast status and local capture health are separate facts. Unknown
   API status never means offline; an old reading never proves active capture.
 - Favor game-like orange EXP bars on fixed time axes, with a secondary level-%

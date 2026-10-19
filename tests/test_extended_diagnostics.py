@@ -35,7 +35,7 @@ def test_bounded_independent_percentage_recovery(raw, full, percentage):
                 assert edit['category'] in ('opening_bracket', 'closing_bracket', 'exp_grouping', 'percentage_decimal')
 
 
-@pytest.mark.parametrize('raw', ['0.85%1', '170 57%1', '12.34%', '[12.3%1', '[12.345%1',
+@pytest.mark.parametrize('raw', ['0.85%1', '170 57%1', '[12.3%1', '[12.345%1',
     '[12,3,4%1', '[101.00%1', '123I12.34%1', '12,345|12.34%|text',
     'text[12.34%1', '[12.34%[', '1.23[4.56%1[7.89%1', '[12.34]1', None, '', '1'*161])
 def test_no_missing_digits_boundary_reconstruction_or_unsupported_lookalikes(raw):

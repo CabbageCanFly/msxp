@@ -45,13 +45,18 @@ def run_batches(diagnostic,channel,*,start,now,receipt):
         yield run,[r for r in rows if datetime.fromisoformat(r.get('received_at') or r['attempted_at'])<=now]
 
 
-def recent_snapshot(diagnostic,channel,*,now):
+def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None):
     """One hour plus causal warmup, never a browser-sized raw history response."""
     from .diagnostics import rotation_link
     base=diagnostic._snapshot(channel,now=now,limit=1)
     receipt=dict(context_attempts=0,source_bytes=0,run_count=0)
     rows=[];decisions=[];level_state={};percentage_state={};previous_run=None;previous_time=None
     start=now-timedelta(minutes=65)
+    owner='session_id=?' if diagnostic.store.schema_version>=4 else 'run_id IN (SELECT run_id FROM diagnostic_runs WHERE session_id=?)'
+    if _historical:
+        earliest=diagnostic.db.execute('SELECT MIN(attempted_at) FROM diagnostic_attempts WHERE '+owner,
+            ((base['session'] or {}).get('id'),)).fetchone()[0]
+        if earliest:start=datetime.fromisoformat(earliest)
     try:
         for run,batch in run_batches(diagnostic,channel,start=start,now=now,receipt=receipt):
             # A different session can supply its own historical total, never a
@@ -67,12 +72,42 @@ def recent_snapshot(diagnostic,channel,*,now):
             for row,decision in zip(batch,reviewed):
                 if datetime.fromisoformat(row.get('received_at') or row['attempted_at'])<start:continue
                 row['percentage_review']=decision;rows.append(row);decisions.append(decision)
+            if _historical and len(rows)>4096:
+                from .pace_intervals import collect
+                from .product import PACE_TREND_SECONDS
+                # A lone new endpoint cannot evict the last supported rate.
+                evidence=dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions))
+                intervals=collect(evidence,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)['intervals']
+                if intervals:
+                    cutoff=datetime.fromisoformat(intervals[-1]['after']['timestamp'])-timedelta(minutes=65)
+                    keep=next((i for i,r in enumerate(rows) if datetime.fromisoformat(r.get('received_at') or r['attempted_at'])>=cutoff),len(rows))
+                    rows=rows[keep:];decisions=decisions[keep:]
             if len(rows)>4096:raise HistoryLimit('recent_attempt_limit')
             previous_run=run
     except HistoryLimit:
         return dict(base,observations=[],recent_history_status='history_limit',recent_history_receipt=receipt)
     data=dict(percentage_reviews=decisions,reason=decisions[-1]['reason'] if decisions else 'no_observations')
-    return dict(base,observations=rows,percentage_progress=data,recent_history_status='ready',recent_history_receipt=receipt)
+    result=dict(base,observations=rows,percentage_progress=data,recent_history_status='ready',recent_history_receipt=receipt)
+    if not _historical:
+        from .product import recent_windows,PACE_TREND_SECONDS
+        from .pace_intervals import collect
+        if not collect(result,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)['intervals']:
+            # Cold-server restoration is bounded like other history queries.
+            # Cache only compact static estimates, invalidated by any new event.
+            revision=diagnostic.db.execute('SELECT MAX(id) FROM diagnostic_attempts WHERE '+owner+' AND attempted_at<=?',
+                ((base['session'] or {}).get('id'),now.isoformat())).fetchone()[0]
+            key=(channel,(base['session'] or {}).get('id'),revision,base['run_id'],base['run_status'])
+            cached=eta_cache.get(channel) if eta_cache is not None else None
+            if cached is None or cached[0]!=key:
+                historical=recent_snapshot(diagnostic,channel,now=now,_historical=True)
+                old=recent_windows(historical,None,now=now)
+                saved={m:w['eta'] for m,w in old.items()}
+                cached=(key,saved,historical['recent_history_status'],historical['recent_history_receipt'])
+                if eta_cache is not None:
+                    if len(eta_cache)>=8:eta_cache.pop(next(iter(eta_cache)))
+                    eta_cache[channel]=cached
+            result.update(historical_etas=cached[1],eta_history_status=cached[2],eta_history_receipt=cached[3])
+    return result
 
 
 def aggregate(diagnostic,channel,*,now):

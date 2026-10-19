@@ -128,7 +128,9 @@ class Handler(BaseHTTPRequestHandler):
                             diagnostics=Diagnostics(store)
                             snap=diagnostics.snapshot(channel,now=now,limit=PRODUCT_ROWS)
                             activity=operation(snap,self.server.coordinator_status.get(channel),now)
-                            value=refresh(player(snap,now=now,recent_snapshot=diagnostics.recent_snapshot(channel,now=now)),now=now,activity=activity)
+                            with self.server.history_lock:
+                                recent=diagnostics.recent_snapshot(channel,now=now,eta_cache=self.server.eta_cache)
+                            value=refresh(player(snap,now=now,recent_snapshot=recent),now=now,activity=activity)
                             self.reply(200,dict(player=self.broadcasts([value])[0],history=history(snap),truncated=snap['truncated'],served_at=utc(now),experimental=True,poll_seconds=2))
                         else:
                             self.reply(200,(WEB/('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html')).read_bytes(),'text/html')
@@ -250,6 +252,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.directory_cache = {}
     server.directory_lock = threading.Lock()
     server.history_cache={}
+    server.eta_cache={}
     server.history_lock=threading.Lock()
     server.twitch_availability=StreamAvailability(enabled=twitch_status,auth=AppTokens(maintain=twitch_status))
     return server

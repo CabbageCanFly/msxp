@@ -258,6 +258,67 @@ def numerical_window_trial(database,port):
             finally:http.shutdown();thread.join(2)
 
 
+def eta_followup_trial(database,port):
+    """Saved source prefixes; explicitly simulated lifecycle/clock, no retiming."""
+    root=Path('private/multi-alpha/runs')
+    target=root/'20261018T195958Z-eee70469/telfer1/93dddb3313a5445e86d7d12dd3fb9917/capture.jsonl'
+    niru=root/'20261018T211439Z-794bf39d/niru/capture.jsonl'
+    paths=sorted(target.parent.parent.rglob('capture.jsonl'),key=lambda p:next(
+        json.loads(s)['attempted_at'] for s in p.read_text().splitlines() if json.loads(s)['type']=='attempt'))
+    saved={c:[json.loads(s) for s in p.read_text().splitlines()] for c,p in (('niru',niru),('telfer1',target))}
+    import exp_tracker.server as server_module
+    import exp_tracker.diagnostics as diagnostic_module
+    class Clock(datetime):
+        at=None
+        @classmethod
+        def now(cls,tz=None):return cls.at
+    server_module.datetime=diagnostic_module.datetime=Clock
+    with Store(database) as store:
+        d=Diagnostics(store)
+        for channel,records in saved.items():
+            store.add_channel(channel);cid=store.add_character(channel,'Saved review');store.select_character(channel,cid)
+            store.start_session(channel,at=datetime.fromisoformat(records[1]['attempted_at']))
+        for path in paths:
+            if path!=target:d.replay('telfer1',path)
+        for channel,records in saved.items():
+            d.begin(records[0]['run_id'],channel,records[0])
+        last={'niru':0,'telfer1':0}
+        def stage(n,t):
+            for channel,stop in (('niru',n),('telfer1',t)):
+                records=saved[channel]
+                for r in records:
+                    if r['type']=='attempt' and last[channel]<r['index']<=stop:d.append(records[0]['run_id'],r)
+                last[channel]=stop
+            Clock.at=datetime.fromisoformat(next(r['received_at'] for r in saved['niru'] if r.get('index')==n and r['type']=='attempt'))
+        stage(3,4)
+        with create_server(database,port=port,diagnostic_dashboard=True) as http:
+            http.quiet=True
+            def activity():
+                for channel,records in saved.items():
+                    http.active_run_ids.add(records[0]['run_id'])
+                    http.coordinator_status[channel]=dict(state='waiting',updated_at=Clock.at.isoformat(),
+                        next_due_at=(Clock.at+timedelta(seconds=20)).isoformat(),requested_interval_seconds=20)
+            activity();thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+            print(json.dumps(dict(ready=True,clock='simulated_as_of',port=http.server_port)),flush=True)
+            try:
+                for action in ('gap','recover','next','restart','expire','age'):
+                    command=next(sys.stdin,None)
+                    if command is None:break
+                    if command.strip()!=action:raise ValueError('Ordered replay only')
+                    if action in ('gap','recover','next'):
+                        n,t={'gap':(4,5),'recover':(5,6),'next':(7,7)}[action];stage(n,t);activity()
+                    elif action=='restart':
+                        configuration=dict(saved['niru'][0],run_id='eta-fixture-restart',start_reason='process_start',
+                            previous_run_id=None,coordinator_instance='f'*32)
+                        d.begin('eta-fixture-restart','niru',configuration)
+                        http.active_run_ids.clear();http.coordinator_status.clear()
+                    else:Clock.at+=timedelta(hours=2 if action=='expire' else 1)
+                    assert not store.db.execute('select 1 from observations').fetchone()
+                    print(json.dumps(dict(stage=action,as_of=Clock.at.isoformat())),flush=True)
+                for _ in sys.stdin:raise ValueError('Replay complete')
+            finally:http.shutdown();thread.join(2)
+
+
 def main():
     cli=argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--directory',type=Path,required=True)
@@ -269,12 +330,16 @@ def main():
     cli.add_argument('--historical',action='store_true',help='Actual completed 90-attempt two-stream trial, as-of clock')
     cli.add_argument('--resilience',action='store_true',help='Actual unreadable-HUD replay, mocked Helix and coordinator activity')
     cli.add_argument('--numerical-windows',action='store_true',help='Saved wrong-pair veto and selected-window card replay')
+    cli.add_argument('--eta-followup',action='store_true',help='Saved short HUD gap, token recovery and dated ETA restoration')
     args=cli.parse_args()
     directory=args.directory.resolve()
     if not any(directory.is_relative_to(Path(p).resolve()) for p in ('private','artifacts')):
         raise ValueError('Private test directory required')
     database=directory/'updates.sqlite3'
     if database.exists():raise ValueError('Never overwrite an existing database')
+    if args.eta_followup:
+        eta_followup_trial(database,args.port)
+        return
     if args.resilience:
         resilience_trial(database,args.port)
         return

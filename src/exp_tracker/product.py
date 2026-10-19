@@ -92,10 +92,13 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
     active=bool(not retained and not expired and rows[-1]['event_id']==last['event_id'] and not rows[-1].get('run_interrupted')
         and snapshot.get('run_status') not in ('completed','interrupted')
         and snapshot.get('run_id',rows[-1]['run_id'])==rows[-1]['run_id'])
-    if (not active or calculated['exp_per_hour'] is None
+    if (calculated['exp_per_hour'] is None
             or any(p['evidence']=='conditional_symbol' for p in values.values())):calculated['eta']=None
+    saved_eta=deepcopy(calculated['eta'])
+    if not active:calculated['eta']=None  # Live/OBS contract; dated character ETA is separate.
     return dict(active=active,tentative=tentative,level=last['level']['value'],start=first['timestamp'],end=last['timestamp'],
-        readings=len(ids),span_seconds=rational(elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))),
+        source_kind=edges[-1]['identity'][2],source_identity=edges[-1]['identity'][3],
+        readings=len(ids),last_observed_eta=saved_eta,span_seconds=rational(elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))),
         coverage_seconds=rational(elapsed),interruptions=len(groups)-1,estimates=calculated,basis=basis,
         interval_counts={kind:sum(e['kind']==kind for e in edges) for kind in ('direct','endpoint_supported')},
         intervals=details,total_gain=rational(amount) if calculated['exp_per_hour'] else None,basis_counts=basis_counts,
@@ -136,6 +139,32 @@ def recent_windows(snapshot,display_level,*,now):
             previous=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,collected=collected)
             result[str(minutes)]['last_observed_pace']=({k:v for k,v in previous.items()
                 if k not in ('intervals','conditional_recoveries','excluded','latest_endpoint')} if previous else None)
+        current_basis=pace or result[str(minutes)].get('last_observed_pace')
+        # Date the estimate at an observation, not at a poll that merely removes
+        # old intervals. The gain/rate cards keep their actual current windows.
+        basis=responsive_pace(snapshot,display_level,now=datetime.fromisoformat(current_basis['end']),
+            minutes=minutes,pool_history=True,collected=collected) if current_basis else None
+        eta=basis and basis['last_observed_eta']
+        # An old duration survives missing OCR, never an affirmative new level or
+        # confirmed reset. No subtraction or countdown crosses the boundary.
+        blocked=bool(basis and any(
+            r.get('received_at') and r['received_at']>basis['end'] and (
+                (r.get('experimental_level') or {}).get('value') not in (None,basis['level']) or
+                (r.get('experimental_level') or {}).get('status')=='conflict' or
+                (r.get('percentage_review') or {}).get('break_before')=='confirmed_change_new_baseline')
+            for r in snapshot['observations']))
+        result[str(minutes)]['eta']=dict(estimate=deepcopy(eta),estimated_at=basis['end'],
+            window_minutes=minutes,start=basis['start'],level=basis['level'],readings=basis['readings'],
+            source_identity=basis['source_identity'],source_kind=basis['source_kind'],
+            coverage_seconds=basis['coverage_seconds'],tentative=basis['tentative'],
+            rate=basis['estimates']['exp_per_hour']['value'],
+            historical=not current_basis['active'],age_seconds=max(0,(now-datetime.fromisoformat(basis['end'])).total_seconds()),
+            static_duration=True,trusted=False) if eta and not blocked else None
+        if not basis and not blocked:
+            result[str(minutes)]['eta']=deepcopy(snapshot.get('historical_etas',{}).get(str(minutes)))
+        saved=result[str(minutes)]['eta']
+        if saved and any(k in snapshot and snapshot[k]!=saved[k] for k in ('source_kind','source_identity')):
+            result[str(minutes)]['eta']=None
     return result
 
 
@@ -379,7 +408,8 @@ def window_comparisons(snapshot, *, now):
             minimum_readings=len(points)>=3,minimum_span=False,ninety_percent_span=False,
             left_endpoint_within_interval=False,latest_attempt_is_endpoint=False,
             fresh=not data['stale'],reference_not_future=end<=now)
-        context_free=not any(r.get('experimental_level',{}).get('contextual') for r,_ in points)
+        context_free=not any(r.get('experimental_level',{}).get('contextual') or
+            r.get('experimental_level',{}).get('strict_window_eligible') is False for r,_ in points)
         metric['eligibility_checks']['reader_supported_levels']=context_free
         if points:
             first,last=points[0][1],points[-1][1]
@@ -468,7 +498,9 @@ def player(snapshot,*,now=None,recent_snapshot=None):
     result['recent_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now)
     result['recent_history']=dict(status=(recent_snapshot or snapshot).get('recent_history_status','ready'),
         source='sqlite_time_range' if recent_snapshot is not None else 'provided_snapshot',
-        receipt=(recent_snapshot or snapshot).get('recent_history_receipt'))
+        receipt=(recent_snapshot or snapshot).get('recent_history_receipt'),
+        eta_status=(recent_snapshot or snapshot).get('eta_history_status','ready'),
+        eta_receipt=(recent_snapshot or snapshot).get('eta_history_receipt'))
     endpoint=(result['responsive_pace'] or {}).get('latest_endpoint')
     if endpoint and endpoint['evidence']=='conditional_symbol' and (not latest or endpoint['timestamp']>latest['timestamp']):
         result.update(reading=endpoint,original_percentage_state=decision,
@@ -520,6 +552,11 @@ def refresh(value,*,now=None,activity=None):
     if value.get('early_pace') and (value['stale'] or latest and latest['simulated']):
         value['early_pace'].update(active=False,reason='stale_or_simulated_reading')
     for metric in list(value.get('windows',{}).values())+list(value.get('recent_windows',{}).values()):
+        eta=metric.get('eta')
+        if eta:
+            eta['age_seconds']=max(0,(now-datetime.fromisoformat(eta['estimated_at'])).total_seconds())
+            eta['historical'] = (value['stale'] or not (metric.get('pace') or {}).get('active')
+                or (metric.get('pace') or {}).get('presentation',{}).get('state')!='observed')
         if 'eligibility_checks' in metric:
             metric['eligibility_checks']['fresh']=not value['stale'] and not (latest and latest['simulated'])
         observed=metric.get('observed')

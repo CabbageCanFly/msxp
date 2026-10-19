@@ -267,6 +267,7 @@ test('selected SQLite window controls gain, rate and tentative ETA while four ca
   const p=page('player'),base=player();
   base.responsive_pace={active:true,age_seconds:0,readings:2,span_seconds:{approximate:20},estimates:base.estimates};
   base.recent_windows=Object.fromEntries([5,10,15,30,60].map((minutes,i)=>[minutes,{status:'ready',available:true,
+    eta:{estimate:base.estimates.eta,window_minutes:minutes,estimated_at:base.reading.timestamp,age_seconds:0,readings:2,tentative:i===0,historical:false},
     pace:{...base.responsive_pace,tentative:i===0,estimates:{...base.estimates,exp_per_hour:{...base.estimates.exp_per_hour,value:{approximate:(i+1)*1000}}}},
     observed:{available:true,difference_percentage_points:'0.10',span_seconds:{approximate:20},coverage_seconds:{approximate:20},
       readings:2,age_seconds:0,interruptions:0,unavailable_attempts:0,missing_attempts:0,estimated_exp:{value:{approximate:(i+1)*100},requirement:{version:'test'}}}}]));
@@ -281,8 +282,8 @@ test('selected SQLite window controls gain, rate and tentative ETA while four ca
   }
   p.buttons[0].listeners.click();assert.match(p.elements['eta-note'].textContent,/Early estimate.*2 readings/);
   base.recent_windows[5].pace.active=false;p.render(base);
-  assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements['eta-stat'].hidden,false);
-  assert.match(p.elements['eta-note'].textContent,/Waiting for fresh/);
+  assert.equal(p.elements.eta.textContent,'~15m');assert.equal(p.elements['eta-stat'].hidden,false);
+  assert.match(p.elements['eta-note'].textContent,/Last estimated/);
   assert.equal(p.elements['level-note'],undefined);
   base.recent_windows[5]={status:'history_limit',available:false,observed:{available:false}};
   base.windows={5:{eligible:true,estimates:base.estimates,coverage_seconds:{approximate:300},readings:21}};
@@ -301,6 +302,29 @@ test('selected historical rate is dated, has no current gain or ETA, and never f
   assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements['eta-stat'].hidden,false);
   delete base.recent_windows[60].last_observed_pace;p.render(base);
   assert.equal(p.elements.rate.textContent,'—');
+});
+
+test('character ETA is a dated static duration through failed polls, missing OCR and expired windows',()=>{
+  const p=page('player'),base=player();
+  base.recent_windows=Object.fromEntries([5,10,15,30,60].map(minutes=>[minutes,{status:'ready',available:false,observed:{available:false},
+    eta:{estimate:{seconds:{approximate:minutes*600}},window_minutes:minutes,estimated_at:base.reading.timestamp,
+      age_seconds:4000,readings:4,tentative:false,historical:true,static_duration:true}}]));
+  base.stale=true;base.activity={state:'capture_finished'};base.latest_attempt_status='capture_failed';
+  for(let i=0;i<p.buttons.length;i++){
+    p.render(base);p.buttons[i].listeners.click();
+    const text=p.elements.eta.textContent;
+    assert.notEqual(text,'—');assert.equal(p.elements['eta-stat'].hidden,false);
+    assert.match(p.elements['eta-note'].textContent,new RegExp(`Last estimated.*${p.buttons[i].dataset.window} min basis`));
+    p.run('failed=true;renderPlayer()');assert.equal(p.elements.eta.textContent,text);
+    p.context.performance.now=()=>3600000;p.run('renderPlayer()');assert.equal(p.elements.eta.textContent,text);
+    assert.equal(p.elements.movement.textContent,'—');
+    p.run('failed=false');
+  }
+  // A new valid server estimate replaces the historical duration without reload.
+  base.stale=false;base.recent_windows[60].eta.historical=false;base.recent_windows[60].eta.age_seconds=0;
+  base.recent_windows[60].eta.estimate.seconds.approximate=900;p.context.performance.now=()=>0;p.render(base);
+  assert.equal(p.elements.eta.textContent,'~15m');
+  delete base.recent_windows[60].eta;p.render(base);assert.equal(p.elements.eta.textContent,'—');
 });
 
 test('current-level chart separates level-up, missing samples and quarantine; only guarded edges get lines',()=>{

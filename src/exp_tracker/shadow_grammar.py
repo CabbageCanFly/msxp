@@ -75,12 +75,12 @@ def propose_full_exp(text, *, source_complete=None):
 def interpret_exp(text, *, source_complete=None):
     """Versioned diagnostic interpretations; v1 and both strict parsers stay frozen.
 
-    Both boundary symbols must exist. Only punctuation is interpreted, never a
-    missing digit. Decimal-comma recovery deliberately makes no full-EXP claim.
+    Only punctuation is interpreted, never a missing digit. A standalone DD.DD%
+    token needs no invented opener. Decimal-comma recovery makes no full-EXP claim.
     """
     base = dict(classification='rejected', proposals=[], trusted=False,
                 numerical_identity_verified=False, reason='no_bounded_interpretation')
-    result = dict(policy='bounded_exp_v4', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
+    result = dict(policy='bounded_exp_v5', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
                   strict_full=None, strict_percentage_only=None, full_exp={**base}, percentage={**base},
                   symbol_hypotheses=[], source_complete=source_complete, trusted=False)
     if not isinstance(text, str) or not text or len(text) > MAX_TEXT:
@@ -93,6 +93,20 @@ def interpret_exp(text, *, source_complete=None):
         for field in ('full_exp', 'percentage'):
             result[field] = {**base, 'classification': 'raw_strict', 'reason': 'original_strict_result_unchanged'}
         return result
+    # Whole-string anchoring prevents extracting a plausible tail from clipped
+    # digits or competing fields. A single leading digit needs an actual opener.
+    token = re.fullmatch(r'([0-9]{2}\.[0-9]{2})%([\]1|Il]{0,3})', text)
+    if token:
+        only = parse_percentage_only(f'[{token[1]}%]')
+        if only:
+            end = text.index('%') + 1
+            result['percentage'] = {**base, 'classification': 'unique_proposal',
+                'reason': 'complete_standalone_percentage_token', 'proposals': [dict(
+                    interpretation=text[:end], reading=only, field_span=[0, end],
+                    edits=[dict(index=end, old=token[2], new='', category='closing_suffix_ignored')] if token[2] else [],
+                    image_verification='required', source_completeness_verified=False,
+                    trusted=False, numerical_identity_verified=False)]}
+            return result
     # A single EXP-label tail before an otherwise complete bracketed percentage.
     # This never establishes the completeness of an absolute EXP field.
     if text.startswith('P[') and parse_percentage_only(text[1:]) is not None:

@@ -151,14 +151,16 @@ def test_recent_sqlite_query_exceeds_browser_history_cap_and_keeps_clean_rotatio
     assert p['recent_windows']['60']['pace']['interruptions']==0
 
 
-def test_two_supported_readings_allow_tentative_eta_but_stale_or_missing_requirement_does_not():
+def test_two_supported_readings_keep_dated_eta_through_missing_capture_but_need_requirement():
     rows=[point(1,0,659373,'37.51'),point(2,20,660978,'37.60')]
     snap=snapshot(rows,20)
     w=recent_windows(snap,dict(value=67),now=NOW+timedelta(seconds=20))['5']
     assert w['pace']['tentative'] and w['pace']['estimates']['eta']
     assert not any(x['eligible'] for x in window_comparisons(snap,now=NOW+timedelta(seconds=20)).values())
     stale=snapshot(rows+[missing(3,40)],40)
-    assert recent_windows(stale,dict(value=67),now=NOW+timedelta(seconds=40))['5']['pace']['estimates']['eta'] is None
+    saved=recent_windows(stale,dict(value=67),now=NOW+timedelta(seconds=40))['5']
+    assert saved['eta']['estimate']==w['eta']['estimate'] and saved['eta']['historical']
+    assert saved['eta']['estimated_at']==rows[1]['received_at']
     for r in rows:
         r.update(visual_level=100);r['neural_level'].update(level=100,text='100')
     assert recent_windows(snapshot(rows,20),dict(value=100),now=NOW+timedelta(seconds=20))['5']['pace']['estimates']['eta'] is None
@@ -190,7 +192,9 @@ def test_selected_window_expires_gain_but_retains_its_own_dated_rate():
     assert not windows['5']['available'] and windows['5']['gain'] is None
     saved=windows['5']['last_observed_pace']
     assert not saved['active'] and saved['readings']==3 and saved['end']==rows[2]['received_at']
-    assert saved['estimates']['eta'] is None
+    assert saved['estimates']['eta'] is None  # OBS/live semantics remain separate.
+    assert saved['last_observed_eta']==windows['5']['eta']['estimate']
+    assert windows['5']['eta']['historical']
     assert windows['10']['available'] and windows['10']['pace']['trend_seconds']==600
 
 

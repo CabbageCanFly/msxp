@@ -14,15 +14,16 @@ const verifyRolling=databaseArgument==='--verify-rolling';
 const verifyHistorical=databaseArgument==='--verify-historical';
 const verifyResilience=databaseArgument==='--verify-resilience';
 const verifyNumerical=databaseArgument==='--verify-numerical-windows';
+const verifyETA=databaseArgument==='--verify-eta-followup';
 const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
-const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical?null:databaseArgument;
+const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
 let fixture=null,fixtureCommand=null;
-if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical){
+if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA){
   const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyNumerical?['--numerical-windows']:verifyResilience?['--resilience']:verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyETA?['--eta-followup']:verifyNumerical?['--numerical-windows']:verifyResilience?['--resilience']:verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
   let buffer='',waiting=null;const messages=[];
   fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
   const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
@@ -85,7 +86,7 @@ try {
   const recent=await detail.evaluate('({start:document.getElementById("history-chart").dataset.start,end:document.getElementById("history-chart").dataset.end,note:document.getElementById("history-note").textContent})');
   if(recent.start)assert.equal(Date.parse(recent.end)-Date.parse(recent.start),1800000);
   assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),'Last 5 min');
-  if(!original.player.windows['5'].eligible)assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),original.player.windows['5'].observed?.available?'Not complete yet':'Building history');
+  if(!original.player.windows['5'].eligible)assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),(original.player.recent_windows?.['5']?.observed ?? original.player.windows['5'].observed)?.available?'Not complete yet':'Building history');
   await screenshot(detail,'character-desktop',1440,1050);
   await screenshot(detail,'character-mobile',390,1200);
   await detail.evaluate('document.querySelectorAll("[data-window]")[2].click()');
@@ -103,6 +104,46 @@ try {
   await detail.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   await overlay.wait('performance.getEntriesByType("resource").filter(r=>r.name.includes("/api/players/")).length>=2');
   const observed=[];
+  if(verifyETA){
+    const etaByWindow={};
+    for(const action of [null,'gap','recover','next','restart','expire','age']){
+      if(action)await fixtureCommand(action);
+      const actual=await api('/api/players/'+channel);observed.push(actual);
+      await detail.wait(`data?.served_at===${JSON.stringify(actual.served_at)} && data?.player?.latest_attempt_at===${JSON.stringify(actual.player.latest_attempt_at)}`);
+      await overlay.wait(`data?.served_at===${JSON.stringify(actual.served_at)}`);
+      for(const minutes of [5,10,15,30,60]){
+        await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
+        const saved=actual.player.recent_windows[minutes].eta;assert.ok(saved);
+        const displayed=await detail.evaluate('document.getElementById("eta").textContent');
+        assert.equal(displayed,await detail.evaluate(`etaText(data.player.recent_windows[${minutes}].eta.estimate)`));
+        assert.equal(await detail.evaluate('document.getElementById("eta-stat").hidden'),false);
+        if(action===null)assert.match(await detail.evaluate('document.getElementById("eta-note").textContent'),/Early estimate.*2 readings/);
+        if(action==='gap' || action==='restart' || action==='expire' || action==='age')assert.equal(displayed,etaByWindow[minutes]);
+        etaByWindow[minutes]=displayed;
+        if(action==='expire' || action==='age'){
+          assert.match(await detail.evaluate('document.getElementById("eta-note").textContent'),new RegExp(`Last estimated.*${minutes} min basis`));
+          assert.equal(actual.player.recent_windows[minutes].gain,null);
+          assert.equal(await detail.evaluate('document.getElementById("movement").textContent'),'—');
+        }
+      }
+      if(action==='gap'){
+        assert.equal(actual.player.reading.percentage,'77.36');
+        assert.equal((await api('/api/players/telfer1')).player.reading.percentage,'56.97');
+      }
+      if(action==='recover')assert.equal(actual.player.reading.percentage,'77.54');
+      if(action==='gap' || action==='recover' || action==='expire'){
+        await screenshot(detail,`eta-${action}-desktop`,1440,1050);
+        await screenshot(detail,`eta-${action}-mobile`,390,1200);
+        await screenshot(overlay,`eta-${action}-overlay`,500,160);
+      }
+    }
+    const previous=await detail.evaluate('document.getElementById("eta").textContent');
+    await detail.evaluate('failed=true;receivedAt-=3600000;renderPlayer()');
+    assert.equal(await detail.evaluate('document.getElementById("eta").textContent'),previous);
+    assert.match(await detail.evaluate('document.getElementById("eta-note").textContent'),/Last estimated/);
+    for(const page of [detail,board,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+    writeFileSync(join(output,'eta-stages.json'),JSON.stringify(observed,null,2));
+  }
   if(verifyNumerical){
     await detail.command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
     const top=await detail.evaluate('document.querySelector(".companion-cards").getBoundingClientRect().top');
@@ -128,8 +169,12 @@ try {
         const pace=w.pace ?? w.last_observed_pace;assert.ok(pace);
         assert.equal(await detail.evaluate('document.getElementById("rate").textContent'),'~'+Math.round(pace.estimates.exp_per_hour.value.approximate).toLocaleString('en-US'));
         assert.equal(await detail.evaluate('document.getElementById("eta-stat").hidden'),false);
+        assert.equal(await detail.evaluate('document.getElementById("eta").textContent'),await detail.evaluate(`etaText(data.player.recent_windows[${minutes}].eta?.estimate)`));
       }
-      if(action==='stale')assert.equal(await detail.evaluate('document.getElementById("eta").textContent'),'—');
+      if(action==='stale'){
+        assert.notEqual(await detail.evaluate('document.getElementById("eta").textContent'),'—');
+        assert.match(await detail.evaluate('document.getElementById("eta-note").textContent'),/Last estimated/);
+      }
       await screenshot(detail,`numerical-${action ?? 'initial'}-desktop`,1440,1050);
       if(action==='reject' || action==='recover')await screenshot(detail,`numerical-${action}-mobile`,390,1200);
       await detail.command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});

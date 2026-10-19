@@ -97,6 +97,14 @@ function publicPace(p) {
   return {active,age,label:expired?'Pace paused':failed?`last observed ${ageText(age)}`:active?(pace.tentative?'first estimate':'recent trend'):`last observed ${ageText(age)}`,
     estimates,source:pace};
 }
+function publicETA(p) {
+  if(view!=='player')return null;
+  const saved=p.recent_windows?.[String(windowMinutes)]?.eta;
+  if(!saved)return null;
+  const age=saved.age_seconds+(performance.now()-receivedAt)/1000;
+  const pace=p.recent_windows?.[String(windowMinutes)]?.pace;
+  return {...saved,age,historical:saved.historical || failed || current(p).stale || !pace?.active || (pace.presentation && pace.presentation.state!=='observed')};
+}
 function current(p) {
   const age=p.age_seconds==null?null:p.age_seconds+(performance.now()-receivedAt)/1000;
   const review=p.percentage_state;
@@ -224,7 +232,8 @@ function renderPlayer() {
   amount('rate',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate,true)}`:'—',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate)}`:'—');el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Experimental displayed percentage points/hour; zero displayed change does not prove zero actual EXP.';
-  el('eta').textContent=etaText(m?.eta);el('eta').title=m?.eta?'Uses the selected supported same-level rate and provisional requirement at the last reading, not a countdown.':'Building positive, comparable history';
+  const savedETA=publicETA(p),eta=view==='player' && p.recent_windows?savedETA?.estimate:m?.eta;
+  el('eta').textContent=etaText(eta);el('eta').title=eta?`Static duration at the last supported reading, not a countdown.${savedETA?` ${savedETA.window_minutes} min basis · ${savedETA.readings} readings · ${new Date(savedETA.estimated_at).toLocaleString()}`:''}`:'Building positive, comparable history';
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';
   el('rate').dataset.paused=String(!!pace && !pace.active);
   if(pace)el('rate').title=`${pace.label}; ${paceSample(pace.source)}. ${rateTitle(m?.exp_per_hour)}`;
@@ -255,7 +264,7 @@ function renderPlayer() {
     el('window-rate-label').textContent=`${windowMinutes} min EXP / hour`;
     el('pp-stat').hidden=!!m?.exp_per_hour || !m?.percentage_per_hour;
     el('eta-stat').hidden=false;
-    el('eta-note').textContent=m?.eta?(pace?.source.tentative?`Early estimate · ${pace.source.readings} readings`:`At your ${windowMinutes} min pace`):pace && !pace.active?'Waiting for fresh readings':'Building positive history';
+    el('eta-note').textContent=savedETA?(savedETA.historical?`Last estimated ${ageText(savedETA.age)} · ${savedETA.window_minutes} min basis`:savedETA.tentative?`Early estimate · ${savedETA.readings} readings`:`At your ${savedETA.window_minutes} min pace`):eta?`At your ${windowMinutes} min pace`:'Building positive history';
     document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
     fitAmounts();
   }
