@@ -24,6 +24,7 @@ where = ["src"]
 exp_tracker = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg", "data/*.json"]
 
 [tool.pytest.ini_options]
+addopts = "-n 8 --dist=load"
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [

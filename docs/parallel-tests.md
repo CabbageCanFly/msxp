@@ -1,9 +1,18 @@
 # Parallel Python test audit
 
 2026-10-19, Windows, Python 3.14.7, pytest 9.1.1, pytest-xdist 3.8.0.
-The machine reports 16 physical / 24 logical CPUs and 31.7 GiB RAM. Start with
-**two workers and `--dist=load`**, not `-n auto`. Parallel execution remains opt-in;
-normal `python -m pytest` is still sequential.
+The benchmark machine reports 16 physical / 24 logical CPUs and 31.7 GiB RAM.
+`pyproject.toml` now sets **`addopts = "-n 8 --dist=load"`**: normal pytest runs use
+eight workers. Explicit command-line options override these defaults, for example
+`-n 0` for sequential execution or `-n 2` for two workers. Eight workers is our
+preferred full-suite default, not a guaranteed optimum for every machine.
+
+Use focused tests during ordinary development. Run just the affected modules or
+cases, and use `-n 0` for one or two tests or failure investigation. Reserve full
+regression runs for changes that warrant them; do not run the full suite after
+every minor change. During full regressions, exclude the three timing-sensitive
+subprocess cases from the parallel invocation and run them separately with `-n 0`.
+There is no global test timeout configured.
 
 ## Static findings
 
@@ -16,7 +25,7 @@ normal `python -m pytest` is still sequential.
 | Globals, environment, order | Changes to cwd, clocks, environment, import paths and module attributes use `monkeypatch` or explicit restoration. Workers are separate processes and run one test at a time. Imported fixtures remain function-scoped. The only explicit broader-scoped project fixtures are two read-only module-scoped sample datasets (`test_live_ocr.py`, `test_ocr_store.py`). No collection-time output creation, dynamically changing parametrization, session-wide writable fixture or deliberate cross-test ordering dependency was found. Static review cannot prove absence of order-dependent bugs. |
 | Credentials and external resources | Twitch requests/authentication are mocked; auth fixtures use synthetic credentials and absent temporary `.env` paths. No live Twitch source is needed. Tesseract uses unique temporary-file prefixes; model/bank loads are read-only and caches are worker-local. |
 | Saved evidence | Tests read saved screenshots/logs but do not overwrite the original fixtures. However, the four broad saved-log sweeps below can encounter an actively appended JSONL tail. That is an existing reader/writer race, independent of xdist; use stable evidence for a full regression run. |
-| CPU/RAM and timing | Private OCR/classifier cases and saved-history parity sweeps are expensive. Native engines may use extra threads, and each worker has its own model/cache memory. Two workers are a measured starting point, not a claim that four or sixteen will help. The `samples`/`ocr` markers do not cover all expensive saved-log replays. |
+| CPU/RAM and timing | Private OCR/classifier cases and saved-history parity sweeps are expensive. Native engines may use extra threads, and each worker has its own model/cache memory. Eight workers is the preferred default on the benchmark machine; override it when startup overhead, memory or CPU pressure makes fewer workers more useful. The `samples`/`ocr` markers do not cover all expensive saved-log replays. |
 
 The broad live-directory readers are:
 
@@ -33,14 +42,14 @@ using specifically named old runs also require those inputs to remain stable.
 ## Timing-sensitive cases
 
 Keep these two node prefixes (three parametrized cases) in a separate sequential
-invocation for the initial rollout:
+invocation during full regression testing:
 
 - `tests/test_shadow_capture.py::test_real_neural_timeout_reaps_worker`: 0.5-second
   worker timeout and a five-second call-duration bound. Its standalone Windows
   exit-ordering race is diagnosed below; it now waits at most two seconds for
   cleanup, checking PID plus creation time. Defensive `finally` cleanup also
   checks the command line before killing/waiting for this test's child. Keeping
-  it sequential for the initial rollout is a precaution, not a fix for or an
+  it sequential during full regressions is a precaution, not a fix for or an
   explanation of its previously intermittent assertion.
 - `tests/test_video.py::test_real_hung_capture_children_timeout_and_are_reaped`:
   synthetic child processes, 0.15-second acquisition timeout and a six-second
@@ -150,7 +159,24 @@ replays: the operator measured the passing Niru incremental replay at 265.54 s.
 Use `--timeout=0` for these parity investigations; no timeout configuration or
 passing incremental-history test was changed.
 
-## Limited verification
+## Recent full-suite benchmarks
+
+Operator-reported approximate elapsed times:
+
+| Workers | Elapsed |
+| --- | ---: |
+| Sequential (`-n 0`) | 17 min 46 s |
+| Two (`-n 2`) | 9 min |
+| Eight (`-n 8 --dist=load`) | 5-6 min in a prior successful run |
+
+Later eight-worker testing exposed the Niru publisher test-clock race described
+above. It also reproduced sequentially, so it was not an xdist-only failure. The
+fix was verified with focused regressions and saved-history replays; these timings
+are not a new full-suite benchmark after that fix. Saved inputs, machine load and
+worker startup affect comparisons. Eight workers is our preferred full-suite
+default, and an explicit `-n 0`, `-n 2`, `-n 4`, etc. remains available.
+
+## Initial subset verification
 
 Eight representative files exercised SQLite, actual HTTP sockets and viewer
 threads, mocked launcher lifecycles, generated FFmpeg video, subprocesses,
@@ -168,52 +194,39 @@ assertion-failure probe also confirmed the new defensive cleanup reaped its
 synthetic child. Test output and timing JSON are ignored under
 `private/pytest-xdist-audit-20261019/`.
 
-This single comparison is about **1.83x faster (45% less wall time)**. It does not
-predict full-suite speedup, peak memory or reliability at four workers. No full
-parallel suite was run, and no production/acquisition/OCR/public-statistics code
-was changed.
+This initial subset comparison was about **1.83x faster (45% less wall time)**.
+It did not establish full-suite speedup or peak memory; the later full-suite
+benchmarks are reported separately above. No production/acquisition/OCR/public
+statistics code was changed for the testing work.
 
 ## PowerShell commands
 
-Run from the repository root. Install only the new development plugin if the
-environment already exists:
+Run from the repository root. pytest-xdist is included in the development
+dependencies and is required by the default options. If it is not installed:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install "pytest-xdist>=3.8,<4"
 ```
 
-Repeat the same limited comparison, with fresh temporary roots. Run the two
-commands one after the other, keep the workload/permissions identical, and check
-both outputs passed the same tests. Repeating in reverse order helps assess
-cache/startup noise.
+For ordinary development, select affected files or individual cases. Explicit
+`-n` options override the configured eight-worker default:
 
 ```powershell
 $py = '.\.venv\Scripts\python.exe'
-$files = @(
-    'tests/test_store.py', 'tests/test_server.py', 'tests/test_video.py',
-    'tests/test_capture.py', 'tests/test_twitch_auth.py',
-    'tests/test_local_alpha.py', 'tests/test_multi_alpha.py',
-    'tests/test_video_preview.py'
-)
-$omitVideoTiming = '--deselect=tests/test_video.py::test_real_hung_capture_children_timeout_and_are_reaped'
-$root = "private/pytest-bench-$([guid]::NewGuid().ToString('N'))"
-New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+# Focused module run, using the default eight workers.
+& $py -m pytest -q tests/test_store.py
 
-Measure-Command {
-    & $py -m pytest -q -ra -n 0 @files -m 'not ocr and not samples' $omitVideoTiming --basetemp "$root/seq" -o "cache_dir=$root/seq-cache" *> "$root/sequential.txt"
-}
-Get-Content "$root/sequential.txt" -Tail 5
+# One or two cases, or investigating a failure: run sequentially.
+& $py -m pytest -q -n 0 tests/test_publisher.py::test_reference_status_cache_uses_replay_clock_not_test_duration
 
-Measure-Command {
-    & $py -m pytest -q -ra -n 2 --dist=load @files -m 'not ocr and not samples' $omitVideoTiming --basetemp "$root/par" -o "cache_dir=$root/par-cache" *> "$root/parallel.txt"
-}
-Get-Content "$root/parallel.txt" -Tail 5
+# Use fewer workers when that better fits the selected workload or machine.
+& $py -m pytest -q -n 2 tests/test_store.py tests/test_server.py
 ```
 
-For fast development, use the parallel command above or narrow `$files` to the
-modules being changed. For the next **full regression trial**, only when the saved
-inputs are stable, run all other tests with two workers and the three process
-cases separately. These commands are recommendations, not an already-run result:
+For a full regression, use stable saved inputs and a fresh temporary root. The
+first invocation uses the configured eight workers; the second explicitly runs
+the three process cases sequentially. A bare full-suite pytest invocation does
+not automatically separate those cases, so use this workflow:
 
 ```powershell
 $py = '.\.venv\Scripts\python.exe'
@@ -225,13 +238,16 @@ $omit = $serial | ForEach-Object { "--deselect=$_" }
 $root = "private/pytest-full-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
 
-& $py -m pytest -q -ra -n 2 --dist=load @omit --basetemp "$root/parallel" -o "cache_dir=$root/parallel-cache"
+& $py -m pytest -q -ra @omit --basetemp "$root/parallel" -o "cache_dir=$root/parallel-cache"
 $parallelExit = $LASTEXITCODE
 & $py -m pytest -q -ra -n 0 @serial --basetemp "$root/serial" -o "cache_dir=$root/serial-cache"
 if ($parallelExit -ne 0 -or $LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
 ```
 
-The existing fully sequential reference remains `python -m pytest -q -ra -n 0`.
-Try four workers only after a stable-input two-worker regression run passes and
-its timing/memory results justify another limited comparison. Do not add a global
-parallel `addopts`, locking service or worker-specific database framework.
+To benchmark other worker counts, repeat this workflow sequentially with fresh
+temporary/cache roots, adding `-n 0`, `-n 2` or another explicit count to the first
+invocation. Keep the three process cases separate, use the same stable inputs,
+and compare passing runs with matching test counts and skips. Do not introduce a
+global 120-second timeout: the Niru incremental-history replay legitimately took
+265.54 seconds. If a local pytest-timeout setting imposes such a limit, override it
+with `--timeout=0` for these runs.
