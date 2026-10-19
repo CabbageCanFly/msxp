@@ -161,8 +161,8 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     data=dict(percentage_reviews=decisions,reason=decisions[-1]['reason'] if decisions else 'no_observations')
     result=dict(base,observations=rows,percentage_progress=data,recent_history_status='ready',recent_history_receipt=receipt)
     if not _historical:
-        from .product import recent_windows,PACE_TREND_SECONDS
-        from .pace_intervals import collect_observed as collect
+        # Module-level collect/PACE_TREND_SECONDS: re-importing them here made step()'s copies unbound.
+        from .product import recent_windows
         if not collect(result,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)['intervals']:
             # Cold-server restoration is bounded like other history queries.
             # Cache only compact static estimates, invalidated by any new event.

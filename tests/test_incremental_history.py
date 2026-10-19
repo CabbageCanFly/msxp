@@ -10,7 +10,7 @@ from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.product import player
 from exp_tracker.store import Store
 from tests.test_product import tracking,NOW
-from tests.test_diagnostic_history import config
+from tests.test_diagnostic_history import config,rotate
 from tests.test_tracked_exp_totals import save
 from tests.test_cross_level_product import SAVED
 
@@ -162,3 +162,15 @@ def test_homepage_and_character_api_share_one_card_computation_per_revision(trac
         home=json.loads(request((server,None),'/api/players')[2]);character=json.loads(request((server,None),'/api/players/alpha')[2])
         assert len(calls)==2 and character['history'][-1]['timestamp']==(NOW+timedelta(seconds=100)).isoformat()
         assert home['players'][0]['latest_attempt_at']==character['player']['latest_attempt_at']
+
+
+def test_cold_restore_of_a_session_beyond_4096_rows_trims_instead_of_failing(tracking):
+    """Saved Telfer1 reached this branch and every build raised NameError (shadowed module imports)."""
+    path,store,d=tracking;run='r0';d.begin(run,'alpha',config(run))
+    for n in range(4140):  # 69 rotated runs of 60, as the coordinator writes them.
+        if n and n%60==0:rotate(d,run,f'r{n//60}');run=f'r{n//60}'
+        save(d,run,n%60+1,n+1,3300+n//10)
+    now=NOW+timedelta(seconds=4140+70*60)  # No attempt in the last 65 minutes: restore from the whole session.
+    recent=d.recent_snapshot('alpha',now=now)
+    assert recent==d.recent_snapshot('alpha',now=now,checkpoints={})
+    assert recent['recent_history_status']=='ready'
