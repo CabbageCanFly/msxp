@@ -103,6 +103,10 @@ class Handler(BaseHTTPRequestHandler):
                     body=publisher.character(channel) if product_api else publisher.history(channel)
                     if body is None:
                         with Store(self.server.database,read_only=True) as store:store._channel(channel)  # Unknown: 404.
+                        with publisher.lock:
+                            limited=publisher.truncated and channel not in {h['login'] for h in publisher.heads}
+                        if limited:
+                            self.reply(503,{'error':'publication_limit','limit':25});return
                         publisher.want(channel)
                         self.reply(503,{'error':'warming_up','retry_after_seconds':2},headers=[('Retry-After','2')])
                     else:
@@ -230,7 +234,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.twitch_availability=StreamAvailability(enabled=twitch_status,auth=AppTokens(maintain=twitch_status))
     # Module-level datetime, so replay fixtures that pin this module's clock pin the publisher.
     server.publisher=Publisher(server,clock=lambda:datetime.now(timezone.utc),background=background)
-    server.publisher.start()
+    if diagnostic_dashboard:server.publisher.start()
     return server
 
 

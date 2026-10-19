@@ -226,3 +226,137 @@ def test_character_change_rebuilds_and_shutdown_stops_the_refresher(tracking,clo
         assert server.publisher.entry('alpha')['tracked']['tracked_exp'] is None
     finally:server.server_close()
     assert not server.publisher.thread.is_alive()
+
+
+@pytest.mark.parametrize('change_character',[False,True])
+def test_character_change_with_failed_build_withholds_previous_identity(tracking,clock,monkeypatch,change_character):
+    path,store,d=tracking
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;p.settle()
+        old=p.character('alpha');p.homepage();p.history('alpha')
+        store.end_session('alpha',at=clock.at)
+        if change_character:
+            other=store.add_character('alpha','Other');store.select_character('alpha',other)
+        store.start_session('alpha',at=clock.at)
+        monkeypatch.setattr(Diagnostics,'card',lambda *a,**k:(_ for _ in ()).throw(OSError('disk')))
+        p.step()
+        assert p.character('alpha') is None, 'Previous character must not remain published after selection changes'
+        assert p.history('alpha') is None
+        home=json.loads(p.homepage())
+        assert home['players']==[] and home['warming']==['alpha']
+        assert old is not None
+
+
+def test_changed_channel_cannot_starve_expired_channel(tracking,clock):
+    path,store,d=tracking;store.add_channel('quiet')
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;p.settle();before=p.entry('quiet')['built_at']
+        clock.at+=timedelta(seconds=31)
+        for i in range(1,4):
+            save(d,'run',i,i*20,3300+i)
+            p.step()
+        assert p.entry('quiet')['built_at']!=before
+
+
+def test_unknown_requests_do_not_allocate_unbounded_presentation_state(tracking,clock):
+    path,store,d=tracking
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;p.settle()
+        for i in range(100):
+            assert p.character(f'unknown{i}') is None
+            assert p.history(f'unknown{i}') is None
+        assert len(p.present_locks)<=1
+
+
+def test_presentation_cache_is_not_resurrected_after_removal(tracking,clock):
+    path,store,d=tracking
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;p.settle()
+        def removed_during_presentation(now):
+            p.publish_heads([],{});return b'old response'
+        p.present(('character','alpha'),removed_during_presentation)
+        assert ('character','alpha') not in p.presented
+
+
+def test_channel_beyond_publication_limit_is_not_promised_a_never_built_entry(tracking,clock):
+    from tests.test_server import request
+    path,store,d=tracking
+    for i in range(25):store.add_channel(f'channel{i:02}')
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        for endpoint in ('/api/players/channel24','/api/players/channel24/history'):
+            status,headers,body=request((server,None),endpoint)
+            assert status==503 and json.loads(body)==dict(error='publication_limit',limit=25)
+            assert 'Retry-After' not in headers
+        assert 'channel24' not in server.publisher.wanted
+
+
+def test_identity_invalidation_precedes_network_and_build_clock_follows_it(tracking,clock,monkeypatch):
+    path,store,d=tracking
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;p.settle()
+        other=store.add_character('alpha','Other')
+        store.end_session('alpha',at=clock.at);store.select_character('alpha',other)
+        store.start_session('alpha',at=clock.at)
+        def network(channels,*,now):
+            assert p.entry('alpha') is None, 'Identity changes must not wait behind a network lookup'
+            clock.at+=timedelta(seconds=10)
+            return {}
+        monkeypatch.setattr(server.twitch_availability,'snapshot',network)
+        p.step()
+        assert p.entry('alpha')['built_at']==clock.at.isoformat()
+
+
+def test_http_never_serves_previous_character_while_replacement_build_is_blocked(tracking,clock,monkeypatch):
+    from tests.test_server import request
+    path,store,d=tracking;started=threading.Event();release=threading.Event()
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True,background=True) as server:
+        wait_for(lambda:server.publisher.entry('alpha') is not None)
+        for url in ('/api/players','/api/players/alpha','/api/players/alpha/history'):
+            assert request((server,None),url)[0]==200  # Warm the serialized old generation too.
+        def blocked(*args,**kwargs):
+            started.set();release.wait(5);raise OSError('injected build failure')
+        monkeypatch.setattr(Diagnostics,'card',blocked)
+        other=store.add_character('alpha','Other')
+        store.end_session('alpha',at=clock.at);store.select_character('alpha',other)
+        store.start_session('alpha',at=clock.at);server.publisher.wake.set()
+        try:
+            assert started.wait(5)
+            for url in ('/api/players/alpha','/api/players/alpha/history'):
+                status,headers,body=request((server,None),url)
+                assert status==503 and json.loads(body)['error']=='warming_up'
+            home=json.loads(request((server,None),'/api/players')[2])
+            assert home['players']==[] and home['warming']==['alpha']
+        finally:release.set()
+
+
+def test_disabled_public_pages_do_not_start_background_history_work(tracking,clock):
+    path,store,d=tracking
+    with server_module.create_server(path,port=0,background=True) as server:
+        assert server.publisher.thread is None
+        assert server.publisher.stats['steps']==0
+
+
+def test_capture_committing_between_card_and_totals_cannot_mix_revisions(tracking,clock,monkeypatch):
+    path,store,d=tracking
+    for i in range(1,4):save(d,'run',i,i*20,3300+i*5)
+    clock.at=NOW+timedelta(seconds=90)
+    ready=threading.Event();release=threading.Event();original=Diagnostics.card
+    def card(*args,**kwargs):
+        value=original(*args,**kwargs);ready.set();release.wait(5);return value
+    monkeypatch.setattr(Diagnostics,'card',card)
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        worker=threading.Thread(target=server.publisher.step)
+        worker.start()
+        try:
+            assert ready.wait(5)
+            save(d,'run',4,80,3320)  # Commit is visible to new readers, but not the build's transaction.
+        finally:
+            release.set();worker.join(5)
+        assert not worker.is_alive()
+        entry=server.publisher.entry('alpha')
+        assert entry['tracked']['context_attempts']==3
+        assert entry['card']['last_attempt_at']==(NOW+timedelta(seconds=60)).isoformat()
+        server.publisher.step()
+        entry=server.publisher.entry('alpha')
+        assert entry['tracked']['context_attempts']==4
+        assert entry['card']['last_attempt_at']==(NOW+timedelta(seconds=80)).isoformat()

@@ -237,7 +237,19 @@ function renderBoard() {
 }
 function renderPlayer() {
   const p=data?.player,r=p?.reading;
-  if(!p) { el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return; }
+  if(!p) {
+    if(warming) {
+      // Warming can mean ownership changed: never retain another character's display.
+      for(const id of ['level','exp','percentage','movement','rate','pp-rate','eta','age','tracked-exp','tracked-note','early-value','early-note','eta-note','segment-note','history-note','window-rate']) {
+        const target=el(id);if(target){amount(id,'—','—');target.title='';}
+      }
+      el('level').textContent='Lv. —';el('progress').hidden=true;el('progress').value=0;
+      for(const id of ['player-name','player-source','streamer','character'])if(el(id)){el(id).textContent=channel;el(id).title='';}
+      el('history-chart')?.replaceChildren();if(el('level-event'))el('level-event').hidden=true;
+      hideTip();
+    }
+    el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return;
+  }
   const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (view==='player' && p.recent_windows?null:s.metrics);
   if(view==='overlay') { el('streamer').textContent=sourceText(p);el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
   else { el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=sourceText(p); }
@@ -439,8 +451,9 @@ async function poll() {
   activeController=controller;
   try {
     const response=await fetch(endpoint,{cache:'no-store',signal:controller.signal});
-    // The server is still building this channel's first published state after a restart.
+    // The first publication or a changed character/session is not ready yet.
     warming=response.status===503 && (await response.json().catch(()=>({}))).error==='warming_up';
+    if(warming){data=null;rollingData=null;rollingRevision=null;}
     if(!response.ok)throw new Error();
     data=await response.json();receivedAt=requested;failed=false;
     if(view==='player' && data.tracked_history){rollingData=data.tracked_history;rollingReceived=performance.now();rollingFailed=false;}

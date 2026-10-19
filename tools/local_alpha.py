@@ -154,7 +154,7 @@ def main(argv=None):
         with Store(database, read_only=True) as store:
             saved = Diagnostics(store).snapshot(args.channel)
         say(f'Saved history: {len(saved["observations"])} recent attempts; latest={latest_status(saved["latest_reading"])}')
-        httpd = create_server(database, port=args.port, diagnostic_dashboard=True,twitch_status=args.twitch_status)
+        httpd = create_server(database, port=args.port, diagnostic_dashboard=True,twitch_status=args.twitch_status,background=True)
         httpd.quiet = True
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         thread.start()

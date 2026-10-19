@@ -30,13 +30,13 @@ store, card cache and historical-ETA cache are now used only by the refresher.
 
 1. cold channels a viewer is waiting for;
 2. other cold channels;
-3. changed revisions;
-4. expired entries, oldest first.
+3. changed revisions and expired entries together, oldest publication first.
 
 An entry expires on the unchanged `Diagnostics.due` rule: rolling windows that can still
 age, rebuilt after 10 s. Tracked windows are refreshed every 30 s, as the former request
 cache did. One build per step means an expiring idle channel waits at most for the
-builds ranked above it, never indefinitely.
+builds ranked above it. A continuously changing channel cannot repeatedly outrank an
+older due publication. Cold-start priority is bounded by the 25-channel publication limit.
 
 **Presentation.** Requests only time-present published entries:
 
@@ -82,10 +82,17 @@ deterministic under pinned clocks. `main()` uses `background=True`.
 - **Failures:** a failed channel build keeps the last entry, served with its real ages.
   It retries after 5 s, then 10, 20 and 40 s, capped at 60 s, with no queue. A failed
   step (database unavailable) keeps all entries and retries after 1 s.
-- **Character change, new or removed channel:** the head key changes and the entry is
-  rebuilt. A removed channel loses its entry, card, failure and presentation state.
-- **Shutdown:** `server_close()` stops the refresher and joins it (≤30 s, the longest
-  single build). The thread is a daemon, so the process can never hang on exit.
+- **Character/session change:** once the head query sees a different ownership scope,
+  the old entry is withheld immediately, before Twitch lookup or rebuilding. Failed
+  builds return warming rather than exposing the previous character's statistics.
+  Ordinary failures within the same scope still keep the last good entry.
+- **New or removed channel:** the head key changes and the entry is rebuilt. A removed
+  channel loses its entry, card, failure and presentation state. Presentation-cache
+  registration and cleanup share a lock; an in-flight old generation cannot restore
+  a removed cache entry. Unknown-channel requests allocate no presentation locks.
+- **Shutdown:** `server_close()` asks the refresher to stop and joins it for up to 30 s.
+  An unusually long in-flight build can outlive that join; the daemon thread exits
+  after the current step, and cannot hold process exit open.
 
 ## Tests
 
@@ -158,7 +165,8 @@ player, which is the next thing to make shared if many channels are active.
   entry (card, chart history, tracked packet), and at most two cached bodies; homepage
   bytes are shared.
 - **Only the first 25 channels are published**, as before (`truncated`). A direct
-  request for a 26th channel gets `warming_up`; it used to be computed on demand.
+  request beyond the limit returns `503 publication_limit`, without claiming that an
+  unserviceable channel is warming. Unknown channels still return 404.
 - **Unchanged:** the developer diagnostics (`/dev/api/streams`, `/dashboard/*`) and the
   trusted `/api/streams/{ch}/state` overlay still compute per request.
 
@@ -171,3 +179,18 @@ longer depends on history or on how many viewers watch a channel. Next:
 3. If the refresher saturates, persist checkpoints for fast restarts, or move the
    refresher into its own process that writes published bodies for several HTTP worker
    processes. Do not run multiple workers that each replay history.
+
+## Independent correctness review
+
+The single-stream and multi-stream launchers now explicitly enable background mode,
+like the standalone server. Previously they inherited the inline test/replay default,
+so requests during actual capture still performed synchronous builds. Inline mode
+remains available to deterministic tests and replay fixtures. Servers without the
+public diagnostic opt-in do not start public history rebuilding.
+
+The refresher invalidates changed ownership before any network lookup and takes a
+new build clock afterward. A delayed Helix lookup no longer postpones identity
+invalidation or makes a newly built packet use the pre-network timestamp.
+
+See [review findings and validation](background-publishing-review.md). Numerical
+eligibility, tracked-EXP policy, history checkpoints and historical ETA are unchanged.

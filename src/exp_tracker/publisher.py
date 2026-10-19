@@ -98,7 +98,10 @@ class Publisher:
                         ORDER BY s.login LIMIT 25''').fetchall()
                 twitch = [r['login'] for r in sources if (json.loads(r['config'] or '{}').get('source_kind') or
                     json.loads(r['payload'] or '{}').get('source', {}).get('kind')) == 'twitch']
-                self.publish_heads(heads, self.server.twitch_availability.snapshot(twitch, now=now))
+                self.publish_heads(heads, self.statuses)
+                statuses = self.server.twitch_availability.snapshot(twitch, now=now)
+                with self.lock:self.statuses = statuses
+                now = self.clock()  # Network time is not part of the subsequent database snapshot.
                 pending = self.due(heads[:25], now)
                 if pending:self.build(diagnostics, store, pending[0], now)
                 if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in heads[:25]):
@@ -113,12 +116,18 @@ class Publisher:
             self.heads = list(heads[:25]); self.truncated = len(heads) > 25; self.statuses = statuses
             for login in [c for c in self.entries if c not in logins]:
                 del self.entries[login]; self.generation += 1
+            for head in self.heads:
+                entry = self.entries.get(head['login'])
+                if entry and entry['key'][1:3] != tuple(head)[1:3]:
+                    # A failed refresh may retain old readings, never a different ownership scope.
+                    del self.entries[head['login']]; self.generation += 1
+                    self.failures.pop(head['login'], None)
             for cache in (self.cards, self.failures, self.presented, self.present_locks):
                 for key in [k for k in cache if (k[1] if isinstance(k, tuple) else k) not in logins | {'home'}]:del cache[key]
             self.wanted &= logins
 
     def due(self, heads, now):
-        """Cold (wanted first), then changed revisions, then expired, oldest first."""
+        """Cold (wanted first), then all due publications oldest first."""
         ranked = []
         for head in heads:
             login = head['login']; entry = self.entries.get(login); failure = self.failures.get(login)
@@ -127,7 +136,7 @@ class Publisher:
             elif entry['key'] != tuple(head):rank = (2, entry['built_at'])
             elif (due(entry['card']['player'], entry['card']['recent_as_of'], now)
                     or not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=TRACKED_SECONDS)):
-                rank = (3, entry['built_at'])
+                rank = (2, entry['built_at'])
             else:continue
             ranked.append((rank, login))
         return [login for _, login in sorted(ranked)]
@@ -158,23 +167,26 @@ class Publisher:
 
     def runtime(self, channel=None):
         """Coordinator activity is presentation input: it changes without a database revision."""
-        status = self.server.coordinator_status
+        status = self.server.coordinator_status.copy()
         return json.dumps([status if channel is None else status.get(channel),
-            sorted(self.server.active_run_ids) if channel is None else None], sort_keys=True, default=str)
+            sorted(self.server.active_run_ids.copy()) if channel is None else None], sort_keys=True, default=str)
 
     def present(self, key, build, runtime=''):
         """Serialized body for this publication and runtime, reused for PRESENT_SECONDS; one builder per key."""
-        lock = self.present_locks.setdefault(key, threading.Lock())
+        with self.lock:lock = self.present_locks.setdefault(key, threading.Lock())
         with lock:
             now = self.clock()
-            with self.lock:generation = self.generation
-            cached = self.presented.get(key)
+            with self.lock:
+                generation = self.generation
+                cached = self.presented.get(key)
             if (cached and cached[0] == generation and cached[3] == runtime
                     and timedelta(0) <= now - cached[1] < timedelta(seconds=PRESENT_SECONDS)):
                 return cached[2]
             tick = time.perf_counter()
             body = build(now)
-            self.presented[key] = (generation, now, body, runtime)
+            with self.lock:
+                if generation == self.generation:
+                    self.presented[key] = (generation, now, body, runtime)
             self.stats['presentations'] += 1; self.stats['present_seconds'] += time.perf_counter() - tick
             return body
 
@@ -204,6 +216,7 @@ class Publisher:
 
     def character(self, channel):
         """Serialized character body, or None while the channel has no published entry."""
+        if self.entry(channel) is None:return None
         def build(now):
             entry = self.entry(channel)
             if entry is None:raise LookupError(channel)
@@ -213,6 +226,7 @@ class Publisher:
         except LookupError:return None
 
     def history(self, channel):
+        if self.entry(channel) is None:return None
         def build(now):
             entry = self.entry(channel)
             if entry is None:raise LookupError(channel)

@@ -37,6 +37,25 @@ test('a warming server is described as preparing history, not as unavailable',as
   board.run("el('entries').querySelectorAll=()=>[];data=fixture;renderBoard()");assert.match(board.elements['board-count'].textContent,/preparing 1 more/);
 });
 
+for(const view of ['player','overlay'])test(`${view} clears previous identity while replacement publication warms and recovers`,async()=>{
+  let respond;
+  const p=page(view,()=>new Promise(resolve=>{respond=resolve;}));
+  p.render(player({character:{id:1,label:'Old character'}}));
+  p.run("el('history-chart').append(node('text',null,'Old history'))");
+  respond({ok:false,status:503,json:async()=>({error:'warming_up'})});
+  await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(p.elements.status.textContent,'Preparing saved history…');
+  assert.equal(p.elements[view==='player'?'player-name':'character'].textContent,'alpha');
+  for(const id of ['exp','percentage','rate','eta'])assert.equal(p.elements[id].textContent,'—');
+  assert.equal(p.elements.progress.hidden,true);
+  assert.equal(p.elements['history-chart'].children.length,0);
+  assert.equal(p.run('data'),null);
+  p.context.fetch=async()=>({ok:true,status:200,json:async()=>({player:player({character:{id:2,label:'New character'}})})});
+  await p.run('poll()');
+  assert.equal(p.elements[view==='player'?'player-name':'character'].textContent,'New character');
+  assert.equal(p.elements.percentage.textContent,'5.90%');
+});
+
 test('ETA rounds once to the nearest minute and retains day, hour and minute detail',()=>{
   const p=page('player');
   for(const [seconds,expected] of [[24*60+31,'~25m'],[3600+22*60+12,'~1h 22m'],[7*3600+43*60+28,'~7h 43m'],

@@ -133,6 +133,7 @@ def test_sqlite_failure_preserves_log_and_other_channel_and_allows_replay(multi,
     servers=[]
     create_server=module.create_server
     def server(*args,**kw):
+        assert kw.get('background') is True
         result=create_server(*args,**kw);servers.append(result);return result
     monkeypatch.setattr(module,'create_server',server)
     injected=[False]

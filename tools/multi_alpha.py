@@ -310,7 +310,7 @@ def main(argv=None):
         if not args.replay: print(f'Private capture logs: {directory}',flush=True)
         with ownership(database):
             initialize(database, streams)
-            httpd = create_server(database, port=port, diagnostic_dashboard=True,twitch_status=args.twitch_status)
+            httpd = create_server(database, port=port, diagnostic_dashboard=True,twitch_status=args.twitch_status,background=True)
             httpd.quiet = True
             httpd.active_run_ids = set()
             thread = threading.Thread(target=httpd.serve_forever, daemon=True)
