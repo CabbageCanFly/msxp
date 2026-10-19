@@ -132,7 +132,8 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
         return result
     result['timings']['localization_seconds'] = clock() - started
     result['localization'] = dict(count=len(candidates), candidates=[
-        {**candidate, 'regions': {key: asdict(region) for key, region in candidate['regions'].items()}}
+        {**candidate, 'regions': {key: asdict(region) if region is not None else None
+                                for key, region in candidate['regions'].items()}}
         for candidate in candidates], target_identity_verified=False)
     if not fresh():
         return result
@@ -142,18 +143,20 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
     regions = candidates[0]['regions']
     box = context_box(regions['exp'], image.size, 2)
     crop = image.crop(box)
-    level_crop = image.crop(regions['level'].pixels(*image.size))
+    level_crop = image.crop(regions['level'].pixels(*image.size)) if regions['level'] is not None else None
     result['exp_crop_box'] = box
     if crop_dir:
         crop_dir.mkdir(parents=True, exist_ok=False)
         crop.save(crop_dir / 'exp.png')
-        level_crop.save(crop_dir / 'level.png')
+        if level_crop is not None:
+            level_crop.save(crop_dir / 'level.png')
     started = clock()
     try:
         response=read_line(crop,level_crop) if experimental_neural_level else read_line(crop)
         result['neural']=dict(response)
         if experimental_neural_level:
-            result['neural_level']=checked_level(result['neural'].pop('neural_level',None))
+            value=result['neural'].pop('neural_level',None)
+            result['neural_level']=checked_level(value) if level_crop is not None else empty_level('missing_crop')
         result['neural_status'] = 'single_line' if result['neural']['text'] is not None else 'no_single_line'
     except (OSError, RuntimeError, ValueError) as error:
         result['neural_status'] = 'failed'
@@ -176,7 +179,7 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
         return result
     started = clock()
     try:
-        visual, attempts = read_level(level_crop)
+        visual, attempts = read_level(level_crop) if level_crop is not None else (None,[])
         result['visual_status'] = 'available' if visual is not None else 'unavailable'
     except (OSError, RuntimeError, ValueError):
         visual, attempts = None, []

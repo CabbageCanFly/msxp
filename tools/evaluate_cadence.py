@@ -54,12 +54,14 @@ def localize(manifest, output):
                 directory=manifest.parent/'automatic-crops'/item['id'].split('/')[1]
                 directory.mkdir(parents=True,exist_ok=True)
                 for name,region in candidates[0]['regions'].items():
-                    image.crop(region.pixels(*image.size)).save(directory/f'{name}.png')
+                    if region is not None:
+                        image.crop(region.pixels(*image.size)).save(directory/f'{name}.png')
                 started=time.perf_counter()
-                level,attempts=level_reading(image.crop(candidates[0]['regions']['level'].pixels(*image.size)))
+                region=candidates[0]['regions']['level']
+                level,attempts=level_reading(image.crop(region.pixels(*image.size))) if region is not None else (None,[])
                 level_seconds=time.perf_counter()-started
             records.append(dict(id=item['id'],seconds=item['seconds'],expected=item,
-                candidates=[{**c,'regions':{k:asdict(v) for k,v in c['regions'].items()}} for c in candidates],
+                candidates=[{**c,'regions':{k:asdict(v) if v is not None else None for k,v in c['regions'].items()}} for c in candidates],
                 location=target_category(candidates,item['hud_box'],item.get('secondary_box'),image.size),
                 level=level,level_attempts=attempts,location_seconds=elapsed,level_seconds=level_seconds))
             print(f"{len(records)}/{len(data['examples'])} {item['window']} {item['seconds']}s candidates={len(candidates)} level={level}",flush=True)

@@ -121,7 +121,7 @@ def target_category(candidates, hud, secondary, size):
     def inside(bounds):
         return bounds is not None and all(
             bounds[0] <= (b[0]+b[2])/2 <= bounds[2] and bounds[1] <= (b[1]+b[3])/2 <= bounds[3]
-            for b in (r.pixels(*size) for r in regions.values()))
+            for b in (r.pixels(*size) for r in regions.values() if r is not None))
     return 'main' if inside(hud) else 'wrong_secondary' if inside(secondary) else 'wrong_other'
 
 
@@ -182,9 +182,10 @@ def evaluate(args):
             automatic = candidates[0]['regions'] if len(candidates) == 1 else {}
             scopes = {}
             for scope, regions in [('manual', boxes), ('automatic', automatic)]:
-                crops = {k: image.crop(v.pixels(*image.size) if hasattr(v, 'pixels') else v) for k,v in regions.items()}
-                level, attempts = level_reading(crops['level']) if crops else (None, [])
-                pixel = read_level(crops['level'], profile) if crops else dict(level=None, reason='no_region')
+                crops = {k: image.crop(v.pixels(*image.size) if hasattr(v, 'pixels') else v)
+                         for k,v in regions.items() if v is not None}
+                level, attempts = level_reading(crops['level']) if 'level' in crops else (None, [])
+                pixel = read_level(crops['level'], profile) if 'level' in crops else dict(level=None, reason='no_region')
                 levels = dict(tesseract=level, pixel=pixel['level'])
                 level_scores = {k: 'unscored' if item['level'] is None else 'unavailable' if v is None
                                 else 'matches_provisional' if v == item['level'] else 'mismatch_provisional'
@@ -213,11 +214,11 @@ def evaluate(args):
                     output.mkdir(parents=True, exist_ok=True)
                     for key, crop in crops.items(): crop.save(output / f'{key}.png')
             contained = {key: all((box[0] <= bounds[0], box[1] <= bounds[1], box[2] >= bounds[2], box[3] >= bounds[3]))
-                         for key,bounds in truth.items() if key in automatic
+                         for key,bounds in truth.items() if automatic.get(key) is not None
                          for box in [automatic[key].pixels(*image.size)]}
             records.append(dict(id=item['id'], seconds=item['seconds'], expected=item,
                 frame_sha256=hashlib.sha256((directory/item['frame']).read_bytes()).hexdigest(),
-                location=target, candidates=[{**c, 'regions': {k:asdict(v) for k,v in c['regions'].items()}} for c in candidates],
+                location=target, candidates=[{**c, 'regions': {k:asdict(v) if v is not None else None for k,v in c['regions'].items()}} for c in candidates],
                 fields_contained=contained, location_seconds=located_at-started,
                 total_seconds=time.perf_counter()-started, scopes=scopes))
             if len(records) % 5 == 0:

@@ -4,6 +4,10 @@ Investigation on 2026-10-19, feature worktree `msclassic-level-inference` at
 `8f5e86b`. Localization is the observed failure stage. Webcam obstruction is a
 plausible cause, not an established root cause. No recognition policy was changed.
 
+The subsequent real-frame investigation below establishes the cause in the five
+new images: a bottom-left EXP Tracker overlay covers the native level area. The
+webcam is on the right. An EXP-only localization improvement is now implemented.
+
 ## Actual multi-stream path
 
 1. `tools/multi_alpha.py` validates explicit channel/character assignments, binds
@@ -278,3 +282,169 @@ Changed files: `tools/collect_hud_frames.py`, `tests/test_collect_hud_frames.py`
 and this guide. Coordinator, locator, OCR, SQLite and tracking policies are
 unchanged. No commit or push was made. Suggested commit:
 `feat(diagnostics): add bounded native HUD frame collector`.
+
+## Real-frame diagnosis and EXP-only recovery
+
+Source: `private/obscured-hud/tricia-20261019-015257/`, five native 1920x1080
+PNGs received on 2026-10-19 at 05:53:05.699 through 05:53:23.886 UTC. All five
+manifest hashes/dimensions were verified. The five PNGs and manifest remain
+byte-identical. No Twitch connection or existing database/archive was used.
+
+All five full frames, enlarged native HUD strips and proposed EXP crops were
+visually inspected. The game HUD has visible HP, MP, EXP, numeric EXP and
+percentage. Its native LV label/value are covered by the **bottom-left EXP
+Tracker overlay**, not the right-side webcam. The overlay has its own level and
+EXP display, showing different EXP from the native HUD. It supplies no HP/MP
+group and must not be treated as a game reading. There is one game feed, a webcam
+and this overlay; no secondary game HUD is visible in these frames.
+
+The unmodified original `adaptive_hud.locate` was instrumented by wrapping its
+OCR/layout calls, preserving its grayscale, bicubic 2x/3x, threshold 160 and PSM 11
+behavior. It returned zero candidates for every image. At **both** scales in
+every frame Tesseract recognized the native HP, MP and EXP labels. No LV token
+was recognized anywhere. The visible overlay level text also failed sparse OCR,
+but it is outside the native anchor geometry and is not an acceptable substitute.
+
+At the original 2x probe, native anchors were approximately:
+
+| Anchor | Source x | Source y | Finding |
+| --- | ---: | ---: | --- |
+| HP | 706.5 | 1037.5 | Recognized in all five |
+| MP | 859.5 | 1037.5 | Recognized, including `MP.` variant |
+| EXP | 1015-1017 | 1035-1037.5 | Recognized in all five |
+| Native LV | Expected label area x370-462, y1031-1061 | | Covered by overlay |
+
+HP-to-MP spacing is 153 pixels; MP-to-EXP is 155.5-157.5 pixels. Alignment and
+spacing pass the original row checks. This is the existing classic layout family
+at a larger scale, not an unsupported stream position or rearranged EXP field.
+The missing required LV anchor is the sole observed localization blocker. This
+establishes the cause for this captured layout; no images exist to establish the
+contents of every earlier failed attempt retrospectively.
+
+### Narrow implementation
+
+`adaptive_hud.layouts` keeps its complete four-anchor path and corrections. With
+no matching LV it can now return a three-anchor candidate with explicit
+`regions.level: null` and `anchors.lv: null`. This path requires bare HP/MP/EXP
+labels (optional period/colon), confidence >=0.4, tighter spacing/alignment and
+plausible relative label dimensions. It reuses the existing EXP field formula,
+and rejects out-of-frame crops. There is no streamer name or fixed stream ROI.
+
+Both existing preprocessing scales now contribute before uniqueness is decided.
+Near-identical repeated candidates merge using stable MP/EXP anchor positions,
+spacing and field bounds; a complete candidate can supply the level region for
+the same group. Separate HUDs and disputed EXP/level geometries remain ambiguous.
+No largest/first-HUD selection is introduced.
+
+`shadow_capture.analyze` serializes null regions, saves only available crops,
+skips visual level OCR when the level region is absent and passes no level PNG
+to the existing neural protocol. Its worker already supports missing level crops.
+Even an unexpected returned level is discarded for an absent crop. Existing
+grammar, numerical safeguards, receipt-age checks, source/session binding and
+frame hashes remain unchanged. No trusted accounting or inference policy changed.
+Offline evaluators handle null regions; the four-anchor cache experiment continues
+to reject incomplete groups rather than silently accepting a weaker cache seed.
+
+### Real before/after results
+
+Every proposed crop was manually checked. The native digits are 45,257 / 11.57%
+in frames 1-4 and 45,390 / 11.60% in frame 5. These annotations come from the game
+pixels; no known/guessed level, overlay level or EXP table supplied expected digits.
+
+All after crops use bounded native coordinates `(1050, 1037, 1186, 1056)` including
+the existing two-pixel context. The complete numeric field is inside each crop.
+
+| Frame | HUD count before -> after | Exact RapidOCR text | Strict pair | Visual assessment |
+| --- | --- | --- | --- | --- |
+| 01 | 0 -> 1 | `45,257[11.57%]` | 45,257 / 11.57% | Correct |
+| 02 | 0 -> 1 | `45,257[11.57%]` | 45,257 / 11.57% | Correct |
+| 03 | 0 -> 1 | `45.257[11.57%]` | 45,257 / 11.57% | Correct digits; existing thousands separator grammar accepts the period |
+| 04 | 0 -> 1 | `45,257[11.57%1` | Rejected | Correct visible digits, incorrect closing bracket OCR |
+| 05 | 0 -> 1 | `45,390[11.60%]` | 45,390 / 11.60% | Correct |
+
+Neural scores were respectively 0.95521, 0.97246, 0.96315, 0.94898 and 0.97676.
+These are model scores, not accuracy probabilities: the high-scoring malformed
+frame 4 is still rejected. There are **4/5 strict pairs, zero incorrect strict
+pairs observed**, and no strict percentage-only outputs. Frame 4 retains raw
+text/partial evidence; the existing grammar independently proposes a recovered
+pair/percentage, which remains separately labeled and unverified. Its parser was
+not relaxed. All five visual levels are unavailable, all five neural levels are
+`missing_crop`, and neither level reader ran on the covered area.
+
+No wrong-target crop was observed in these five images. The separate overlay EXP
+text was not selected. This small positive set is not a general false-positive
+rate measurement.
+
+Five existing private reference screenshots were replayed through original and
+new locators. Streams 1, 2, 5 and 6 each returned one complete HUD with **identical
+before/after EXP and level pixel boxes**. Stream 4 remained missing in both.
+The four localized controls produced strict EXP pairs with the real neural
+worker; ordinary level-reader availability remains variable. These checks do not
+establish that all other stream layouts or absent-HUD scenes are safe.
+
+### Existing public inference, not another estimator
+
+The real replay outputs were appended only to a **new private evaluation DB**,
+with explicit channel/character/session assignment, original hashes and receipt
+times, and an `offline_replay` marker. Freshness here measures local offline
+processing, not new live receipt or broadcast age. The public projection was
+evaluated at the historical receipt time, not served as current live progress.
+
+The existing `experimental_level_v6` / `exp_derived_level_v2` policy establishes
+**inferred level 43 on frame 5**, using eligible samples 2, 3 and 5. The first
+three strict pairs are constant, and the last increases by 133 EXP / 0.03
+percentage points. The existing policy needs multiple eligible samples and
+forward progression, not a different EXP integer in every sample. Both reader
+levels remain absent. The result is explicitly unverified, display-only and
+ineligible for strict windows; the native level is obscured, so it is not
+independently verified level ground truth. Trusted observations remain **zero**.
+This demonstrates the actual public projection on these captured values rather
+than relying solely on a synthetic progression demonstration.
+
+Synthetic integration additionally establishes a level from three rising pairs,
+retains it through whole percentage-only readings, rejects percentage-only level
+initialization, and preserves trusted state. Other synthetic checks cover missing
+EXP, covered LV, low-confidence/false labels, ambiguity, duplicate geometry,
+competing complete/partial HUDs across scales, invalid bounds and stale work.
+
+### Verification and remaining limits
+
+- Initial focused suite: **187 passed**, zero skips. An added ambiguous-EXP case
+  and evaluator coverage also ran in the final full suite.
+- Final full Python suite: **1,623 passed, 102 skipped**, 104.72 seconds.
+  Skips: **100 unavailable private fixtures**, **1 loopback policy** and
+  **1 Windows symlink permission**. Available sibling reference screenshots and
+  the new Tricia images were evaluated explicitly offline as described above.
+- Relevant `product.test.mjs` / `shadow.test.mjs`: **59 passed**, zero skipped.
+  Existing HTTP/public-provenance tests passed in Python; no frontend change was
+  needed.
+- The existing `test_real_neural_timeout_reaps_worker` immediate PID-existence
+  check failed in two earlier runs, passed alone, and passed in the final full
+  run. No timeout code or that test was changed; its intermittent Windows result
+  is recorded rather than hidden. Whitespace checks passed.
+- Real after-replay local processing age was 2.69-3.23 seconds on this workstation.
+  Always checking both sparse-OCR scales adds work to ordinary HUDs that formerly
+  stopped after the first match. Existing age gates remain; this is not a server
+  CPU/RAM/capacity benchmark or a hard processing deadline.
+
+Ready for a longer **authorized experimental validation run**, with real HUD
+changes, stationary periods, scene changes, obstructions and eventual level-up
+evidence. Five images do not establish false-positive rates, long-run numerical
+accuracy or correctness of the provisional EXP table. Frame 4's punctuation
+failure remains. No new remote capture was started here and no active coordinator
+was restarted or modified.
+
+Private evidence is in `private/obscured-hud/tricia-analysis-01/`: original locator
+snapshot, input hashes, `before.json` / `after.json` (all sparse tokens, boxes,
+scores and candidates), `geometry-audit.json`, `visual-review.json`, manual/after
+EXP crops, `controls.json`, `control-ocr.json` and `public-projection.json` plus the
+separate replay DB. All are ignored; source images and their manifest were not
+rewritten. No images, crops, OCR logs or databases are added to Git.
+
+Changed implementation: `tools/adaptive_hud.py`, `tools/shadow_capture.py`;
+nullable-region callers in `tools/evaluate_adaptive_hud.py`,
+`tools/evaluate_cadence.py`, `tools/evaluate_cross_stream.py` and
+`tools/cached_hud_probe.py`; regression tests in `tests/test_adaptive_hud.py` and
+`tests/test_obscured_hud.py`; this guide. No commit or push made.
+
+Suggested commit: `fix(hud): localize visible EXP without a level anchor`.

@@ -16,7 +16,8 @@ def region(value):
 
 
 def seed(image,candidate,seconds):
-    if not math.isfinite(seconds) or set(candidate['anchors']) != {'hp','mp','exp','lv'}:
+    if (not math.isfinite(seconds) or set(candidate['anchors']) != {'hp','mp','exp','lv'}
+            or any(a is None for a in candidate['anchors'].values())):
         raise ValueError('Need a finite timestamp and four locator anchors')
     if set(candidate['regions']) != {'level','exp'}:
         raise ValueError('Need both locator regions')
