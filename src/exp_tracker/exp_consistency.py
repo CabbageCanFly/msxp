@@ -1,6 +1,7 @@
 """Exact conditional EXP/display diagnostics; not a trusted OCR validator."""
 
 from decimal import Decimal, InvalidOperation
+import re
 
 
 MODES = ('nearest_half_up', 'truncate')
@@ -49,3 +50,28 @@ def assess(level, exp, percentage, requirements, mode):
             'reason': ('exp_outside_level_or_transition' if exp >= total else
                        None if consistent else 'percentage_disagrees')}
 
+
+
+def infer_levels(exp, percentage, requirements, mode='nearest_half_up'):
+    """Enumerate every compatible supplied level, without an OCR level or tolerance."""
+    if mode not in MODES:
+        raise ValueError('Unknown rounding hypothesis')
+    if not requirements or any(type(level) is not int or level<1 or type(total) is not int or total<=0
+                               for level,total in requirements.items()):
+        raise ValueError('A nonempty positive integer level/requirement table is required')
+    result=dict(levels=[],unique_level=None,rounding=mode,trusted=False,authoritative=False,
+                exhaustive_only_within_supplied_table=True)
+    if exp is None or percentage is None:
+        return {**result,'status':'unavailable'}
+    if (type(exp) is not int or exp<0 or exp>2**63-1 or isinstance(percentage,bool)
+        or not isinstance(percentage,(int,float,str,Decimal))
+        or isinstance(percentage,str) and re.fullmatch(r'[0-9]{1,3}\.[0-9]{2}',percentage) is None):
+        return {**result,'status':'invalid_input'}
+    levels=[]
+    for level in sorted(requirements):
+        check=assess(level,exp,percentage,requirements,mode)
+        if check['status']=='unavailable_numeric':
+            return {**result,'status':'invalid_input'}
+        if check['status']=='consistent':levels.append(level)
+    return {**result,'status':'unique' if len(levels)==1 else 'ambiguous' if levels else 'incompatible',
+            'levels':levels,'unique_level':levels[0] if len(levels)==1 else None}

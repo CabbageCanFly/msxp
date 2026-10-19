@@ -11,6 +11,8 @@ from .exp_requirements import requirement
 from .exp_consistency import MODES, assess
 
 WINDOWS=(5,10,15,30,60)
+# Public level provenance: readers first, then labeled EXP-derived/retained/provisional context.
+DISPLAY_LEVEL_STATUSES=('agreement','provisional_neural','exp_derived','retained_level','provisional_level_up')
 PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
 PACE_MIN_SECONDS=5
 PACE_TREND_SECONDS=300
@@ -227,6 +229,23 @@ def recent_windows(snapshot,display_level,*,now,current_level_only=False):
     return result
 
 
+def inferred_level_events(rows):
+    """Percentage-wrap level-ups, labeled provisional until EXP or a reader corroborates them."""
+    events={}
+    for row in rows:
+        context=(row.get('experimental_level') or {}).get('level_context') or {}
+        for transition in (context.get('last_transition'),context.get('transition')):
+            if not transition or transition['phase']=='possible':continue
+            key=transition['wrap_event_id']
+            # An abandoned hypothesis leaves no marker; raw OCR history is unchanged.
+            if transition['phase']=='abandoned':events.pop(key,None);continue
+            events[key]=dict(kind='inferred_level_up',level=transition['to_level'],previous_level=transition['from_level'],
+                status=transition['phase'],timestamp=transition.get('corroborated_at') or transition.get('provisional_at'),
+                first_observed_at=transition['detected_at'],event_id=key,inferred=True,
+                evidence=transition.get('corroborated_by') or 'percentage_wrap_and_forward_progress',trusted=False)
+    return list(events.values())
+
+
 def level_events(rows):
     """Two adjacent supported new-level readings; no gains or identity inference."""
     events=[];established=None;previous=None;pending=None
@@ -250,7 +269,7 @@ def level_events(rows):
                 established=point;pending=None
         else:pending=None
         previous=point if supported else None
-    return events
+    return sorted(events+inferred_level_events(rows),key=lambda e:e['timestamp'])
 
 
 def fraction(value):
@@ -555,7 +574,7 @@ def player(snapshot,*,now=None,recent_snapshot=None):
         level=level_evidence(row);stamp=row.get('received_at')
         if (stamp and datetime.fromisoformat(stamp)<=now and row.get('timestamp_ordered') is not False
                 and row.get('fresh_at_capture') and row.get('capture_acquired') and row.get('hud_count')==1
-                and level['value'] is not None and level['status'] in ('agreement','provisional_neural')):
+                and level['value'] is not None and level['status'] in DISPLAY_LEVEL_STATUSES):
             display_level=dict(value=level['value'],timestamp=stamp,event_id=row['event_id'],
                 evidence=level,display_only=True,trusted=False)
     progress=snapshot['percentage_progress'];segment=progress['current_segment']
@@ -565,6 +584,7 @@ def player(snapshot,*,now=None,recent_snapshot=None):
     decision=progress.get('percentage_state')
     result=dict(channel=snapshot['channel'],character=snapshot['selected_character'],session_id=(snapshot['session'] or {}).get('id'),
         percentage_state=decision,display_level=display_level,level_events=level_events(rows),
+        level_context=level_evidence(rows[-1]).get('level_context') if rows else None,
         source_kind=snapshot.get('source_kind'),reading=latest,latest_attempt_at=(rows[-1].get('received_at') or rows[-1].get('attempted_at')) if rows else None,
         latest_attempt_status=rows[-1]['status'] if rows else 'waiting',
         capture_lifecycle=snapshot.get('run_status','waiting'),

@@ -62,9 +62,20 @@ function expTitle(r) {
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
 function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l.age_seconds+(performance.now()-receivedAt)/1000>p.stale_after_seconds); }
-function levelText(p) { const level=displayLevel(p);return level?.value==null?'—':String(level.value); }
+// Inferred levels never read like a level-HUD observation: provisional values carry "?".
+const LEVEL_SOURCES={exp_derived:'Inferred from EXP and percentage with the provisional community table; not read from the level HUD.',
+  retained_level:'Last supported level, retained across percentage-only readings; not re-verified since then.',
+  provisional_level_up:'Provisional level-up inferred from a percentage wrap and forward progress; awaiting EXP or level-reader corroboration.'};
+function levelTransition(p) { const t=p.level_context?.transition;return t?.phase==='possible'?t:null; }
+function levelText(p) {
+  const level=displayLevel(p),t=levelTransition(p);
+  if(t)return `${t.from_level}→${t.to_level}?`;
+  return level?.value==null?'—':`${level.value}${level.status==='provisional_level_up'?'?':''}`;
+}
 function levelTitle(p) {
-  const l=displayLevel(p),saved=p.display_level;
+  const l=displayLevel(p),saved=p.display_level,t=levelTransition(p),context=p.level_context;
+  if(t)return `Possible level-up: percentage went from ${t.before_bp/100}% to ${t.after_bp/100}% at ${t.detected_at}. Lv. ${t.from_level} is the last supported level; Lv. ${t.to_level} needs more forward progress, EXP or a level reading.`;
+  if(saved && LEVEL_SOURCES[saved.evidence.status])return `${LEVEL_SOURCES[saved.evidence.status]}${context?.supported_at?` Last supported ${context.supported_at} (${context.source}).`:''} ${saved.timestamp}. Experimental; never trusted accounting.`;
   if(saved)return `${lastKnown(p)?'Last-known':'Recently supported'} level; ${ageText(saved.age_seconds+(performance.now()-receivedAt)/1000)}; ${saved.evidence.reason}; ${saved.timestamp}. Display only, not evidence for calculations; OCR remains unverified.`;
   return l?.status==='conflict'?`Level readers disagree: ${l.visual} / ${l.neural}`:l?.value!=null?'Provisional OCR level; unverified':'Waiting for supported level evidence';
 }
@@ -232,6 +243,7 @@ function renderPlayer() {
   else { el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=sourceText(p); }
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
   el('level').dataset.lastKnown=String(lastKnown(p));
+  el('level').dataset.inferred=String(!!levelTransition(p) || !!LEVEL_SOURCES[displayLevel(p)?.status]);
   el('progress').value=r?r.bp/100:0;
   el('progress').hidden=!r;
   const absolute=displayedExp(r,true);
@@ -362,10 +374,10 @@ function drawHistory() {
   if(chartMode==='exp')drawExpHistory();else drawPercentageHistory();
   const all=data?.history ?? [],anchor=Date.parse(data?.tracked_history?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end ?? data?.player?.latest_attempt_at ?? all.at(-1)?.timestamp);
   const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-windowMinutes*60000).at(-1);
-  const label=event?`Level ${event.level} reached!`:'';
+  const label=!event?'':event.inferred?(event.status==='corroborated'?`Level ${event.level} reached (inferred)`:`Level ${event.level} reached? (provisional)`):`Level ${event.level} reached!`;
   if(el('level-event').textContent!==label)el('level-event').textContent=label;
   el('level-event').hidden=!event;
-  el('level-event').title=event?`Confirmed at ${event.timestamp}; first seen ${event.first_observed_at}. Cross-level EXP is not counted.`:'';
+  el('level-event').title=!event?'':event.inferred?`Inferred from a percentage wrap after Lv. ${event.previous_level} at ${event.first_observed_at}; ${event.status==='corroborated'?`corroborated by ${event.evidence}`:'not yet corroborated by EXP or a level reading'}. Cross-level EXP is not counted.`:`Confirmed at ${event.timestamp}; first seen ${event.first_observed_at}. Cross-level EXP is not counted.`;
   const targets=[...document.querySelectorAll('#history-chart [data-tip-key]')];
   if(focus){targets.find(n=>n.dataset.tipKey===focus)?.focus({preventScroll:true});if(!openKey)hideTip();}
   if(openKey){const target=targets.find(n=>n.dataset.tipKey===openKey);if(target)showTip(target,position);else hideTip();}
@@ -402,9 +414,10 @@ function drawPercentageHistory() {
   let previousLevel=null;
   for(const p of windowPoints.filter(p=>p.reading && p.level.value!=null)) {
     if(previousLevel!=null && p.level.value!==previousLevel) {
-      const confirmed=(data.player.level_events ?? []).some(e=>e.level===p.level.value && Date.parse(e.first_observed_at)<=p.time);
+      const event=(data.player.level_events ?? []).find(e=>e.level===p.level.value && Date.parse(e.first_observed_at)<=p.time);
       shape('line',{x1:x(p.time),x2:x(p.time),y1:20,y2:180,class:'level-transition'});
-      shape('text',{x:Math.min(width-75,x(p.time)+4),y:16,class:'level-transition-label'},'Level boundary; EXP across the transition is not counted').textContent=confirmed?`Level ${p.level.value}!`:`Lv. ${p.level.value} seen`;
+      shape('text',{x:Math.min(width-75,x(p.time)+4),y:16,class:'level-transition-label'},'Level boundary; EXP across the transition is not counted').textContent=
+        !event?`Lv. ${p.level.value} seen`:event.inferred && event.status!=='corroborated'?`Lv. ${p.level.value}?`:`Level ${p.level.value}!`;
     }
     previousLevel=p.level.value;
   }

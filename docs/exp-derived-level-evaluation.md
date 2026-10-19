@@ -211,3 +211,145 @@ ambiguity, missing/invalid inputs, exact halfway rounding, separate truncation,
 unsupported table coverage, contradiction policies and self-consistent wrong pairs.
 `git diff --check` and prior-input hash checks pass. No neural OCR was rerun;
 the optional saved pixel-level baseline was not expanded or recalibrated.
+
+## Read-time integration: `experimental_level_v5`
+
+Follow-up to the evaluation above. `infer_levels` moved unchanged into
+`exp_tracker.exp_consistency` (the tool re-exports it). `diagnostic_evidence.exp_derived`
+applies it to the bundled `community-exp-v2` table and `project()` exposes the result
+as `experimental_level.exp_derived` with per-hypothesis level lists, table version/hash,
+`visual:false`, `trusted:false` and `authoritative:false`.
+
+**One pair.** Only strict full pairs (candidate equal to its raw-text parse) are used;
+grammar repairs, contradictory candidates and quarantined rows supply nothing. The
+candidate set is the union of nearest-half-up and truncation levels within levels
+1–89: `unique` only when that union is a singleton, otherwise `ambiguous` or
+`incompatible`. Levels 90–99 (disputed) and 100–200 (missing) are never candidates.
+Because those requirements are unknown, a pair whose largest compatible requirement,
+`20000·E/(2·bp−1)`, could reach level 89's requirement is `outside_supported_coverage`.
+That includes every 0.00% reading. **Assumption:** unpublished requirements are at
+least level 89's. The supported 1–89 table is nondecreasing; 90+ is unverified.
+
+**Confirmation.** A derived level is selected only on frames with no reader level:
+no Tesseract, no neural claim and no reader carry. Selection needs 3 fresh, adjacent
+captures with the same unique level, distinct `frame_sha256`, nondecreasing EXP and
+percentage, and a strict EXP increase from first to last sample. The existing
+adjacency and freshness gates still reset it: stale, duplicate frame, restart,
+source/character/session change, >120s gap, multiple HUDs, crop suspicion. Status
+`exp_derived` is set with `strict_window_eligible:false`, and `exp_validity` becomes
+`indeterminate` / `level_derived_from_exp_pairs` because agreement with the same
+pairs would be circular. Percentage pace may use the level, but direct EXP-endpoint
+gains, reader-supported anchors, conditional symbol recovery, `display_level` and
+`level_events` still require reader statuses.
+
+**Continuation.** After confirmation, ambiguous pairs that still include the level,
+plus percentage-only or unreadable frames, carry it for at most 2 frames within 30s
+of the last unique pair (`short_exp_derived_context`). A later unique same-level pair
+renews it within 120s. A decreasing or wrapped display, a pair excluding the level,
+or a unique different level abstains and must reconfirm. So a level-up needs 3 new
+pairs and is never inferred from a percentage wrap.
+
+**Readers.** A reader level always ends the fallback. While a confirmed derived level
+is fresh, a different single-reader level is `conflict` /
+`reader_conflicts_exp_derived_level`, with `exp_derived_disagreement` recorded, for
+at most 2 frames; ordinary reader behavior then resumes. Two agreeing readers win
+immediately, and the disagreement is still recorded. A recent reader-supported
+anchor with another level blocks derivation (`recent_reader_level_disagrees`) and
+keeps its whole-pair veto.
+
+**Measured:** synthetic tests only (`tests/test_exp_level_inference.py`). Examples:
+278,125 / 77.92% → {42} under both rules; 2 / 0.04% → nearest {14}, truncation {13},
+so ambiguous; 100 / 0.02% → ambiguous; 0/0.00, 1/0.00 and 1000/0.01 → outside coverage;
+2345/92.74 and 1241/99.82 → incompatible. **Untested:** saved private captures were
+not replayed for this change. Static/AFK EXP never confirms. Coherent wrong digits
+within one level's bin (74,050 vs 74,059 / 25.17%) remain undetectable. Neither table
+applicability nor the client rounding rule is verified. No character identity is inferred.
+
+## Public retention and inferred level-ups: `experimental_level_v6` / `exp_derived_level_v2`
+
+Supersedes the v5 continuation and conflict rules above. Single-pair inference,
+coverage and the 3-pair confirmation are unchanged. The state lives in the existing
+`project()` state (`derived`), so incremental and rotation-linked projections agree.
+Each row carries `experimental_level.level_context`: last-supported level, source
+(`exp_derived` or `reader_<status>`), `confirmed_at`, `supported_at`, support age,
+unsupported frames, continuity, open `transition`, `last_transition`, and
+`verified:false` / `trusted:false`.
+
+| Public status | Value | Entered by |
+|---|---|---|
+| `exp_derived` | level | 3 fresh rising unique pairs; or a later unique same-level pair renews |
+| `retained_level` | last supported | percentage-only, unreadable or ambiguous-including frames; small decreases |
+| `possible_level_up` | none | a display ≥95.00% followed by <5.00% |
+| `provisional_level_up` | from+1 | 3 more distinct, ordered, forward post-wrap readings, if from+1's requirement exists |
+| `exp_derived` (corroborated) | from+1 | a unique from+1 pair, or a selected reader level equal to from+1 |
+| `conflict` | none | a selected single reader disagrees, or a competing unique level before its own chain |
+
+**Retention.** There is no frame or seconds limit. Retention ends only when continuity
+breaks: no fresh evidence for >120s, a restart or unlinked run, an identity change
+(channel/source/character/session), multiple HUDs, simulated timing, or an
+out-of-order timestamp. Missing-HUD, stale, duplicate and crop-suspect frames hold
+the state without renewing it. A percentage decrease under 10 points keeps the
+level with `continuity: percentage_decrease_observed` (EXP loss or misread). A
+larger non-wrap drop clears it. A pair contradicting the retained level has its
+integer withheld through the existing `exp_validity`; its percentage stays.
+
+**Transitions.** A wrap only opens a hypothesis. While it is `possible`, the public
+reading holds at the last ordered value (`unresolved_numerical_continuity`) and the
+page shows `Lv. 42→43?`. Provisional shows `Lv. 43?` and an inferred event
+`Level 43 reached? (provisional)`. Corroboration changes the event to `reached
+(inferred)`. Returning to forward progress from the pre-wrap value, or a
+unique/reader level equal to the old level, abandons the hypothesis: the previous
+level is restored and the inferred event disappears. Any other contradiction clears
+the state. One wrap is one level; a second level-up needs its own wrap and post-wrap
+sequence. Possible-phase readings belong to no level, so no interval, pace or
+tracked EXP spans the boundary. Unknown boundary EXP stays unknown.
+
+**Readers.** A selected reader level equal to the retained level renews it. Equal to
+the hypothesis, it corroborates; equal to the old level, it abandons. Two agreeing
+readers on another level win, with the disagreement recorded. A different
+single-reader or confirmed neural level is `conflict` while the retained state is
+alive. Unselected neural numbers (low score, non-neutral4, malformed text, or
+pending, as an overlay can produce) do not block arithmetic and are recorded as
+`unselected_reader_claims`. A repeated, seeded neural number that arithmetic does
+not contradict becomes `provisional_neural` and conflicts. Unselected Tesseract
+numbers hold the state without renewing it.
+
+**Public page.** `display_level` now also accepts `exp_derived`, `retained_level` and
+`provisional_level_up`. `player.level_context` and inferred `level_events` reach the
+API, and `product.js` adds provenance titles, a `?` suffix, `data-inferred` styling,
+and banner/chart labels. Strict windows still exclude every derived status;
+`level_events` from readers and trusted SQLite accounting are unchanged.
+
+**Measured on real saved captures (read-only, in memory):**
+- TriciaIsABirdy, 4 runs / 237 attempts: all `missing_hud`, 0 HUD candidates. No EXP
+  text was read, so inference cannot help yet. `tools/adaptive_hud.py:layouts` requires
+  an `LV` label token. If her overlay covers it, localization, not level inference, is
+  the blocker. No frames or crops were saved to confirm this.
+- Other multi-alpha runs, 7,191 attempts with visual/neural levels masked: 3,595
+  frames get a level (2,861 `exp_derived`, 734 `retained_level`). All 3,561 frames
+  where the readers also had a level agree (0 mismatches); 34 frames gain a level the
+  readers lacked. Four idle runs (constant EXP) never confirm, by design.
+- Niru 56→57 (264 attempts, 5 runs): masked levels match the readers on 215/215
+  frames. The real wrap fell inside a capture gap, so 57 was re-confirmed from fresh
+  pairs; the wrap path was not exercised by real data.
+
+**Synthetic only:** the wrap → possible → provisional → corroborated sequence, misread
+wraps, EXP loss, reader corroboration/abandonment, competing levels, bogus neural
+claims, boundary EXP/windows integrity (`tests/test_exp_level_inference.py`,
+`tests/test_exp_level_product.py`, `tools/product.test.mjs`). A headless-Chrome
+render of a synthetic SQLite stream shows `Lv. 42` → `Lv. 42→43?` → `Lv. 43?`
+(provisional banner) → `Lv. 43` (`reached (inferred)`).
+
+**Limitations.**
+- Retention can only last as long as the projected history: the player card projects
+  the latest 640 attempts (≈2.7h at 15s), recent windows ≈65 min, and the 24h rolling
+  total streams rotation-linked runs. Longer retention needs a persisted or cached
+  level checkpoint, which is not implemented. A restart always needs re-confirmation.
+- Level 89 is never arithmetic evidence: an unpublished level-90 requirement could
+  fit any level-89 pair. Levels 90+ are never inferred; an 89→90 wrap stays possible.
+- Idle characters with constant EXP never confirm. Wrap thresholds are uncalibrated
+  heuristics. Retained/provisional levels feed experimental percentage-based EXP
+  estimates using that level's provisional requirement, so a stale or wrong level
+  skews them.
+- Reader-only streams keep the existing 2-frame reader carry; readers only renew or
+  resolve a derived context and never seed one.
