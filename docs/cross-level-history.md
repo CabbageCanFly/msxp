@@ -93,7 +93,11 @@ Sources:
   or confirmed level-up marker. At Oct 19 00:18:17.939131, level 56 is outside
   the selected hour, so the existing 90,584-EXP recent total correctly stays unchanged.
 
-The unchanged 24-hour totals in these isolated cohorts are approximately 45,025
+Historical note: the [tracked-EXP consistency follow-up](tracked-exp-consistency.md)
+now replaces the stricter aggregation difference below. These original audit
+values are retained as before-change evidence.
+
+The then-unchanged 24-hour totals in these isolated cohorts are approximately 45,025
 (Telfer 68 checkpoint), 9,352 (Telfer 66), and 296,981 (Niru later checkpoint).
 They use the older, stricter connected-history aggregation. Therefore that total
 can be smaller than a recent endpoint-supported estimate; it is not a superset

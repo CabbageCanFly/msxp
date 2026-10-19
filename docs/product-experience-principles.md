@@ -39,6 +39,11 @@ and game-like, with useful approximate information even when some readings fail.
 - Selected periods include all supported levels by default. Sum independent EXP
   intervals with each level's requirement; never sum percentage changes across
   levels. Offer a current-level-only filter without changing the time axis or 24h total.
+- Tracked-EXP totals use one eligible-interval policy and one as-of clock for all
+  nested lookbacks; a containing period cannot lose a shorter period's gains.
+  Rates are separate estimates, never a source of accumulated EXP.
+- Round ETA to the nearest minute. Retain days, hours and minutes where they fit,
+  with full duration in the tooltip when compact space requires abbreviation.
 - Celebrate corroborated level-ups and mark percentage resets. Leave transition
   gains unknown unless supported, and use the current level's remaining EXP for ETA.
 - Reserve visible warnings for changes that affect interpretation: unresolved large

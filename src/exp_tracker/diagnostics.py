@@ -377,6 +377,7 @@ class Diagnostics:
 
     def rolling_history(self,channel,*,now=None):
         from .rolling_history import aggregate
+        if self.db.in_transaction:return aggregate(self,channel,now=now or datetime.now(timezone.utc))
         with self.store._transaction():
             return aggregate(self,channel,now=now or datetime.now(timezone.utc))
 

@@ -1,14 +1,54 @@
-"""Consumer endpoint evidence only. Never supplies chart, window or Store gains."""
+"""Shared experimental endpoint evidence. Never supplies trusted Store gains."""
 from datetime import datetime
 from decimal import Decimal
+from fractions import Fraction
 
 from .diagnostic_evidence import consistency,full_reading,CONTEXT_SECONDS
 from .diagnostic_percentage import boundary,LARGE_CHANGE_BP
-from .diagnostic_progress import percentage_point
+from .diagnostic_progress import percentage_point,rational,elapsed_seconds
+from .exp_requirements import requirement
 from .shadow_grammar import interpret_exp
 
 POLICY='endpoint_pace_v1'
 RECOVERY_POLICY='conditional_percent_v1'
+TRACKED_POLICY='tracked_endpoint_exp_v2'
+
+
+def exp_interval(edge):
+    """One nonnegative same-level EXP interval, independent of lookback length."""
+    a,b=edge['before'],edge['after'];req=requirement(b['level']['value'])
+    if req['to_next'] is None or a['level']['value']!=b['level']['value']:return None
+    direct=all(p['exp'] is not None and p['exp_validity']['status']=='consistent' for p in (a,b))
+    gain=Fraction(int(b['exp'])-int(a['exp'])) if direct else Fraction((b['bp']-a['bp'])*req['to_next'],10000)
+    if gain<0:return None
+    return dict(start=a['timestamp'],end=b['timestamp'],first_event_id=a['event_id'],last_event_id=b['event_id'],
+        level=b['level']['value'],value=rational(gain),requirement=req,identity=edge['identity'],
+        basis='observed_exp_endpoints' if direct else 'displayed_percentage_endpoints',kind=edge['kind'],
+        evidence_types=sorted({a['evidence'],b['evidence']}),
+        missing_event_ids=edge['missing_event_ids'],unrecorded_attempts=edge['unrecorded_attempts'],
+        policy=TRACKED_POLICY,trusted=False)
+
+
+def tracked_window(intervals,*,start,end,level=None):
+    """Whole eligible intervals only; never prorate a gain at a lookback boundary."""
+    selected=[g for g in intervals if (level is None or g['level']==level)
+        and start<=datetime.fromisoformat(g['start'])<datetime.fromisoformat(g['end'])<=end]
+    amount=sum((Fraction(g['value']['numerator'],g['value']['denominator']) for g in selected),Fraction(0))
+    coverage=sum((elapsed_seconds(datetime.fromisoformat(g['start']),datetime.fromisoformat(g['end'])) for g in selected),Fraction(0))
+    result=dict(available=bool(selected),gain=rational(amount) if selected else None,policy=TRACKED_POLICY,
+        window_start=start.isoformat(),window_end=end.isoformat(),trusted=False,
+        scope='selected_character_independent_sessions_and_sources',intervals=len(selected))
+    if not selected:return dict(result,observed=dict(available=False))
+    ids={g[k] for g in selected for k in ('first_event_id','last_event_id')}
+    interruptions=sum(a['last_event_id']!=b['first_event_id'] for a,b in zip(selected,selected[1:]))
+    first,last=selected[0],selected[-1]
+    return dict(result,observed=dict(available=True,start=first['start'],end=last['end'],readings=len(ids),
+        coverage_seconds=rational(coverage),span_seconds=rational(elapsed_seconds(datetime.fromisoformat(first['start']),datetime.fromisoformat(last['end']))),
+        interruptions=interruptions,unavailable_attempts=len({i for g in selected for i in g['missing_event_ids']}),
+        missing_attempts=sum(g['unrecorded_attempts'] for g in selected),
+        estimated_exp=dict(value=rational(amount),basis=TRACKED_POLICY,requirement=last['requirement']),
+        difference_percentage_points=None,age_seconds=max(0,(end-datetime.fromisoformat(last['end'])).total_seconds()),
+        historical=False,paused=False,policy=TRACKED_POLICY,trusted=False))
 
 
 def conditional_percent(row, support, previous):
@@ -50,13 +90,18 @@ def conditional_percent(row, support, previous):
     return result
 
 
-def collect(snapshot, *, now, read, max_interval_seconds):
+def collect(snapshot, *, now, read, max_interval_seconds,state=None):
     """Keep disjoint intervals, clearing only the subtraction anchor at unsafe rows.
 
     ``read`` is the existing product reading decoder, not a new numerical parser.
     """
     edges=[];recoveries=[];excluded=[];previous=None;prior_attempt=None;support=[];holes=[]
-    seen_events=set();seen_frames=set();epoch=0;identity=None;level=None;last_value=None;unrecorded=0
+    seen_events=set();seen_frames=set();epoch=0;identity=None;level=None;last_value=None;unrecorded=0;last_interval_end=None
+    if state:
+        previous=state['previous'];prior_attempt=state['prior_attempt'];support=state['support'];holes=state['holes']
+        seen_events=state['seen_events'];seen_frames=state['seen_frames'];epoch=state['epoch'];identity=state['identity']
+        level=state['level'];last_value=state['last_value'];unrecorded=state['unrecorded']
+        last_interval_end=state['last_interval_end']
     reviews={r['event_id']:r for r in snapshot['percentage_progress']['percentage_reviews']}
     for row in snapshot['observations']:
         evidence=row.get('experimental_level') or {};stamp=row.get('received_at') or row.get('attempted_at')
@@ -133,6 +178,7 @@ def collect(snapshot, *, now, read, max_interval_seconds):
             if previous:
                 elapsed=(datetime.fromisoformat(value['timestamp'])-datetime.fromisoformat(previous['timestamp'])).total_seconds()
                 ordered=(value['level']['value']==previous['level']['value'] and 0<elapsed<=max_interval_seconds
+                    and (last_interval_end is None or previous['timestamp']>=last_interval_end)
                     and 0<=value['bp']-previous['bp']<LARGE_CHANGE_BP
                     and not (value['exp'] is not None and previous['exp'] is not None and int(value['exp'])<int(previous['exp'])))
                 if ordered:
@@ -140,6 +186,7 @@ def collect(snapshot, *, now, read, max_interval_seconds):
                     kind='endpoint_supported' if holes or unrecorded or edge in ('missing_attempt','sampling_gap') else 'direct'
                     edges.append(dict(before=previous,after=value,epoch=epoch,identity=key,kind=kind,
                         missing_event_ids=missing,unrecorded_attempts=unrecorded))
+                    last_interval_end=value['timestamp']
                 else:
                     support=[]
                     excluded.append(dict(event_id=row['event_id'],reason='incompatible_endpoints_or_interval_limit'))
@@ -155,5 +202,9 @@ def collect(snapshot, *, now, read, max_interval_seconds):
             if not numerical_boundary:support=[]
             excluded.append(dict(event_id=row['event_id'],reason=hard or decision['reason'] or invalid))
         prior_attempt=context
+    if state is not None:
+        state.update(previous=previous,prior_attempt=prior_attempt,support=support,holes=holes,seen_events=seen_events,
+            seen_frames=seen_frames,epoch=epoch,identity=identity,level=level,last_value=last_value,unrecorded=unrecorded)
+        state['last_interval_end']=last_interval_end
     return dict(intervals=edges,recoveries=recoveries,excluded=excluded,epoch=epoch,
         latest=last_value,pending_missing=len(holes)+unrecorded,identity=identity)

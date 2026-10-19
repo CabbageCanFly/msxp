@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
 from .diagnostics import Diagnostics, operation
-from .product import player,history,refresh,reading,PRODUCT_ROWS,PACE_TREND_SECONDS
+from .product import player,history,refresh,reading,tracked_statistics,PRODUCT_ROWS,PACE_TREND_SECONDS
 from .pace_intervals import collect
 from .twitch_probe import StreamAvailability
 from .twitch_auth import AppTokens
@@ -46,6 +46,20 @@ class TrackerHTTPServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def tracked(self,store,channel,now):
+        with self.server.history_lock,store._transaction():
+            streamer=store._channel(channel)
+            revision=store.db.execute('SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id '
+                'WHERE '+('a.session_id IN (SELECT id FROM sessions WHERE streamer_id=? AND character_id=?)' if store.schema_version>=4 else 'r.streamer_id=? AND r.character_id=?'),
+                (streamer['id'],streamer['selected_character_id'])).fetchone()[0]
+            key=(streamer['selected_character_id'],revision)
+            cached=self.server.history_cache.get(channel)
+            if cached is None or cached[0]!=key or time.monotonic()-cached[1]>=30 or abs((now-datetime.fromisoformat(cached[2]['as_of'])).total_seconds())>=30:
+                value=Diagnostics(store).rolling_history(channel,now=now)
+                if channel not in self.server.history_cache and len(self.server.history_cache)>=25:self.server.history_cache.pop(next(iter(self.server.history_cache)))
+                self.server.history_cache[channel]=(key,time.monotonic(),value)
+            return self.server.history_cache[channel][2]
+
     def broadcasts(self,players):
         # Query only compact latest source metadata; no history projection per card.
         with Store(self.server.database,read_only=True) as store:
@@ -104,6 +118,8 @@ class Handler(BaseHTTPRequestHandler):
                 elif path=='/api/players':
                     with self.server.directory_lock,Store(self.server.database,read_only=True) as store:
                         data=Diagnostics(store).directory(self.server.directory_cache,active_runs=self.server.active_run_ids.copy(),coordinator_status=self.server.coordinator_status.copy())
+                        now=datetime.fromisoformat(data['served_at'])
+                        for row in data['streams']:tracked_statistics(row['player'],self.tracked(store,row['player']['channel'],now),now=now)
                     self.reply(200,dict(players=self.broadcasts([r['player'] for r in data['streams']]),served_at=data['served_at'],truncated=data['truncated'],experimental=True,poll_seconds=2))
                 else:
                     channel=(product_api[1] if product_api else product_history[1] if product_history else product_page[2]).lower()
@@ -112,17 +128,7 @@ class Handler(BaseHTTPRequestHandler):
                         streamer=store._channel(channel)
                         if product_history:
                             now=datetime.now(timezone.utc)
-                            revision=store.db.execute('SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id '
-                                'WHERE '+('a.session_id IN (SELECT id FROM sessions WHERE streamer_id=? AND character_id=?)' if store.schema_version>=4 else 'r.streamer_id=? AND r.character_id=?'),
-                                (streamer['id'],streamer['selected_character_id'])).fetchone()[0]
-                            key=(streamer['selected_character_id'],revision)
-                            with self.server.history_lock:
-                                cached=self.server.history_cache.get(channel)
-                                if cached is None or cached[0]!=key or time.monotonic()-cached[1]>=30 or abs((now-datetime.fromisoformat(cached[2]['as_of'])).total_seconds())>=30:
-                                    value=Diagnostics(store).rolling_history(channel,now=now)
-                                    if len(self.server.history_cache)>=8:self.server.history_cache.pop(next(iter(self.server.history_cache)))
-                                    self.server.history_cache[channel]=(key,time.monotonic(),value)
-                                self.reply(200,dict(self.server.history_cache[channel][2],served_at=utc(now)))
+                            self.reply(200,dict(self.tracked(store,channel,now),served_at=utc(now)))
                         elif product_api:
                             now=datetime.now(timezone.utc)
                             diagnostics=Diagnostics(store)
@@ -131,7 +137,8 @@ class Handler(BaseHTTPRequestHandler):
                             with self.server.history_lock:
                                 recent=diagnostics.recent_snapshot(channel,now=now,eta_cache=self.server.eta_cache)
                             value=refresh(player(snap,now=now,recent_snapshot=recent),now=now,activity=activity)
-                            self.reply(200,dict(player=self.broadcasts([value])[0],history=history(recent),truncated=recent.get('recent_history_status')=='history_limit',served_at=utc(now),experimental=True,poll_seconds=2))
+                            tracked=self.tracked(store,channel,now);tracked_statistics(value,tracked,now=now)
+                            self.reply(200,dict(player=self.broadcasts([value])[0],tracked_history=tracked,history=history(recent),truncated=recent.get('recent_history_status')=='history_limit',served_at=utc(now),experimental=True,poll_seconds=2))
                         else:
                             self.reply(200,(WEB/('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html')).read_bytes(),'text/html')
             except ValueError as error:

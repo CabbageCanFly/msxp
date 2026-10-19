@@ -21,7 +21,7 @@ OBSERVED_MAX_MISSING=2
 
 def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=False,retain_history=True,collected=None,current_level_only=False):
     """Net endpoint rates; unreadable samples are holes, unsafe evidence is a boundary."""
-    from .pace_intervals import collect,POLICY
+    from .pace_intervals import collect,POLICY,exp_interval
     rows=snapshot['observations']
     reference=next((r.get('received_at') or r.get('attempted_at') for r in reversed(rows)),None)
     if not reference:return None
@@ -68,10 +68,9 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
     details=[];amount=Fraction(0);basis_counts={}
     for e in edges:
         a,b=e['before'],e['after']
-        direct_exp=all(p['exp'] is not None and p['exp_validity']['status']=='consistent' for p in (a,b))
-        basis='observed_exp_endpoints' if direct_exp else 'displayed_percentage_endpoints'
-        gain=Fraction(int(b['exp'])-int(a['exp'])) if direct_exp else (
-            Fraction((b['bp']-a['bp'])*requirement(b['level']['value'])['to_next'],10000) if requirement(b['level']['value'])['to_next'] is not None else None)
+        interpreted=exp_interval(e)
+        basis=interpreted['basis'] if interpreted else 'displayed_percentage_endpoints'
+        gain=fraction(interpreted['value']) if interpreted else None
         if gain is not None:amount+=gain
         basis_counts[basis]=basis_counts.get(basis,0)+1
         details.append(dict(first_event_id=a['event_id'],last_event_id=b['event_id'],start=a['timestamp'],end=b['timestamp'],
@@ -256,6 +255,28 @@ def level_events(rows):
 
 def fraction(value):
     return Fraction(value['numerator'],value['denominator'])
+
+
+def tracked_statistics(value,data,*,now):
+    """One saved-character/as-of packet supplies every public tracked-EXP total."""
+    value['tracked_as_of']=data['as_of'];value['tracked_status']=data['status']
+    as_of=datetime.fromisoformat(data['as_of'])
+    value['tracked_windows']=deepcopy(data['windows'])
+    value['tracked_current_level_windows']=deepcopy(data['current_level_windows'])
+    for windows,rate_windows in ((value['tracked_windows'],value['recent_windows']),
+                                (value['tracked_current_level_windows'],value['current_level_windows'])):
+        for metric in windows.values():
+            observed=metric.get('observed',{})
+            if not observed.get('available'):continue
+            observed['age_seconds']=max(0,(now-datetime.fromisoformat(observed['end'])).total_seconds())
+            observed['historical']=observed['paused']=bool(value['stale'] or value.get('activity',{}).get('state') not in ('running','waiting','capture_delayed','capture_failing'))
+        for minutes,metric in rate_windows.items():
+            tracked=windows.get(minutes,{})
+            metric.update(gain=tracked.get('gain'),observed=tracked.get('observed',dict(available=False)),
+                available=tracked.get('available',False),tracked_status=data['status'],tracked_as_of=data['as_of'],
+                tracked_scope=data['scope'],start=(as_of-timedelta(minutes=int(minutes))).isoformat(),end=data['as_of'],
+                pace_as_of=now.isoformat())
+    return value
 
 
 def level_evidence(row):

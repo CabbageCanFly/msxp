@@ -39,9 +39,11 @@ def snapshot(rows,seconds):
 def synthetic_requirement(monkeypatch):
     import exp_tracker.product as product
     import exp_tracker.diagnostic_evidence as evidence
+    import exp_tracker.pace_intervals as intervals
     value=dict(requirement(67),to_next=10_000_000,version='synthetic-endpoint-test')
     monkeypatch.setattr(product,'requirement',lambda level:value)
     monkeypatch.setattr(evidence,'requirement',lambda level:value)
+    monkeypatch.setattr(intervals,'requirement',lambda level:value)
 
 
 def timeline():

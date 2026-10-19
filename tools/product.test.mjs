@@ -23,6 +23,32 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{})){
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
+
+test('ETA rounds once to the nearest minute and retains day, hour and minute detail',()=>{
+  const p=page('player');
+  for(const [seconds,expected] of [[24*60+31,'~25m'],[3600+22*60+12,'~1h 22m'],[7*3600+43*60+28,'~7h 43m'],
+    [2*86400+14*3600+7*60,'~2d 14h 7m'],[0,'~0m'],[12,'~<1m'],[30,'~1m'],[3599,'~1h'],[86399,'~1d']]){
+    p.context.duration={seconds:{approximate:seconds}};
+    assert.equal(p.run('etaText(duration)'),expected);
+  }
+  p.context.duration={seconds:{approximate:-1}};assert.equal(p.run('etaText(duration)'),'—');
+  assert.equal(p.run('etaText(null)'),'—');
+  const overlay=page(),base=player();base.estimates.eta={seconds:{approximate:2*86400+14*3600+7*60}};
+  overlay.render(base);assert.equal(overlay.elements.eta.textContent,'~2d 14h 7m');
+  overlay.elements.eta.clientWidth=60;overlay.elements.eta.scrollWidth=120;overlay.render(base);
+  assert.equal(overlay.elements.eta.textContent,'~2d 14h');assert.match(overlay.elements.eta.title,/~2d 14h 7m/);
+});
+
+test('public tracked gains prefer their coherent all-window packet while pace stays separate',()=>{
+  const p=page('player'),base=player({tracked_status:'ready',tracked_windows:{'5':{observed:{available:true,
+    estimated_exp:{value:{approximate:41228}},readings:97,span_seconds:{approximate:2100},age_seconds:0}}},
+    tracked_current_level_windows:{'5':{observed:{available:true,estimated_exp:{value:{approximate:5000}},readings:4,span_seconds:{approximate:60},age_seconds:0}}}});
+  p.render(base);assert.equal(p.elements.movement.dataset.fullNumber,'+41,228 EXP');
+  p.elements['current-level-only'].listeners.change({target:{checked:true}});
+  assert.equal(p.elements.movement.dataset.fullNumber,'+5,000 EXP');
+  base.tracked_status='history_limit';base.tracked_windows={};base.tracked_current_level_windows={};
+  p.render(base);assert.equal(p.elements.movement.textContent,'—');assert.equal(p.elements['segment-note'].textContent,'Tracked history unavailable');
+});
 test('overlay updates percentage-only without borrowing absolute EXP; recovered values stay marked',()=>{
   const p=page();p.render(player());assert.equal(p.elements.exp.textContent,'71.4K');assert.match(p.elements.exp.title,/71,441/);assert.equal(p.elements.progress.value,5.9);
   p.render(player({reading:{exp:null,percentage:'6.00',bp:600,evidence:'strict_percentage_only',level:{value:60,status:'single_reader'}}}));
@@ -376,6 +402,15 @@ test('EXP bars split only valid captured intervals, conserve amounts, and preser
   const zero=JSON.parse(p.run('JSON.stringify(bucketHistory(rows,anchor,60))')).bins.find(b=>b.value===0);
   assert.equal(zero.state,'covered');assert.equal(zero.covered,60);
   assert.equal(p.run('bucketHistory(rows,anchor,5)'),null);
+});
+
+test('bar lookbacks exclude a whole boundary-crossing interval just like tracked cards',()=>{
+  const p=page('player'),anchor=Date.parse('2026-01-01T00:10:00Z');p.context.anchor=anchor;
+  p.context.rows=[{connect_previous:true,gain:{start:new Date(anchor-310000).toISOString(),end:new Date(anchor-290000).toISOString(),value:{approximate:100}}},
+    {connect_previous:true,gain:{start:new Date(anchor-290000).toISOString(),end:new Date(anchor-260000).toISOString(),value:{approximate:20},kind:'endpoint_supported'}}];
+  assert.equal(p.run('bucketHistory(rows,anchor,60,300).bins.reduce((s,b)=>s+(b.value??0),0)'),20);
+  assert.equal(p.run('bucketHistory(rows,anchor,60,600).bins.reduce((s,b)=>s+(b.value??0),0)'),120);
+  assert.ok(p.run('bucketHistory(rows,anchor,60,300).bins.filter(b=>b.value!=null).every(b=>b.state==="partial")'));
 });
 
 test('EXP history has fixed axes and the 24h view waits for aggregated history',()=>{

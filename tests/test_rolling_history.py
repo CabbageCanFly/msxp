@@ -32,15 +32,17 @@ def test_streamed_evidence_and_quarantine_match_full_projection():
     assert rows==before
 
 
-def test_total_and_buckets_use_only_existing_gain_intervals_with_zero_and_missing(tracking):
+def test_totals_include_supported_gap_endpoints_but_percentage_lines_keep_the_gap(tracking):
     path,store,d=tracking
     for i,p in enumerate(('33.00','33.00',None,'33.10','33.15'),1):
         append(d,i,f'[{p}%]' if p else None,**(dict(status='capture_failed',received_at=None,current=False) if not p else {}))
     now=NOW+timedelta(seconds=60)
     result=d.rolling_history('alpha',now=now)
     gains=[r['gain'] for r in history(d.snapshot('alpha',now=now)) if r['gain']]
-    assert fraction(result['tracked_exp'])==sum(fraction(g['value']) for g in gains)
-    assert result['intervals']==2 and result['coverage_seconds']['approximate']==30
+    # The old adjacent-only chart does not subtract across the failed capture.
+    assert len(gains)==2
+    assert fraction(result['tracked_exp'])==sum(fraction(g['value']) for g in gains)+Fraction(1497832,1000)
+    assert result['intervals']==3 and result['coverage_seconds']['approximate']==60
     assert sum(fraction(b['value']) for b in result['buckets'] if b['value'])==fraction(result['tracked_exp'])
     assert any(b['value'] is None for b in result['buckets']) and len(result['buckets'])==48
     assert not store.db.execute('select 1 from observations').fetchone()

@@ -4,9 +4,10 @@ from fractions import Fraction
 import json
 
 from .diagnostic_evidence import project
-from .diagnostic_percentage import review,boundary
+from .diagnostic_percentage import review
 from .diagnostic_progress import percentage_point,rational,elapsed_seconds
-from .product import reading,interval_gain,fraction
+from .product import reading,fraction,WINDOWS,PACE_TREND_SECONDS
+from .pace_intervals import collect,exp_interval,tracked_window,TRACKED_POLICY
 
 MAX_RUNS=1024
 MAX_EVENTS=65536
@@ -117,49 +118,58 @@ def aggregate(diagnostic,channel,*,now):
     store=diagnostic.store;db=diagnostic.db;streamer=store._channel(channel)
     character=streamer['selected_character_id']
     bins=[dict(start=(start+timedelta(minutes=30*i)).isoformat(),end=(start+timedelta(minutes=30*(i+1))).isoformat(),
-               amount=None,coverage=Fraction(0),intervals=0) for i in range(48)]
-    result=dict(policy='tracked_exp_24h_v1',channel=channel,character_id=character,as_of=now.isoformat(),
+               amount=None,coverage=Fraction(0),intervals=0,gap=False) for i in range(48)]
+    result=dict(policy=TRACKED_POLICY,channel=channel,character_id=character,as_of=now.isoformat(),
         start=start.isoformat(),end=now.isoformat(),seconds=1800,range_seconds=86400,trusted=False,
         identity_verified=False,status='ready',tracked_exp=None,intervals=0,coverage_seconds=rational(Fraction(0)),
         unknown_seconds=rational(Fraction(86400)),context_attempts=0,source_bytes=0,run_count=0,
-        boundary_intervals_excluded=0,basis_counts={},requirement_versions=[],buckets=[])
+        boundary_intervals_excluded=0,basis_counts={},requirement_versions=[],buckets=[],windows={},current_level_windows={},
+        chart_intervals=[],scope='selected_character_independent_sessions_and_sources',exclusion_counts={})
     limited=False
-    level_state={};percentage_state={};previous=None;previous_row=None;last_time=None;last_interval_end=None
+    level_state={};percentage_state={};interval_state={};last_time=None;gains=[];level=None
     previous_run=None;total=Fraction(0);coverage=Fraction(0);versions=set()
-    batches=run_batches(diagnostic,channel,start=start-timedelta(seconds=120),now=now,receipt=result)
+    batches=run_batches(diagnostic,channel,start=start-timedelta(seconds=PACE_TREND_SECONDS),now=now,receipt=result)
     try:
       for run,rows in batches:
         if not rotation_link(previous_run,run):
-            level_state={};percentage_state={};previous=previous_row=None
+            level_state={};percentage_state={}
         for row in rows:
             when=datetime.fromisoformat(row.get('received_at') or row['attempted_at'])
             row['timestamp_ordered']=last_time is None or when>last_time
             last_time=max(last_time,when) if last_time else when
-        rows=project(rows,state=level_state,allow_context=False)
+        rows=project(rows,state=level_state)
         evidence=[percentage_point(r) for r in rows]
         decisions=review(rows,evidence,now=now,state=percentage_state)
-        for row,(point,invalid),decision in zip(rows,evidence,decisions):
+        for row,decision in zip(rows,decisions):
             row['percentage_review']=decision
-            value=reading(row)
-            eligible=point is not None and invalid is None and decision['progress_eligible']
-            if point:point['interval_seconds']=row['interval_seconds']
-            connected=bool(eligible and previous and not decision['break_before'] and boundary(previous,point,row) is None)
-            gain=interval_gain(reading(previous_row),row,value,connected) if previous_row and not previous_row.get('crop_suspect') else None
+            level_reading=row.get('experimental_level') or {}
+            if (level_reading.get('value') is not None and row.get('timestamp_ordered') is not False
+                    and row.get('fresh_at_capture') and row.get('capture_acquired') and row.get('hud_count')==1):level=level_reading['value']
+        collected=collect(dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions)),
+            now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS,state=interval_state)
+        for excluded in collected['excluded']:
+            reason=excluded['reason'] or 'unavailable'
+            result['exclusion_counts'][reason]=result['exclusion_counts'].get(reason,0)+1
+        for edge in collected['intervals']:
+            gain=exp_interval(edge)
             if gain:
                 a,b=datetime.fromisoformat(gain['start']),datetime.fromisoformat(gain['end'])
                 if a<start<b:result['boundary_intervals_excluded']+=1
-                if a>=start and b<=now and b>a and (last_interval_end is None or a>=last_interval_end):
+                if a>=start and b<=now:
+                    gains.append(gain)
                     amount=fraction(gain['value']);duration=elapsed_seconds(a,b)
-                    total+=amount;coverage+=duration;last_interval_end=b;result['intervals']+=1
+                    total+=amount;coverage+=duration;result['intervals']+=1
                     basis=gain['basis'];result['basis_counts'][basis]=result['basis_counts'].get(basis,0)+1
                     versions.add(gain['requirement']['version'])
-                    for bucket in bins:
+                    first=(a-start)//timedelta(minutes=30);last=min(47,(b-start)//timedelta(minutes=30))
+                    for bucket in bins[first:last+1]:
                         left=max(a,datetime.fromisoformat(bucket['start']));right=min(b,datetime.fromisoformat(bucket['end']))
                         if right<=left:continue
                         overlap=elapsed_seconds(left,right)
                         bucket['amount']=(bucket['amount'] or Fraction(0))+amount*overlap/duration
                         bucket['coverage']+=overlap;bucket['intervals']+=1
-            previous=point if eligible else None;previous_row=row if eligible else None
+                        bucket['gap'] |= gain['kind']=='endpoint_supported'
+            else:result['exclusion_counts']['unsupported_exp_requirement']=result['exclusion_counts'].get('unsupported_exp_requirement',0)+1
         previous_run=run
     except HistoryLimit:
         limited=True
@@ -169,8 +179,17 @@ def aggregate(diagnostic,channel,*,now):
         bins=[dict(b,amount=None,coverage=Fraction(0),intervals=0) for b in bins]
         coverage=Fraction(0);result['intervals']=0
     elif result['intervals']:result['tracked_exp']=rational(total)
+    if not limited:
+        result['current_level']=level
+        result['windows']={str(m):tracked_window(gains,start=now-timedelta(minutes=m),end=now) for m in WINDOWS}
+        result['current_level_windows']={str(m):tracked_window(gains if level is not None else [],
+            start=now-timedelta(minutes=m),end=now,level=level) for m in WINDOWS}
+        result['chart_intervals']=[{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
+            for g in gains if datetime.fromisoformat(g['start'])>=now-timedelta(minutes=60)]
+        result['chart_status']='ready' if len(result['chart_intervals'])<=4096 else 'history_limit'
+        if result['chart_status']=='history_limit':result['chart_intervals']=[]
     result.update(coverage_seconds=rational(coverage),unknown_seconds=rational(Fraction(86400)-coverage),requirement_versions=sorted(versions),
         buckets=[dict(start=b['start'],end=b['end'],value=rational(b['amount']) if b['amount'] is not None else None,
             covered=rational(b['coverage']),intervals=b['intervals'],
-            state='missing' if b['amount'] is None else 'covered' if b['coverage']==1800 else 'partial') for b in bins])
+            state='missing' if b['amount'] is None else 'covered' if b['coverage']==1800 and not b['gap'] else 'partial') for b in bins])
     return result

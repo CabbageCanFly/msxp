@@ -16,15 +16,16 @@ const verifyResilience=databaseArgument==='--verify-resilience';
 const verifyNumerical=databaseArgument==='--verify-numerical-windows';
 const verifyETA=databaseArgument==='--verify-eta-followup';
 const verifyCrossLevel=databaseArgument==='--verify-cross-level';
+const verifyTracked=databaseArgument==='--verify-tracked-exp';
 const verifyUpdates=databaseArgument==='--verify-updates' || verifyQuarantine;
-const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA || verifyCrossLevel?null:databaseArgument;
+const database=databaseArgument==='-' || verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA || verifyCrossLevel || verifyTracked?null:databaseArgument;
 const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.match(channel,/^[A-Za-z0-9_]{1,25}$/);
 const output=resolve(directory);assert.ok(['private','artifacts'].some(root=>output.startsWith(resolve(root)+sep)));
 mkdirSync(output,{recursive:false});
 let fixture=null,fixtureCommand=null;
-if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA || verifyCrossLevel){
+if(verifyUpdates || verifyUsability || verifyLevelUp || verifyWindows || verifyRolling || verifyHistorical || verifyResilience || verifyNumerical || verifyETA || verifyCrossLevel || verifyTracked){
   const python=resolve(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyCrossLevel?['--cross-level']:verifyETA?['--eta-followup']:verifyNumerical?['--numerical-windows']:verifyResilience?['--resilience']:verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
+  fixture=spawn(python,['tools/product_updates_fixture.py','--directory',output,'--port',url.port||'80',...(verifyTracked?['--tracked-exp']:verifyCrossLevel?['--cross-level']:verifyETA?['--eta-followup']:verifyNumerical?['--numerical-windows']:verifyResilience?['--resilience']:verifyHistorical?['--historical']:verifyRolling?['--rolling']:verifyWindows?['--windows']:verifyUsability?['--usability']:verifyLevelUp?['--level-up']:[])],{windowsHide:true,stdio:['pipe','pipe','inherit']});
   let buffer='',waiting=null;const messages=[];
   fixture.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const message=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(waiting){waiting(message);waiting=null;}else messages.push(message);}});
   const next=()=>new Promise((ok,no)=>{if(messages.length){ok(messages.shift());return;}const timer=setTimeout(()=>no(new Error('SQLite fixture timeout')),10000);waiting=m=>{clearTimeout(timer);ok(m);};});
@@ -386,6 +387,47 @@ try {
     await screenshot(detail,'observed-stale',1100,1050);
     for(const page of [detail,board,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     observed.push(...batches.map(batch=>({reading:batch.player.reading,windows:batch.player.windows})));
+  }else if(verifyTracked){
+    const packet=original.tracked_history;
+    assert.equal(packet.tracked_exp.approximate,41228);
+    assert.deepEqual([5,10,15,30,60].map(m=>packet.windows[m].gain.approximate),[4757,9994,14696,27764,41228]);
+    assert.equal(packet.as_of,original.player.tracked_as_of);
+    for(const minutes of [5,10,15,30,60]){
+      await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
+      assert.equal(await detail.evaluate('document.getElementById("movement").dataset.fullNumber'),`+${new Intl.NumberFormat('en-US').format(packet.windows[minutes].gain.approximate)} EXP`);
+      assert.equal(await detail.evaluate('data.tracked_history.as_of'),packet.as_of);
+      const gain=packet.windows[minutes].gain.approximate;
+      const bars=await detail.evaluate('bucketHistory(rollingData.chart_intervals.map(g=>({gain:g,connect_previous:true})),Date.parse(rollingData.as_of),60,windowMinutes*60).bins.reduce((s,b)=>s+(b.value??0),0)');
+      assert.ok(Math.abs(bars-gain)<.00001,'Bars and cards sum identical whole intervals');
+    }
+    await detail.wait('rollingData?.tracked_exp?.approximate===41228');
+    assert.equal(await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber'),'~41,228');
+    await screenshot(detail,'tracked-exp-desktop',1440,1150);await screenshot(detail,'tracked-exp-mobile',390,1400);
+    const tracked=await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber');
+    await detail.evaluate('document.getElementById("current-level-only").click()');
+    assert.equal(await detail.evaluate('document.getElementById("tracked-exp").dataset.fullNumber'),tracked);
+    await fixtureCommand('advance');const after=await api('/api/players/'+channel);
+    assert.ok(after.tracked_history.tracked_exp.approximate>41228);
+    await detail.wait(`data?.tracked_history?.tracked_exp?.approximate===${after.tracked_history.tracked_exp.approximate}`);
+    await overlay.wait(`data?.player?.latest_attempt_at===${JSON.stringify(after.player.latest_attempt_at)}`);
+    const history=await api('/api/players/'+channel+'/history');assert.equal(history.as_of,after.tracked_history.as_of);
+    assert.equal(history.tracked_exp.approximate,after.tracked_history.tracked_exp.approximate);
+    await screenshot(overlay,'tracked-exp-overlay',500,160);
+    // Explicit synthetic duration control, not a new measured ETA or an API response.
+    for(const [page,name,width,height] of [[detail,'eta-multiday-formatting-control',1440,1150],[overlay,'eta-multiday-overlay-formatting-control',500,160]]){
+      await page.wait('!activeController');
+      await page.evaluate('(()=>{clearTimeout(pollTimer);const control={seconds:{approximate:2*86400+14*3600+7*60}};data.player.character.label="ETA FORMAT TEST";if(view==="player"){currentLevelOnly=false;document.getElementById("current-level-only").checked=false;data.player.recent_windows[windowMinutes].eta.estimate=control;}else {data.player.stale=false;data.player.age_seconds=0;data.player.responsive_pace.active=true;data.player.responsive_pace.presentation={state:"observed",running:true};data.player.responsive_pace.estimates.eta=control;}renderPlayer();})()');
+      assert.match(await page.evaluate('document.getElementById("eta").title'),/~2d 14h 7m/);
+      assert.notEqual(await page.evaluate('document.getElementById("eta").textContent'),'—');
+      await screenshot(page,name,width,height);await page.evaluate('poll()');
+    }
+    await fixtureCommand('expire');const old=await api('/api/players/'+channel);
+    await detail.wait('data?.tracked_history?.windows["60"]?.available===false');
+    assert.equal(old.tracked_history.tracked_exp.approximate,after.tracked_history.tracked_exp.approximate);
+    assert.ok(old.player.recent_windows['60'].eta);
+    await screenshot(detail,'tracked-exp-aged-history',1100,1150);
+    for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
+    observed.push({before:original,after,aged:old});
   }else if(verifyCrossLevel){
     assert.equal(original.player.display_level.value,67);
     await fixtureCommand('advance');
@@ -425,7 +467,7 @@ try {
     await detail.wait('data?.player?.recent_windows["60"]?.available===false');
     const historical=await api('/api/players/'+channel);
     assert.deepEqual(historical.player.recent_windows['60'].eta.estimate,eta);
-    assert.equal(await detail.evaluate('document.getElementById("eta").textContent'),'~8h 30m');
+    assert.equal(await detail.evaluate('document.getElementById("eta").textContent'),'~8h 28m');
     await screenshot(detail,'cross-level-historical-eta',1100,1050);
     for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     observed.push({asOfReplay:true,after,historical});
