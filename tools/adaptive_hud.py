@@ -7,6 +7,7 @@ anchor_step is the HP-to-MP distance in that profile's development imagery.
 
 import argparse
 from dataclasses import asdict
+from itertools import combinations
 import json
 import math
 import os
@@ -33,7 +34,7 @@ def label(token):
     return None
 
 
-def layouts(tokens, size):
+def layouts(tokens, size, *, deduplicate=True):
     """Bind a classic HUD row; level coordinates require a matching LV anchor."""
     width, height = size
     candidates = []
@@ -104,30 +105,42 @@ def layouts(tokens, size):
                     if lv is None: candidate['anchor_mode']='hp_mp_exp'
                     if candidate not in candidates:
                         candidates.append(candidate)
-    return merge_layouts(candidates,size)
+    return merge_layouts(candidates,size) if deduplicate else candidates
 
 
 def merge_layouts(candidates,size):
-    """Collapse repeated geometry, retaining separate HUDs and disputed level boxes."""
-    result=[]
+    """Deduplicate EXP geometry; disputed level geometry supplies no level crop."""
+    def tolerance(a,b):
+        return .05*min(a['anchor_step'],b['anchor_step'])
+
+    def box_delta(a,b,field):
+        return max(abs(x-y) for x,y in zip(a['regions'][field].pixels(*size),b['regions'][field].pixels(*size)))
+
+    def same_exp(a,b):
+        limit=tolerance(a,b)
+        return (abs(a['anchor_step']-b['anchor_step'])<=limit
+            and all(abs(a['anchors'][name][axis]-b['anchors'][name][axis])<=limit
+                    for name in ('mp','exp') for axis in ('x','y'))
+            and box_delta(a,b,'exp')<=limit)
+
+    groups=[]
     for candidate in candidates:
-        for index,other in enumerate(result):
-            tolerance=.05*min(candidate['anchor_step'],other['anchor_step'])
-            if abs(candidate['anchor_step']-other['anchor_step'])>tolerance:
-                continue
-            if any(abs(candidate['anchors'][name][axis]-other['anchors'][name][axis])>tolerance
-                   for name in ('mp','exp') for axis in ('x','y')):
-                continue
-            if any(max(abs(a-b) for a,b in zip(candidate['regions'][field].pixels(*size),
-                                              other['regions'][field].pixels(*size)))>tolerance
-                   for field in ('exp','level') if candidate['regions'][field] is not None
-                   and other['regions'][field] is not None):
-                continue
-            if other['regions']['level'] is None and candidate['regions']['level'] is not None:
-                result[index]=candidate
+        for group in groups:
+            # Compare every member: near-duplicate chains must not bridge conflicting EXP crops.
+            if not all(same_exp(candidate,other) for other in group):continue
+            group.append(candidate)
             break
         else:
-            result.append(candidate)
+            groups.append([candidate])
+    result=[]
+    for group in groups:
+        levels=[c for c in group if c['regions']['level'] is not None]
+        candidate=levels[0] if levels else group[0]
+        if (any(c.get('level_ambiguous') for c in group)
+                or any(box_delta(a,b,'level')>tolerance(a,b) for a,b in combinations(levels,2))):
+            candidate={**candidate,'regions':{**candidate['regions'],'level':None},
+                'anchors':{**candidate['anchors'],'lv':None},'anchor_mode':'hp_mp_exp','level_ambiguous':True}
+        result.append(candidate)
     return result
 
 
@@ -145,7 +158,7 @@ def locate(image):
         for token in tokens:
             for key in ("x","y","width","height"):
                 token[key] /= scale
-        candidates.extend(layouts(tokens, image.size))
+        candidates.extend(layouts(tokens, image.size,deduplicate=False))
     # Both scales must contribute to uniqueness, including partly obscured HUDs.
     return merge_layouts(candidates,image.size)
 

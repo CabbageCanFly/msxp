@@ -561,3 +561,128 @@ full suite **1,623 passed / 102 skipped** (100 private fixtures, one loopback,
 one symlink permission), plus **59 frontend tests passed**. No production code
 changed during wrap-up, so that full run was not repeated. No remote trial,
 active database write, coordinator restart, merge or push was performed.
+
+## Telfer duplicate level interpretations (2026-10-19)
+
+This follow-up supersedes the earlier requirement that disputed level crops make
+the entire EXP HUD ambiguous. Conflicting EXP geometry still rejects field OCR.
+
+Only the three requested Telfer JSONL files were frozen and replayed, under ignored
+`private/telfer-hud-dedup-20261019/`. The latest log had grown from the reported 36
+attempts to 49 at snapshot time; both the original first 36 and all 49 were checked.
+Original logs/crops were read-only. The two earlier input hashes remain identical;
+the latest original continued appending and retains the exact frozen byte prefix.
+No live database, coordinator or remote capture was modified or started.
+
+### Cause and bounded fix
+
+The active path is still `multi_alpha` -> `shadow_capture.analyze` ->
+`adaptive_hud.locate`. Both sparse-OCR scales contribute layout candidates, and
+`merge_layouts()` previously required both EXP and level crops to agree within
+5% of the smaller anchor step. A difference in level crop incorrectly survived
+as an additional HUD, even when both candidates agreed on the EXP location.
+
+For latest-run attempt 2, the native EXP rectangles are `(1025,1051,1120,1061)`
+and `(1026,1051,1120,1062)`: one-pixel edge differences. MP positions differ by
+0.167 pixels and EXP anchors by at most 0.833 pixels. Level rectangles start at
+x605 and x594, differing by 11 pixels, beyond the unchanged 5.45-pixel tolerance.
+Attempts 3 and 4 show the same pattern. This is duplicate EXP geometry with
+disputed LV interpretation, not evidence of two independently positioned EXP HUDs.
+Without full frames, the logs cannot establish every physical scene retrospectively.
+
+`merge_layouts()` now groups candidates using the existing step, MP/EXP anchor
+and EXP-edge tolerances, without requiring level agreement. It compares every
+member of a group rather than allowing a near-duplicate chain to bridge different
+EXP regions. `locate()` collects unmerged layouts from both unchanged OCR probes
+and deduplicates once, preserving conflicting geometry until that decision.
+
+For a group with disputed level rectangles, the returned candidate retains an
+existing EXP rectangle and has `regions.level=null`, `anchors.lv=null`,
+`anchor_mode=hp_mp_exp`, and `level_ambiguous=true`. No union, averaged crop,
+confidence-based winner or inferred level coordinates are created. The ambiguity
+flag survives repeated merging, so a later complete proposal cannot restore the
+disputed level. Ordinary agreeing full layouts keep their existing level crop.
+
+Both original four-anchor candidates must already pass the existing layout
+checks. Discarding the disputed level crop does not change the missing-LV
+three-anchor admission rules or EXP matching tolerances. The existing capture
+path skips visual/neural level OCR for an unavailable crop, including discarding
+an unexpected returned level. EXP OCR, receipt freshness, hashes, frame bounds,
+grammar, numerical consistency, explicit character assignment and trusted
+accounting remain unchanged. No grammar or UI change was needed.
+
+### Frozen geometry replay
+
+Paths below are relative to `private/multi-alpha/runs/`:
+
+| Recording | Attempts | Unique before -> after | Multiple before -> after | New EXP OCR opportunities |
+| --- | ---: | ---: | ---: | ---: |
+| `20261019T092547Z-0e1bd0f9/telfer1/capture.jsonl` | 60 | 43 -> 54 | 17 -> 6 | 11 |
+| Same folder, `b84401fd96444d2582dc724ee8310584/capture.jsonl` | 11 | 9 -> 11 | 2 -> 0 | 2 |
+| `20261019T095936Z-ef8a3750/telfer1/capture.jsonl` (frozen snapshot) | 49 | 35 -> 48 | 14 -> 1 | 13 |
+| Latest recording, reported first 36 only | 36 | 23 -> 35 | 13 -> 1 | 12 |
+
+Across the non-overlapping 120 attempts, 26 of 33 multiple-HUD failures collapse
+to unique EXP geometry with unavailable level. All 87 original unique candidates
+remain exactly unchanged. The seven remaining EXP ambiguities are first-run
+attempts 3, 12, 27, 29, 40, 55 and latest-run attempt 30. Their EXP rectangles
+disagree by 6-9 pixels, or an EXP anchor is outside the existing tolerance.
+For example, latest #30 proposes `(1021,1051,1114,1061)` versus
+`(1026,1051,1120,1062)`, plus a 6.5-pixel EXP-anchor y discrepancy. The code
+does not arbitrarily choose one. Full failing frames would be needed to decide
+whether these are additional OCR artifacts or genuinely different source geometry.
+
+None of the 26 formerly rejected attempts has a saved EXP crop or OCR text:
+capture returned before those stages. No full frames are present in these run
+directories. Therefore these counts establish localization opportunities, not 26
+new EXP readings, a newly measured complete-pipeline success rate, or a physical
+false-positive rate. Missing historical observations were not fabricated or
+retroactively inserted. Saved-log replay compares candidate geometry and uses
+the original receipt times/readings for causal public projection.
+
+All 26 opportunities have distinct saved hashes, native 1920x1080 dimensions and
+local post-localization ages of 1.789-2.546 seconds, below the existing 15-second
+limit. They would still need to finish field OCR within that limit. Neither hashes
+nor receipt ages establish broadcast freshness.
+
+### Existing grammar and public projection
+
+Read-time diagnostics already recover these malformed saved readings into public
+numeric EXP: 29/29 in the first log, 8/8 in the rotation, and 29/30 in the latest
+49-attempt snapshot. The reported first 36 contain 19/20 recoverable malformed
+readings. All 66 recovered full pairs display level 69 and their own numeric EXP;
+the raw text, grammar provenance and unverified status remain intact.
+
+The remaining latest attempt 20 is `260,6SS113.33%1`, with letter substitutions
+in the numeric digits. Existing grammar correctly abstains rather than supplying
+digits. Representative saved EXP/level crops were inspected, but no new OCR or
+digit-repair experiment was performed. The `malformed_or_unavailable` acquisition
+status describes the strict parser result; it does not mean public grammar
+recovery also failed. All existing saved numerical/public projections are unchanged
+by this acquisition-only fix.
+
+### Verification and limits
+
+New regressions use the actual Telfer anchor coordinates, optional private-log
+replays and synthetic distinct HUDs/conflicting EXP regions. They cover ordinary
+full layouts, level ambiguity in either order, sticky ambiguity, non-mutating
+merges, EXP/MP/step conflicts, near-duplicate chains, joint cross-scale uniqueness,
+level-OCR suppression, crop saving, stale frames and the existing public inference
+path. Existing focused inference/interval tests cover level transitions, source
+and character boundaries, stationary EXP and numerical contradictions.
+
+The focused Python set passed 246 tests with no skips. No incorrect unique accept
+was observed in the negative controls; seven disputed real EXP groups still
+reject. This cannot establish OCR accuracy on the 26 unsaved crops or rule out
+every wrong-target layout. A capture-process restart is required to load the
+locator change; no restart was performed. Archived failures cannot be repaired
+without their original pixels. No performance work, coordinator change or new
+production tooling was introduced.
+
+Final full `python -m pytest -q -rs --tb=short` result: **2,042 passed, one
+skipped** in 673.42 seconds. The sole skip is the existing OS symlink-permission
+test; there are no private-sample skips. The suite includes public API/background
+publisher, identity-boundary, numerical-consistency and level-transition checks.
+`git diff --check` passed. Frontend/browser checks were not repeated for this
+locator-only change. Suggested commit:
+`fix(capture): deduplicate EXP HUDs with ambiguous level crops`.
