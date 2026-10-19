@@ -36,10 +36,12 @@ Keep these two node prefixes (three parametrized cases) in a separate sequential
 invocation for the initial rollout:
 
 - `tests/test_shadow_capture.py::test_real_neural_timeout_reaps_worker`: 0.5-second
-  startup/timeout and an immediate process-existence assertion. It was intermittent
-  in an earlier sequential full run. Added defensive `finally` cleanup that checks
-  the recorded PID's command line before killing/waiting for this test's child.
-  Its assertions and time limits remain unchanged.
+  worker timeout and a five-second call-duration bound. Its standalone Windows
+  exit-ordering race is diagnosed below; it now waits at most two seconds for
+  cleanup, checking PID plus creation time. Defensive `finally` cleanup also
+  checks the command line before killing/waiting for this test's child. Keeping
+  it sequential for the initial rollout is a precaution, not a fix for or an
+  explanation of its previously intermittent assertion.
 - `tests/test_video.py::test_real_hung_capture_children_timeout_and_are_reaped`:
   synthetic child processes, 0.15-second acquisition timeout and a six-second
   wall-clock bound. Files/processes are owned and isolated; CPU pressure is the
@@ -56,6 +58,59 @@ resource races. `xdist_group` assigns tests to one worker; it does **not** stop
 other workers, so it is not a replacement for a separate sequential command.
 See the [official distribution guide](https://pytest-xdist.readthedocs.io/en/stable/distribution.html)
 and [worker/fixture isolation notes](https://pytest-xdist.readthedocs.io/en/stable/how-to.html).
+
+## Standalone Windows worker-timeout follow-up
+
+The operator reproduced two passes followed by a failure in three independent,
+single-test pytest invocations, with the timeout exception and five-second bound
+both correct. This is not evidence of an xdist or CPU-contention defect.
+
+Inspection of the installed CPython 3.14.7 `subprocess.run()` confirms that it
+kills the launched process, calls `communicate()` again on Windows, and waits
+before propagating `TimeoutExpired`. However, `.venv/Scripts/python.exe` is a
+Windows venv redirector: the launched PID differs from the Python worker's PID.
+The [matching CPython launcher source](https://github.com/python/cpython/blob/v3.14.7/PC/venvlauncher.c#L360)
+assigns that worker to a job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Killing
+the launcher initiates job-child termination, but waiting for the launcher does
+not mean the worker's process object is already signaled at that exact instant.
+
+Eight immediate-state probes recorded worker identity before timeout to avoid
+post-timeout filesystem observation delays. All eight showed a different launcher
+and worker PID. At roughly 0.15-0.18 ms after `run()` raised, the original worker
+identity was still present and `WaitForSingleObject(handle, 0)` returned
+`WAIT_TIMEOUT` (258). Seven were gone or signaled at the next check around
+1-1.5 ms; the eighth was gone/signaled by the 5 ms check. These are exit-state
+measurements, not a measurement of the original pytest failure frequency.
+
+This reproduced a briefly unfinished job-child exit, not PID reuse or an observed
+long-lived orphan. Other snapshots could still open an already-signaled process
+object even after `pid_exists()` became false: kernel-object lifetime, PID-list
+presence and execution state are different observations. The historical reported
+PID alone cannot establish which state that particular process was in.
+[Windows documents the signaled exit state and retained process objects](https://learn.microsoft.com/en-us/windows/win32/procthread/terminating-a-process).
+
+The test now has the synthetic worker record PID and creation time. It uses
+`psutil.Process.wait(timeout=2)`, whose installed Windows implementation waits on
+the process and additionally polls for PID disappearance. If this times out, the
+test still fails when the same process identity is running. A changed creation
+time means the original worker is gone; the replacement is not waited on or
+killed. The 0.5-second subprocess timeout, expected `neural_timeout`, original
+five-second call bound and guarded failure-path cleanup remain enforced.
+
+Verification after the fix:
+
+- **25/25 consecutive independent single-test invocations passed**, with xdist
+  disabled, no retries and fresh temporary roots: 0.62-0.68 seconds each as
+  reported by pytest. No skips occurred.
+- A deliberately surviving synthetic worker failed the new assertion after
+  **2.102 seconds**, then was killed/reaped by defensive test cleanup.
+- A simulated reused PID with a different creation time was neither waited on
+  nor killed.
+
+Lifecycle JSON, probe scripts, negative controls and all repeated-run output are
+ignored under `private/windows-worker-timeout-20261019/`. Only the test and this
+audit document changed. No production subprocess/OCR cleanup defect was
+demonstrated, and none was modified. No full-suite or parallel rerun was needed.
 
 ## Limited verification
 

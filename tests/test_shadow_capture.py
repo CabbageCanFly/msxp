@@ -243,12 +243,21 @@ def test_neural_worker_timeout_becomes_safe_failure(shadow, monkeypatch):
 
 
 def test_real_neural_timeout_reaps_worker(shadow,monkeypatch,tmp_path):
+    import json
     import psutil
-    pidfile=tmp_path/'worker.pid'
+    pidfile=tmp_path/'worker.json'
     worker=tmp_path/'hung_worker.py'
-    worker.write_text('import os, pathlib, sys, time\n'
-        'pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n'
+    worker.write_text('import json, os, pathlib, sys, time, psutil\n'
+        'pathlib.Path(sys.argv[1]).write_text(json.dumps([os.getpid(),psutil.Process().create_time()]))\n'
         'time.sleep(60)\n')
+    def owned_worker():
+        if not pidfile.exists():return None
+        pid,created=json.loads(pidfile.read_text())
+        try:
+            process=psutil.Process(pid)
+            if process.create_time()==created:return process
+        except psutil.NoSuchProcess:
+            pass
     run=shadow.subprocess.run
     def launch(_command,**kwargs):
         return run([sys.executable,str(worker),str(pidfile)],**kwargs)
@@ -258,12 +267,19 @@ def test_real_neural_timeout_reaps_worker(shadow,monkeypatch,tmp_path):
         with pytest.raises(CaptureError,match='neural_timeout'):
             shadow.neural_line(Image.new('RGB',(50,15)),Path(sys.executable),.5)
         assert time.monotonic()-started<5
-        assert pidfile.exists() and not psutil.pid_exists(int(pidfile.read_text()))
+        assert pidfile.exists(), 'Synthetic worker did not record its identity'
+        process=owned_worker()
+        if process:
+            # Windows venv-launcher exit can precede its job child's final exit.
+            try:
+                process.wait(timeout=2)
+            except psutil.TimeoutExpired:
+                assert not process.is_running(), f'Synthetic worker {process.pid} survived the 2s cleanup wait'
     finally:
         # An assertion failure must not leave this test's sleeping worker behind.
-        if pidfile.exists():
+        process=owned_worker()
+        if process:
             try:
-                process=psutil.Process(int(pidfile.read_text()))
                 if str(worker) in process.cmdline():
                     process.kill();process.wait(timeout=5)
             except psutil.NoSuchProcess:
