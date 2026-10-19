@@ -112,6 +112,44 @@ ignored under `private/windows-worker-timeout-20261019/`. Only the test and this
 audit document changed. No production subprocess/OCR cleanup defect was
 demonstrated, and none was modified. No full-suite or parallel rerun was needed.
 
+## Niru publisher parity follow-up
+
+The reported sequential failure retained 66 runs and 3,055 attempts, ending at
+replay step 3,120 (`7bb8ee75528c4a2899ea7cfb21607a0a:10`,
+2026-10-19 14:44:51.807948 UTC). An immutable reconstruction initially passed;
+the captured attempt payloads and character/session association matched exactly.
+A later unforced replay failed on `player.twitch.checked_at`, not EXP/history.
+
+The publisher fixture pinned UTC but left `StreamAvailability` on real monotonic
+time. After 60 real seconds, the reference's separate status-cache lookup could
+expire between publication and comparison. The two sides then described different
+status-check batches. Forcing that expiry reproduced the failure at step 3,120:
+`checked_at` was `2026-10-18T09:45:03.531676+00:00` in the publication and
+`2026-10-19T14:44:51.807948+00:00` in the reference. Only `checked_at` and
+`valid_until` differed; publisher errors were zero and EXP/checkpoint output matched.
+
+The fixture now injects a status-cache clock driven by replay time. A small
+regression simulates a slow comparison crossing the real TTL, then checks that
+advancing replay time still expires the cache. Production publishing, inference,
+public endpoint calculations and trusted accounting are unchanged. Saved publisher
+tests read each JSONL once at the start and retain the full comparison; failures
+write the first differing path/values, replay context, revision keys and publisher
+error status to `publication-mismatch.json` under that test's temporary directory.
+Private snapshots, hashes and detailed results stay under
+`private/niru-publisher-parity/`.
+
+Verification: the forced-expiry retained-prefix replay failed before the clock fix
+and passed afterward in 78.59 s, with all 17 comparisons equal. The normal Niru
+publisher test passed in 98.16 s. The focused publisher, checkpoint, ETA and mocked
+Twitch-status run passed 95 tests (six saved-log sweep cases deselected). No skips
+occurred. Retained input/database hashes stayed unchanged. No full-suite rerun or
+repeat of the already-passing expensive Niru incremental replay was needed.
+
+A global 120-second pytest-timeout is too short for some legitimate saved-history
+replays: the operator measured the passing Niru incremental replay at 265.54 s.
+Use `--timeout=0` for these parity investigations; no timeout configuration or
+passing incremental-history test was changed.
+
 ## Limited verification
 
 Eight representative files exercised SQLite, actual HTTP sockets and viewer

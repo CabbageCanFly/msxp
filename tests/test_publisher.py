@@ -15,6 +15,7 @@ from exp_tracker.diagnostics import Diagnostics,operation
 from exp_tracker.product import refresh,tracked_statistics
 from exp_tracker.publisher import broadcast,encode
 from exp_tracker.store import Store,utc
+from exp_tracker.twitch_probe import StreamAvailability
 from tests.test_product import tracking,NOW
 from tests.test_diagnostic_history import config
 from tests.test_tracked_exp_totals import save,nested
@@ -29,6 +30,9 @@ def clock(monkeypatch):
         @classmethod
         def now(cls,tz=None):return cls.at
     monkeypatch.setattr(server_module,'datetime',Clock)
+    # Status-cache expiry must advance with the replay, not with full-replay CPU time.
+    monkeypatch.setattr(server_module,'StreamAvailability',lambda **kwargs:
+        StreamAvailability(**kwargs,clock=lambda:Clock.at.timestamp()))
     return Clock
 
 
@@ -61,6 +65,82 @@ def published(server,channel):
     body=json.loads(server.publisher.character(channel))
     for key in ('served_at','experimental','poll_seconds'):body.pop(key)
     return body
+
+
+def first_difference(actual,expected,path='$'):
+    """Keep saved-replay failures readable without excluding any JSON fields."""
+    if actual==expected:return None
+    if isinstance(actual,dict) and isinstance(expected,dict):
+        for key in sorted(actual.keys()|expected.keys()):
+            child=f'{path}.{key}'
+            if key not in actual or key not in expected:
+                return child,'present' if key in actual else 'missing','present' if key in expected else 'missing'
+            difference=first_difference(actual[key],expected[key],child)
+            if difference is not None:return difference
+    if isinstance(actual,list) and isinstance(expected,list):
+        if len(actual)!=len(expected):return f'{path}.length',len(actual),len(expected)
+        for index,(left,right) in enumerate(zip(actual,expected)):
+            difference=first_difference(left,right,f'{path}[{index}]')
+            if difference is not None:return difference
+    return path,actual,expected
+
+
+def assert_publication(store,server,channel,now,tmp_path,**context):
+    difference=first_difference(published(server,channel),reference(store,server,channel,now))
+    if difference is None:return
+    entry=server.publisher.entry(channel)
+    report=dict(context,now=now.isoformat(),
+        difference=dict(zip(('path','published','reference'),difference)),
+        publication_key=entry['key'],database_head=tuple(Diagnostics(store).heads(channel)[0]),
+        built_at=entry['built_at'],card_at=entry['card']['recent_as_of'],publisher_stats=server.publisher.stats)
+    diagnostic=tmp_path/'publication-mismatch.json'
+    diagnostic.write_text(json.dumps(report,indent=2),encoding='utf-8')
+    pytest.fail(f'Publication mismatch {difference!r}; replay={context!r}; diagnostic={diagnostic}')
+
+
+@pytest.mark.parametrize('actual,expected,difference',[
+    ({'player':{'windows':[{'gain':17}]}},{'player':{'windows':[{'gain':18}]}},('$.player.windows[0].gain',17,18)),
+    ({'gain':None},{'gain':None},None),
+    ({},{'gain':None},('$.gain','missing','present')),
+    ({'history':[1]},{'history':[]},('$.history.length',1,0)),
+    ({'gain':'17'},{'gain':17},('$.gain','17',17)),
+])
+def test_first_publication_difference(actual,expected,difference):
+    assert first_difference(actual,expected)==difference
+
+
+def test_publication_mismatch_writes_first_field_and_replay_context(tracking,clock,tmp_path,monkeypatch):
+    path,store,d=tracking;d.begin('one','alpha',config('one',interval=20));save(d,'one',1,20,3300)
+    clock.at=NOW+timedelta(seconds=20)
+    original=published
+    def wrong(server,channel):
+        body=original(server,channel);body['player']['channel']='wrong';return body
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        server.publisher.settle();monkeypatch.setitem(globals(),'published',wrong)
+        with pytest.raises(pytest.fail.Exception,match=r'\$\.player.channel'):
+            assert_publication(store,server,'alpha',clock.at,tmp_path,step=1,event_id='one:1')
+    report=json.loads((tmp_path/'publication-mismatch.json').read_text())
+    assert report['difference']==dict(path='$.player.channel',published='wrong',reference='alpha')
+    assert report['step']==1 and report['event_id']=='one:1'
+    assert report['publication_key']==report['database_head'] and report['publisher_stats']['failures']==0
+
+
+def test_reference_status_cache_uses_replay_clock_not_test_duration(tracking,clock,tmp_path,monkeypatch):
+    path,store,d=tracking;d.begin('one','alpha',config('one',interval=20));save(d,'one',1,20,3300)
+    wall=[0];initialize=StreamAvailability.__init__
+    def availability(self,**kwargs):
+        kwargs.setdefault('clock',lambda:wall[0]);initialize(self,**kwargs)
+    monkeypatch.setattr(StreamAvailability,'__init__',availability)
+    clock.at=NOW+timedelta(seconds=20)
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        server.publisher.settle()
+        checked=server.publisher.statuses['alpha']['checked_at']
+        clock.at+=timedelta(seconds=20);wall[0]=61  # Slow full replay crosses the real cache TTL.
+        assert_publication(store,server,'alpha',clock.at,tmp_path,step=1)
+        assert server.twitch_availability.results['alpha']['checked_at']==checked
+        clock.at+=timedelta(seconds=41);server.publisher.settle()  # Actual replay time expires it.
+        assert server.publisher.statuses['alpha']['checked_at']==clock.at.isoformat()
+        assert_publication(store,server,'alpha',clock.at,tmp_path,step=2)
 
 
 def wait_for(condition,seconds=60):
@@ -104,25 +184,29 @@ def test_background_publication_matches_reference_through_rotation_restart_loss_
 
 @pytest.mark.parametrize('channel',['emmies','niru','telfer1'])
 def test_saved_publications_match_reference(tmp_path,clock,channel):
-    paths=sorted(Path(SAVED).glob(f'*/{channel}/**/capture.jsonl'),key=lambda p:json.loads(p.read_text().splitlines()[1])['attempted_at'])
-    if not paths:pytest.skip('private saved capture unavailable')
+    # Read each file once: active rotation tails must not change this invocation's inputs.
+    captures=sorted(((p,p.read_text()) for p in Path(SAVED).glob(f'*/{channel}/**/capture.jsonl')),
+        key=lambda item:json.loads(item[1].splitlines()[1])['attempted_at'])
+    if not captures:pytest.skip('private saved capture unavailable')
     db=tmp_path/'saved.sqlite3';steps=0
     with Store(db) as store:
         store.add_channel(channel);cid=store.add_character(channel,'Saved review');store.select_character(channel,cid)
-        store.start_session(channel,at=datetime.fromisoformat(json.loads(paths[0].read_text().splitlines()[1])['attempted_at']))
+        store.start_session(channel,at=datetime.fromisoformat(json.loads(captures[0][1].splitlines()[1])['attempted_at']))
         d=Diagnostics(store)
         with server_module.create_server(db,port=0,diagnostic_dashboard=True) as server:
-            for path in paths:
-                records=[json.loads(s) for s in path.read_text().splitlines()];rid=records[0]['run_id'];d.begin(rid,channel,records[0])
+            for path,text in captures:
+                records=[json.loads(s) for s in text.splitlines()];rid=records[0]['run_id'];d.begin(rid,channel,records[0])
                 for r in records[1:]:
                     d.append(rid,r);steps+=1
                     if r['type']=='attempt':clock.at=datetime.fromisoformat(r.get('received_at') or r['attempted_at'])
                     if steps%60==0:server.publisher.settle()  # Publications keep resuming checkpoints.
-                    if steps%240==0:assert published(server,channel)==reference(store,server,channel,clock.at)
+                    if steps%240==0:
+                        assert_publication(store,server,channel,clock.at,tmp_path,
+                            step=steps,path=str(path),event_id=f'{rid}:{r.get("index")}')
             last=clock.at
             for delta in (0,11,3901,90001):
                 clock.at=last+timedelta(seconds=delta);server.publisher.settle()
-                assert published(server,channel)==reference(store,server,channel,clock.at)
+                assert_publication(store,server,channel,clock.at,tmp_path,step=steps,expiry_delta=delta)
                 nested(server.publisher.entry(channel)['tracked'])
 
 
