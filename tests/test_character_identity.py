@@ -47,7 +47,7 @@ def test_missing_conflicting_and_old_frames_cannot_complete_a_switch():
     assert state.observe(evidence(200, 'Beta'))['pending_switch'] is None
     assert state.observe(evidence(201, 'Beta'))['pending_switch']['name'] == 'Beta'
     state.observe(evidence(202, None, 'capture_failed'))
-    assert state.observe(evidence(203))['pending_switch']['name'] == 'Beta'  # Latched for review.
+    assert state.observe(evidence(203))['pending_switch']['name'] == 'Beta'  # One reference frame cannot clear it.
 
 
 def make_frame(index, color=None, metadata=False):
@@ -89,19 +89,22 @@ def test_periodic_cadence_is_bypassed_by_existing_validator_events():
     assert value['evidence']['verification_reason'] == 'numeric_event'
     assert value['numeric_check']['reason'] == 'reset_loss_or_character_switch'
     assert value['suggestion']['pending_switch'] is None
-    assert value['suspect_reading_hold_recommended'] and value['tracking_action'] == 'none'
+    # Verification ran on the same frame and read the reference name: no ownership hold.
+    assert value['verification_requested'] and not value['reading_hold_recommended']
+    assert value['tracking_action'] == 'none'
 
 
-def test_switch_at_identical_exp_still_recommends_holding_before_confirmation():
+@pytest.mark.parametrize('pair', [[5000, 50.0], [5100, 51.0]])
+def test_switch_at_similar_exp_still_recommends_holding_before_confirmation(pair):
     state = IdentityCapture('channel')
     normal = dict(current=True, candidate=[5000, 50.0], visual_level=1)
     inspect(state, 0, numbers=normal)
     inspect(state, 1, numbers=normal)
-    first = inspect(state, 2, 'Beta', numbers=normal)
+    first = inspect(state, 2, 'Beta', numbers=dict(normal, candidate=pair))
     assert not first['numeric_check']['check_now']
     assert first['suggestion']['pending_switch'] is None
-    assert first['suspect_reading_hold_recommended']
-    second = inspect(state, 3, 'Beta', numbers=normal)
+    assert first['reading_hold_recommended'] and first['hold_reasons'] == ['name_mismatch']
+    second = inspect(state, 3, 'Beta', numbers=dict(normal, candidate=pair))
     assert second['suggestion']['proposed_name'] == 'Alpha'
     assert second['suggestion']['pending_switch']['name'] == 'Beta'
 
@@ -220,3 +223,160 @@ def test_name_interval_is_bounded_before_capture(tmp_path, value):
         '--name-interval', value, '--output', str(tmp_path / 'unused.jsonl')])
     with pytest.raises(ValueError, match='name_interval must be finite'):
         shadow.prepare(args)
+
+
+def run(state, sequence, start=0, numbers=None):
+    return [inspect(state, start + i, name, numbers=numbers) for i, name in enumerate(sequence)]
+
+
+def holds(values):
+    return [v['reading_hold_recommended'] for v in values]
+
+
+def numbers(exp, percentage, level):
+    return dict(current=True, candidate=[exp, percentage], visual_level=level)
+
+
+def test_aabb_creates_pending_switch_without_selecting_it():
+    values = run(IdentityCapture('channel'), ['Alpha', 'Alpha', 'Beta', 'Beta'])
+    last = values[-1]
+    assert holds(values) == [False, False, True, True]
+    assert last['suggestion']['pending_switch']['state'] == 'pending'
+    assert last['suggestion']['proposed_name'] == 'Alpha' and last['suggestion']['confirmed_name'] is None
+    assert last['identity_conflict'] == dict(reference_name='Alpha', reference_source='ocr_proposed',
+                                             observed_name='Beta', pending_name='Beta')
+    assert last['hold_reasons'] == ['name_mismatch', 'pending_switch']
+
+
+def test_aaba_false_alarm_recovers_without_suggestion():
+    values = run(IdentityCapture('channel'), ['Alpha', 'Alpha', 'Beta', 'Alpha'])
+    assert holds(values) == [False, False, True, False]
+    assert values[2]['identity_conflict']['observed_name'] == 'Beta'
+    last = values[-1]
+    assert last['identity_conflict'] is None and last['suggestion']['pending_switch'] is None
+    assert last['suggestion']['history'] == []
+
+
+def test_abbaa_return_to_operator_confirmed_original_supersedes_pending():
+    values = run(IdentityCapture('channel', confirmed='Alpha'), ['Alpha', 'Beta', 'Beta', 'Alpha', 'Alpha'])
+    assert holds(values) == [False, True, True, True, False]  # One returning frame is not enough.
+    last = values[-1]['suggestion']
+    assert last['pending_switch'] is None and last['reference_source'] == 'operator_confirmed'
+    assert [(h['name'], h['state'], h['resolved_by']) for h in last['history']] == [('Beta', 'superseded', 'Alpha')]
+    assert len(last['history'][0]['evidence']) == 2  # Diagnostic evidence is preserved.
+
+
+def test_abbaa_without_operator_identity_cannot_know_the_original():
+    last = run(IdentityCapture('channel'), ['Alpha', 'Beta', 'Beta', 'Alpha', 'Alpha'])[-1]
+    assert last['suggestion']['proposed_name'] == 'Beta'  # One Alpha frame was never evidence.
+    assert last['suggestion']['pending_switch']['name'] == 'Alpha'
+
+
+def test_third_name_supersedes_pending_switch():
+    last = run(IdentityCapture('channel'), ['Alpha', 'Alpha', 'Beta', 'Beta', 'Gamma', 'Gamma'])[-1]['suggestion']
+    assert last['pending_switch']['name'] == 'Gamma'
+    assert [(h['name'], h['state'], h['resolved_by']) for h in last['history']] == [('Beta', 'superseded', 'Gamma')]
+
+
+@pytest.mark.parametrize('name', ['Alpha', None])
+def test_normal_level_up_requests_verification_but_never_an_identity_hold(name):
+    state = IdentityCapture('channel')
+    run(state, ['Alpha', 'Alpha'], numbers=numbers(9900, 99.0, 1))
+    up = inspect(state, 2, name, numbers=numbers(100, .5, 2))
+    assert up['numeric_check']['classification'] == 'possible_normal_level_up'
+    assert up['verification_requested'] and not up['reading_hold_recommended']
+    after = inspect(state, 3, name, numbers=numbers(300, 1.5, 2))
+    assert after['numeric_check']['reason'] == 'same_level_gain'  # New level became the anchor.
+    assert not after['verification_requested'] and not after['reading_hold_recommended']
+
+
+def test_level_decrease_holds_until_the_reference_name_is_read():
+    state = IdentityCapture('channel')
+    run(state, ['Alpha', 'Alpha'], numbers=numbers(10000, 50.0, 2))
+    for index in (2, 3):  # Unverified anomaly keeps requesting checks and holding.
+        value = inspect(state, index, None, numbers=numbers(5000, 50.0, 1))
+        assert value['numeric_check']['classification'] == 'level_decrease'
+        assert value['verification_requested'] and value['hold_reasons'] == ['unverified_numeric_anomaly']
+    value = inspect(state, 4, 'Beta', numbers=numbers(5000, 50.0, 1))
+    assert value['hold_reasons'] == ['name_mismatch', 'unverified_numeric_anomaly']
+    value = inspect(state, 5, 'Alpha', numbers=numbers(5000, 50.0, 1))
+    assert value['verification_requested'] and not value['reading_hold_recommended']
+    assert value['identity_conflict'] is None
+
+
+@pytest.mark.parametrize('pair,level,seconds,hold', [
+    ([4000, 40.0], 1, 2, True),      # Same-level loss could be another character.
+    ([500, 40.0], 1, 2, False),      # Arithmetic contradiction is EXP validity, not ownership.
+    ([100, .5], 2, 300, True),       # Progression across a gap could be another character.
+])
+def test_other_numeric_anomalies_separate_ownership_from_exp_validity(pair, level, seconds, hold):
+    state = IdentityCapture('channel')
+    run(state, ['Alpha', 'Alpha'], numbers=numbers(5000, 50.0, 1))
+    value = inspect(state, 1 + seconds, None, numbers=numbers(pair[0], pair[1], level))
+    assert value['verification_requested'] and value['reading_hold_recommended'] is hold
+
+
+def test_missing_stale_and_duplicate_evidence_never_clear_a_pending_hold():
+    state = IdentityCapture('channel')
+    run(state, ['Alpha', 'Alpha', 'Beta', 'Beta'])
+    for index in (10, 700, 2000):
+        assert inspect(state, index, None)['hold_reasons'] == ['pending_switch']
+    assert state.missing((NOW + timedelta(seconds=2001)).isoformat())['pending_switch']['state'] == 'pending'
+    assert inspect(state, 2002, layouts=candidate() * 2)['hold_reasons'] == ['pending_switch']
+    f = make_frame(2003)
+    stale = state.inspect(dict(current=True), f, f.image(), candidate(), lambda crop: response(), {},
+                          max_age=15, clock=lambda: 2200)
+    assert stale['evidence']['status'] == 'stale_local_frame' and stale['reading_hold_recommended']
+    inspect(state, 2004, 'Beta', image_frame=make_frame(2004, color='black'))
+    duplicate = inspect(state, 2005, 'Beta', image_frame=make_frame(2005, color='black'))
+    assert duplicate['suggestion']['latest_status'] == 'duplicate_frame'
+    assert duplicate['suggestion']['pending_switch']['evidence'][0]['received_at'] == make_frame(2).received_at
+    assert duplicate['hold_reasons'] == ['name_mismatch', 'pending_switch']
+
+
+def test_pending_switch_expires_only_after_time_and_a_reference_sighting():
+    state = IdentitySuggestions('channel')
+    for i, name in enumerate(['Alpha', 'Alpha', 'Beta', 'Beta']):
+        state.observe(evidence(i, name))
+    state.observe(evidence(100))  # Single Alpha sighting, not a two-frame return.
+    assert state.observe(evidence(602, None, 'unreadable_or_conflicting'))['pending_switch']['state'] == 'pending'
+    value = state.observe(evidence(603, None, 'unreadable_or_conflicting'))
+    assert value['pending_switch'] is None
+    assert [(h['state'], h['resolved_by']) for h in value['history']] == [('expired', 'reference_seen_without_pending_name')]
+    # A later Beta switch stays pending however long names are unavailable, until Alpha is seen again.
+    for i in (700, 701, 1400):
+        state.observe(evidence(i, 'Beta'))
+    assert state.observe(evidence(5000, None, 'unreadable_or_conflicting'))['pending_switch']['state'] == 'pending'
+
+
+def test_operator_dismissal_requires_new_evidence_and_keeps_mismatch_holds():
+    state = IdentityCapture('channel')
+    run(state, ['Alpha', 'Alpha', 'Beta', 'Beta'])
+    state.suggestions.dismiss((NOW + timedelta(seconds=4)).isoformat())
+    value = inspect(state, 5, 'Beta')
+    assert value['suggestion']['pending_switch'] is None
+    assert value['suggestion']['history'][0]['state'] == 'dismissed'
+    assert value['hold_reasons'] == ['name_mismatch']  # Dismissal never authorizes Beta readings for Alpha.
+    assert inspect(state, 6, 'Beta')['suggestion']['pending_switch']['created_at'] == make_frame(6).received_at
+
+
+def test_ocr_agreement_never_confirms_and_operator_selection_starts_new_baseline():
+    state = IdentityCapture('channel', confirmed='Alpha')
+    run(state, ['Alpha', 'Beta', 'Beta', 'Beta'], numbers=numbers(5000, 50.0, 1))
+    assert state.suggestions.confirmed == 'Alpha'
+    state.select('Beta', (NOW + timedelta(seconds=4)).isoformat())
+    value = inspect(state, 5, 'Beta', numbers=numbers(9000, 90.0, 1))
+    assert value['suggestion']['history'][0]['state'] == 'confirmed'
+    assert value['suggestion']['confirmed_name'] == 'Beta' and value['suggestion']['proposed_name'] is None
+    assert value['numeric_check']['reason'] == 'first_observation'  # Never compared with Alpha's EXP.
+    assert not value['reading_hold_recommended']
+
+
+def test_multiple_channels_keep_independent_lifecycles():
+    a, b = IdentityCapture('a'), IdentityCapture('b', confirmed='Beta')
+    for i, (x, y) in enumerate([('Alpha', 'Beta'), ('Alpha', 'Beta'), ('Beta', 'Beta'), ('Beta', 'Alpha')]):
+        va, vb = inspect(a, i, x), inspect(b, i, y)
+    assert va['suggestion']['pending_switch']['name'] == 'Beta' and vb['suggestion']['pending_switch'] is None
+    assert va['hold_reasons'] == ['name_mismatch', 'pending_switch'] and vb['hold_reasons'] == ['name_mismatch']
+    a.suggestions.dismiss(NOW.isoformat())
+    assert not b.suggestions.history and a.suggestions.history[0]['state'] == 'dismissed'

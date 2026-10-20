@@ -14,17 +14,58 @@ from exp_tracker.validation import Observation, validate_transition
 from character_name_ocr import name_region, name_text
 
 
-class IdentitySuggestions:
-    """One instance per channel. An established proposal is NEVER silently replaced."""
+# Numeric changes another character could explain; the rest stay ordinary EXP-validity questions.
+OWNERSHIP_RISK = {'reset_loss_or_character_switch', 'level_decrease',
+                  'level_change_requires_confirmation', 'possible_offstream_progression'}
+PENDING_TTL_SECONDS = 600
 
-    def __init__(self, channel):
+
+class IdentitySuggestions:
+    """One instance per channel. OCR only suggests; only select() records an operator identity."""
+
+    def __init__(self, channel, *, confirmed=None, pending_ttl=PENDING_TTL_SECONDS):
         self.channel = channel
+        self.confirmed = confirmed
+        self.pending_ttl = pending_ttl
         self.proposed = None
         self.proposed_evidence = []
         self.pending_switch = None
+        self.history = deque(maxlen=16)
         self.streak = []
         self.seen = deque(maxlen=128)
         self.last_at = None
+        self.reference_seen_at = None
+
+    @property
+    def reference(self):
+        return self.confirmed or self.proposed
+
+    def _resolve(self, state, at, by):
+        self.history.append({**self.pending_switch, 'state': state, 'resolved_at': at, 'resolved_by': by})
+        self.pending_switch = None
+
+    def select(self, name, at):
+        """Integration boundary: call only after the operator-confirmed Store selection/session change."""
+        if self.pending_switch:
+            self._resolve('confirmed' if self.pending_switch['name'] == name else 'superseded', at, 'operator_selection')
+        self.confirmed, self.proposed, self.proposed_evidence, self.streak = name, None, [], []
+        self.reference_seen_at = None
+
+    def dismiss(self, at):
+        """Operator rejected the pending switch; the same name needs two new frames to return."""
+        if self.pending_switch:
+            self._resolve('dismissed', at, 'operator')
+            self.streak = []
+
+    def snapshot(self, status):
+        return dict(channel=self.channel, confirmed_name=self.confirmed, proposed_name=self.proposed,
+                    proposed_evidence=self.proposed_evidence, reference_name=self.reference,
+                    reference_source='operator_confirmed' if self.confirmed else 'ocr_proposed' if self.proposed else None,
+                    pending_switch=dict(self.pending_switch) if self.pending_switch else None,
+                    history=list(self.history),
+                    confirming_name=self.streak[-1]['name'] if self.streak else None,
+                    confirming_frames=len(self.streak), latest_status=status, trusted=False,
+                    review_required=bool(self.pending_switch or (self.proposed and not self.confirmed)))
 
     def observe(self, evidence):
         when = datetime.fromisoformat(evidence['received_at'])
@@ -39,47 +80,66 @@ class IdentitySuggestions:
             self.last_at = when
             if evidence['pixel_sha256']:
                 self.seen.append(evidence['pixel_sha256'])
+            pending = self.pending_switch
             if evidence['status'] != 'candidate':
                 self.streak = []
             else:
                 name = evidence['name']
+                if name == self.reference:
+                    self.reference_seen_at = when
+                if pending and name == pending['name']:
+                    pending['last_seen_at'] = evidence['received_at']
                 if self.streak and self.streak[-1]['name'] != name:
                     self.streak = []
                 reference = {k: evidence[k] for k in ('name', 'pixel_sha256', 'received_at', 'box', 'score')}
                 self.streak = (self.streak + [reference])[-2:]
                 if len(self.streak) == 2:
-                    if self.proposed is None:
+                    if self.reference is None or name == self.reference:
+                        if pending:
+                            self._resolve('superseded', evidence['received_at'], name)
                         self.proposed, self.proposed_evidence = name, list(self.streak)
-                    elif name != self.proposed:
-                        self.pending_switch = dict(kind='possible_character_switch',name=name,
-                                                   evidence=list(self.streak),review_required=True)
+                    elif pending and name == pending['name']:
+                        pending['evidence'] = list(self.streak)
                     else:
-                        self.proposed_evidence = list(self.streak)
-        return dict(channel=self.channel, proposed_name=self.proposed,
-                    proposed_evidence=self.proposed_evidence, pending_switch=self.pending_switch,
-                    confirming_name=self.streak[-1]['name'] if self.streak else None,
-                    confirming_frames=len(self.streak), latest_status=reason, trusted=False,
-                    review_required=bool(self.proposed or self.pending_switch))
+                        if pending:
+                            self._resolve('superseded', evidence['received_at'], name)
+                        self.pending_switch = dict(kind='possible_character_switch', name=name, state='pending',
+                            evidence=list(self.streak), created_at=evidence['received_at'],
+                            last_seen_at=evidence['received_at'], review_required=True)
+            pending = self.pending_switch
+            # Absence of name evidence never clears a hold; expiry needs time AND the reference seen since.
+            if pending and self.reference_seen_at:
+                last = datetime.fromisoformat(pending['last_seen_at'])
+                if self.reference_seen_at > last and (when - last).total_seconds() >= self.pending_ttl:
+                    self._resolve('expired', evidence['received_at'], 'reference_seen_without_pending_name')
+        return self.snapshot(reason)
 
 
 class IdentityCapture:
-    def __init__(self, channel, *, interval=0):
-        self.suggestions = IdentitySuggestions(channel)
+    def __init__(self, channel, *, interval=0, confirmed=None):
+        self.suggestions = IdentitySuggestions(channel, confirmed=confirmed)
         self.interval = interval
         self.last_check = None
+        self.previous = None
+        self.latest = None
+
+    def select(self, name, at):
+        """After an operator-confirmed switch/new session; numbers never compare across characters."""
+        self.suggestions.select(name, at)
         self.previous = None
 
     def numeric_check(self, result, received_at, requirements):
         """Use the existing transition validator and both existing rounding hypotheses."""
         pair, level = result.get('candidate'), result.get('visual_level')
         if not result.get('current') or pair is None or level is None:
-            return dict(check_now=bool(result.get('current') and (self.previous or self.suggestions.proposed)),
+            return dict(check_now=bool(result.get('current') and (self.previous or self.suggestions.reference)),
                         reason='numeric_unavailable', classification='unknown')
         checks = {mode: assess(level, pair[0], pair[1], requirements, mode) for mode in MODES}
         if all(c['status'] == 'inconsistent' for c in checks.values()):
             return dict(check_now=True, reason='contradicts_both_display_hypotheses',
                         classification='possible_bad_ocr', arithmetic=checks)
-        current = Observation(self.suggestions.channel, datetime.fromisoformat(received_at), Reading(level, *pair))
+        current = self.latest = Observation(self.suggestions.channel, datetime.fromisoformat(received_at),
+                                            Reading(level, *pair))
         before = self.previous
         transition = validate_transition(before, current, max_gap_seconds=CONFIRM_GAP_SECONDS)
         classification = transition.reason
@@ -109,8 +169,8 @@ class IdentityCapture:
                         provenance=dict(field='own_name_status_panel', layout_count=len(layouts),
                                         frame_sequence=frame.sequence, owner_verified=False))
         numeric = self.numeric_check(result, frame.received_at, requirements)
-        needs_confirmation = self.suggestions.proposed is None or bool(self.suggestions.streak and
-            self.suggestions.streak[-1]['name'] != self.suggestions.proposed)
+        needs_confirmation = self.suggestions.reference is None or bool(self.suggestions.streak and
+            self.suggestions.streak[-1]['name'] != self.suggestions.reference)
         due = (self.last_check is None or started - self.last_check >= self.interval
                or numeric['check_now'] or needs_confirmation)
         evidence['verification_reason'] = ('numeric_event' if numeric['check_now'] else
@@ -145,16 +205,25 @@ class IdentityCapture:
         evidence['seconds'] = clock() - started
         if evidence['status'] == 'not_due':
             # Skipping work must not manufacture another vote or break a real confirmation.
-            suggestion = dict(channel=self.suggestions.channel, proposed_name=self.suggestions.proposed,
-                proposed_evidence=self.suggestions.proposed_evidence, pending_switch=self.suggestions.pending_switch,
-                latest_status='not_due', trusted=False, review_required=bool(self.suggestions.proposed))
+            suggestion = self.suggestions.snapshot('not_due')
         else:
             suggestion = self.suggestions.observe(evidence)
-        mismatch = bool(evidence['name'] and suggestion['proposed_name']
-                        and evidence['name'] != suggestion['proposed_name'])
+        reference, observed, pending = suggestion['reference_name'], evidence['name'], suggestion['pending_switch']
+        mismatch = bool(observed and reference and observed != reference)
+        verified = bool(observed and observed == reference)
+        conflict = dict(reference_name=reference, reference_source=suggestion['reference_source'],
+                        observed_name=observed if mismatch else None,
+                        pending_name=pending['name'] if pending else None) if mismatch or pending else None
+        anomaly = numeric['classification'] in OWNERSHIP_RISK
+        hold = [r for r, on in (('name_mismatch', mismatch), ('pending_switch', bool(pending)),
+                                ('unverified_numeric_anomaly', anomaly and not verified)) if on]
+        # A same-character change (name verified, or the existing wrap rule) becomes the next comparison anchor.
+        if (numeric.get('transition', {}).get('status') == 'ambiguous' and not conflict
+                and (verified or numeric['classification'] == 'possible_normal_level_up')):
+            self.previous = self.latest
         return dict(evidence=evidence, suggestion=suggestion, numeric_check=numeric,
-                    suspect_reading_hold_recommended=bool(numeric['check_now'] or mismatch
-                                                         or suggestion.get('pending_switch')),
+                    verification_requested=bool(numeric['check_now'] or needs_confirmation),
+                    identity_conflict=conflict, reading_hold_recommended=bool(hold), hold_reasons=hold,
                     tracking_action='none')
 
     def missing(self, received_at):

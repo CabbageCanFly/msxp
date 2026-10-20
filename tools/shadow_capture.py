@@ -487,7 +487,7 @@ def configuration(args, table_bytes, table, run_id=None):
         **({'run_id': run_id} if run_id else {}),
         **({'experimental_neural_level': True, 'neural_level_preprocessing': 'neutral4'}
            if args.experimental_neural_level else {}),
-        **({'character_names':True,'name_interval_seconds':args.name_interval,'identity_policy':'review_only_v1'}
+        **({'character_names':True,'name_interval_seconds':args.name_interval,'identity_policy':'review_only_v2'}
            if getattr(args,'character_names',False) else {}),
         **({'resident_neural':True} if getattr(args,'resident_neural',False) or getattr(args,'character_names',False) else {}),
         **({'hud_cache_seconds':args.hud_cache_seconds} if getattr(args,'hud_cache_seconds',0) else {}))
@@ -537,6 +537,8 @@ def main(argv=None, *, on_record=None, on_activity=None):
                         pending_switch=(suggestion.get('pending_switch') or {}).get('name'),
                         observed_name=evidence.get('name'),status=suggestion.get('latest_status'),
                         numeric_reason=(name.get('numeric_check') or {}).get('classification'),
+                        verification_requested=name.get('verification_requested'),
+                        reading_hold_recommended=name.get('reading_hold_recommended'),hold_reasons=name.get('hold_reasons'),
                         source_evidence={k:evidence.get(k) for k in ('received_at','pixel_sha256','box','score')},
                         trusted=False),allow_nan=False),flush=True)
                 try:

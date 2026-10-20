@@ -260,7 +260,8 @@ Example excerpt from the splice's fourth attempt:
 ```
 
 Full private JSONL adds `character_name.evidence`, `suggestion`, `numeric_check`,
-`suspect_reading_hold_recommended` and `tracking_action: "none"` alongside the
+`verification_requested`, `identity_conflict`, `reading_hold_recommended`,
+`hold_reasons` and `tracking_action: "none"` alongside the
 existing EXP/level results. Evidence retains raw text/scores, inference and bridge
 times, queue wait, source/canonical pixel hashes, receipt time, frame sequence,
 source-pixel box, model provenance, layout search origin and full-scan age. Parent
@@ -307,11 +308,9 @@ No name comes from a level/EXP value. There is no fuzzy matching or confidence w
 
 Unreadability, conflicts, multiple HUDs and capture failures clear an unfinished
 confirmation. Duplicate or out-of-order frames cannot add support. Long gaps clear
-confirmation too. An established proposal and an already established pending switch
-remain dated review evidence through failures and even if the old name returns;
-neither is automatically selected, dismissed or acknowledged. The latest status
-must be read with those historical suggestions. The original offline batch tool
-keeps its stricter whole-batch ambiguity policy.
+confirmation too. Pending switches follow the lifecycle below; nothing is ever
+automatically selected. The original offline batch tool keeps its stricter
+whole-batch ambiguity policy.
 
 Default `--name-interval 0` checks **every eligible capture**. With a longer interval,
 initial confirmation, confirmation of a newly observed name and numerical events
@@ -331,16 +330,97 @@ There is no new XP-rate or level-jump threshold. Larger jumps remain unresolved
 changes under the existing validator; supported progression after a gap can be
 legitimate. Numerical context uses complete EXP pairs and a visual level; checked
 neural levels are retained independently, not silently substituted. A suspect numeric
-sample does not advance the comparison anchor, so unresolved changes can keep
-requesting checks. Only repeated independent **name** evidence can suggest a switch.
+sample does not advance the comparison anchor unless the same frame's name check
+reads the reference identity (or it is a `possible_normal_level_up`), so unresolved
+changes keep requesting checks. Only repeated independent **name** evidence can
+suggest a switch.
 
-Future integration should hold a suspect reading **before assigning/ingesting it
-under a selected character**, at the coordinator's result/append boundary. Preserve
-raw evidence for review and establish a separate baseline after an explicit confirmed
-switch. The hold recommendation also covers an observed name mismatch (even before
-two-frame confirmation) and any pending switch, including switches at identical EXP.
-This milestone only reports the hold recommendation; EXP ingestion, selection,
-sessions, histories, roster, public UI/API and systemd configuration are unchanged.
+### Identity lifecycle and attribution decisions (`identity_policy: review_only_v2`)
+
+Each capture reports three separate outcomes. They are deliberately not one flag:
+
+| Field | Meaning | Set by |
+| --- | --- | --- |
+| `verification_requested` | A name check is warranted now | Any numeric event above, or an unfinished name confirmation |
+| `identity_conflict` | Name evidence disagrees with the **reference identity** | This frame's name differs, or a switch is pending |
+| `reading_hold_recommended` + `hold_reasons` | Attributing this reading to the reference character could contaminate its EXP history | `name_mismatch`, `pending_switch`, `unverified_numeric_anomaly` |
+
+The **reference identity** is the operator-confirmed name when one was supplied
+(`reference_source: "operator_confirmed"`), otherwise the first two-frame OCR proposal
+(`"ocr_proposed"`). `confirmed_name` and `proposed_name` are reported separately and
+OCR never writes `confirmed_name`; two-frame agreement is evidence, not authorization.
+
+Numeric anomalies are split by what they can mean. `reset_loss_or_character_switch`,
+`level_decrease`, other `level_change_requires_confirmation` jumps and
+`possible_offstream_progression` could be another character, so they hold **only
+until** a name check on the same frame reads the reference identity (e.g. a death
+EXP loss with the right name is not held). `possible_normal_level_up`,
+`possible_bad_ocr` and incomplete numbers request verification but never an
+identity hold: they are ordinary EXP-validity questions that `validate_transition`
+already answers for the tracker. A verified level-up (or the wrap rule) becomes the
+next numeric anchor, so one legitimate level-up no longer flags every later capture.
+Before this change it did: the anchor stayed on the old level and the hold persisted
+indefinitely.
+
+A pending switch (`pending_switch.state: "pending"`) is created when a name other
+than the reference gets two distinct frames. It ends, moving to the bounded
+`history` (16 entries, with its two evidence references and `resolved_at`/`resolved_by`), as:
+
+- `superseded`: the reference name returns with two frames (A→B→B→A→A), or a third
+  name gets two frames and becomes the new pending switch.
+- `expired`: at least 600 s since the pending name was last seen **and** the reference
+  name has been seen since (one frame is enough). Absence of name evidence alone
+  (unreadable, multiple HUDs, stale, failed) never expires a switch or lifts a hold.
+- `dismissed`: operator `dismiss(at)`. The name needs two new frames to return, and
+  single mismatching frames are still held: dismissal never authorizes the other
+  name's readings for the reference character.
+- `confirmed`: operator `select(name, at)` with the pending name. Selecting a different
+  name records `superseded`.
+
+`IdentityCapture.select(name, at)` is the only way to set the operator identity. It
+also clears the OCR proposal, the confirmation streak and the numeric anchor, so the
+new character's first reading is a `first_observation` baseline, never compared with
+the previous character's EXP. One reference sighting alone (A→B→B→A) does not clear
+a pending switch before expiry; a single-frame mismatch (A→A→B→A) is held only for
+that frame and leaves no suggestion.
+
+### Integration boundary with `multi_alpha.py` (not implemented)
+
+In `multi_alpha.py` every attempt record is bound to a run, and every run is bound
+to one `(character_id, session_id)` at startup. The record is then written by
+`diagnostic.append(lane['run_id'], record)` inside `emit(lane, record)`. That is
+the attribution point, so a future integration should:
+
+1. Create one `IdentityCapture(channel, confirmed=<selected label>)` per lane, from
+   the Store's existing `selected_character_id` label. Never derive it from OCR.
+2. Pass it to `capture_attempt(..., identity=...)`, which already shares the lane's
+   resident worker and located HUD.
+3. In `emit`, **before** `diagnostic.append` attributes the reading, check
+   `record['character_name']['reading_hold_recommended']`. A held record should keep
+   its raw evidence but be stored as unattributed/held, not as an EXP observation of
+   the selected character. How held records are stored is a schema decision for that
+   milestone.
+4. After an operator accepts a switch: `Store.select_character` (which ends the old
+   session with `character_switch`) → `Store.start_session` → rotate the lane to a new
+   run bound to the new session → `identity.select(label, at)`. Held readings from
+   the pending window stay unattributed unless an operator assigns them explicitly.
+   Do not replay them into either history automatically.
+
+This milestone only reports these decisions. EXP ingestion, selection, sessions,
+histories, roster, public UI/API and systemd configuration are unchanged.
+
+Lifecycle verification: **283 focused tests passed** (the command below; 17 new
+sequences cover A→A→B→B, A→A→B→A, A→B→B→A→A with and without an operator identity,
+third names, similar-EXP switches, level-ups with and without a readable name, level
+decreases, loss/gap/bad-OCR anomalies, missing/stale/duplicate evidence, expiry,
+dismissal, operator selection and channel isolation). The full suite passed **2343,
+skipped 118** (private fixtures absent from this worktree, one OS symlink test).
+Replays to new ignored `integration/lifecycle-*.jsonl` reproduced the earlier name
+outcomes: Stream 2 3/3 `hefferheffer` with no hold; the splice holds capture 3
+(`name_mismatch`, `unverified_numeric_anomaly`) and adds `pending_switch` at capture 4.
+The seek is wall-clock based, so replays decode different frames from earlier runs. Same-frame
+EXP/level equality with names on vs off remains a unit test. Policy-only cost rose from 3.4
+to 4.2 µs per observation, negligible against ~90 ms name OCR.
 
 ### Saved-video and focused verification results
 
