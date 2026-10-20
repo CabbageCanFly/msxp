@@ -1,10 +1,13 @@
 import {timezone, localFields, localCandidates, localTimestamp, when, offset} from './admin-time.js';
+import {invalidationUI} from './admin-invalidations.js';
 
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="admin-token"]').content;
 let scope = null, view = null, previewId = null, busy = false, loading = false;
 let edit = {action: 'set', session: 'auto'}, exactTimestamp = null;
 const inputZone = timezone();
+let availableChannels=[];
+const validity=invalidationUI({api,onSaved:()=>load()});
 const option = (value, text) => new Option(text, String(value));
 const bpText = bp => bp == null ? '' : String(bp).padStart(3, '0').replace(/(..)$/, '.$1');
 
@@ -152,7 +155,8 @@ function renderReadings(data) {
     if (!numbers(row, r.presentation, r.presentation?.level?.value ?? r.original_level ?? r.original?.level))
       text(row, 'No readable level or EXP in this reading.', 'p', 'muted');
     const existing = scope.corrections?.find(e => e.active && e.kind === 'point' && e.target_kind === r.kind && String(e.target_event_id) === String(r.identity));
-    button(row, existing ? 'Edit correction' : 'Fix', () => {
+    if(r.invalidation)text(row,'Invalidated — excluded from tracking.','p','muted');
+    if(!r.invalidation)button(row, existing ? 'Edit correction' : 'Fix', () => {
       if (existing) {editEvent(existing); return;}
       const p = r.presentation;
       startEdit({action: 'correct', session: String(r.session_id), context: `Fixing ${scope.character.label}'s reading from ${when(r.timestamp)}. The original time is kept exactly.`},
@@ -160,6 +164,7 @@ function renderReadings(data) {
           exp: p?.exp ?? '', percentage: p?.estimated_percentage ? '' : p?.percentage ?? ''});
       $('target-kind').value = r.kind; $('target-id').value = r.identity;
     });
+    button(row,r.invalidation ? 'Restore' : 'Invalidate',()=>validity.single(r,scope,r.invalidation ? 'restore' : 'invalidate'));
     audit(row, r); $('readings').append(row);
   }
   if (!$('readings').children.length) text($('readings'), 'No past readings in this period.');
@@ -173,6 +178,7 @@ function inspectPath(session = '') {
 }
 async function load(channelChanged = false, characterChanged = false, pastOnly = false) {
   if (loading) return;
+  if(channelChanged || characterChanged)validity.cancel();
   loading = true; invalidate(); block();
   try {
     if (pastOnly) {view = await api(inspectPath($('session').value)); renderReadings(view); return;}
@@ -192,10 +198,12 @@ async function load(channelChanged = false, characterChanged = false, pastOnly =
     else $('target-session').value = edit.session;
     view = $('session').value ? await api(inspectPath($('session').value)) : scope;
     latest(scope); renderHistory(scope); renderReadings(view);
+    validity.update(scope,availableChannels);
     status(scope.character ? '' : 'Select a character to enter its level and EXP.');
   } catch (e) {
     if (!pastOnly) {
       scope = null; $('latest').replaceChildren(); $('history').replaceChildren();
+      validity.clear();
       text($('latest'), 'Could not load the latest information. Choose Refresh to try again.');
       text($('history'), 'Correction history could not be loaded.');
     }
@@ -331,6 +339,7 @@ reset(); block();
 (async () => {
   try {
     const data = await api('/api/channels'); $('database').textContent = `Database: ${data.database}`;
+    availableChannels=data.channels;
     $('channel').replaceChildren(...data.channels.map(c => option(c.login, c.login)));
     if (data.channels.length) await load(true);
     else status('No characters to choose yet. Add a channel and character with the tracking tools first.');

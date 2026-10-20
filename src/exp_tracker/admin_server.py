@@ -15,6 +15,7 @@ import uuid
 from .manual_admin import inspect, percentage, timestamp, writable_store
 from .manual import corrected_reading
 from .store import Store, utc
+from .invalidations import Invalidations,states,validate_reason
 
 WEB = Path(__file__).with_name('web')
 PREVIEW_SECONDS = 900
@@ -27,7 +28,9 @@ def integer(value, name):
     # Decimal strings keep SQLite's full integer precision across the browser boundary.
     if not isinstance(value, str) or not re.fullmatch(r'[0-9]{1,19}', value):
         raise ValueError(f'{name} must be a decimal integer')
-    return int(value)
+    result=int(value)
+    if result>=2**63:raise ValueError(f'{name} is too large')
+    return result
 
 
 def character(store, channel, identity):
@@ -112,6 +115,15 @@ def details(store, channel, cid, session=None):
     selected = character(store, channel, cid)
     result = inspect(store, channel, selected, session)
     result['character'] = selected
+    validity={(kind,r['target_event_id']):r for (kind,_),r in states(store,selected['id']).items() if r['action']=='invalidate'}
+    invalidations=Invalidations(store)
+    for row in result['readings']:
+        event=validity.get((row['kind'],str(row['identity'])))
+        if event:
+            original=invalidations.original(event)['original']
+            row.update(invalidation=event,original_level=original['level'],original=original,
+                presentation=dict(level=dict(value=original['level']),exp=original['current_exp'],
+                    percentage=original['percentage'],evidence='invalidated_reading',timestamp=row['timestamp']))
     for row in result['readings']:
         if row['kind'] == 'observation' and row['presentation'] is None:
             original = row['original']; bp = original['percentage_bp']
@@ -123,7 +135,30 @@ def details(store, channel, cid, session=None):
     result['corrections'] = store.manual_history(channel, character_id=selected['id'])
     result['renames'] = [dict(r) for r in store.db.execute(
         'SELECT * FROM character_renames WHERE character_id=? ORDER BY id DESC', (selected['id'],))] if store.schema_version >= 6 else []
+    result['invalidated']=invalidations.excluded(channel,selected['id'])
+    result['invalidation_history']=invalidations.history(channel,selected['id'])
     return result
+
+
+def reading_operation(raw):
+    allowed={'action','channel','character_id','reason'}
+    action=raw['action']
+    if action=='restore_batch':allowed|={'batch_id'}
+    elif 'kind' in raw:allowed|={'kind','identity','timestamp'}
+    elif action=='invalidate':allowed|={'start','end'}
+    else:raise ValueError('select a reading to restore')
+    if raw.keys()-allowed or any(not isinstance(v,str) for v in raw.values()):raise ValueError('invalid reading request fields')
+    if not re.fullmatch(r'[A-Za-z0-9_]{1,25}',raw.get('channel','')):raise ValueError('select an existing Twitch channel')
+    integer(raw.get('character_id'),'character ID');validate_reason(raw.get('reason'))
+    if action=='restore_batch':spec=dict(action='restore',batch_id=integer(raw.get('batch_id'),'batch ID'))
+    elif 'kind' in raw:
+        if 'identity' not in raw or 'timestamp' not in raw:raise ValueError('original reading and timestamp are required')
+        spec=dict(action=action,kind=raw['kind'],identity=raw['identity'],timestamp=utc(timestamp(raw['timestamp'])))
+    else:
+        if 'start' not in raw or 'end' not in raw:raise ValueError('choose both start and end dates and times')
+        spec=dict(action=action,start=utc(timestamp(raw['start'])),end=utc(timestamp(raw['end'])))
+    return dict(channel=raw['channel'],character_id=raw['character_id'],action=action,reading_spec=spec,
+                reason=raw.get('reason'),event_id=uuid.uuid4().hex)
 
 
 class AdminServer(ThreadingHTTPServer):
@@ -141,6 +176,8 @@ class AdminServer(ThreadingHTTPServer):
         self.origin = f'http://127.0.0.1:{self.server_port}'
 
     def preview(self, raw):
+        if isinstance(raw,dict) and raw.get('action') in ('invalidate','restore','restore_batch'):
+            return self.preview_readings(raw)
         data = operation(raw)
         with writable_store(self.database, True) as store:
             selected = character(store, data['channel'], data['character_id'])
@@ -160,6 +197,30 @@ class AdminServer(ThreadingHTTPServer):
                                            character_label=selected['label'], result=None)
         return dict(preview_id=identity, expires_in_seconds=PREVIEW_SECONDS, **result)
 
+    def preview_readings(self, raw):
+        data=reading_operation(raw)
+        with Store(self.database,read_only=True) as store:
+            selected=character(store,data['channel'],data['character_id'])
+            result=Invalidations(store).preview(data['channel'],selected['id'],data['reading_spec'])
+        with self.lock:
+            self.previews={k:v for k,v in self.previews.items() if v['expires']>time.monotonic()}
+            if len(self.previews)>=64:self.previews.pop(next(iter(self.previews)))
+            identity=secrets.token_urlsafe(24)
+            self.previews[identity]=dict(data=data,expires=time.monotonic()+PREVIEW_SECONDS,
+                character_label=selected['label'],fingerprint=result['fingerprint'],result=None)
+        return dict(result,preview_id=identity,action=data['action'],character=selected,selection=data['reading_spec'],reason=data['reason'])
+
+    def reading_page(self, identity, page):
+        with self.lock:
+            item=self.previews.get(identity)
+            if item is None or item['expires']<=time.monotonic() or 'reading_spec' not in item['data']:
+                raise ValueError('review expired; review the readings again')
+            data=item['data'];fingerprint=item['fingerprint']
+        with Store(self.database,read_only=True) as store:
+            result=Invalidations(store).preview(data['channel'],int(data['character_id']),data['reading_spec'],page)
+        if result['fingerprint']!=fingerprint:raise ValueError('readings changed since review; review the selection again')
+        return result
+
     def save(self, identity):
         with self.lock:
             item = self.previews.get(identity)
@@ -171,7 +232,8 @@ class AdminServer(ThreadingHTTPServer):
             with writable_store(self.database, False) as store:
                 if character(store, data['channel'], data['character_id'])['label'] != item['character_label']:
                     raise ValueError('character name changed since preview; refresh and preview again')
-                event = apply(store, data)
+                event = (Invalidations(store).commit(data['channel'],int(data['character_id']),data['event_id'],
+                    data['reading_spec'],item['fingerprint'],data['reason']) if 'reading_spec' in data else apply(store, data))
             item['result'] = dict(action=data['action'], event=event, saved=True,
                                   notice=ROSTER_NOTICE if data['action'] == 'rename' else 'Saved with manual_admin provenance.')
             return item['result']
@@ -217,7 +279,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == '/' and not url.query:
                 body = (WEB/'admin.html').read_bytes().replace(b'__ADMIN_TOKEN__', self.server.token.encode())
                 self.reply(200, body, 'text/html')
-            elif url.path in ('/admin.js', '/admin-time.js', '/admin.css') and not url.query:
+            elif url.path in ('/admin.js', '/admin-time.js', '/admin-invalidations.js', '/admin.css') and not url.query:
                 self.reply(200, (WEB/url.path[1:]).read_bytes(), 'text/javascript' if url.path.endswith('.js') else 'text/css')
             elif url.path == '/api/channels' and not url.query:
                 with Store(self.server.database, read_only=True) as store:
@@ -231,9 +293,22 @@ class Handler(BaseHTTPRequestHandler):
                 with Store(self.server.database, read_only=True) as store:
                     cid = query.get('character_id', [str(store.state(channel)['selected_character_id'])])[0]
                     if cid == 'None':
-                        self.reply(200, dict(characters=store.state(channel)['characters'], character=None)); return
+                        self.reply(200, dict(channel=channel, characters=store.state(channel)['characters'], character=None)); return
                     session = integer(query['session_id'][0], 'session ID') if 'session_id' in query else None
                     self.reply(200, details(store, channel, cid, session))
+            elif url.path in ('/api/invalidated','/api/invalidation-history','/api/invalidation-preview'):
+                query=parse_qs(url.query,keep_blank_values=True,max_num_fields=3)
+                allowed={'preview_id','page'} if url.path.endswith('preview') else {'channel','character_id','before'}
+                if query.keys()-allowed or any(len(v)!=1 for v in query.values()):raise ValueError('invalid reading history query')
+                if url.path.endswith('preview'):
+                    if 'preview_id' not in query:raise ValueError('review identity is required')
+                    self.reply(200,self.server.reading_page(query['preview_id'][0],integer(query.get('page',['0'])[0],'page')))
+                else:
+                    if not {'channel','character_id'}<=query.keys():raise ValueError('channel and character are required')
+                    with Store(self.server.database,read_only=True) as store:
+                        method=Invalidations(store).excluded if url.path=='/api/invalidated' else Invalidations(store).history
+                        self.reply(200,method(query['channel'][0],integer(query['character_id'][0],'character ID'),
+                            integer(query['before'][0],'history cursor') if 'before' in query else None))
             else:
                 self.reply(404, dict(error='not found'))
         except (ValueError, argparse.ArgumentTypeError) as error:

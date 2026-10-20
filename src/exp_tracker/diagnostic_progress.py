@@ -38,6 +38,7 @@ def elapsed_seconds(a, b):
 
 def percentage_point(row, *, include_recovered=True):
     """One percentage per immutable attempt; don't trust supplied proposal objects."""
+    if row.get('reading_invalidated'):return None,'reading_invalidated'
     if row.get('manual_point'):return None,'manual_historical_correction'
     if row.get('exp_validity',{}).get('whole_pair_rejected'):
         return None, 'arithmetic_pair_veto'

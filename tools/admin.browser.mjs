@@ -111,6 +111,71 @@ try {
   const overlay = await tab(info.public,'/live/overlay/alpha',500,160);
   for (const p of [board,detail,overlay]) await p.wait("typeof data!=='undefined' && (data?.player?.reading || data?.players?.length)");
   const originalGain = await detail.evaluate('data.tracked_history.tracked_exp.approximate');
+  console.log('Checking reading invalidation, restoration and complete-history batches…');
+  async function readingAction(identity,label) {
+    await admin.evaluate(`(() => {document.getElementById('past-section').open=true;const row=document.querySelector('[data-reading-id="${identity}"]');[...row.querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)}).click();})()`);
+  }
+  async function invalidReview() {
+    await admin.wait("!document.getElementById('invalidation-review').hidden && !document.getElementById('confirm-invalidation').disabled");
+    return admin.evaluate("JSON.parse(document.getElementById('invalidation-audit').textContent)");
+  }
+  async function invalidSave(prefix) {
+    await admin.click('confirm-invalidation');
+    await admin.wait(idle+` && document.getElementById('invalidation-review').hidden && document.getElementById('invalidation-status').textContent.startsWith(${JSON.stringify(prefix)})`);
+    return admin.evaluate("JSON.parse(document.getElementById('invalidation-saved-audit').textContent)");
+  }
+  async function restoreExcluded(identity) {
+    await admin.evaluate(`(() => {document.getElementById('invalidated-section').open=true;document.querySelector('[data-invalidated-identity="${identity}"] button').click();})()`);
+    await invalidReview();await invalidSave('Restored');
+  }
+  await admin.fill('session',info.old_session);await admin.wait(idle+" && !!document.querySelector('[data-reading-id=\"old:2\"]')");
+  await readingAction('old:2','Invalidate');let invalid=await invalidReview();
+  assert.equal(invalid.count,1);assert.equal(invalid.readings[0].original.level,50);
+  await screenshot(admin,'invalidate-one');await invalidSave('Invalidated');
+  assert.equal((await api()).corrections.length,0);
+  assert.match(await admin.evaluate("document.querySelector('[data-reading-id=\"old:2\"]').textContent"),/Invalidated/);
+  await readingAction('old:2','Restore');await invalidReview();await invalidSave('Restored');
+  // Latest values and the public publisher change without another frame.
+  await admin.fill('session','');await admin.wait(idle+" && !!document.querySelector('[data-reading-id=\"live:4\"]')");
+  await readingAction('live:4','Invalidate');await invalidReview();await invalidSave('Invalidated');
+  await overlay.wait("data?.player?.reading?.event_id==='live:3'");
+  await restoreExcluded('live:4');await overlay.wait("data?.player?.reading?.event_id==='live:4'");
+  // One pre-existing exclusion is shown but not silently added to the new batch.
+  await admin.fill('session',info.old_session);await admin.wait(idle+" && !!document.querySelector('[data-reading-id=\"old:2\"]')");
+  await readingAction('old:2','Invalidate');await invalidReview();await invalidSave('Invalidated');
+  await admin.evaluate("document.getElementById('invalidate-section').open=true");
+  async function rangeTime(prefix,stamp) {
+    const parts=await admin.evaluate(`(() => {const d=new Date(${JSON.stringify(stamp)}),p=n=>String(n).padStart(2,'0');return{date:[d.getFullYear(),p(d.getMonth()+1),p(d.getDate())].join('-'),time:[p(d.getHours()),p(d.getMinutes()),p(d.getSeconds())].join(':')};})()`);
+    await admin.fill(prefix+'-date',parts.date);await admin.fill(prefix+'-time',parts.time);
+  }
+  await admin.fill('invalidate-start-date','2026-03-08');await admin.fill('invalidate-start-time','02:30:00');
+  await rangeTime('invalidate-end',info.boundary);await admin.click('review-readings');
+  await admin.wait("document.getElementById('invalidation-status').textContent.includes('does not exist')");
+  await admin.fill('invalidate-start-date','2025-11-02');await admin.fill('invalidate-start-time','01:30:00');
+  assert.equal(await admin.evaluate("document.getElementById('invalidate-start-fold').hidden"),false);
+  assert.equal(await get('invalidate-start-choice'),'');
+  await admin.fill('invalidate-start-choice','2025-11-02T06:30:00.000Z');
+  await admin.fill('invalidate-end-date','2025-11-02');await admin.fill('invalidate-end-time','01:45:00');
+  assert.equal(await admin.evaluate("document.getElementById('invalidate-end-fold').hidden"),false);
+  await admin.fill('invalidate-end-choice','2025-11-02T06:45:00.000Z');await admin.click('review-readings');
+  await admin.wait("document.getElementById('invalidation-status').textContent.includes('no readings')");
+  await rangeTime('invalidate-start',info.stamps.old[0]);await rangeTime('invalidate-end',info.boundary);
+  await admin.fill('invalidate-reason','Incorrect OCR in the selected interval');await admin.click('review-readings');
+  invalid=await invalidReview();assert.equal(invalid.total,113);assert.equal(invalid.count,112);assert.equal(invalid.already_invalidated,1);
+  assert.equal(await admin.evaluate("document.querySelectorAll('#invalidation-list article').length"),50);
+  assert.match(await admin.evaluate("document.getElementById('invalidation-list').textContent"),/Already invalidated/);
+  await admin.click('invalidation-next');await admin.wait("document.getElementById('invalidation-page').textContent==='Page 2 of 3'");
+  await admin.click('invalidation-next');await admin.wait("document.getElementById('invalidation-page').textContent==='Page 3 of 3'");
+  assert.equal(await admin.evaluate("document.querySelectorAll('#invalidation-list article').length"),13);
+  await screenshot(admin,'invalidate-batch');const invalidBatch=(await invalidSave('Invalidated')).event;
+  const state=(await api()).invalidated;assert.ok(state.next_before);assert.equal(state.readings.length,50);
+  const restoredMember=state.readings[0].identity;await restoreExcluded(restoredMember);
+  await admin.evaluate(`(() => {document.getElementById('invalidated-section').open=true;document.querySelector('[data-invalidation-batch="${invalidBatch.id}"] button').click();})()`);
+  invalid=await invalidReview();assert.equal(invalid.count,111);assert.equal(invalid.total,112);
+  await invalidSave('Restored');assert.equal((await api()).invalidated.readings.length,1);
+  await restoreExcluded('old:2');assert.equal((await api()).invalidated.readings.length,0);
+  assert.equal((await api()).corrections.length,0);
+  await admin.fill('session','');await admin.wait(idle+" && !!document.querySelector('[data-reading-id=\"live:4\"]')");
   console.log('Checking native keyboard navigation and ordinary corrections…');
   // Native keyboard navigation through date, time and EXP controls.
   await localTime(info.stamps.live[2]);
@@ -223,6 +288,11 @@ try {
   await screenshot(admin,'admin-desktop');
   await admin.command('Emulation.setDeviceMetricsOverride',{width:390,height:1100,deviceScaleFactor:1,mobile:true});
   await screenshot(admin,'admin-mobile');
+  await admin.evaluate("document.getElementById('past-section').open=true;document.getElementById('readings').querySelector('article').querySelectorAll('button')[1].click()");
+  await invalidReview();await screenshot(admin,'invalidate-mobile');await admin.click('cancel-invalidation');
+  await admin.evaluate("document.getElementById('invalidate-section').open=true;document.getElementById('invalidate-form').scrollIntoView()");
+  await screenshot(admin,'invalidate-form-mobile');
+  await admin.evaluate("document.getElementById('past-section').open=false;document.getElementById('invalidate-section').open=false;window.scrollTo(0,0)");
   // Mobile keyboard editing and review still work at normal scale.
   await admin.fill('level','43'); await admin.fill('percentage','0.45'); await admin.click('use-now');
   assert.equal(await admin.evaluate("document.getElementById('editor').checkValidity()"),true,
@@ -236,7 +306,7 @@ try {
   assert.deepEqual(unexpected,[]);
   assert.ok(requests.every(r=>r.startsWith('data:') || [info.admin,info.public].includes(new URL(r).origin)));
   writeFileSync(join(output,'verification.json'), JSON.stringify({syntheticOnly:true, keyboardVisited:visited,
-    workflows:['native local time','percentage only','numeric only','exact microseconds','historical fix','edit','undo','rename','empty states','DST gap/fold','recording ambiguity','clear','refresh failure','publisher'],
+    workflows:['single invalidation','single restore','complete-history range','batch pagination','individual batch restore','batch restore','invalidated latest','native local time','percentage only','numeric only','exact microseconds','historical fix','edit','undo','rename','empty states','DST gap/fold','recording ambiguity','clear','refresh failure','publisher'],
     point:point.id, renamedCharacterId:renamed.character_id, scriptErrors:unexpected, networkRequests:requests.length},null,2));
   console.log('PASS: redesigned admin workflows, native date/time, DST, exact historical times, keyboard, desktop/mobile, protected writes and public publication.');
 } finally {sockets.forEach(s=>s.close()); browser?.kill(); server.kill();}

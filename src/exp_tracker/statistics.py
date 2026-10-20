@@ -34,7 +34,7 @@ def _window(chain, now, seconds, unavailable):
     return result
 
 
-def tracking_statistics(db, state, now):
+def tracking_statistics(db, state, now, *, revised_rows=None):
     """Use complete intervals only; never interpolate boundary gains or fill gaps with zero."""
     session, last = state["session"], state["last_trusted"]
     unavailable = None
@@ -58,6 +58,14 @@ def tracking_statistics(db, state, now):
             ORDER BY o.observed_at DESC""", (state["selected_character_id"], session["id"],
                 (now - timedelta(minutes=30)).isoformat(timespec="microseconds"),
                 last["observed_at"]))
+        if revised_rows is not None:
+            by_id={r['id']:r for r in revised_rows}
+            rows=[]
+            for item in reversed(revised_rows):
+                prior=by_id.get(item['interval_start_observation_id'])
+                if item['outcome']!='accepted' or not prior or prior['level']!=item['level']:continue
+                if not (now-timedelta(minutes=30)).isoformat(timespec='microseconds')<item['observed_at']<=last['observed_at']:continue
+                rows.append(dict(item,start_at=prior['observed_at'],start_percentage_bp=prior['percentage_bp']))
         expected = last["id"]
         for record in rows:
             if record["id"] != expected:

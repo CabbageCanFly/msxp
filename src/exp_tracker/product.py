@@ -265,6 +265,7 @@ def estimates(segment,pace,bp):
 
 
 def reading(row):
+    if row.get('reading_invalidated'):return None
     if row.get('manual_point'):
         from .manual import corrected_reading
         return corrected_reading(row['manual_point'],event_id=row['event_id'],
@@ -638,6 +639,9 @@ def history(snapshot):
     comparisons={c['event_id']:c for c in snapshot['percentage_progress'].get('comparisons',[])}
     previous=None;previous_row=None;previous_point=None
     for row in snapshot['observations']:
+        if row.get('reading_invalidated'):
+            previous=None;previous_row=None;previous_point=None
+            continue
         value=reading(row)
         comparison=comparisons.get(row['event_id'])
         connected=bool(comparison and comparison['reason']=='contiguous_diagnostic_endpoints' and comparison['change'] in ('positive','zero'))

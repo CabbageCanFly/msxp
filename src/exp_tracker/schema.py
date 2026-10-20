@@ -1,6 +1,6 @@
 """SQLite base schema and additive migrations, applied in one transaction."""
 
-VERSION = 6
+VERSION = 7
 STATEMENTS = (
     """CREATE TABLE streamers (
         id INTEGER PRIMARY KEY, login TEXT NOT NULL UNIQUE,
@@ -129,4 +129,48 @@ MIGRATION_6 = (
         BEGIN SELECT RAISE(ABORT,'character renames are append-only'); END""",
     """CREATE TRIGGER rename_no_delete BEFORE DELETE ON character_renames
         BEGIN SELECT RAISE(ABORT,'character renames are append-only'); END""",
+)
+
+# Membership is staged in small transactions. Only an append-only commit publishes a batch.
+MIGRATION_7 = (
+    """CREATE INDEX diagnostic_receipt ON diagnostic_attempts(
+        CASE WHEN LENGTH(COALESCE(received_at,attempted_at))=25
+            THEN SUBSTR(COALESCE(received_at,attempted_at),1,19)||'.000000+00:00'
+            ELSE COALESCE(received_at,attempted_at) END,run_id,id)""",
+    """CREATE TABLE reading_batches (
+        id INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE, streamer_id INTEGER NOT NULL REFERENCES streamers(id),
+        character_id INTEGER NOT NULL, action TEXT NOT NULL CHECK(action IN ('invalidate','restore')),
+        selection_json TEXT NOT NULL, fingerprint TEXT NOT NULL, recorded_at TEXT NOT NULL, reason TEXT,
+        expected_count INTEGER NOT NULL CHECK(expected_count BETWEEN 1 AND 20000),
+        provenance TEXT NOT NULL DEFAULT 'manual_admin' CHECK(provenance='manual_admin'),
+        FOREIGN KEY(character_id,streamer_id) REFERENCES characters(id,streamer_id)
+    )""",
+    """CREATE TABLE reading_events (
+        id INTEGER PRIMARY KEY, batch_id INTEGER NOT NULL REFERENCES reading_batches(id),
+        kind TEXT NOT NULL CHECK(kind IN ('diagnostic','observation')), source_id INTEGER NOT NULL,
+        target_event_id TEXT NOT NULL, session_id INTEGER NOT NULL REFERENCES sessions(id), original_at TEXT NOT NULL,
+        UNIQUE(batch_id,kind,source_id)
+    )""",
+    'CREATE INDEX reading_event_target ON reading_events(kind,source_id,id DESC)',
+    """CREATE TABLE reading_commits (
+        id INTEGER PRIMARY KEY, batch_id INTEGER NOT NULL UNIQUE REFERENCES reading_batches(id), recorded_at TEXT NOT NULL
+    )""",
+    """CREATE VIEW reading_validity AS SELECT e.*,b.action,b.streamer_id,b.character_id,b.reason,c.recorded_at
+        FROM reading_events e JOIN reading_batches b ON b.id=e.batch_id JOIN reading_commits c ON c.batch_id=b.id
+        WHERE e.id=(SELECT MAX(n.id) FROM reading_events n JOIN reading_commits nc ON nc.batch_id=n.batch_id
+                    WHERE n.kind=e.kind AND n.source_id=e.source_id)""",
+    """CREATE TRIGGER reading_membership_sealed BEFORE INSERT ON reading_events
+        WHEN EXISTS(SELECT 1 FROM reading_commits WHERE batch_id=NEW.batch_id)
+        BEGIN SELECT RAISE(ABORT,'batch already committed'); END""",
+    """CREATE TRIGGER reading_membership_owner BEFORE INSERT ON reading_events
+        WHEN NOT EXISTS(SELECT 1 FROM sessions s JOIN reading_batches b ON b.id=NEW.batch_id
+            WHERE s.id=NEW.session_id AND s.streamer_id=b.streamer_id AND s.character_id=b.character_id)
+        BEGIN SELECT RAISE(ABORT,'reading batch ownership mismatch'); END""",
+    """CREATE TRIGGER reading_batch_complete BEFORE INSERT ON reading_commits
+        WHEN (SELECT COUNT(*) FROM reading_events WHERE batch_id=NEW.batch_id) !=
+             (SELECT expected_count FROM reading_batches WHERE id=NEW.batch_id)
+        BEGIN SELECT RAISE(ABORT,'reading batch is incomplete'); END""",
+    *tuple(f"""CREATE TRIGGER {table}_no_{action.lower()} BEFORE {action} ON {table}
+        BEGIN SELECT RAISE(ABORT,'reading validity audit is append-only'); END"""
+        for table in ('reading_batches','reading_events','reading_commits') for action in ('UPDATE','DELETE')),
 )

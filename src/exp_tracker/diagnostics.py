@@ -126,6 +126,8 @@ class Diagnostics:
     def __init__(self, store):
         self.store = store
         self.db = store.db
+        self._validity_key=None
+        self._validity={}
 
     def _begin(self, run_id, channel, configuration):
         if not isinstance(run_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', run_id):
@@ -310,6 +312,13 @@ class Diagnostics:
             trusted_state=state)
         result['manual_corrections'] = self.store.manual_history(channel,
             character_id=selected['id'] if selected else None,as_of=now) if selected else []
+        from .invalidations import states,revision as invalidation_revision,mask,barriers
+        result['invalidation_revision']=invalidation_revision(self.store,channel)
+        validity_key=(selected['id'] if selected else None,result['invalidation_revision'])
+        if validity_key!=self._validity_key:
+            self._validity=states(self.store,selected['id'],'diagnostic',active_only=True) if selected else {}
+            self._validity_key=validity_key
+        validity=self._validity
         result['manual_observations']=[corrected_reading(e,event_id='observation:'+e['target_event_id'])
             for e in active(result['manual_corrections']) if e['kind']=='point' and e['target_kind']=='observation'
             and e['session_id']==(session['id'] if session else None)]
@@ -369,11 +378,14 @@ class Diagnostics:
             when = value['received_at'] or value['attempted_at']
             value.update(event_id=f"{row['run_id']}:{row['attempt_index']}", run_id=row['run_id'],
                          timestamp_ordered=previous is None or when > previous)
-            previous = max(previous, when) if previous else when
+            excluded=validity.get(('diagnostic',row['id']))
+            if excluded and excluded['action']=='invalidate':mask(value,excluded)
+            else:previous = max(previous, when) if previous else when
             observations.append(value)
         annotate(observations,result['manual_corrections'])
         if _rows_only:
             return observations  # Internal streaming history: reuse the exact sanitized decoder.
+        barriers(observations)
         total = self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE session_id=?' if self.store.schema_version>=4 else
             'SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?', (session['id'],)).fetchone()[0]
         observations=project(observations)
@@ -433,6 +445,7 @@ class Diagnostics:
         """Committed revision per channel: selection, open session, latest run and attempt."""
         manual='(SELECT MAX(id) FROM manual_corrections WHERE streamer_id=s.id)' if self.store.schema_version>=5 else 'NULL'
         rename='(SELECT MAX(id) FROM character_renames WHERE streamer_id=s.id)' if self.store.schema_version>=6 else 'NULL'
+        invalidation='(SELECT MAX(c.id) FROM reading_commits c JOIN reading_batches b ON b.id=c.batch_id WHERE b.streamer_id=s.id)' if self.store.schema_version>=7 else 'NULL'
         latest='SELECT MAX(id) FROM diagnostic_attempts WHERE session_id=se.id' if self.store.schema_version>=4 else (
             'SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id WHERE dr.session_id=se.id')
         return list(self.db.execute('''SELECT s.login,s.selected_character_id,se.id AS session_id,
@@ -440,7 +453,8 @@ class Diagnostics:
             (SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=se.id AND summary_json IS NULL) AS unfinished_count,
             ('''+latest+''') AS last_attempt_id,
             '''+manual+''' AS manual_revision,
-            '''+rename+''' AS rename_revision
+            '''+rename+''' AS rename_revision,
+            '''+invalidation+''' AS invalidation_revision
             FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
             LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
             '''+('WHERE s.login=? ' if login else '')+'ORDER BY s.login LIMIT 26',(login,) if login else ()))

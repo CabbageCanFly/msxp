@@ -40,6 +40,18 @@ def main():
                     neural_level=dict(status='numeric_candidate', level=50, text='50', score=.99),
                     localization=dict(count=1), frame_sha256=f'{offset+i:064x}'))
             if run == 'old':
+                # More than the dashboard's 60-row slice, for complete-range invalidation tests.
+                for group in range(2):
+                    archive=f'archive-{group+1}'
+                    d.begin(archive,'alpha',dict(type='configuration',trusted=False,interval=15,count=55,source_kind='file'))
+                    for n in range(1,56):
+                        stamp=(start+timedelta(seconds=90+55*group+n)).isoformat()
+                        bp=3350+n;exp=bp*requirement(50)['to_next']//10000;pct=f'{bp//100}.{bp%100:02}'
+                        d.append(archive,dict(type='attempt',trusted=False,index=n,attempted_at=stamp,received_at=stamp,current=True,
+                            source=dict(kind='file',channel=None),status='diagnostic_pair',candidate=[exp,float(pct)],
+                            neural=dict(text=f'{exp}[{pct}%]'),visual_level=50,visual_status='available',
+                            neural_level=dict(status='numeric_candidate',level=50,text='50',score=.99),
+                            localization=dict(count=1),frame_sha256=f'{1000+55*group+n:064x}'))
                 old_session = sid
                 store.end_session('alpha', at=start+timedelta(seconds=200))
     with AdminServer(path, 0) as admin, create_server(path, port=0, public_only=True, background=True) as public:

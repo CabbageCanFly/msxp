@@ -82,15 +82,46 @@
     </section>
     <details id="receipt" hidden><summary>Advanced: last saved details</summary><pre id="saved-audit"></pre></details>
   </section>
-  <nav aria-label="Character records"><a href="#past-section">Past readings</a><a href="#history-section">Correction history</a><button id="refresh" type="button" class="text-button">Refresh</button></nav>
+  <nav aria-label="Character records"><a href="#past-section">Past readings</a><a href="#history-section">Correction history</a><a href="#invalidate-section">Invalidate readings</a><a href="#invalidated-section">Invalidated readings</a><button id="refresh" type="button" class="text-button">Refresh</button></nav>
   <details id="past-section" class="panel"><summary>Past readings</summary>
     <label>Recorded period<select id="session"></select></label>
-    <p class="muted">Find the reading you want to change and choose Fix. Its original time is kept exactly.</p>
+    <p class="muted">Choose Fix to enter correct values, or Invalidate to exclude a bad reading. Its original time is kept exactly.</p>
     <div id="readings"></div>
   </details>
   <details id="history-section" class="panel"><summary>Correction history</summary>
     <p class="muted">Edit a correction or undo it. Original game readings are always kept.</p>
     <div id="history"></div>
+  </details>
+  <details id="invalidate-section" class="panel"><summary>Invalidate readings</summary>
+    <p class="muted">Exclude incorrect game readings without entering replacement EXP. The original readings are kept.</p>
+    <form id="invalidate-form">
+      <div class="fields"><label>Twitch channel<select id="invalidate-channel" required></select></label><label>Character<select id="invalidate-character" required></select></label></div>
+      <fieldset><legend>Start (included)</legend><div class="fields date-time"><label>Date<input id="invalidate-start-date" type="date" required></label><label>Time (with seconds)<input id="invalidate-start-time" type="time" step="1" required></label></div>
+        <label id="invalidate-start-fold" hidden>This time occurs twice. Which time?<select id="invalidate-start-choice"></select></label></fieldset>
+      <fieldset><legend>End (not included)</legend><div class="fields date-time"><label>Date<input id="invalidate-end-date" type="date" required></label><label>Time (with seconds)<input id="invalidate-end-time" type="time" step="1" required></label></div>
+        <label id="invalidate-end-fold" hidden>This time occurs twice. Which time?<select id="invalidate-end-choice"></select></label></fieldset>
+      <p id="invalidate-timezone" class="muted"></p>
+      <label>Reason <span class="optional">(optional)</span><input id="invalidate-reason" maxlength="1000"></label>
+      <button type="submit" id="review-readings" class="primary">Review readings</button>
+    </form>
+  </details>
+  <section id="invalidation-review" class="panel review" tabindex="-1" hidden aria-labelledby="invalidation-review-title">
+    <h2 id="invalidation-review-title">Review readings</h2>
+    <p id="invalidation-summary"></p><p id="invalidation-range" class="muted"></p>
+    <p>These readings will be excluded from tracking calculations when invalidated. Restoring makes them eligible for the usual tracking checks again. Original game data is always kept.</p>
+    <div id="invalidation-list"></div>
+    <div id="invalidation-pages"><button id="invalidation-previous" type="button">Previous</button><span id="invalidation-page"></span><button id="invalidation-next" type="button">Next</button></div>
+    <details><summary>Advanced details</summary><pre id="invalidation-audit"></pre></details>
+    <button id="confirm-invalidation" type="button" class="primary"></button>
+    <button id="review-invalidation-again" type="button" hidden>Review readings again</button>
+    <button id="cancel-invalidation" type="button">Cancel</button>
+  </section>
+  <p id="invalidation-status" role="status" aria-live="polite"></p>
+  <details id="invalidated-section" class="panel"><summary>Invalidated readings</summary>
+    <p class="muted">Restore an excluded game reading here. This is separate from Undo in correction history.</p>
+    <div id="invalidated-list"></div><button id="invalidated-more" type="button" hidden>More readings</button>
+    <h2>Invalidation history</h2><div id="invalidation-history"></div><button id="invalidation-history-more" type="button" hidden>More history</button>
+    <details id="invalidation-receipt" hidden><summary>Advanced: last saved details</summary><pre id="invalidation-saved-audit"></pre></details>
   </details>
 </main>
 </body>

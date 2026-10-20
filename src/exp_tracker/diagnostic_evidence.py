@@ -302,6 +302,11 @@ def project(rows, *, state=None, allow_context=True):
         capture_gaps=state.get('capture_gaps',0);derived=state.get('derived')
         manual_epoch=state.get('manual_epoch');manual_released=state.get('manual_released',False)
     for original in rows:
+        if original.get('reading_invalidated'):
+            row=dict(original,experimental_level=dict(value=None,status='invalidated',trusted=False),
+                     exp_validity=consistency(None,None))
+            output.append(row)
+            continue
         if original.get('manual_epoch') != manual_epoch:
             recent.clear();previous=None;established=None;established_at=None;neural_context=False
             missing=0;corroborated_at=None;anchor=None;context_conflicts=0;capture_gaps=0;derived=None

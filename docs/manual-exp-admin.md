@@ -17,13 +17,14 @@ python -m exp_tracker.admin_server --db $db --port 8766
 ```
 
 After updating an existing A2 checkout, restart the local admin server and reload
-the browser so the new date/time helper is served. Capture does not need a restart.
+the browser. Update the serving/writer installation before deliberately migrating
+an older database; running older code may reject the new schema.
 
 This is a separate process and port from the read-only tracker server. Starting it
 only reads/validates the named database; it does not initialize or migrate it. A
-confirmed save opens the existing writer and can apply A1.1's additive migration;
+confirmed save opens the existing writer and can apply the additive migrations;
 update any serving/writer installation before deliberately using an older database.
-No new schema migration is needed for A2. Nothing starts, stops or reconfigures the
+Reading invalidation adds schema 7. Nothing starts, stops or reconfigures the
 coordinator. Use a deliberate database path; its absolute path is shown in Advanced.
 
 1. Choose the **Twitch channel** and **Character name**. The latest available level,
@@ -99,6 +100,70 @@ a proxy, tunnel, port forward, OBS browser source or public hosting. The public
 server does not serve admin assets or gain any write endpoints. Keep serving public
 pages from its existing port. Numerical EXP crosses the dashboard JSON boundary as
 decimal strings so integers up to SQLite's limit retain their exact value.
+
+## Exclude incorrect readings without replacement EXP
+
+Use the same protected dashboard launch command above. No replacement level or EXP
+is required, and no new command or public write endpoint is introduced.
+
+- In **Past readings**, choose **Invalidate** beside the incorrect reading. Review
+  its character, original timestamp, level and EXP, then confirm **Invalidate 1
+  reading**. An excluded reading is marked **Invalidated** and offers **Restore**.
+- For a range, open **Invalidate readings**, choose the channel and character, and
+  enter start/end dates and times, including seconds. The timezone is displayed;
+  skipped local times are rejected and repeated times require an explicit choice.
+  The start is included and the end is excluded. Reason is optional.
+- **Review readings** queries the complete stored range, including older recordings,
+  rather than the latest 60 rows in Past readings. Review pages contain 50 readings,
+  with already-invalidated entries clearly marked and left excluded. Confirm
+  **Invalidate N readings** to apply the selected active readings.
+- **Invalidated readings** lists excluded originals and the append-only invalidation
+  history. **Restore** re-enables one reading; **Restore batch** reviews the still
+  excluded members of that batch before confirmation. It leaves independently
+  invalidated readings alone, including a member restored and invalidated again.
+  **Restore** is separate from **Undo**, which removes a manual EXP correction.
+
+A review binds exact source identities, timestamps, ownership and exclusion states.
+If capture adds a reading inside the range, or a correction/exclusion changes the
+selection, paging or saving rejects the stale review. Choose **Review readings
+again** to see and confirm the new selection. Capture outside the range need not
+invalidate the review. Retrying a successful save returns the same receipt.
+The original stored timestamps (including microseconds) remain available in Advanced.
+
+Invalidating an already-invalidated single reading, or restoring an active one, is
+rejected. A historical manual correction and an invalidation cannot control the
+same original reading: **Undo** the point correction before invalidating, or
+**Restore** before applying **Fix**. A separate time-based manual level/EXP setting
+remains independent. Character/session ownership is always retained; a range can
+cover several recordings of the selected character without connecting their gains.
+
+Exclusions remove evidence **before** level confirmation, derived level-ups,
+percentage progression and interval reconstruction. Current cards, ranking, overlay,
+history graphs, ETA, recent windows and 24-hour totals refresh without another frame.
+Safe surrounding OCR endpoints may recover a legitimate interval under the existing
+gap rules; ambiguous sources, pauses, manual boundaries, unrelated sessions and
+unknown transitions retain their barriers. Restoration reruns the usual checks;
+it does not automatically accept an otherwise ineligible reading.
+
+Schema **7** adds append-only batch, membership and activation records. Source OCR,
+original trusted gains and existing `tracking_state` are preserved as audit evidence.
+Trusted-observation presentation/accounting is replayed from retained originally
+accepted/baseline inputs, including future capture validation. Original rejected
+observations are not promoted. Revised state is labeled `retained_trusted_ocr_replay`;
+the prior stored result is available separately as `original_accounting`, not used
+as the default total or anchor. Replay remains necessary after all restorations
+because intervening captures may have used a temporarily different anchor.
+
+Limits are explicit: at most **20,000** matching records per review (larger ranges
+are rejected, never truncated); writes stage **250** memberships per transaction,
+then activate the complete batch atomically after a final selection check. A failed
+or interrupted save can leave inert staged audit rows, with no partial exclusion.
+Trusted replay is capped at **65,536** source rows per affected session; exceeding it
+reports unavailable revised accounting and rejects further trusted ingestion into
+that recording, instead of falling back to invalid accounting. Start a new recording
+through the normal controlled workflow if necessary. Diagnostic and trusted source
+identities are distinct, and both count if both were stored. These bounds are tested
+synthetically; production-size database performance has not been measured.
 
 ## Required input and inspection
 
@@ -235,7 +300,8 @@ Undo and amend require a reason. Treat reasons as public diagnostic text.
 
 Schema **6** additively extends schema 5 with correction kinds, replacement links,
 retractions, stricter new-insert validation and rename audit history. Existing raw
-observations/attempts are preserved. Read-only operation supports schemas 3–6.
+observations/attempts are preserved. Read-only operation supports schemas 3–7;
+reading invalidation adds the schema-7 audit tables described above.
 Deploy updated serving/writer code before migrating an operator installation;
 older processes can reject the new schema. No active installation is upgraded here.
 
@@ -266,6 +332,18 @@ character. For a configured assignment, perform this workflow at a controlled pa
    keep capture stopped and reconcile the labels before starting.
 
 ## Verification and remaining limits
+
+Reading invalidation verification: **2,210 Python passes**, **117 private-fixture
+skips** and **one Windows symlink-permission skip**; **115 Node passes**, no Node
+skips. Focused admin/manual/history tests passed **236 tests** with four saved-fixture
+skips; the follow-up checkpoint/publisher run passed **64** with six fixture skips.
+The final trusted-state/invalidation regression run passed **107** with no skips.
+Chrome exercised single/batch exclusion and restore, complete-history paging beyond
+60 readings, skipped/already-excluded records, native dates and daylight-saving
+choices, latest public refresh, and the existing correction/rename workflows.
+Desktop/mobile screenshots, a synthetic database and the browser receipt are under
+`private/reading-invalidation/browser-verified/`; test servers stop on completion.
+Full/focused Python and Node logs are in `private/reading-invalidation/`.
 
 Tests use isolated synthetic databases, saved-fixture skips and read-only previews.
 No active tracking database, coordinator, Twitch connection or other worktree is
@@ -342,7 +420,8 @@ Known limits: point targeting uses exact source timestamps/identities, not fuzzy
 time matching; manual coordinates are excluded from earned-EXP endpoints; requirement
 data remains provisional; native HUD availability and bounded causal inference can
 delay a level-up. Naming is manual. Browser lists are bounded to recent readings
-within the chosen session; this is not an unrestricted history search. Preview
+within the chosen session; range invalidation separately queries full stored history
+with the explicit limits above. Manual EXP preview
 copies the SQLite database into the OS temporary directory and can be slow for a
 large database. Preview tickets and save receipts are held only in server memory;
 after a server restart or an uncertain network result, inspect audit history before

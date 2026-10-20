@@ -307,7 +307,7 @@ def test_character_change_rebuilds_and_shutdown_stops_the_refresher(tracking,clo
         assert server.publisher.entry('alpha')['tracked']['tracked_exp'] is not None
         other=store.add_character('alpha','Other');store.end_session('alpha',at=clock.at);store.select_character('alpha',other);store.start_session('alpha',at=clock.at)
         server.publisher.wake.set()
-        wait_for(lambda:server.publisher.entry('alpha')['tracked']['character_id']==other)
+        wait_for(lambda:(entry:=server.publisher.entry('alpha')) is not None and entry['tracked']['character_id']==other)
         assert server.publisher.entry('alpha')['tracked']['tracked_exp'] is None
     finally:server.server_close()
     assert not server.publisher.thread.is_alive()

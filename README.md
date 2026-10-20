@@ -107,6 +107,10 @@ The dashboard opens on **Set level and EXP**, with native local date/time contro
 and a review before saving. **Past readings → Fix**, history **Edit / Undo**, and
 the separate **Rename character** action fill in their targets automatically.
 Daylight-saving ambiguities require a choice; technical details stay in Advanced.
+**Past readings → Invalidate** excludes a bad reading without replacement values.
+**Invalidate readings** reviews a complete character/time range in pages before
+saving. **Invalidated readings** provides individual and batch **Restore** actions;
+original OCR and audit history remain intact. See the guide for limits and conflicts.
 
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 1–25 explicit assignments
 sequentially with one shared database/server, a real `/streams` directory and
@@ -177,7 +181,7 @@ existing SQLite state. Start with an existing demo database:
 Start-Process 'http://127.0.0.1:8765/overlay/demo'
 ```
 
-The read-only server supports schemas 3–6; writer initialization migrates to 6.
+The read-only server supports schemas 3–7; writer initialization migrates to 7.
 The linked guide covers creating a demo,
 explicitly migrating old databases, saved real OCR state and timed synthetic
 updates. HTTP never creates/migrates databases or writes tracking state.

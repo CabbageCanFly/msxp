@@ -12,7 +12,7 @@ import sqlite3
 
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition
-from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, STATEMENTS, VERSION
+from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, STATEMENTS, VERSION
 from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
@@ -40,7 +40,7 @@ class Store:
             with self._transaction():
                 version = self.db.execute("PRAGMA user_version").fetchone()[0]
                 if read_only:
-                    if version not in (3,4,5,VERSION):
+                    if version not in (3,4,5,6,VERSION):
                         raise ValueError(f"unsupported schema version {version}; initialize/migrate with the tracking CLI first")
                     self.schema_version=version
                     return
@@ -70,6 +70,10 @@ class Store:
                     for statement in MIGRATION_6:
                         self.db.execute(statement)
                     version = 6
+                if version == 6:
+                    for statement in MIGRATION_7:
+                        self.db.execute(statement)
+                    version = 7
                 if version != VERSION:
                     raise ValueError(f"unsupported schema version {version}")
                 self.db.execute(f"PRAGMA user_version={VERSION}")
@@ -286,6 +290,11 @@ class Store:
             session_id=None if no_session else self._manual_session(streamer['id'],character_id,when,session_id)
             if kind=='point':
                 target_kind,target_event_id=self._manual_target(streamer['id'],character_id,session_id,when,target_kind,target_event_id)
+                from .invalidations import Invalidations,states
+                target=Invalidations(self).source(login,character_id,target_kind,str(target_event_id))
+                validity=states(self,character_id,target_kind).get((target_kind,target['source_id']))
+                if validity and validity['action']=='invalidate':
+                    raise ValueError('reading is invalidated; restore it before applying a manual correction')
                 conflict=next((e for e in self.manual_history(login,active_only=True) if e['kind']=='point'
                     and (e['target_kind'],e['target_event_id'])==(target_kind,target_event_id) and e['id']!=replaces_id),None)
                 if conflict:raise ValueError(f"reading already corrected by {conflict['id']}; amend or undo that correction")
@@ -376,6 +385,12 @@ class Store:
                 raise ValueError("session does not belong to channel")
             char = session["character_id"] if session else None
             state = self.db.execute("SELECT * FROM tracking_state WHERE character_id=?", (char,)).fetchone()
+            from .trusted_replay import replay as replay_trusted
+            revised=replay_trusted(self,session_id)
+            if revised is not None:
+                if revised['unavailable']:raise ValueError('trusted accounting history limit; start a new recording')
+                state=dict(state,last_trusted_observation_id=revised['last']['id'] if revised['last'] else None,
+                    last_event_at=revised['last_event_at'],continuity_broken=revised['broken'],pending_missing_observations=revised['pending'])
             active = bool(session and session["ended_at"] is None and streamer["selected_character_id"] == char)
             ordered = bool(active and when >= session["started_at"] and
                            (state["last_event_at"] is None or when > state["last_event_at"]))
@@ -453,4 +468,5 @@ class Store:
                     continuity_broken=bool(state["continuity_broken"]) if state else True,
                     pending_missing_observations=state["pending_missing_observations"] if state else 0)
         snapshot["statistics"] = tracking_statistics(self.db, snapshot, now)
-        return snapshot
+        from .trusted_replay import present as present_trusted
+        return present_trusted(self,snapshot,now)

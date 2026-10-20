@@ -7,6 +7,7 @@ import threading
 
 from .diagnostic_evidence import project
 from .manual import revision,active
+from .invalidations import revision as invalidation_revision,barriers
 from .diagnostic_percentage import review
 from .diagnostic_progress import percentage_point,rational,elapsed_seconds
 from .product import reading,fraction,WINDOWS,PACE_TREND_SECONDS
@@ -132,9 +133,11 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
             (session,)).fetchone()[0]
         if earliest:start=datetime.fromisoformat(earliest)
     def step(state,run,batch):
+        barriers(batch,state['barrier_state'])
         # select_runs already limits every independently bounded session to the selected character.
         if not rotation_link(state['previous_run'],run):state['level_state']={};state['percentage_state']={}
         for row in batch:
+            if row.get('reading_invalidated'):continue
             when=row.get('received_at') or row['attempted_at']
             row['timestamp_ordered']=state['previous_time'] is None or when>state['previous_time']
             state['previous_time']=max(state['previous_time'],when) if state['previous_time'] else when
@@ -157,13 +160,13 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
         if len(state['rows'])>4096:raise HistoryLimit('recent_attempt_limit')
         state['previous_run']=run
         return reviewed
-    state=dict(level_state={},percentage_state={},previous_run=None,previous_time=None,rows=[],decisions=[])
+    state=dict(level_state={},percentage_state={},barrier_state={},previous_run=None,previous_time=None,rows=[],decisions=[])
     # The 4,096-row historical restoration is too large to retain per channel.
     resume=None if _historical else checkpoints
     try:
         state=replay(diagnostic,channel,start=start,now=now,receipt=receipt,state=state,step=step,
             checkpoints=resume,key=('recent',channel,base['selected_character'] and base['selected_character']['id'],session,
-                revision(base['manual_corrections'])))
+                revision(base['manual_corrections']),base['invalidation_revision']))
     except HistoryLimit:
         return dict(base,observations=[],recent_history_status='history_limit',recent_history_receipt=receipt)
     kept=[(r,d) for r,d in zip(state['rows'],state['decisions']) if stamp(r)>=start]
@@ -178,7 +181,7 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
             # Cache only compact static estimates, invalidated by any new event.
             attempt_revision=diagnostic.db.execute('SELECT MAX(id) FROM diagnostic_attempts WHERE '+owner+' AND attempted_at<=?',
                 ((base['session'] or {}).get('id'),now.isoformat())).fetchone()[0]
-            key=(channel,(base['session'] or {}).get('id'),attempt_revision,base['run_id'],base['run_status'],revision(base['manual_corrections']))
+            key=(channel,(base['session'] or {}).get('id'),attempt_revision,base['run_id'],base['run_status'],revision(base['manual_corrections']),base['invalidation_revision'])
             cached=eta_cache.get(channel) if eta_cache is not None else None
             if cached is None or cached[0]!=key:
                 historical=recent_snapshot(diagnostic,channel,now=now,_historical=True)
@@ -199,7 +202,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
     store=diagnostic.store;streamer=store._channel(channel)
     character=streamer['selected_character_id']
     manual_events=store.manual_history(channel,character_id=character,as_of=now) if character else []
-    manual_revision=revision(manual_events)
+    manual_revision=(revision(manual_events),invalidation_revision(store,channel))
     bins=[dict(start=(start+timedelta(minutes=30*i)).isoformat(),end=(start+timedelta(minutes=30*(i+1))).isoformat(),
                amount=None,coverage=Fraction(0),intervals=0,gap=False) for i in range(48)]
     result=dict(policy=TRACKED_POLICY,channel=channel,character_id=character,as_of=now.isoformat(),
@@ -210,9 +213,11 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
         chart_intervals=[],scope='selected_character_public_observation_endpoints',exclusion_counts={})
     limited=False
     def step(state,run,rows):
+        barriers(rows,state['barrier_state'])
         if not rotation_link(state['previous_run'],run):
             state['level_state']={};state['percentage_state']={}
         for row in rows:
+            if row.get('reading_invalidated'):continue
             when=stamp(row);last=state['last_time']
             row['timestamp_ordered']=last is None or when>last
             state['last_time']=max(last,when) if last else when
@@ -237,7 +242,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
         state['last_row']=rows[-1] if rows else state['last_row']
         state['previous_run']=run
         return decisions
-    state=dict(level_state={},percentage_state={},interval_state={},last_time=None,previous_run=None,level=None,level_epoch=None,
+    state=dict(level_state={},percentage_state={},barrier_state={},interval_state={},last_time=None,previous_run=None,level=None,level_epoch=None,
         level_baseline_id=None,level_at=None,
         rows=[],last_row=None,exclusion_counts={})
     try:
