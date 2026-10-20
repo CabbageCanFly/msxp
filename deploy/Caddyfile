@@ -1,0 +1,42 @@
+# Public read-only JSON API for the separately hosted frontend (Cloudflare Pages).
+# Only GET /api/players, /api/players/{channel} and /api/players/{channel}/history
+# reach the tracker. Pages, developer diagnostics and the local admin server (8766)
+# are never proxied. CORS is answered by the tracker itself (--cors-origin), on every
+# response including errors, so it is not repeated here.
+# install-ubuntu.sh replaces API_HOSTNAME; validate with: caddy validate --config /etc/caddy/Caddyfile
+{
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 10s
+			write 30s
+			idle 2m
+		}
+	}
+}
+
+API_HOSTNAME {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	@api {
+		method GET
+		path /api/players /api/players/*
+	}
+	handle @api {
+		reverse_proxy 127.0.0.1:8765 {
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 15s
+			}
+		}
+	}
+
+	handle {
+		header Content-Type application/json
+		respond `{"error":"not_found"}` 404
+	}
+}

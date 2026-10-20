@@ -1,0 +1,18 @@
+[Unit]
+Description=Verified online SQLite backup of the EXP tracker database
+
+[Service]
+Type=oneshot
+User=msxp
+Group=msxp
+WorkingDirectory=/opt/msxp/app
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Consistent backup including WAL, then integrity_check and foreign_key_check; never overwrites.
+ExecStart=/bin/sh -c 'mkdir -p private/backups && exec .venv/bin/python tools/backup_database.py private/vps/tracker.sqlite3 "private/backups/tracker-$(date -u +%%Y%%m%%dT%%H%%M%%SZ).sqlite3"'
+# Local copies are kept 14 days; copying them off the VPS is a separate, deliberate step.
+ExecStartPost=/usr/bin/find /opt/msxp/app/private/backups -maxdepth 1 -name 'tracker-*.sqlite3' -mtime +14 -delete
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/msxp/app/private
+PrivateTmp=yes
+UMask=0027

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import importlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
@@ -23,7 +24,7 @@ def multi(tmp_path,monkeypatch):
     monkeypatch.setattr(module.shadow.shutil,'which',lambda _: 'ffmpeg')
     real_find=module.importlib.util.find_spec
     monkeypatch.setattr(module.importlib.util,'find_spec',lambda name: object() if name=='streamlink' else real_find(name))
-    executable=tmp_path/'private/rapidocr/.venv/Scripts/python.exe'
+    executable=tmp_path/'private/rapidocr/.venv'/('Scripts/python.exe' if os.name=='nt' else 'bin/python')  # As shadow_capture expects.
     executable.parent.mkdir(parents=True);executable.touch()
     table=tmp_path/'src/exp_tracker/data/community-exp-v2.json'
     table.parent.mkdir(parents=True);table.write_text(json.dumps(community_table()[0]))
@@ -388,14 +389,15 @@ def test_public_only_coordinator_serves_public_routes_and_refuses_developer_rout
     module=multi[0];servers=[];seen=[]
     create_server=module.create_server
     def server(*args,**kw):
-        assert (kw['public_only'],kw['diagnostic_dashboard'],kw['background'])==(True,False,True)
+        assert (kw['public_only'],kw['diagnostic_dashboard'],kw['background'],kw['cors_origins'])==(True,False,True,['https://msxp.pages.dev'])
         result=create_server(*args,**kw);servers.append(result);return result
     monkeypatch.setattr(module,'create_server',server)
     capture=module.shadow.capture_attempt
     def check(*args,**kw):
         seen.append([request((servers[0],None),p)[0] for p in ('/api/players','/stream/alpha','/live/overlay/alpha','/dev/api/streams','/dashboard/alpha')])
+        assert request((servers[0],None),'/api/players',origin='https://msxp.pages.dev')[1]['Access-Control-Allow-Origin']=='https://msxp.pages.dev'
         return capture(*args,**kw)
     monkeypatch.setattr(module.shadow,'capture_attempt',check)
-    assert main(multi,'--public-only')==0
+    assert main(multi,'--public-only','--cors-origin','https://msxp.pages.dev')==0
     assert seen and all(s==[200,200,200,404,404] for s in seen)
     assert 'Public-only: developer diagnostics are disabled' in capsys.readouterr().out

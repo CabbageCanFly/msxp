@@ -38,6 +38,10 @@ PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/prod
 # Public-only mode also serves these shared assets; everything else outside the product is refused.
 PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css'}
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
+# Exact browser origins allowed to read responses cross-origin (a separately hosted frontend).
+# https only; plain http only for a local development origin. Never a wildcard.
+LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+ORIGIN = re.compile(rf"https://{LABEL}(?:\.{LABEL})+(?::[0-9]{{1,5}})?|http://(?:localhost|127\.0\.0\.1)(?::[0-9]{{1,5}})?")
 
 
 class TrackerHTTPServer(ThreadingHTTPServer):
@@ -68,6 +72,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         if status == 405:
             self.send_header("Allow", "GET")
+        if self.server.cors_origins:
+            # Every response, errors included: the frontend reads warming_up/unknown_channel bodies.
+            self.send_header("Vary", "Origin")
+            origin = self.headers.get("Origin")
+            if origin in self.server.cors_origins:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Access-Control-Expose-Headers", "Retry-After")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy", "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
         self.end_headers()
@@ -234,9 +245,12 @@ class Handler(BaseHTTPRequestHandler):
     do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = reject_write
 
 
-def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False,background=False,public_only=False):
+def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False,background=False,public_only=False,cors_origins=()):
     """background=True runs the publisher thread; otherwise requests settle it inline.
-    public_only serves only the homepage, character pages, OBS overlay and their APIs/assets."""
+    public_only serves only the homepage, character pages, OBS overlay and their APIs/assets.
+    cors_origins: exact origins (e.g. https://msxp.pages.dev) whose browsers may read responses."""
+    if any(not isinstance(o, str) or not ORIGIN.fullmatch(o) for o in cors_origins):
+        raise ValueError('CORS origins must be exact https://host[:port] origins (http only for localhost)')
     if public_only and (diagnostic_dashboard or shadow_log is not None):
         raise ValueError('public-only mode excludes developer diagnostics and the shadow viewer')
     database = Path(database).resolve()
@@ -248,6 +262,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.shadow_log = diagnostics
     server.diagnostic_dashboard = diagnostic_dashboard
     server.public_only = public_only
+    server.cors_origins = frozenset(cors_origins)
     server.active_run_ids = set()
     server.coordinator_status = {}
     server.directory_cache = {}
@@ -269,12 +284,14 @@ def main(argv=None):
     parser.add_argument('--diagnostic-dashboard', action='store_true', help='Enable the experimental homepage, live overlay and advanced SQLite diagnostics')
     parser.add_argument('--public-only', action='store_true', help='Serve only the public homepage, character pages and OBS overlay; developer routes return 404')
     parser.add_argument('--twitch-status',action='store_true',help='Opt in to cached Helix live status using server environment credentials')
+    parser.add_argument('--cors-origin', action='append', default=[], metavar='ORIGIN', help='Exact frontend origin allowed to read responses, e.g. https://msxp.pages.dev; repeatable')
     args = parser.parse_args(argv)
     if not 0 <= args.port <= 65535:
         parser.error("port must be 0..65535")
     try:
         with create_server(args.db, port=args.port, shadow_log=args.shadow_log,
-                           diagnostic_dashboard=args.diagnostic_dashboard,twitch_status=args.twitch_status,background=True,public_only=args.public_only) as server:
+                           diagnostic_dashboard=args.diagnostic_dashboard,twitch_status=args.twitch_status,background=True,public_only=args.public_only,
+                           cors_origins=args.cors_origin) as server:
             print(f'Database: {server.database}', flush=True)
             print('Read-only HTTP server; capture is NOT started by this command.', flush=True)
             if not server.public_only:

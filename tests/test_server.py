@@ -54,9 +54,10 @@ class MemorySocket:
         self.output.write(data)
 
 
-def request(http_server, path="/api/streams/demo/state", method="GET"):
+def request(http_server, path="/api/streams/demo/state", method="GET", origin=None):
     httpd, _ = http_server
-    wire = MemorySocket(f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".encode("ascii"))
+    sent = f"Origin: {origin}\r\n" if origin else ""
+    wire = MemorySocket(f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n{sent}Connection: close\r\n\r\n".encode("ascii"))
     server.Handler(wire, ("127.0.0.1", 0), httpd)
     response = http.client.HTTPResponse(MemorySocket(wire.output.getvalue()))
     response.begin()
@@ -559,3 +560,24 @@ def test_populated_statistics_are_read_from_guarded_history_not_api_constants(tm
     assert result["statistics"]["exp_per_hour_30m"]["exp_per_hour"] == 240000
     assert result["statistics"]["to_next_level"]["seconds"] == 11400
     assert "ranking" not in result
+
+
+def test_cors_allows_only_configured_origins_on_every_response(database, capsys):
+    pages = "https://msxp.pages.dev"
+    with server.create_server(database, port=0, public_only=True, cors_origins=[pages]) as httpd:
+        fixture = (httpd, None)
+        for path, method, status in [("/api/players", "GET", 200), ("/api/players/missing", "GET", 404),
+                ("/api/players/bad!", "GET", 400), ("/dev/api/streams", "GET", 404), ("/api/players", "POST", 405)]:
+            got, headers, _ = request(fixture, path, method, origin=pages)
+            assert got == status and headers["Access-Control-Allow-Origin"] == pages and headers["Vary"] == "Origin", path
+            assert headers["Access-Control-Expose-Headers"] == "Retry-After" and headers["Cache-Control"] == "no-store"
+        for origin in (None, "https://evil.example", "http://msxp.pages.dev", "https://msxp.pages.dev.evil.example", "null"):
+            _, headers, _ = request(fixture, "/api/players", origin=origin)
+            assert "Access-Control-Allow-Origin" not in headers and headers["Vary"] == "Origin", origin
+    with server.create_server(database, port=0, public_only=True) as httpd:  # Not configured: no CORS headers at all.
+        assert not {"Access-Control-Allow-Origin", "Vary"} & set(request((httpd, None), "/api/players", origin=pages)[1])
+    for bad in ("*", "https://msxp.pages.dev/", "http://msxp.pages.dev", "https://*.pages.dev", "https://MSXP.pages.dev", "null"):
+        with pytest.raises(ValueError, match="CORS"):
+            server.create_server(database, port=0, cors_origins=[bad])
+    assert server.main(["--db", str(database), "--port", "0", "--public-only", "--cors-origin", "*"]) == 1
+    assert "CORS origins" in capsys.readouterr().err

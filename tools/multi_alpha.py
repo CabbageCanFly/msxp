@@ -266,6 +266,7 @@ def main(argv=None):
     cli.add_argument('--exit-after-capture', action='store_true')
     cli.add_argument('--continuous',action='store_true',help='Continue until Ctrl+C, rotating each channel at 60 attempts')
     cli.add_argument('--public-only',action='store_true',help='Serve only the public homepage, character pages and OBS overlay; developer routes return 404')
+    cli.add_argument('--cors-origin',action='append',default=[],metavar='ORIGIN',help='Exact frontend origin allowed to read the API, e.g. https://msxp.pages.dev; repeatable')
     cli.add_argument('--twitch-status',action='store_true',help='Opt in to cached official live status; requires local Twitch API environment credentials')
     cli.add_argument('--max-attempts',type=int,help='Continuous-mode stop condition, per channel (not per run)')
     cli.add_argument('--stop-after-seconds',type=float,help='Stop scheduling new work after real monotonic elapsed time')
@@ -311,7 +312,7 @@ def main(argv=None):
         if not args.replay: print(f'Private capture logs: {directory}',flush=True)
         with ownership(database):
             initialize(database, streams)
-            httpd = create_server(database, port=port, diagnostic_dashboard=not args.public_only,public_only=args.public_only,twitch_status=args.twitch_status,background=True)
+            httpd = create_server(database, port=port, diagnostic_dashboard=not args.public_only,public_only=args.public_only,cors_origins=args.cors_origin,twitch_status=args.twitch_status,background=True)
             httpd.quiet = True
             httpd.active_run_ids = set()
             thread = threading.Thread(target=httpd.serve_forever, daemon=True)

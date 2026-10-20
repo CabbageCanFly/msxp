@@ -1,0 +1,37 @@
+[Unit]
+Description=MapleStory Classic EXP tracker: Twitch capture, OCR and read-only public API (127.0.0.1:8765)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=msxp
+Group=msxp
+WorkingDirectory=/opt/msxp/app
+# MSXP_FRONTEND_ORIGIN and the TWITCH_* credentials; root:msxp 0640.
+EnvironmentFile=/etc/msxp/msxp.env
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/opt/msxp
+ExecStart=/opt/msxp/app/.venv/bin/python tools/multi_alpha.py --config private/vps/config.json --continuous --public-only --twitch-status --cors-origin ${MSXP_FRONTEND_ORIGIN}
+# The coordinator finalizes runs on KeyboardInterrupt; SIGTERM would skip that.
+KillSignal=SIGINT
+KillMode=mixed
+# Above the publisher's 30 s refresher join.
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=15
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/msxp/app/private
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

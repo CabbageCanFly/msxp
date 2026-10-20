@@ -549,3 +549,19 @@ def test_public_responses_omit_private_fields_while_internal_state_keeps_them(tr
         entry=server.publisher.entry('alpha')
         assert {'source_identity','run_id','run_ids','session_id','excluded','holes','latest_endpoint','eligibility_checks'}<=keys(entry['card']['player'],set())
         assert {'source_identity','run_id','session_id'}<=keys(get('/dev/api/streams/alpha/diagnostics'),set())
+
+
+def test_cross_origin_viewer_can_read_warming_and_published_bodies(tracking,clock,monkeypatch):
+    path,store,d=tracking;d.begin('one','alpha',config('one',interval=20));save(d,'one',1,20,3300);clock.at=NOW+timedelta(seconds=20)
+    release=threading.Event();original=Diagnostics.card
+    monkeypatch.setattr(Diagnostics,'card',lambda self,*a,**k:(release.wait(10),original(self,*a,**k))[1])
+    from tests.test_server import request
+    pages='https://msxp.pages.dev'
+    with server_module.create_server(path,port=0,background=True,public_only=True,cors_origins=[pages]) as server:
+        status,headers,body=request((server,None),'/api/players/alpha',origin=pages)
+        assert (status,json.loads(body)['error'],headers['Retry-After'])==(503,'warming_up','2')
+        assert headers['Access-Control-Allow-Origin']==pages and headers['Access-Control-Expose-Headers']=='Retry-After'
+        release.set();wait_for(lambda:server.publisher.entry('alpha'))
+        for route in ('/api/players','/api/players/alpha','/api/players/alpha/history'):
+            status,headers,_=request((server,None),route,origin=pages)
+            assert status==200 and headers['Access-Control-Allow-Origin']==pages,route

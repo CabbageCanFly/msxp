@@ -1,0 +1,16 @@
+{
+  "database": "private/vps/tracker.sqlite3",
+  "port": 8765,
+  "streams": [
+    {
+      "channel": "example_channel",
+      "character": "Example character",
+      "source": "twitch",
+      "authorized": true,
+      "quality": "720p60",
+      "interval": 20,
+      "count": 60,
+      "experimental_neural_level": true
+    }
+  ]
+}
