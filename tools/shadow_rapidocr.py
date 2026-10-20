@@ -5,6 +5,7 @@ import hashlib
 from importlib.metadata import version
 import json
 from pathlib import Path
+import struct
 import sys
 import time
 
@@ -50,7 +51,9 @@ def main():
     import argparse
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--experimental-neural-level',action='store_true')
+    parser.add_argument('--serve',action='store_true',help='Resident: !I-length-prefixed requests on stdin, one JSON line each; any error exits')
     args=parser.parse_args()
+    out=sys.stdout
     # Keep optional neural imports out of the capture/test environment.
     with contextlib.redirect_stdout(sys.stderr):
         started = time.perf_counter()
@@ -68,11 +71,6 @@ def main():
         if not all(path.is_file() for path in paths.values()):
             raise ValueError('Existing local model files required; no downloads')
         limit=MAX_REQUEST if args.experimental_neural_level else MAX_BYTES
-        payload = sys.stdin.buffer.read(limit + 1)
-        if len(payload) > limit:
-            raise ValueError('Crop exceeds byte limit')
-        exp_payload,level_payload=unpack(payload) if args.experimental_neural_level else (payload,None)
-        image=load_crop(exp_payload,EXP_SIZE)
         engine = RapidOCR(params={
             'Global.use_cls': False,
             'EngineConfig.onnxruntime.intra_op_num_threads': 1,
@@ -80,15 +78,34 @@ def main():
             **{f'{kind.title()}.model_path': str(path) for kind, path in paths.items()},
         })
         initialization = time.perf_counter() - started
-        result = dict(**recognize_fields(engine,image,level_payload,experimental=args.experimental_neural_level),
-                      initialization_seconds=initialization,
-                      versions={name: version(name) for name in ('rapidocr', 'onnxruntime')},
-                      model_sha256={kind: hashlib.sha256(path.read_bytes()).hexdigest()
-                                    for kind, path in paths.items()})
-    serialized = json.dumps(result, allow_nan=False)
-    if len(serialized.encode()) > 65536:
-        raise ValueError('Result exceeds byte limit')
-    print(serialized)
+        versions={name: version(name) for name in ('rapidocr', 'onnxruntime')}
+        hashes={kind: hashlib.sha256(path.read_bytes()).hexdigest() for kind, path in paths.items()}
+
+        def answer(payload, **extra):
+            exp_payload,level_payload=unpack(payload) if args.experimental_neural_level else (payload,None)
+            image=load_crop(exp_payload,EXP_SIZE)
+            result = dict(**recognize_fields(engine,image,level_payload,experimental=args.experimental_neural_level),
+                          versions=versions, model_sha256=hashes, **extra)
+            serialized = json.dumps(result, allow_nan=False)
+            if len(serialized.encode()) > 65536:
+                raise ValueError('Result exceeds byte limit')
+            out.write(serialized+'\n'); out.flush()
+
+        if not args.serve:
+            payload = sys.stdin.buffer.read(limit + 1)
+            if len(payload) > limit:
+                raise ValueError('Crop exceeds byte limit')
+            answer(payload, initialization_seconds=initialization)
+            return
+        request=0
+        while header := sys.stdin.buffer.read(4):
+            length=struct.unpack('!I',header)[0] if len(header)==4 else limit+1
+            payload=sys.stdin.buffer.read(length) if length<=limit else b''
+            if len(payload)!=length:
+                raise ValueError('Incomplete or oversized request')
+            request+=1
+            # Initialization is paid once; later requests report zero rather than repeating it.
+            answer(payload, initialization_seconds=initialization if request==1 else 0.0, worker_request=request)
 
 
 if __name__ == '__main__':

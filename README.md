@@ -56,6 +56,8 @@ The [VPS readiness check](docs/vps-readiness.md) measures 100 viewers at 5 and 1
 channels, fixes the listen backlog, and lists the reverse-proxy and trial prerequisites.
 [VPS deployment](docs/vps-deployment.md) prepares the Ubuntu backend: an API-only Caddy
 surface with CORS for the Cloudflare Pages frontend, systemd units, and an offline check.
+[Capture performance](docs/capture-performance.md) profiles HUD localization and adds opt-in
+bounded workers, a resident neural worker and a cached HUD search region for 15 channels at 60 s.
 The [MVP level-evidence update](docs/mvp-level-evidence.md) displays unique arithmetic
 levels immediately and uses complete grammar-recovered EXP in public pace/history.
 The [Telfer level-up follow-up](docs/telfer-levelup-and-window-gaps.md) accepts prompt

@@ -3,12 +3,14 @@
 import argparse
 from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
+import functools
 import importlib.util
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import queue
 import sqlite3
 import sys
 import threading
@@ -160,8 +162,12 @@ def options(row, database, output):
 
 def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
              continuous=False, max_attempts=None, stop_after_seconds=None, rotate=None,
-             activity=None, active_runs=None, simulated=False):
-    """No queue: one due-time per lane, rotating ties, elapsed slots skipped."""
+             activity=None, active_runs=None, simulated=False, workers=1):
+    """No queue: one due-time per lane, rotating ties, elapsed slots skipped.
+
+    workers>1 runs that many lanes' attempts at once, never two for one lane. Rotation,
+    emit (logs and the single SQLite writer) and status stay on this thread.
+    """
     started, wall = clock(), datetime.now(timezone.utc)
     for lane in lanes:
         lane.update(due=started, attempts=0, run_attempts=0, frames=0, commits=0, stopped=False,
@@ -171,86 +177,140 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
             activity[lane['channel']]=dict(state='waiting',run_id=lane['run_id'],updated_at=utc(),
                 next_due_at=utc(wall),requested_interval_seconds=lane['args'].interval)
     turn = 0
+    running = {}
+    results = queue.Queue()
+
+    def failure(lane, number, reason):
+        return dict(type='attempt', trusted=False, current=False, index=number,
+            attempted_at=utc(), status='capture_failed', reasons=[reason],
+            source=dict(kind=lane['source'].kind, channel=lane['channel'] if lane['source'].kind=='twitch' else None))
+
+    def begin(lane):
+        while lane['due']+lane['args'].interval <= clock():
+            lane['due'] += lane['args'].interval
+            lane['skipped'] += 1
+        requested = utc(wall+timedelta(seconds=lane['due']-started))
+        delay = max(0, clock()-lane['due'])
+        if lane['run_attempts']==60:
+            try:
+                if rotate is None: raise ValueError('Continuous scheduling requires a rotation operation')
+                rotate(lane)
+                lane['run_attempts']=0
+            except (OSError,sqlite3.Error,ValueError):
+                lane.update(stopped=True,interrupted=True,persistence_failed=True)
+                if active_runs is not None: active_runs.discard(lane['run_id'])
+                if activity is not None:
+                    activity[lane['channel']]=dict(state='stopped',run_id=lane['run_id'],
+                        updated_at=utc(),reason='rotation_failed')
+                return None
+        number = lane['run_attempts']+1
+        seek = lane['args'].start+clock()-started if lane['source'].kind=='file' else None
+        if activity is not None:
+            activity[lane['channel']]=dict(state='running',run_id=lane['run_id'],updated_at=utc(),
+                expected_completion_seconds=lane['args'].timeout+lane['args'].ocr_timeout+15)
+        return dict(lane=lane, number=number, seek=seek, requested=requested, delay=delay, start=clock())
+
+    def attempt(job):
+        lane, number = job['lane'], job['number']
+        try:
+            record, interrupted = perform(lane, number, job['seek']), False
+        except KeyboardInterrupt:
+            record, interrupted = failure(lane, number, 'operator_interrupted'), True
+        except (OSError, ValueError, RuntimeError):
+            record, interrupted = failure(lane, number, 'capture_process_failed'), False
+        job['seconds'] = max(0, clock()-job['start'])
+        return record, interrupted
+
+    def worker(job):
+        try:
+            results.put((job, *attempt(job), None))
+        except BaseException as error:  # Re-raised on the coordinator thread, as the serial path would.
+            results.put((job, None, False, error))
+
+    def finish(job, record, interrupted, error=None):
+        lane, number, attempt_start = job['lane'], job['number'], job['start']
+        running.pop(lane['channel'], None)
+        if error is not None: raise error
+        if interrupted: lane['interrupted'] = True
+        elapsed=None if lane['last_started'] is None else attempt_start-lane['last_started']
+        record.update(requested_at=None if simulated else job['requested'], scheduler_delay_seconds=job['delay'],
+            timing_mode='simulated' if simulated else 'real',
+            actual_interval_seconds=elapsed,skipped_deadlines=lane['skipped'],
+            coordinator_attempt_seconds=job['seconds'])
+        if simulated: record['simulated_scheduler_seconds']=attempt_start-started
+        lane['last_started']=attempt_start
+        if elapsed is not None:
+            lane['elapsed_total']+=elapsed;lane['elapsed_count']+=1
+        lane['duration_total']+=record['coordinator_attempt_seconds']
+        lane['max_delay']=max(lane['max_delay'],job['delay'])
+        lane['run_attempts']=number
+        lane['attempts'] += 1
+        lane['frames'] += record.get('received_at') is not None
+        lane['capture_failures'] += record.get('status')=='capture_failed'
+        lane['ocr_failures'] += record.get('status') in ('recognition_failed','malformed_or_unavailable','unavailable')
+        try:
+            emit(lane, record)
+        except (OSError, sqlite3.Error, ValueError):
+            lane.update(stopped=True, interrupted=True, persistence_failed=True)
+            if active_runs is not None: active_runs.discard(lane['run_id'])
+        if lane['interrupted'] and not lane.get('persistence_failed'):
+            raise KeyboardInterrupt
+        lane['due'] += lane['args'].interval
+        while lane['due'] < clock():
+            lane['due'] += lane['args'].interval
+            lane['skipped'] += 1
+        if activity is not None:
+            done=lane['stopped'] or (lane['attempts']>=max_attempts if continuous and max_attempts is not None else lane['attempts']>=lane['args'].count if not continuous else False)
+            activity[lane['channel']]=dict(state='stopped' if done else 'capture_failing' if record.get('status')=='capture_failed' else 'waiting',
+                run_id=lane['run_id'],updated_at=utc(),next_due_at=utc(wall+timedelta(seconds=lane['due']-started)),
+                skipped_deadlines=lane['skipped'],requested_interval_seconds=lane['args'].interval,
+                actual_interval_seconds=elapsed)
+
+    def collect(timeout):
+        # Short waits keep Ctrl+C responsive on Windows, where a blocked Queue.get ignores it.
+        deadline = time.monotonic()+timeout
+        while True:
+            try:
+                return finish(*results.get(timeout=max(0, min(.5, deadline-time.monotonic()))))
+            except queue.Empty:
+                if time.monotonic() >= deadline: return None
+
+    stopping = False
     try:
         while True:
-            pending = [i for i,lane in enumerate(lanes) if not lane['stopped'] and
+            pending = [] if stopping or len(running) >= workers else [
+                i for i,lane in enumerate(lanes) if not lane['stopped'] and lane['channel'] not in running and
                 (lane['attempts'] < (max_attempts if continuous else lane['args'].count)
                  if not continuous or max_attempts is not None else True)]
-            if not pending: break
+            if not pending:
+                if not running: break
+                collect(math.inf)
+                continue
             index = min(pending, key=lambda i: (lanes[i]['due'], (i-turn)%len(lanes)))
             lane = lanes[index]
             if stop_after_seconds is not None and max(clock(),lane['due'])-started >= stop_after_seconds:
-                break
+                stopping = True
+                continue
+            if running and lane['due'] > clock():
+                collect(lane['due']-clock())  # Whichever comes first: a completion or this due time.
+                continue
             sleep(max(0, lane['due']-clock()))
-            while lane['due']+lane['args'].interval <= clock():
-                lane['due'] += lane['args'].interval
-                lane['skipped'] += 1
-            requested = utc(wall+timedelta(seconds=lane['due']-started))
-            delay = max(0, clock()-lane['due'])
-            if lane['run_attempts']==60:
-                try:
-                    if rotate is None: raise ValueError('Continuous scheduling requires a rotation operation')
-                    rotate(lane)
-                    lane['run_attempts']=0
-                except (OSError,sqlite3.Error,ValueError):
-                    lane.update(stopped=True,interrupted=True,persistence_failed=True)
-                    if active_runs is not None: active_runs.discard(lane['run_id'])
-                    if activity is not None:
-                        activity[lane['channel']]=dict(state='stopped',run_id=lane['run_id'],
-                            updated_at=utc(),reason='rotation_failed')
-                    continue
-            number = lane['run_attempts']+1
-            seek = lane['args'].start+clock()-started if lane['source'].kind=='file' else None
-            attempt_start=clock()
-            if activity is not None:
-                activity[lane['channel']]=dict(state='running',run_id=lane['run_id'],updated_at=utc(),
-                    expected_completion_seconds=lane['args'].timeout+lane['args'].ocr_timeout+15)
-            try:
-                record = perform(lane, number, seek)
-            except KeyboardInterrupt:
-                record = dict(type='attempt', trusted=False, current=False, index=number,
-                    attempted_at=utc(), status='capture_failed', reasons=['operator_interrupted'],
-                    source=dict(kind=lane['source'].kind, channel=lane['channel'] if lane['source'].kind=='twitch' else None))
-                lane['interrupted'] = True
-            except (OSError, ValueError, RuntimeError):
-                record = dict(type='attempt', trusted=False, current=False, index=number,
-                    attempted_at=utc(), status='capture_failed', reasons=['capture_process_failed'],
-                    source=dict(kind=lane['source'].kind, channel=lane['channel'] if lane['source'].kind=='twitch' else None))
-            elapsed=None if lane['last_started'] is None else attempt_start-lane['last_started']
-            record.update(requested_at=None if simulated else requested, scheduler_delay_seconds=delay,
-                timing_mode='simulated' if simulated else 'real',
-                actual_interval_seconds=elapsed,skipped_deadlines=lane['skipped'],
-                coordinator_attempt_seconds=max(0,clock()-attempt_start))
-            if simulated: record['simulated_scheduler_seconds']=attempt_start-started
-            lane['last_started']=attempt_start
-            if elapsed is not None:
-                lane['elapsed_total']+=elapsed;lane['elapsed_count']+=1
-            lane['duration_total']+=record['coordinator_attempt_seconds']
-            lane['max_delay']=max(lane['max_delay'],delay)
-            lane['run_attempts']=number
-            lane['attempts'] += 1
-            lane['frames'] += record.get('received_at') is not None
-            lane['capture_failures'] += record.get('status')=='capture_failed'
-            lane['ocr_failures'] += record.get('status') in ('recognition_failed','malformed_or_unavailable','unavailable')
-            try:
-                emit(lane, record)
-            except (OSError, sqlite3.Error, ValueError):
-                lane.update(stopped=True, interrupted=True, persistence_failed=True)
-                if active_runs is not None: active_runs.discard(lane['run_id'])
-            if lane['interrupted'] and not lane.get('persistence_failed'):
-                raise KeyboardInterrupt
-            lane['due'] += lane['args'].interval
-            while lane['due'] < clock():
-                lane['due'] += lane['args'].interval
-                lane['skipped'] += 1
+            job = begin(lane)
+            if job is None: continue
             turn = (index+1)%len(lanes)
-            if activity is not None:
-                done=lane['stopped'] or (lane['attempts']>=max_attempts if continuous and max_attempts is not None else lane['attempts']>=lane['args'].count if not continuous else False)
-                activity[lane['channel']]=dict(state='stopped' if done else 'capture_failing' if record.get('status')=='capture_failed' else 'waiting',
-                    run_id=lane['run_id'],updated_at=utc(),next_due_at=utc(wall+timedelta(seconds=lane['due']-started)),
-                    skipped_deadlines=lane['skipped'],requested_interval_seconds=lane['args'].interval,
-                    actual_interval_seconds=elapsed)
+            running[lane['channel']] = job
+            if workers == 1:
+                finish(job, *attempt(job))
+            else:
+                threading.Thread(target=worker, args=(job,), daemon=True).start()
     except KeyboardInterrupt:
+        # Discard in-flight results, as a serial interrupt would; their children end with the process.
+        for job in list(running.values()):
+            job.setdefault('seconds', max(0, clock()-job['start']))
+            try:
+                finish(job, failure(job['lane'], job['number'], 'operator_interrupted'), True)
+            except KeyboardInterrupt:
+                pass
         for lane in lanes:
             if continuous or lane['attempts'] < lane['args'].count:
                 lane['interrupted'] = True
@@ -271,9 +331,16 @@ def main(argv=None):
     cli.add_argument('--max-attempts',type=int,help='Continuous-mode stop condition, per channel (not per run)')
     cli.add_argument('--stop-after-seconds',type=float,help='Stop scheduling new work after real monotonic elapsed time')
     cli.add_argument('--offline-fast-test',action='store_true',help='Explicit local-video-only interval floor of 3 seconds')
+    cli.add_argument('--workers',type=int,default=1,help='Concurrent capture/OCR attempts, 1..4 (one per channel at a time); SQLite stays single-writer')
+    cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
+    cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
     args = cli.parse_args(argv)
     httpd = thread = None
     try:
+        if not 1<=args.workers<=4:
+            raise ValueError('--workers must be 1..4')
+        if not math.isfinite(args.hud_cache_seconds) or not 0<=args.hud_cache_seconds<=3600:
+            raise ValueError('--hud-cache-seconds must be 0..3600')
         if args.max_attempts is not None and (not args.continuous or not 1<=args.max_attempts<=1000000):
             raise ValueError('--max-attempts requires continuous mode and 1..1000000 attempts')
         if args.stop_after_seconds is not None and (not args.continuous or not math.isfinite(args.stop_after_seconds) or args.stop_after_seconds<=0):
@@ -328,9 +395,10 @@ def main(argv=None):
             else:
                 os.environ['OMP_THREAD_LIMIT'] = '1'
                 directory.mkdir(parents=True, exist_ok=False)
-                with closing(ResourceMonitor(sample_interval=.05, scope='multi-alpha coordinator, HTTP and sequential capture/OCR children')) as monitor, Store(database) as store:
+                with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database) as store:
                     diagnostic = Diagnostics(store)
                     handles = {}
+                    resident = shadow.ResidentNeural() if args.resident_neural else None
                     instance=uuid.uuid4().hex
                     try:
                         def open_run(lane, run_id, previous=None):
@@ -355,7 +423,7 @@ def main(argv=None):
                             if (binding['character_id'],binding['session_id']) != (lane['character_id'],lane['session_id']):
                                 raise ValueError('Startup assignment changed; no capture started')
                             httpd.active_run_ids.add(lane['run_id'])
-                        print('Capture RUNNING: one active job at a time, bounded per-channel attempts, no queued frames.',flush=True)
+                        print(f'Capture RUNNING: at most {args.workers} active job(s), one per channel, bounded per-channel attempts, no queued frames.',flush=True)
                         with (directory/'operator.jsonl').open('x',encoding='utf-8') as operator:
                             def emit(lane, record):
                                 if record['type']=='summary' and lane.get('rotation_failed'):
@@ -402,7 +470,14 @@ def main(argv=None):
                                 httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(following)
                                 print(f"{lane['channel']}: scheduled rotation after 60 committed attempts; session {lane['session_id']} retained",flush=True)
                             scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate) if args.continuous else {}
-                            interrupted = schedule(lanes, lambda lane,n,seek: shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek),emit,
+                            for lane in lanes:
+                                lane['options']={'resident':resident} if resident else {}
+                                if args.hud_cache_seconds:  # Per channel; survives rotation, not restarts.
+                                    lane['options']['analyze_frame']=functools.partial(shadow.analyze,
+                                        locator=shadow.CachedLocator(args.hud_cache_seconds))
+                            def perform(lane,n,seek):
+                                return shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek,**lane['options'])
+                            interrupted = schedule(lanes,perform,emit,workers=args.workers,
                                 activity=httpd.coordinator_status,active_runs=httpd.active_run_ids,**scheduler_options)
                             for lane in lanes:
                                 try:
@@ -426,6 +501,7 @@ def main(argv=None):
                         httpd.active_run_ids.clear()
                         httpd.coordinator_status.clear()
                         for handle in handles.values(): handle.close()
+                        if resident: resident.close()
             if not args.exit_after_capture and not interrupted:
                 print('Capture is NOT running; localhost viewer remains open. Ctrl+C closes it.',flush=True)
                 while thread.is_alive(): thread.join(.5)

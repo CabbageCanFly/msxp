@@ -144,23 +144,68 @@ def merge_layouts(candidates,size):
     return result
 
 
-def locate(image):
-    """Search the whole frame so a small/offset game isn't tied to stream borders."""
+def locate(image, box=None):
+    """Search the whole frame so a small/offset game isn't tied to stream borders.
+
+    box (pixels) limits OCR to a crop at the full-frame magnification; it cannot see other HUDs.
+    """
     if image.width * image.height > 4096 * 2160:
         return []
     configure_tesseract()
+    left,top=box[:2] if box else (0,0)
+    crop=image.crop(box) if box else image
     candidates=[]
     for magnification in (2.0,3.0):
         scale = min(magnification, math.sqrt(1920 * 1080 * magnification**2 / (image.width * image.height)))
-        gray = image.convert("L").resize((round(image.width*scale),round(image.height*scale)),
-                                         Image.Resampling.BICUBIC)
+        gray = crop.convert("L").resize((round(crop.width*scale),round(crop.height*scale)),
+                                        Image.Resampling.BICUBIC)
         tokens = _ocr(gray.point(lambda p: 0 if p > 160 else 255), 11)
         for token in tokens:
             for key in ("x","y","width","height"):
                 token[key] /= scale
+            token["x"]+=left;token["y"]+=top
         candidates.extend(layouts(tokens, image.size,deduplicate=False))
     # Both scales must contribute to uniqueness, including partly obscured HUDs.
     return merge_layouts(candidates,image.size)
+
+
+def search_box(candidate, size):
+    """Pixel box covering every token layouts() could bind to this HUD, with margin."""
+    step,hp=candidate['anchor_step'],candidate['anchors']['hp']
+    return (max(0,math.floor(hp['x']-2.6*step)),max(0,math.floor(hp['y']-.5*step)),
+            min(size[0],math.ceil(hp['x']+3.6*step)),min(size[1],math.ceil(hp['y']+.6*step)))
+
+
+class CachedLocator:
+    """Search a recent unique full-frame HUD's neighbourhood first; any doubt rescans the full frame.
+
+    Only a unique full-frame result seeds, and reuse never extends the seed. Within
+    refresh_seconds a competing HUD elsewhere in the frame is NOT detected.
+    """
+
+    def __init__(self, refresh_seconds, *, clock=time.monotonic, scan=locate):
+        self.refresh_seconds,self.clock,self.scan=refresh_seconds,clock,scan
+        self.seed=None
+
+    def __call__(self, image):
+        now=self.clock()
+        seed=self.seed
+        if seed and image.size==seed['size'] and 0<=now-seed['at']<=self.refresh_seconds:
+            found=self.scan(image,seed['box'])
+            if len(found)==1 and same_layout(found[0],seed['candidate'],image.size):
+                return [{**found[0],'search':'cached_region','full_frame_age_seconds':now-seed['at']}]
+        found=self.scan(image)
+        self.seed=dict(at=now,size=image.size,candidate=found[0],box=search_box(found[0],image.size)) if len(found)==1 else None
+        return found
+
+
+def same_layout(a, b, size):
+    """Same anchor spacing, EXP geometry and level availability as the seed (merge_layouts tolerance)."""
+    limit=.05*min(a['anchor_step'],b['anchor_step'])
+    if abs(a['anchor_step']-b['anchor_step'])>limit or (a['regions']['level'] is None)!=(b['regions']['level'] is None):
+        return False
+    return all(abs(x-y)<=limit for field in ('exp','level') if a['regions'][field] is not None
+               for x,y in zip(a['regions'][field].pixels(*size),b['regions'][field].pixels(*size)))
 
 
 def level_reading(crop):

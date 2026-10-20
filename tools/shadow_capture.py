@@ -9,10 +9,13 @@ import json
 import math
 import os
 from pathlib import Path
+import queue
 import shutil
 import sqlite3
+import struct
 import subprocess
 import sys
+import threading
 import time
 import uuid
 
@@ -24,7 +27,7 @@ from exp_tracker.video import CaptureError, Source, VideoSession
 from exp_tracker.shadow_types import parse_percentage_only, partial_percentage
 from exp_tracker.store import Store
 from exp_tracker.diagnostics import Diagnostics
-from adaptive_hud import locate, level_reading
+from adaptive_hud import CachedLocator, locate, level_reading
 from analyze_temporal_ocr import complete_pair
 from benchmark_rapidocr import context_box, interpret
 from infer_exp_level import infer_levels
@@ -41,7 +44,82 @@ class ShadowSession(VideoSession):
             raise
 
 
-def neural_line(crop, python, timeout, level_crop=None, *, experimental_neural_level=False):
+class ResidentNeural:
+    """Reused recognizer processes (one per command), so import/model load is paid once.
+
+    Requests are serialized (inference is ~25 ms). A timeout, failure or oversized reply kills
+    that process; the next request starts a fresh one.
+    """
+
+    def __init__(self):
+        self.lock=threading.Lock()
+        self.processes={}
+
+    @staticmethod
+    def _send(process, data):
+        try:
+            process.stdin.write(data)
+            process.stdin.flush()
+        except (OSError, ValueError):
+            pass  # A dead worker surfaces as EOF to the reader.
+
+    @staticmethod
+    def _read(process, lines):
+        try:
+            while line := process.stdout.readline(65537):
+                lines.put(line)
+        except (OSError, ValueError):
+            pass
+        lines.put(b'')
+
+    def __call__(self, command, payload, timeout):
+        command=(*command,'--serve')
+        with self.lock:
+            process,lines=self.processes.get(command,(None,None))
+            if process is None or process.poll() is not None:
+                self._stop(command)
+                try:
+                    process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+                except OSError:
+                    raise CaptureError('neural_worker_failed') from None
+                lines=queue.Queue()
+                self.processes[command]=(process,lines)
+                threading.Thread(target=self._read,args=(process,lines),daemon=True).start()
+            # Write off-thread: a hung worker with a full pipe must not outlive the timeout.
+            threading.Thread(target=self._send,args=(process,struct.pack('!I',len(payload))+payload),daemon=True).start()
+            try:
+                line=lines.get(timeout=timeout)
+            except queue.Empty:
+                self._stop(command)
+                raise CaptureError('neural_timeout') from None
+            if not line.endswith(b'\n') or len(line)>65536:
+                self._stop(command)
+                raise CaptureError('neural_worker_failed')
+            return line
+
+    def _stop(self, command):
+        process,_=self.processes.pop(command,(None,None))
+        if process is None:
+            return
+        if process.poll() is None:
+            process.kill()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        for pipe in (process.stdin,process.stdout):
+            try:
+                pipe.close()
+            except OSError:
+                pass
+
+    def close(self):
+        # Lock-free: at shutdown an abandoned attempt may still hold the lock.
+        for command in list(self.processes):
+            self._stop(command)
+
+
+def neural_line(crop, python, timeout, level_crop=None, *, experimental_neural_level=False, resident=None):
     invalid_level=False
     try:
         payload = pack(crop,level_crop) if experimental_neural_level else png_bytes(crop,EXP_SIZE)
@@ -57,16 +135,20 @@ def neural_line(crop, python, timeout, level_crop=None, *, experimental_neural_l
     if experimental_neural_level:
         command.append('--experimental-neural-level')
     started=time.monotonic()
+    if resident is not None:
+        stdout=resident(command,payload,timeout)
+    else:
+        try:
+            result = subprocess.run(command,
+                                    input=payload, stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            raise CaptureError('neural_timeout') from None
+        if result.returncode or len(result.stdout) > 65536:
+            raise CaptureError('neural_worker_failed')
+        stdout=result.stdout
     try:
-        result = subprocess.run(command,
-                                input=payload, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, timeout=timeout, check=False)
-    except subprocess.TimeoutExpired:
-        raise CaptureError('neural_timeout') from None
-    if result.returncode or len(result.stdout) > 65536:
-        raise CaptureError('neural_worker_failed')
-    try:
-        response=json.loads(result.stdout)
+        response=json.loads(stdout)
         json.dumps(response,allow_nan=False)
         if not isinstance(response,dict) or 'text' not in response or (
                 response['text'] is not None and (not isinstance(response['text'],str) or len(response['text'])>160)):
@@ -236,8 +318,8 @@ def parser():
 
 
 def capture_attempt(args, source, requirements, index, *, seek=None, session_factory=ShadowSession,
-                    analyze_frame=analyze, clock=time.monotonic):
-    """One bounded acquisition/OCR operation, shared by serial coordinators."""
+                    analyze_frame=analyze, clock=time.monotonic, resident=None):
+    """One bounded acquisition/OCR operation, shared by coordinators; resident reuses a neural worker."""
     attempt_started = clock()
     record = dict(type='attempt', index=index, trusted=False, current=False,
                   attempted_at=datetime.now(timezone.utc).isoformat(),
@@ -276,8 +358,8 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
         try:
             experimental=getattr(args,'experimental_neural_level',False)
             reader=(lambda crop,level: neural_line(crop,args.ocr_python,args.ocr_timeout,level,
-                     experimental_neural_level=True)) if experimental else (
-                     lambda crop: neural_line(crop,args.ocr_python,args.ocr_timeout))
+                     experimental_neural_level=True,resident=resident)) if experimental else (
+                     lambda crop: neural_line(crop,args.ocr_python,args.ocr_timeout,resident=resident))
             options={'experimental_neural_level':True} if experimental else {}
             analyzed = analyze_frame(frame, requirements, reader,
                 max_age=args.max_age,
