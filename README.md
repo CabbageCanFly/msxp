@@ -155,8 +155,10 @@ It remains an offline prototype; production recognition and tracking are unchang
 
 The [offline character-name OCR prototype](docs/character-name-ocr.md) reads the
 own-name status-panel field using existing Tesseract/RapidOCR, exports private
-review evidence and proposes stable names for operator confirmation. It does not
-change character selection or tracking history.
+review evidence and proposes stable names for operator confirmation. Optional
+local-video diagnostic capture reuses its resident EXP worker for periodic and
+numeric-event checks, retaining possible switches for review. It does not change
+character selection or tracking history.
 
 The separate [native level-digit experiment](docs/level-digits.md) trades coverage
 for safer rejection: 57 correct levels, zero incorrect accepts and 60 unavailable

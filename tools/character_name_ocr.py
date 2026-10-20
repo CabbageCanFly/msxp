@@ -38,21 +38,25 @@ def checked_box(box, size):
     return list(box)
 
 
+def name_region(layout, size):
+    """Extract from an ALREADY located HUD; performs no localization or OCR."""
+    hp, step = layout['anchors']['hp'], layout['anchor_step']
+    # shortcut: name beneath job in the Classic status panel; other UI needs a manual region.
+    box = [round(hp['x'] - 1.28 * step), round(hp['y'] + .10 * step),
+           round(hp['x'] - .06 * step), round(hp['y'] + .265 * step)]
+    return dict(box=checked_box(box, size), ownership='status_panel_candidate',
+                anchors=layout['anchors'], anchor_step=step)
+
+
 def name_regions(image):
     """Reuse HUD anchor agreement; retain every layout rather than choosing one."""
     layouts = locate(image)
     regions = []
     for layout in layouts:
-        hp, step = layout['anchors']['hp'], layout['anchor_step']
-        # shortcut: name beneath job in the Classic status panel; other UI needs a manual region.
-        box = [round(hp['x'] - 1.28 * step), round(hp['y'] + .10 * step),
-               round(hp['x'] - .06 * step), round(hp['y'] + .265 * step)]
         try:
-            checked_box(box, image.size)
+            regions.append(name_region(layout, image.size))
         except ValueError:
             continue
-        regions.append(dict(box=box, ownership='status_panel_candidate',
-                            anchors=layout['anchors'], anchor_step=step))
     # Include invalid geometries in ambiguity accounting too.
     return regions, len(layouts)
 

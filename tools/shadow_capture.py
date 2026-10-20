@@ -72,9 +72,12 @@ class ResidentNeural:
             pass
         lines.put(b'')
 
-    def __call__(self, command, payload, timeout):
+    def __call__(self, command, payload, timeout, *, metrics=None):
         command=(*command,'--serve')
+        queued=time.monotonic() if metrics is not None else None
         with self.lock:
+            if metrics is not None:
+                metrics['queue_wait_seconds']=time.monotonic()-queued
             process,lines=self.processes.get(command,(None,None))
             if process is None or process.poll() is not None:
                 self._stop(command)
@@ -119,7 +122,7 @@ class ResidentNeural:
             self._stop(command)
 
 
-def neural_line(crop, python, timeout, level_crop=None, *, experimental_neural_level=False, resident=None):
+def neural_line(crop, python, timeout, level_crop=None, *, experimental_neural_level=False, resident=None, metrics=None):
     invalid_level=False
     try:
         payload = pack(crop,level_crop) if experimental_neural_level else png_bytes(crop,EXP_SIZE)
@@ -136,7 +139,7 @@ def neural_line(crop, python, timeout, level_crop=None, *, experimental_neural_l
         command.append('--experimental-neural-level')
     started=time.monotonic()
     if resident is not None:
-        stdout=resident(command,payload,timeout)
+        stdout=resident(command,payload,timeout,**({'metrics':metrics} if metrics is not None else {}))
     else:
         try:
             result = subprocess.run(command,
@@ -156,6 +159,8 @@ def neural_line(crop, python, timeout, level_crop=None, *, experimental_neural_l
         if experimental_neural_level:
             response['neural_level']=empty_level('invalid_crop') if invalid_level else checked_level(response.get('neural_level'))
             response['worker_wall_seconds']=time.monotonic()-started
+        if metrics is not None:
+            response['request_metrics']={**metrics,'bridge_seconds':time.monotonic()-started}
         return response
     except (ValueError, UnicodeError, RecursionError):
         raise CaptureError('invalid_neural_response') from None
@@ -182,7 +187,8 @@ def level_evidence(pair, visual, requirements):
 
 
 def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
-            read_level=level_reading, clock=time.monotonic, crop_dir=None, experimental_neural_level=False):
+            read_level=level_reading, clock=time.monotonic, crop_dir=None, experimental_neural_level=False,
+            identity=None, read_name=None):
     """No value reuse. Even completed stale work is explicitly ineligible/current=false."""
     result = dict(status='unavailable', trusted=False, current=False, reasons=[], timings={},
                   candidate=None, visual_level=None, visual_attempts=[], neural=None,
@@ -191,6 +197,14 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
                   localization=None, level_evidence=level_evidence(None, None, requirements))
     if experimental_neural_level:
         result['neural_level']=empty_level('not_run')
+    image, candidates = None, []
+
+    def finish():
+        if identity is not None:
+            result['character_name']=identity.inspect(result,frame,image,candidates,read_name,requirements,
+                                                       max_age=max_age,clock=clock)
+            result['timings']['character_name_seconds']=result['character_name']['evidence']['seconds']
+        return result
 
     def fresh():
         result['local_age_seconds'] = max(0, clock() - frame.arrived_monotonic)
@@ -201,7 +215,7 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
         return True
 
     if not fresh():
-        return result
+        return finish()
     started = clock()
     image = frame.image()
     result['frame_size'] = image.size
@@ -211,17 +225,17 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
         result['reasons'].append('localization_failed')
         result['timings']['localization_seconds'] = clock() - started
         fresh()
-        return result
+        return finish()
     result['timings']['localization_seconds'] = clock() - started
     result['localization'] = dict(count=len(candidates), candidates=[
         {**candidate, 'regions': {key: asdict(region) if region is not None else None
                                 for key, region in candidate['regions'].items()}}
         for candidate in candidates], target_identity_verified=False)
     if not fresh():
-        return result
+        return finish()
     if len(candidates) != 1:
         result['reasons'].append('missing_hud' if not candidates else 'multiple_huds')
-        return result
+        return finish()
     regions = candidates[0]['regions']
     box = context_box(regions['exp'], image.size, 2)
     crop = image.crop(box)
@@ -258,7 +272,7 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
             else:
                 result['partial_percentage_evidence'] = partial_percentage(result['parsed_diagnostic']['percentage'])
     if not fresh():
-        return result
+        return finish()
     started = clock()
     try:
         visual, attempts = read_level(level_crop) if level_crop is not None else (None,[])
@@ -271,7 +285,7 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
     result['visual_level'], result['visual_attempts'] = visual, attempts
     result['level_evidence'] = level_evidence(result['candidate'], visual, requirements)
     if not fresh():
-        return result
+        return finish()
     result['current'] = True  # Local delivery age only, never broadcast/source freshness.
     result['status'] = ('diagnostic_pair' if result['candidate'] is not None else
                         'diagnostic_percentage_only' if result['percentage_only_candidate'] is not None else
@@ -282,7 +296,7 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
         result['reasons'].append('visual_level_unavailable')
     if result['level_evidence']['relation'] in ('conflict', 'unsupported_visual_level'):
         result['reasons'].append(result['level_evidence']['relation'])
-    return result
+    return finish()
 
 
 def private_path(path):
@@ -312,13 +326,17 @@ def parser():
     cli.add_argument('--output', type=Path, required=True)
     cli.add_argument('--save-crops', action='store_true', help='Save only field crops beside the NEW JSONL')
     cli.add_argument('--experimental-neural-level',action='store_true',help='Opt in to UNVERIFIED neutral4 level diagnostics in the existing neural worker')
+    cli.add_argument('--character-names',action='store_true',help='Local-video/no-DB only: review identity suggestions using the existing HUD and neural worker')
+    cli.add_argument('--name-interval',type=float,default=0,help='Name check interval in seconds; 0 checks every eligible capture. Numeric events and confirmation bypass it')
+    cli.add_argument('--resident-neural',action='store_true',help='Reuse the existing neural worker for EXP, level and optional names')
+    cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Optional existing regional HUD cache; competing HUDs can go unseen until refresh')
     cli.add_argument('--db', type=Path, help='Opt in to separate SQLite diagnostic persistence; initialize/select/start first')
     cli.add_argument('--tracking-channel', help='Explicit DB channel assignment for a local video only')
     return cli
 
 
 def capture_attempt(args, source, requirements, index, *, seek=None, session_factory=ShadowSession,
-                    analyze_frame=analyze, clock=time.monotonic, resident=None):
+                    analyze_frame=analyze, clock=time.monotonic, resident=None, identity=None):
     """One bounded acquisition/OCR operation, shared by coordinators; resident reuses a neural worker."""
     attempt_started = clock()
     record = dict(type='attempt', index=index, trusted=False, current=False,
@@ -361,6 +379,11 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
                      experimental_neural_level=True,resident=resident)) if experimental else (
                      lambda crop: neural_line(crop,args.ocr_python,args.ocr_timeout,resident=resident))
             options={'experimental_neural_level':True} if experimental else {}
+            if identity is not None:
+                def read_name(crop):
+                    return neural_line(crop,args.ocr_python,min(2,args.ocr_timeout),
+                        experimental_neural_level=experimental,resident=resident,metrics={})
+                options.update(identity=identity,read_name=read_name)
             analyzed = analyze_frame(frame, requirements, reader,
                 max_age=args.max_age,
                 crop_dir=args.output.with_suffix('') / f'{index:04d}' if args.save_crops else None,**options)
@@ -371,12 +394,15 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
             record.update(status='recognition_failed', current=False,
                           reasons=[str(error) if isinstance(error, CaptureError) else 'recognition_failed'])
         record['timings']['recognition_total_seconds'] = clock() - tick
+    if identity is not None and 'character_name' not in record:
+        record['character_name']=dict(evidence=dict(status='capture_or_recognition_failed',trusted=False),
+            suggestion=identity.missing(record.get('received_at',record['attempted_at'])),tracking_action='none')
     record['timings']['attempt_seconds'] = clock() - attempt_started
     return record
 
 
 def run(args, source, requirements, emit, *, session_factory=ShadowSession, analyze_frame=analyze,
-        clock=time.monotonic, sleep=time.sleep, on_activity=None):
+        clock=time.monotonic, sleep=time.sleep, on_activity=None, resident=None, identity=None):
     started = clock()
     deadline = started
     attempted = 0
@@ -389,7 +415,9 @@ def run(args, source, requirements, emit, *, session_factory=ShadowSession, anal
             attempted += 1
             seek = args.start + clock() - started if source.kind == 'file' else None
             record = capture_attempt(args, source, requirements, index+1, seek=seek,
-                session_factory=session_factory, analyze_frame=analyze_frame, clock=clock)
+                session_factory=session_factory, analyze_frame=analyze_frame, clock=clock,
+                **({'resident':resident} if resident is not None else {}),
+                **({'identity':identity} if identity is not None else {}))
             emit(record)
             # No catch-up queue: skip elapsed schedule slots instead of replaying stale work.
             deadline += args.interval
@@ -408,6 +436,14 @@ def prepare(args, *, allow_missing_video=False, offline_fast_test=False):
     """Shared offline preflight. No database writes or remote connections."""
     if not 1 <= args.count <= 60:
         raise ValueError('count must be 1..60')
+    if getattr(args,'character_names',False) and (not args.file or args.channel or args.db):
+        raise ValueError('--character-names requires a local --file without --db')
+    for name, high in [('name_interval',3600),('hud_cache_seconds',3600)]:
+        value=getattr(args,name,0)
+        if not math.isfinite(value) or not 0<=value<=high:
+            raise ValueError(f'{name} must be finite and 0..{high}')
+    if getattr(args,'name_interval',0) and not getattr(args,'character_names',False):
+        raise ValueError('--name-interval requires --character-names')
     if offline_fast_test and (args.channel or not args.file):
         raise ValueError('Offline fast testing requires a local video, never Twitch')
     for name, low, high in [('interval', 3 if offline_fast_test else 5, 300), ('timeout', 1, 30), ('max_age', 1, 30),
@@ -450,7 +486,11 @@ def configuration(args, table_bytes, table, run_id=None):
         numerical_verification=False, character_identity_verified=False,
         **({'run_id': run_id} if run_id else {}),
         **({'experimental_neural_level': True, 'neural_level_preprocessing': 'neutral4'}
-           if args.experimental_neural_level else {}))
+           if args.experimental_neural_level else {}),
+        **({'character_names':True,'name_interval_seconds':args.name_interval,'identity_policy':'review_only_v1'}
+           if getattr(args,'character_names',False) else {}),
+        **({'resident_neural':True} if getattr(args,'resident_neural',False) or getattr(args,'character_names',False) else {}),
+        **({'hud_cache_seconds':args.hud_cache_seconds} if getattr(args,'hud_cache_seconds',0) else {}))
 
 
 def main(argv=None, *, on_record=None, on_activity=None):
@@ -473,6 +513,16 @@ def main(argv=None, *, on_record=None, on_activity=None):
     os.environ['OMP_THREAD_LIMIT'] = '1'
     args.output.parent.mkdir(parents=True, exist_ok=True)
     monitor = ResourceMonitor(sample_interval=.05, scope='serial shadow runner + capture + OCR children')
+    resident = ResidentNeural() if args.resident_neural or args.character_names else None
+    if resident: stack.callback(resident.close)
+    options={}
+    if resident: options['resident']=resident
+    if args.hud_cache_seconds:
+        from functools import partial
+        options['analyze_frame']=partial(analyze,locator=CachedLocator(args.hud_cache_seconds))
+    if args.character_names:
+        from character_identity import IdentityCapture
+        options['identity']=IdentityCapture(str(args.file.resolve()),interval=args.name_interval)
     try:
         with args.output.open('x', encoding='utf-8') as output:
             run_id = uuid.uuid4().hex if diagnostics else None
@@ -480,6 +530,15 @@ def main(argv=None, *, on_record=None, on_activity=None):
                 record = {**record, 'resources': monitor.snapshot()}
                 output.write(json.dumps(record, allow_nan=False) + '\n')
                 output.flush()
+                if args.character_names and record['type']=='attempt':
+                    name=record.get('character_name',{})
+                    suggestion,evidence=name.get('suggestion',{}),name.get('evidence',{})
+                    print(json.dumps(dict(index=record['index'],proposed_name=suggestion.get('proposed_name'),
+                        pending_switch=(suggestion.get('pending_switch') or {}).get('name'),
+                        observed_name=evidence.get('name'),status=suggestion.get('latest_status'),
+                        numeric_reason=(name.get('numeric_check') or {}).get('classification'),
+                        source_evidence={k:evidence.get(k) for k in ('received_at','pixel_sha256','box','score')},
+                        trusted=False),allow_nan=False),flush=True)
                 try:
                     if diagnostics:
                         if record['type'] == 'configuration':
@@ -493,7 +552,7 @@ def main(argv=None, *, on_record=None, on_activity=None):
                 if on_record:
                     on_record(record, diagnostics is not None)
             emit(configuration(args, table_bytes, table, run_id))
-            summary = run(args, source, requirements, emit,**({'on_activity':on_activity} if on_activity else {}))
+            summary = run(args, source, requirements, emit,**options,**({'on_activity':on_activity} if on_activity else {}))
             monitor.close()
             emit(summary)
     except (OSError, ValueError, sqlite3.Error) as error:

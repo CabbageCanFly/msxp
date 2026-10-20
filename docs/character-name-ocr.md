@@ -6,6 +6,10 @@ Automatic HUD localization is useful but incomplete. This prototype only propose
 a name for operator review; it never opens a tracker database, changes a roster,
 selects a character, renames anything or merges EXP history.
 
+The [diagnostic capture follow-up](#diagnostic-capture-follow-up) below reuses the
+resident EXP worker and existing HUD layout, adds per-channel pending suggestions,
+and measures per-capture overhead. The initial offline evaluation remains below.
+
 ## Run it
 
 Run from this worktree. Its optional environments and footage remain at their
@@ -211,3 +215,228 @@ The initial related run passed **177 tests, zero skips**. Coverage includes spel
 conflicts, unsupported syntax, score rejection, duplicate pixels, multiple HUDs,
 missing latest evidence, manual ownership, OCR failures and CLI image/video paths.
 The full suite and private sample-test suite were intentionally not run.
+
+## Diagnostic capture follow-up
+
+Branch preflight: `main` and local `origin/main` were both `48b5d80`, already ancestors
+of this branch; the worktree was clean. This implementation reuses main's resident
+worker, cache interfaces and bounded capture operation. Nothing was merged or committed.
+
+From this worktree, with the existing environments in the original checkout:
+
+```powershell
+$repo = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+$python = "$repo\.venv\Scripts\python.exe"
+$rapid = "$repo\private\rapidocr\.venv\Scripts\python.exe"
+
+# Opt-in, local-video diagnostics only; NEW private output name required.
+& $python tools/shadow_capture.py --file "$repo\samples\sample-stream2.mp4" --start 3120 --interval 15 --count 3 --character-names --ocr-python $rapid --output private/character-name/integration/demo-NEW.jsonl
+
+# The private, clearly labeled splice made during this investigation:
+# emmies / emmies / hefferheffer / hefferheffer, four 10-second segments.
+# Numeric events override a deliberately long five-minute periodic interval.
+& $python tools/shadow_capture.py --file private/character-name/integration/switch-montage.mkv --interval 10 --count 4 --character-names --name-interval 300 --experimental-neural-level --ocr-python $rapid --output private/character-name/integration/switch-NEW.jsonl
+```
+
+The second input is an ignored **synthetic splice of real full frames from different
+recordings**, not a naturally observed same-channel switch. Its source paths/segment
+labels are in `integration/montage-labels.json`. Public checkouts can use their own
+local recording for the first command; no footage or model is distributed.
+
+The CLI prints one compact JSON object per attempt, including the proposed name,
+pending switch, observed name, numeric reason and dated crop/hash/score reference.
+Example excerpt from the splice's fourth attempt:
+
+```json
+{
+  "index": 4,
+  "proposed_name": "emmies",
+  "pending_switch": "hefferheffer",
+  "observed_name": "hefferheffer",
+  "numeric_reason": "level_change_requires_confirmation",
+  "source_evidence": {"box": [917, 808, 1050, 826], "score": 0.99975},
+  "trusted": false
+}
+```
+
+Full private JSONL adds `character_name.evidence`, `suggestion`, `numeric_check`,
+`suspect_reading_hold_recommended` and `tracking_action: "none"` alongside the
+existing EXP/level results. Evidence retains raw text/scores, inference and bridge
+times, queue wait, source/canonical pixel hashes, receipt time, frame sequence,
+source-pixel box, model provenance, layout search origin and full-scan age. Parent
+capture records retain the file/seek provenance and explicitly unknown verified PTS.
+No report claims verified broadcast freshness or ownership. A failed name attempt
+preserves the completed EXP result, and an expired name result cannot vote.
+
+### What is shared and bounded
+
+`character_name_ocr.name_region(layout, size)` extracts the field from an **already
+located** HUD. The offline tool and `shadow_capture.analyze` use the same geometry;
+the capture path never calls the offline tool's full-frame discovery. Zero/multiple
+layouts abstain before name inference. Cached layouts already have source coordinates;
+their `search`/age provenance is retained. The cache remains off by default and its
+existing competing-HUD blind window is not cured by name recognition.
+
+`--character-names` implicitly enables the existing `ResidentNeural`. EXP runs first;
+the name is a second direct-line request to **the same process and model**, with the
+same command/protocol even when experimental level OCR is enabled. No new worker
+protocol, model, dependency or training. The name request uses at most the existing
+crop limit (1024x256, 1 MiB encoded); each worker reply remains bounded to 64 KiB.
+Its response wait is at most two seconds, after acquiring the shared worker lock;
+queue wait is measured separately and is not covered by that response timeout.
+Default capture freshness still gates eligible name evidence.
+
+All existing defaults remain disabled/unchanged when name OCR is off. The standalone
+shadow CLI additionally exposes main's `--resident-neural` and `--hud-cache-seconds`
+for local comparisons; no cache is implicitly enabled. Name mode rejects Twitch
+inputs and `--db` before opening a connection/store. `multi_alpha.py` was reviewed
+but remains unchanged: its normal path initializes assignments and persists diagnostics,
+so this milestone deliberately demonstrates parallel callers without that writer.
+The shared `capture_attempt(..., identity=...)` interface supports a separate
+`IdentityCapture(channel)` per lane with one shared resident. Never share identity
+state between lanes; the standalone channel key is the canonical local-video path.
+
+### Suggestions and verification events
+
+`tools/character_identity.py` keeps only two confirming references, a 128-hash
+duplicate window and bounded numerical context per channel. Two exact names on
+different RGB frames within the existing 120-second confirmation bound establish
+an **unverified proposal**. A different name needs its own two frames and produces
+`pending_switch.kind: "possible_character_switch"`; it never replaces the proposal.
+No name comes from a level/EXP value. There is no fuzzy matching or confidence winner.
+
+Unreadability, conflicts, multiple HUDs and capture failures clear an unfinished
+confirmation. Duplicate or out-of-order frames cannot add support. Long gaps clear
+confirmation too. An established proposal and an already established pending switch
+remain dated review evidence through failures and even if the old name returns;
+neither is automatically selected, dismissed or acknowledged. The latest status
+must be read with those historical suggestions. The original offline batch tool
+keeps its stricter whole-batch ambiguity policy.
+
+Default `--name-interval 0` checks **every eligible capture**. With a longer interval,
+initial confirmation, confirmation of a newly observed name and numerical events
+bypass the timer. Numerical reasons reuse `validate_transition`, `assess` under both
+existing display hypotheses, and the existing confirmation/wrap constants:
+
+| Evidence | Verification classification; never a switch decision |
+| --- | --- |
+| Same-level loss/reset | Existing `reset_loss_or_character_switch` reason requests a check |
+| Level decreases or any other level change | Existing `level_change_requires_confirmation` requests a check; direction is labeled |
+| Adjacent +1 level and existing 95%-to-5% wrap range | `possible_normal_level_up`; still check, do not infer a switch |
+| Higher level after a gap over 120 seconds | `possible_offstream_progression`; no claimed proof of off-stream activity |
+| EXP/percentage contradict both supplied rounding hypotheses | `possible_bad_ocr`; do not replace the numerical comparison anchor |
+| Incomplete current numerical evidence after a prior baseline/proposal | Request verification with `unknown` classification |
+
+There is no new XP-rate or level-jump threshold. Larger jumps remain unresolved
+changes under the existing validator; supported progression after a gap can be
+legitimate. Numerical context uses complete EXP pairs and a visual level; checked
+neural levels are retained independently, not silently substituted. A suspect numeric
+sample does not advance the comparison anchor, so unresolved changes can keep
+requesting checks. Only repeated independent **name** evidence can suggest a switch.
+
+Future integration should hold a suspect reading **before assigning/ingesting it
+under a selected character**, at the coordinator's result/append boundary. Preserve
+raw evidence for review and establish a separate baseline after an explicit confirmed
+switch. The hold recommendation also covers an observed name mismatch (even before
+two-frame confirmation) and any pending switch, including switches at identical EXP.
+This milestone only reports the hold recommendation; EXP ingestion, selection,
+sessions, histories, roster, public UI/API and systemd configuration are unchanged.
+
+### Saved-video and focused verification results
+
+- `real-stream2-enabled.jsonl`: original `sample-stream2.mp4`, start 3120 s,
+  three captures. **3/3** names `hefferheffer`, proposal after capture 2, no switch.
+  EXP and names alternate requests 1/2, 3/4, 5/6 in the same resident process.
+  Name work 56–88 ms. Requested 5-second cadence actually produced approximately
+  10-second starts because existing capture/localization work exceeded five seconds.
+- `real-stream3-enabled.jsonl`: original `sample-stream3.mp4`, start 1790 s,
+  two captures at requested 15 seconds. First reads **Mawile** (.93495); the next
+  locator returns **two layout candidates**, so no name inference/proposal. This
+  negative is preserved, not cropped around or retried with a different OCR strategy.
+- `switch-montage.jsonl`: four decoded frames of the private splice, all four exact
+  names; `emmies` proposal retained while `hefferheffer` becomes a pending switch
+  only on its second distinct frame. Experimental neural levels and names share one
+  worker (name requests 2/4/6/8).
+- `switch-event-priority.jsonl`: same splice with `--name-interval 300`. Captures
+  1–2 confirm `emmies`; capture 3's level decrease bypasses the timer immediately;
+  capture 4 checks again and proposes the pending switch. The proposed name stays
+  `emmies`. This proves the local workflow, not a naturally observed stream switch.
+- Paired frozen-frame experiment: four real name-bearing frames (three names) and
+  two negatives, two enabled and two disabled passes. All **8 enabled positive reads
+  exact**, all **4 negative evaluations abstain**, zero incorrect owner-field associations.
+  Every EXP/level status and candidate matches disabled results. Shared-worker burst
+  comparisons also preserve exact EXP strings and scores.
+
+**266 focused tests passed, zero skips**, including the original name/OCR tests,
+capture, resident/cache/scheduler interfaces, validation and arithmetic boundaries.
+New synthetic sequences cover stable names, repeated switches, similar-EXP switches,
+temporary unreadability, alternating/conflicting names, same pixels in differently
+encoded PNGs, multiple HUDs, channel isolation, failures, stale results, level drops,
+large jumps, normal level-ups and possible progression after a gap. The similar-EXP
+switch tests establish suggestions entirely from names, without any numeric anomaly.
+
+```powershell
+& $python -m pytest -q tests/test_character_identity.py tests/test_character_name_ocr.py tests/test_shadow_capture.py tests/test_shadow_neural_level.py tests/test_capture_performance.py tests/test_adaptive_hud.py tests/test_recognition.py tests/test_video.py tests/test_validation.py tests/test_exp_consistency.py tests/test_capture_ocr_guard.py -n 0
+```
+
+### Incremental overhead and 15-channel / 60-second target
+
+Private reproducible experiment: `integration/benchmark.py` / `benchmark.json`.
+Frozen actual HUD layouts avoid measuring Tesseract variability twice. After resident
+startup, six frames run disabled/enabled/enabled/disabled; recognition and visual
+level OCR remain real. Separately, 15 channel jobs x two rounds contend for one
+resident, with 1/3/4 caller threads. This tests worker contention, **not** full live
+15-channel capture throughput. No database or network is used.
+
+| Paired six-frame pass (4 eligible, 2 negative) | Disabled mean | Enabled mean |
+| --- | ---: | ---: |
+| Wall time, excluding frozen localization/extraction | 2.385 s | 2.753 s |
+| Corrected sampled process-tree CPU | 2.281 CPU-s | 2.625 CPU-s |
+| Highest sampled process-tree RSS | 262.73 MiB | 263.30 MiB |
+
+Increment: about **0.37 s wall / 0.34 CPU-s per six-frame pass**, or roughly
+**90 ms per eligible capture** including pixel hashing/provenance. Negative frames
+also spend ~22–27 ms hashing, so dividing the full difference by four is conservative.
+Short-lived Tesseract CPU sampling and workstation noise limit the paired CPU estimate.
+The worker-only CPU below uses exact process-tree CPU deltas. Windows venv Python
+launches the real interpreter behind a small wrapper; measurements include both.
+Sampled CPU subtracts the resident's pre-phase lifetime CPU, not only parent CPU.
+The first exploratory wrapper-only CPU/RSS readings were invalid and are retained
+privately as `benchmark-initial-wrapper-metrics-invalid.json`, not used here.
+
+| Caller threads, 30 jobs | Disabled wall / worker CPU | Enabled wall / worker CPU | Name queue mean / max |
+| --- | --- | --- | --- |
+| 1 | 1.58 s / 1.52 CPU-s | 3.28 s / 3.08 CPU-s | <.01 / <.01 ms |
+| 3 | 1.58 s / 1.44 CPU-s | 3.24 s / 3.09 CPU-s | 108 / 115 ms |
+| 4 | 1.59 s / 1.48 CPU-s | 3.25 s / 3.16 CPU-s | 149 / 172 ms |
+
+One resident command/model in every case; worker tree RSS stayed **131.13 MiB**.
+Additional neural CPU is **52–56 ms/check**. At 15 channels every 60 seconds this
+is ~0.014 of one workstation core for neural inference, or ~0.022 core including
+the conservative paired hash/evidence cost. Applying the earlier performance report's
+1.9x CPU factor gives ~0.04 VPS core; this is a **projection**, not a VPS measurement.
+Three callers' mean RPC-only job time rises from .147 to .312 s; names share the
+serialized worker and can delay other EXP calls. The 15-job burst adds about .83 s
+of resident work, well below 60 s. This does not revalidate total capture/publisher
+capacity, the dominant full-frame localization cost or network latency.
+
+Recommend **every eligible capture**, keeping HUD caching a separate explicit choice.
+With successful independent frames at interval I=60 s, a switch needs two name reads:
+roughly **60–120 seconds plus capture/OCR completion** after the actual switch.
+Missing/ambiguous/duplicate frames extend this; there is no bounded latency when
+the own-name panel is unavailable. Numeric events cannot detect a switch between
+similar levels/EXP, which is why periodic verification remains mandatory.
+
+If later VPS measurements require a longer periodic interval C (e.g. 300 s), the
+existing option combines periodic checks, immediate numeric-event checks and
+next-capture confirmation of a newly seen name. Without an anomaly, best-case
+switch suggestion latency becomes roughly **60–360 seconds plus work** at I=60,
+and gaps/conflicts can delay it further. Numeric-triggered verification occurs in
+the same acquired frame, never immediately at an unobserved event between captures.
+The small measured name cost does not currently justify that latency tradeoff.
+
+All new evidence is ignored under `private/character-name/integration/`. No naturally
+occurring same-stream character switch, independent human label audit, VPS/live Twitch
+trial, long-run false-owner rate, crowded multi-game-feed study or full/private-sample
+test suite was performed. Cache blind spots, systematic repeated spelling errors,
+arbitrary legitimate naming rules and stale/replayed game feeds remain limitations.
