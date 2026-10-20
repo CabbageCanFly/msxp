@@ -117,6 +117,31 @@ def test_checkpoint_store_is_bounded(tracking,monkeypatch):
     assert len(checkpoints)==2 and ('tracked','alpha',1,()) in checkpoints
 
 
+def saved_logs(root,channel):
+    """Each saved capture log read once, as records in run order. Live capture may still
+    append: a trailing unfinished line and a header-only new log are not yet part of it."""
+    logs=[]
+    for path in Path(root).glob(f'*/{channel}/**/capture.jsonl'):
+        text=path.read_text()
+        records=[json.loads(s) for s in text[:text.rfind('\n')+1].splitlines()]
+        if len(records)>1:logs.append(records)
+    return sorted(logs,key=lambda records:records[1]['attempted_at'])
+
+
+def test_saved_logs_are_read_once_in_run_order(tmp_path):
+    def write(path,*records,tail=''):
+        path.parent.mkdir(parents=True,exist_ok=True);path.write_text(''.join(json.dumps(r)+'\n' for r in records)+tail)
+    header=lambda run:dict(type='configuration',run_id=run)
+    attempt=lambda second:dict(type='attempt',attempted_at=(NOW+timedelta(seconds=second)).isoformat())
+    write(tmp_path/'b/alpha/capture.jsonl',header('late'),attempt(60),tail='{"type": "attempt", "attem')  # Being written.
+    write(tmp_path/'a/alpha/run/capture.jsonl',header('early'),attempt(0),attempt(20),dict(type='summary'))
+    write(tmp_path/'c/alpha/capture.jsonl',header('new'))  # Created, no attempt yet.
+    logs=saved_logs(tmp_path,'alpha')
+    assert [r[0]['run_id'] for r in logs]==['early','late'] and [len(r) for r in logs]==[4,2]
+    write(tmp_path/'b/alpha/capture.jsonl',header('late'),attempt(60),attempt(80))  # Later appends do not reach this snapshot.
+    assert [len(r) for r in logs]==[4,2] and logs[1][1]['attempted_at']==(NOW+timedelta(seconds=60)).isoformat()
+
+
 @pytest.mark.parametrize('channel',['emmies','niru','telfer1'])
 def test_saved_logs_match_full_replay_while_streamed(tmp_path,channel):
     """Real missing/malformed OCR, level-ups, rotation, restarts and long inactivity.
@@ -124,15 +149,15 @@ def test_saved_logs_match_full_replay_while_streamed(tmp_path,channel):
     Bounded for the suite: resume every 6 records, compare every 150 and at the end.
     private/incremental-work/sweep.py compares far more often (see docs).
     """
-    paths=sorted(Path(SAVED).glob(f'*/{channel}/**/capture.jsonl'),key=lambda p:json.loads(p.read_text().splitlines()[1])['attempted_at'])
-    if not paths:pytest.skip('private saved capture unavailable')
+    logs=saved_logs(SAVED,channel)  # One consistent snapshot: rotations during the replay do not change it.
+    if not logs:pytest.skip('private saved capture unavailable')
     checkpoints={};steps=0;now=None
     with Store(tmp_path/'saved.sqlite3') as store:
         store.add_channel(channel);cid=store.add_character(channel,'Saved review');store.select_character(channel,cid)
-        store.start_session(channel,at=datetime.fromisoformat(json.loads(paths[0].read_text().splitlines()[1])['attempted_at']))
+        store.start_session(channel,at=datetime.fromisoformat(logs[0][1]['attempted_at']))
         d=Diagnostics(store)
-        for path in paths:
-            records=[json.loads(s) for s in path.read_text().splitlines()];rid=records[0]['run_id'];d.begin(rid,channel,records[0])
+        for records in logs:
+            rid=records[0]['run_id'];d.begin(rid,channel,records[0])
             for r in records[1:]:
                 d.append(rid,r);steps+=1
                 if r['type']=='attempt':now=datetime.fromisoformat(r.get('received_at') or r['attempted_at'])
