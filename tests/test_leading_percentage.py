@@ -36,7 +36,8 @@ def evaluate(rows):
     return values
 
 
-@pytest.mark.parametrize('raw,pct,edits',[('194.55%]','94.55',1),('195.11%1','95.11',2),('196.00%]','96.00',1)])
+@pytest.mark.parametrize('raw,pct,edits',[('194.55%]','94.55',1),('195.11%1','95.11',2),('196.00%]','96.00',1),
+    ('159.36%1','59.36',2),('158.09%I','58.09',2)])
 def test_unique_but_review_only_hypothesis_does_not_replace_a_strict_parser(raw,pct,edits):
     parsed=interpret_exp(raw)
     assert parse_percentage_only(raw) is None and propose_full_exp(raw)['classification']=='rejected'
@@ -44,6 +45,12 @@ def test_unique_but_review_only_hypothesis_does_not_replace_a_strict_parser(raw,
     assert parsed['percentage']['classification']=='review_only'
     proposal=parsed['percentage_hypotheses'][0]
     assert proposal['interpretation']==f'[{pct}%]' and len(proposal['edits'])==edits
+    assert parsed['raw']==raw
+    rebuilt=list(raw)
+    for edit in proposal['edits']:
+        assert raw[edit['index']]==edit['old']
+        rebuilt[edit['index']]=edit['new']
+    assert ''.join(rebuilt)==proposal['interpretation']
     assert proposal['required_context']=='two_prior_strict_percentage_only' and not proposal['trusted']
     assert not proposal['numerical_identity_verified']
     assert reading(project([hypothesis(1,raw)])[0]) is None
@@ -51,7 +58,9 @@ def test_unique_but_review_only_hypothesis_does_not_replace_a_strict_parser(raw,
 
 
 @pytest.mark.parametrize('raw',['0.85%1','170 57%1','1194.55%1','194,55%1','194.5%1',
-    '194.55%','194.55%|','I94.55%]','100.00%1','100.00%]','194.55%1[95.00%]', 'prefix194.55%]'])
+    '194.55%','194.55%|','I94.55%]','100.00%1','100.00%]','194.55%1[95.00%]', 'prefix194.55%]',
+    '1158.09%I','1,158.09%I','158.09%II','158.09%l','158.O9%I','I58.09%I','158.09%I[59.00%]',
+    '1[58.09%]','158[58.09%]','1,158[58.09%]'])
 def test_no_unrestricted_numeric_prefix_stripping_or_extra_punctuation_repairs(raw):
     assert not interpret_exp(raw)['percentage_hypotheses']
 
@@ -64,7 +73,7 @@ def test_two_prior_strict_percentage_fields_make_a_causal_experimental_point():
     value=reading(last)
     assert value['percentage']=='94.55' and value['exp'] is None and value['evidence']=='grammar_recovered'
     assert last['raw_text']=='194.55%]' and rows==original
-    assert not value['trusted'] and value['grammar_policy']=='bounded_exp_v8'
+    assert not value['trusted'] and value['grammar_policy']=='bounded_exp_v9'
     assert percentage_point(last)[0]['comparison_eligible']
     # Streaming history pages preserve exactly the same causal format context.
     state={};projected=project(rows)
@@ -89,7 +98,7 @@ def test_missing_or_unsafe_mode_context_remains_review_only(kind):
     elif kind=='session':rows[2]['session_id']=2
     elif kind=='source':rows[2]['source_identity']='new-source'
     elif kind=='restart':rows[2].update(run_id='new',index=1,event_id='new:1')
-    elif kind=='expired':rows[2]['received_at']=(NOW+timedelta(seconds=150)).isoformat()
+    elif kind=='expired':rows[2]['received_at']=(NOW+timedelta(seconds=181)).isoformat()
     else:rows[2]['index']=4
     last=evaluate(rows)[-1]
     assert not last['percentage_review']['public_eligible'] and reading(last) is None
@@ -108,6 +117,148 @@ def test_hypotheses_cannot_self_seed_or_override_percentage_quarantine():
     assert value['percentage']=='94.56' and not value['trusted']
     bad=project(false_pair())[-1]
     assert percentage_point(bad)==(None,'arithmetic_pair_veto')
+
+
+def interrupted_context():
+    rows=[strict(1,'58.90'),hypothesis(2,'[59.02%\u3011'),strict(3,'59.14'),
+        hypothesis(4,None),hypothesis(5,'159.36%1')]
+    rows[3].update(status='unavailable',reasons=['missing_hud'],hud_count=0,
+        fresh_at_capture=False,visual_level=None)
+    for r,seconds in zip(rows,(0,37.796404,78.086715,121.753101,156.765062)):
+        r['received_at']=(NOW+timedelta(seconds=seconds)).isoformat()
+    return rows
+
+
+@pytest.mark.parametrize('malformed',[None,'[59.02%\u3011'])
+def test_two_strict_supports_survive_two_bounded_unreadable_attempts(malformed):
+    rows=interrupted_context();rows[1]['raw_text']=malformed;original=deepcopy(rows)
+    values=evaluate(rows);last=values[-1]
+    assert last['percentage_review']['percentage_only_context']['support_event_ids']==['run:1','run:3']
+    assert reading(last)['percentage']=='59.36' and reading(last)['exp'] is None
+    assert reading(last)['evidence']=='grammar_recovered' and not reading(last)['trusted']
+    assert not values[1]['percentage_review']['public_eligible'] and not values[3]['percentage_review']['public_eligible']
+    assert last['raw_text']=='159.36%1' and rows==original
+    # A page can end on either unreadable capture without losing the causal guards.
+    for split in range(1,len(rows)):
+        projected=project(rows);state={};now=datetime.fromisoformat(rows[-1]['received_at'])
+        decisions=review(projected[:split],[percentage_point(r) for r in projected[:split]],now=now,state=state)
+        decisions+=review(projected[split:],[percentage_point(r) for r in projected[split:]],now=now,state=state)
+        assert decisions==[r['percentage_review'] for r in values]
+
+
+@pytest.mark.parametrize('seconds,eligible',[(180,True),(180.000001,False)])
+def test_interrupted_context_time_limit(seconds,eligible):
+    rows=interrupted_context();rows[-1]['received_at']=(NOW+timedelta(seconds=seconds)).isoformat()
+    assert (reading(evaluate(rows)[-1]) is not None) is eligible
+
+
+def test_three_unreadable_attempts_exceed_the_attempt_window():
+    rows=interrupted_context()
+    extra=hypothesis(5,None);extra['received_at']=(NOW+timedelta(seconds=140)).isoformat()
+    rows.insert(4,extra);rows[-1].update(index=6,event_id='run:6',frame_sha256=f'{6:064x}')
+    assert reading(evaluate(rows)[-1]) is None
+
+
+@pytest.mark.parametrize('change',[
+    dict(session_id=2),dict(character_id=2),dict(source_identity='different'),dict(channel='other'),
+    dict(source_kind='file'),dict(run_id='other'),dict(manual_epoch=1),dict(visual_level=68),
+    dict(neural_level=dict(status='numeric_candidate',text='68',level=68,score=.99,preprocessing='neutral4')),
+    dict(status='stale_local_frame',fresh_at_capture=False),dict(fresh_at_capture=False),
+    dict(capture_acquired=False),dict(frame_sha256=None),dict(frame_sha256=f'{1:064x}'),
+    dict(crop_suspect=True),dict(hud_count=2),dict(timestamp_ordered=False),dict(local_age_seconds=16),
+    dict(received_at=None),dict(received_at=(NOW-timedelta(seconds=1)).isoformat()),
+    dict(received_at=(NOW+timedelta(seconds=200)).isoformat()),dict(timing_mode='simulated'),
+    dict(candidate_invalid=True),dict(percentage_only_invalid=True),dict(reading_invalidated=True),
+    dict(neural_level=dict(source_complete=False)),dict(index=8),dict(event_id='run:1'),
+])
+def test_unsafe_intervening_capture_cannot_be_skipped(change):
+    rows=interrupted_context();rows[1].update(change)
+    assert reading(evaluate(rows)[-1]) is None
+
+
+@pytest.mark.parametrize('text',['159.00%1','169.36%1','149.36%1','1,234[59.36%]','1159.36%1'])
+def test_interrupted_recovery_cannot_override_progression_or_strip_numeric_prefixes(text):
+    rows=interrupted_context();rows[-1]['raw_text']=text
+    assert reading(evaluate(rows)[-1]) is None
+
+
+@pytest.mark.parametrize('percentage',['59.40','79.00','58.00'])
+def test_intervening_valid_contradictory_reading_resets_support(percentage):
+    rows=interrupted_context();rows[1]=strict(2,percentage)
+    assert reading(evaluate(rows)[-1]) is None
+
+
+def test_intervening_whole_pair_arithmetic_conflict_is_not_an_unreadable_gap():
+    rows=interrupted_context()
+    for r in rows:r.update(index=r['index']+1,event_id=f'run:{r["index"]+1}',frame_sha256=f'{r["index"]+1:064x}')
+    rows.insert(0,strict(1,'58.80'))
+    rows[0]['received_at']=(NOW-timedelta(seconds=15)).isoformat()
+    for r in rows[:2]:
+        r['neural_level']=dict(status='numeric_candidate',text='67',level=67,score=.99,preprocessing='neutral4')
+    rows[2].update(raw_text='100[59.02%]',candidate=dict(exp='100',percentage='59.02'),
+        status='diagnostic_pair')
+    assert percentage_point(project(rows)[2])[1]=='arithmetic_pair_veto'
+    assert reading(evaluate(rows)[-1]) is None
+
+
+def test_terminal_capital_i_requires_the_same_supported_level_and_strict_context():
+    rows=[strict(1,'57.89'),strict(2,'57.98'),hypothesis(3,'158.09%I')]
+    assert reading(evaluate(rows)[-1])['percentage']=='58.09'
+    for prefix in (rows[1:],rows[2:]):assert reading(evaluate(prefix)[-1]) is None
+    rows[-1]['visual_level']=None
+    last=evaluate(rows)[-1]
+    assert last['experimental_level']['value'] is None and reading(last) is None
+
+
+@pytest.mark.parametrize('index',[1,3])
+def test_hypothesis_cannot_reuse_an_intervening_unreadable_frame(index):
+    rows=interrupted_context();rows[-1]['frame_sha256']=rows[index]['frame_sha256']
+    assert reading(evaluate(rows)[-1]) is None
+
+
+@pytest.mark.parametrize('change',[
+    dict(session_id=2),dict(source_identity='other'),dict(visual_level=68),dict(crop_suspect=True),
+    dict(frame_sha256=f'{3:064x}'),dict(status='stale_local_frame'),dict(local_age_seconds=16),
+    dict(reasons=['stale_local_frame']),dict(hud_count=2),dict(reading_invalidated=True),
+])
+def test_missing_hud_gap_after_both_supports_still_checks_capture_safety(change):
+    rows=interrupted_context();rows[3].update(change)
+    assert reading(evaluate(rows)[-1]) is None
+
+
+def test_saved_interrupted_run_read_only_projection_and_causal_prefixes():
+    from exp_tracker.shadow_view import observation
+
+    path=Path('private/multi-alpha/runs/20261020T214039Z-1781b4bb/telfer1/01f9f3a2328e42128e182408ffae84ff/capture.jsonl')
+    if not path.exists():pytest.skip('Private saved source unavailable')
+    digest=hashlib.sha256(path.read_bytes()).hexdigest()
+    records=[json.loads(line) for line in path.read_text().splitlines()];config=records[0]
+    rows=[];previous=None
+    for record in records[1:]:
+        if record['type']!='attempt':continue
+        r=observation(record);when=r['received_at'] or r['attempted_at']
+        r.update(event_id=f'{config["run_id"]}:{r["index"]}',run_id=config['run_id'],
+            interval_seconds=config['interval'],source_identity=config['source_identity'],
+            coordinator_instance=config['coordinator_instance'],assigned_channel='telfer1',character_id=1,session_id=1,
+            hud_count=(record.get('localization') or {}).get('count'),
+            capture_acquired=r['status']!='capture_failed' and r['received_at'] is not None,
+            timestamp_ordered=previous is None or when>previous)
+        previous=max(previous,when) if previous else when
+        rows.append(r)
+    values=evaluate(rows)
+    assert len(values)==60 and sum(reading(r) is not None for r in values)==50
+    last=values[36];candidate=reading(last)
+    assert candidate['percentage']=='59.36' and candidate['exp'] is None and not candidate['trusted']
+    assert candidate['evidence']=='grammar_recovered' and last['raw_text']=='159.36%1'
+    assert last['percentage_review']['percentage_only_context']['support_event_ids']==[
+        f'{config["run_id"]}:33',f'{config["run_id"]}:35']
+    assert reading(evaluate(rows[:37])[-1])==candidate
+    earlier=values[24]
+    assert interpret_exp(earlier['raw_text'])['percentage_hypotheses'][0]['reading']['percentage']=='58.09'
+    assert earlier['experimental_level']['value'] is None and reading(earlier) is None
+    for index,pct in ((33,'58.90'),(35,'59.14'),(38,'59.46'),(39,'59.56')):
+        assert reading(values[index-1])['percentage']==pct
+    assert hashlib.sha256(path.read_bytes()).hexdigest()==digest
 
 
 def test_saved_run_public_availability_and_causal_prefixes(tmp_path):

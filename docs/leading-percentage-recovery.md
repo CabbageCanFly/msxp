@@ -22,18 +22,24 @@ adjudication. Images, hashes and complete per-attempt decisions are ignored unde
 
 ## Bounded interpretation
 
-`bounded_exp_v6` records a **review-only hypothesis** for precisely
-`1DD.DD%]` or `1DD.DD%1`, where the remaining percentage is 10.00–99.99.
+`bounded_exp_v9` records a **review-only hypothesis** for precisely
+`1DD.DD%]`, `1DD.DD%1` or `1DD.DD%I`, where the remaining percentage is 10.00–99.99.
 It substitutes position-zero `1` with `[` and, if necessary, terminal `1` with
-`]`. It changes no numerical digit, decimal or percent sign and supplies no EXP
+`]` (terminal capital `I` has the same bounded closing-bracket interpretation).
+It changes no numerical digit, decimal or percent sign and supplies no EXP
 integer. The ordinary percentage-proposals list remains empty: syntax alone
 cannot promote it. Strict parsers and the frozen full-EXP v1 policy are unchanged.
 
-Read-time percentage review admits the hypothesis only with two immediately
-preceding eligible **strict percentage-only** observations, not full pairs or
-grammar recoveries. All three frames must have distinct hashes, matching supported
-level, explicit channel/character/session/source/run context, ordered timestamps
-within 120 seconds and no intervening failure, quarantine or unsafe boundary.
+Read-time `leading_one_percentage_v2` admits the hypothesis only with two earlier
+eligible **strict percentage-only** observations, not full pairs or grammar
+recoveries. Both supports must fall within **180 seconds and four attempt steps**
+of the hypothesis, permitting at most two intervening unreadable captures. Every
+attempt must be present, ordered, have a distinct known frame hash and retain the
+same explicit channel/character/session/source/run/manual-correction context.
+Supported levels must match; any competing visual/neural level clears support.
+Fresh, unique-HUD malformed text and ordinary `missing_hud` captures may preserve
+context, but never supply it. Stale, duplicate, suspect, contradictory, invalidated
+or arithmetically rejected observations and quarantine still clear support.
 These are distinct captures, not independent statistical proof of correctness.
 Recovered hypotheses cannot seed further recoveries.
 
@@ -42,10 +48,64 @@ quarantine still run. A decrease remains pending; a missing/conflicting level or
 insufficient format context leaves the candidate review-only and unavailable to
 the public reading decoder. `100.00%1`, one-digit/truncated `0.85%1`,
 `170 57%1`, extra prefixes, multiple percentage tokens, decimal repairs and
-unsupported closing glyphs are outside this new rule. Previously rejected
+unsupported closing glyphs are outside this rule. Capital `I` is interpreted only
+as the terminal character of this exact leading-one hypothesis, with the same
+causal gate; there is no general `I`/digit substitution. Previously rejected
 `156.97%1` receives no ordinary proposal or public point without the causal gate.
 
 ## Replay result
+
+### Interrupted 2026-10-20 run
+
+Read-only projection of the complete 60-attempt saved Telfer1 log under
+`20261020T214039Z-1781b4bb/telfer1/01f9f3a2328e42128e182408ffae84ff/`:
+
+| Attempt | UTC receipt | Evidence / result |
+|---|---|---|
+| 33 | 22:33:15.461051 | Strict `[58.90%]`, first support |
+| 34 | 22:33:53.257455 | Malformed `[59.02%】`, redacted by the unchanged HTTP allowlist |
+| 35 | 22:34:33.547766 | Strict `[59.14%]`, second support |
+| 36 | 22:35:17.214152 | Ordinary missing HUD, no percentage or level supplied |
+| 37 | 22:35:52.226113 | `159.36%1` → experimental **59.36%**, no numerical EXP |
+
+The first support is **156.765062 seconds** old at #37; the second is
+**78.678347 seconds** old. The previous immediate-predecessor/120-second gate
+lost both supports. The new 180-second/four-step bound covers this measured
+sequence without widening the general progression or level policy.
+
+Public readings increase **49 → 50**. Only #37 changes public/progress
+eligibility. All other percentages, numerical EXP values and selected levels stay
+equal; surrounding #33/#35/#38/#39 remain 58.90/59.14/59.46/59.56%. Causal prefix
+replay ending at #37 yields the same result, without consulting #38 or #39.
+
+**#25 stays withheld.** `158.09%I` now supplies a review-only 58.09% hypothesis;
+#23/#24 are strict supports 68.826719/35.907507 seconds earlier. Neither reader
+supplies a usable level at #25, so the strong context gate fails. Prior percentages
+do not invent its level or character identity.
+
+The original JSONL SHA-256 remains
+`ad26f91a6b0ab06e0874f44fff73186d594cdd65829345b365476929e91430d2`.
+Projection used the existing sanitized observation decoder, an explicit isolated
+character/session association and no database connection. Original raw OCR remains
+in the capture; the unchanged decoder redacts unsupported Unicode such as #34's
+closing glyph. No capture process, live database, trusted accounting or saved
+attempt payload was changed. Replay reports remain ignored under `artifacts/`.
+
+Synthetic regressions cover both example strings, missing support/level, 180-second
+and four-step bounds, contradictory valid readings, large changes, numeric prefixes,
+unsafe intervening metadata, repeated frames and incremental review pages.
+This is measured syntactic recovery, not independently verified OCR accuracy;
+no new model inference or pixel adjudication was performed.
+
+Validation: **381 focused Python tests passed, zero skips**, including the saved
+35- and 60-attempt replays and synthetic checkpoint/retention tests. The full suite,
+broad live-directory saved-log sweeps and 4,096-row cold-restore case were excluded
+from this focused run. A final narrow run passed **100 tests, zero skips**, including
+additional explicit numeric-prefix and raw edit-provenance assertions.
+Use `python -m pytest tests/test_leading_percentage.py -n 0`
+for the narrow grammar/continuity regressions; private-log cases skip when absent.
+
+### Original 35-attempt run
 
 | Evidence / 35 attempts | Before | After |
 |---|---:|---:|
