@@ -1,8 +1,15 @@
 # Continuous local tracking and history
 
+The [24-hour retention feature](24h-retention.md) supersedes this guide's original
+unbounded archive policy. The proposed VPS unit enables `--retention-24h` for
+continuous capture, including private logs/crops; see its checkpoint, admin and
+snapshot limits before enabling it. Migration alone never prunes.
+
 The multi-alpha coordinator supports **1–25 explicit assignments**, bounded mode
-and opt-in continuous capture. One acquisition/OCR job runs at a time, with one
-shared database and localhost server. All neural/grammar evidence and percentage
+and opt-in continuous capture. By default one acquisition/OCR job runs at a time, with
+one shared database and localhost server; `--workers 2..4` runs that many, one per
+channel, while rotation, SQLite writes and `--retention-24h` maintenance stay on the
+coordinator thread ([capture performance](capture-performance.md)). All neural/grammar evidence and percentage
 progress remain **EXPERIMENTAL / UNVERIFIED**. No OCR rule/model, EXP requirement,
 trusted ingestion, accounting, OBS overlay or leaderboard behavior was changed.
 

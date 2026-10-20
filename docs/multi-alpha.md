@@ -3,8 +3,10 @@
 Current follow-up: [continuous capture, safe rotation, fast offline testing and
 historical browsing](continuous-alpha.md). The finite workflow below remains supported.
 
-One coordinator runs **1–25 explicit assignments**, one capture/OCR job at a time,
-one shared SQLite database and one localhost HTTP server. All neural and
+One coordinator runs **1–25 explicit assignments**, one capture/OCR job at a time by
+default, one shared SQLite database and one localhost HTTP server. `--workers 2..4` opts
+in to that many concurrent jobs, at most one per channel, with the same single SQLite
+writer ([capture performance](capture-performance.md)). All neural and
 grammar-derived evidence remains **EXPERIMENTAL / UNVERIFIED**. Trusted Store
 accounting, the OBS overlay, models, grammar policy and requirement dataset are
 unchanged. No schema migration or new dependency is needed.

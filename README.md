@@ -117,12 +117,15 @@ saving. **Invalidated readings** provides individual and batch **Restore** actio
 original OCR and audit history remain intact. See the guide for limits and conflicts.
 
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 1–25 explicit assignments
-sequentially with one shared database/server, a real `/streams` directory and
+sequentially by default (opt-in `--workers 2..4`, see [capture performance](docs/capture-performance.md))
+with one shared database/server, a real `/streams` directory and
 separately gated experimental percentage progress. Start with the offline
 two-video example; neural/grammar values never contribute to trusted EXP totals.
 The [continuous mode and history guide](docs/continuous-alpha.md) covers safe
 60-attempt rotation, explicit offline fast testing, archived session browsing,
 SQLite backups and measured capacity limits.
+The [24-hour retention guide](docs/24h-retention.md) describes automatic VPS evidence
+and private-log expiry, persistent last-known state and expired admin targets.
 
 The **[single-stream local alpha](docs/local-alpha.md)** connects explicit character
 selection and shadow capture to separate SQLite diagnostics and a real-data
@@ -185,7 +188,7 @@ existing SQLite state. Start with an existing demo database:
 Start-Process 'http://127.0.0.1:8765/overlay/demo'
 ```
 
-The read-only server supports schemas 3–7; writer initialization migrates to 7.
+The read-only server supports schemas 3–9; writer initialization migrates to 9.
 The linked guide covers creating a demo,
 explicitly migrating old databases, saved real OCR state and timed synthetic
 updates. HTTP never creates/migrates databases or writes tracking state.

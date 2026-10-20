@@ -247,6 +247,8 @@ EOF
 }
 
 # Cache stays off. Serial baseline first, then the resident worker with 2 and 3 workers.
+# Repeat the best one with --retention-24h added. Its first prune runs at startup on the new, small DB;
+# prune cost on a full-day database is not measured by this benchmark.
 bench vps-a-serial
 bench vps-b-resident    --resident-neural
 bench vps-c-w2-resident --workers 2 --resident-neural
@@ -266,51 +268,43 @@ To adopt a result later, append the chosen flags to `ExecStart` in
 `deploy/msxp-tracker.service` and change the channels' `interval` in
 `private/vps/config.json`. Then use the normal controlled restart.
 
-## Integration with 24-hour retention (pending)
+## Integration with 24-hour retention
 
-A trial `git merge-tree` of `feat/capture-performance` (98eebac) with
-`feat/24h-retention` (604bf41) auto-merges README.md. It leaves six conflict hunks, all
-in `tools/multi_alpha.py`:
+Main at `ef53811` (retention merged, including `8ea4611`) was merged into this branch.
+Git auto-merged everything except six hunks in `tools/multi_alpha.py`; nothing in the
+later retention commits touches the coordinator. The resolution keeps both features:
 
-1. `schedule()` signature and docstring: keep both `workers=1` and `maintain=None`.
-2. Loop head: put `if maintain:maintain()` first inside the new `while True:`, before
-   the `pending` computation.
-3. Argument validation: keep both the `--workers`/`--hud-cache-seconds` checks and the
-   `--retention-24h requires continuous capture` check.
-4. Keep retention's `own(directory, database)` and the N-worker `ResourceMonitor` scope.
-5. Keep the N-worker `Capture RUNNING` message, retention's `with OperatorLog(directory)
-   as operator:` and its `maintain()` definition. `emit` only uses `operator.write` and
-   `operator.flush`, which `OperatorLog` provides.
-6. Keep `maintain=maintain` in `scheduler_options`, plus the per-lane options, `perform`
-   and `workers=args.workers` in the `schedule` call.
+- `schedule(..., maintain=None, workers=1)`, with `if maintain:maintain()` first in
+  every pass of the scheduler loop. That is before the first dispatch and again after
+  each completion or due-time wake.
+- Both argument checks (`--workers`/`--hud-cache-seconds` and
+  `--retention-24h requires continuous capture`), retention's `own(directory, database)`
+  and `OperatorLog`, the N-worker monitor scope and message, and `maintain=maintain`
+  together with `workers=args.workers` and the per-lane options.
 
-Behaviour to preserve and test after the merge:
+Invariants, each covered by a test in `tests/test_capture_performance.py`:
 
-- **`maintain()` must stay on the coordinator thread.** `prune()` runs inside the
-  coordinator's own SQLite connection and transaction. It temporarily rewrites
-  `streamers.selected_character_id` there. Workers never touch the store, so this stays
-  safe only while maintenance is never moved into a worker or another thread.
-- With workers it can run while attempts are in flight. Those attempts' runs remain in
-  `httpd.active_run_ids`, which `prune(active_runs=...)` protects. Their current logs
-  stay in `active_logs` because only the coordinator rotates `lane['args'].output`.
-  `cleanup()` only removes inactive logs and crops older than 24 h 5 min.
-- A long prune delays result collection and dispatch, not the in-flight work.
-  `coordinator_attempt_seconds` is measured in the worker. Scheduler delay and skipped
-  deadlines can grow for channels that fall due during a prune; benchmark once with
-  `--retention-24h` on a realistically sized database copy.
-- Retention's new `guard()` in `Diagnostics.append` raises `ValueError` for an expired
-  timestamp. In both paths that marks the lane `persistence_failed`. Workers emit
-  seconds after capture, so it should not trigger.
-- Add one combined test: `--continuous --retention-24h --workers 2`, asserting that
-  prune runs on the coordinator thread with both run IDs active.
-- The retention unit adds `--retention-24h` to `ExecStart`; performance flags go on the
-  same line.
-- `docs/continuous-alpha.md` and `docs/multi-alpha.md` still say one job runs at a time.
-  That stays true by default; add the `--workers` exception when integrating.
+- **Retention maintenance runs only on the coordinator thread.** `prune()` works inside
+  the coordinator's SQLite connection and transaction. It temporarily rewrites
+  `streamers.selected_character_id` there. Workers never touch the store.
+- **Maintenance may overlap in-flight attempts.** Those runs remain in
+  `httpd.active_run_ids`, which `prune(active_runs=...)` protects, and their logs are in
+  `active_logs`. Only the coordinator rotates `lane['args'].output`. A forced mid-run
+  prune with one attempt in flight leaves every attempt committed and every run
+  finalized, and a restart on the same database works.
+- **Ctrl+C during a prune** rolls back that transaction. In-flight attempts are recorded
+  as `operator_interrupted` without waiting for them.
 
-At review time the retention worktree also had **uncommitted** changes
-(`diagnostic_evidence.py`, `retention.py`, a new `tests/test_transition_retention.py`),
-so repeat this check against the branch as actually merged.
+A long prune delays result collection and dispatch, not the in-flight work.
+`coordinator_attempt_seconds` is measured in the worker. Scheduler delay and skipped
+deadlines can grow for channels that fall due during a prune. Benchmark once with
+`--retention-24h` on a realistically sized database copy.
+Retention's `guard()` in `Diagnostics.append` rejects expired timestamps. Workers emit
+seconds after capture, so it should not trigger; if it did, the lane would stop with
+`persistence_failed`, as in the serial path.
+
+`deploy/msxp-tracker.service` keeps main's `--retention-24h` and adds **no** performance
+flags.
 
 ## Not done
 

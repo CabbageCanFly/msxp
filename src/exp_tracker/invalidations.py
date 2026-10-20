@@ -89,6 +89,8 @@ class Invalidations:
         if row is None or row['session_id'] is None:raise ValueError('reading does not belong to this character and recording')
         result=dict(row,kind=kind)
         result['original_at']=utc(datetime.fromisoformat(result['original_at']))
+        from .retention import guard
+        guard(self.store,cid,result['original_at'])
         if stamp is not None and result['original_at']!=utc(datetime.fromisoformat(stamp)):
             raise ValueError('reading timestamp does not match the original')
         return result
@@ -109,6 +111,8 @@ class Invalidations:
         else:
             start=utc(datetime.fromisoformat(spec['start']));end=utc(datetime.fromisoformat(spec['end']))
             if action!='invalidate' or start>=end:raise ValueError('choose a start time before the end time')
+            from .retention import guard
+            guard(self.store,cid,start)
             rows=[dict(r) for r in self.db.execute('''SELECT * FROM (
                 SELECT 'diagnostic' AS kind,a.id AS source_id,a.run_id||':'||a.attempt_index AS target_event_id,
                     r.session_id,COALESCE(a.received_at,a.attempted_at) AS original_at
@@ -123,6 +127,8 @@ class Invalidations:
                 if e['kind']=='point' and e['character_id']==cid}
         for row in rows:
             row['original_at']=utc(datetime.fromisoformat(row['original_at']))
+            from .retention import guard
+            guard(self.store,cid,row['original_at'])
             state=validity.get((row['kind'],row['source_id']))
             excluded=bool(state and state['action']=='invalidate')
             row['state_id']=state['id'] if state else None
@@ -142,13 +148,18 @@ class Invalidations:
         result=dict(row,identity=row['target_event_id'],timestamp=row['original_at'])
         if row['kind']=='diagnostic':
             raw=self.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE id=?',(row['source_id'],)).fetchone()
+            if raw is None:return dict(result,original=None,expired=True)
             value=observation(json.loads(raw[0]));pair=value['candidate'] or value['percentage_only_candidate'] or {}
             result['original']=dict(level=value['visual_level'],current_exp=pair.get('exp'),percentage=pair.get('percentage'))
         else:
             raw=self.db.execute('SELECT level,current_exp,percentage_bp,outcome FROM observations WHERE id=?',(row['source_id'],)).fetchone()
+            if raw is None:return dict(result,original=None,expired=True)
             bp=raw['percentage_bp']
             result['original']=dict(level=raw['level'],current_exp=str(raw['current_exp']) if raw['current_exp'] is not None else None,
                                     percentage=f'{bp//100}.{bp%100:02}' if bp is not None else None,outcome=raw['outcome'])
+        from .retention import expired
+        cid=self.db.execute('SELECT character_id FROM sessions WHERE id=?',(row['session_id'],)).fetchone()[0]
+        result['expired']=expired(self.store,cid,row['original_at'])
         return result
 
     def preview(self, login, cid, spec, page=0):
@@ -201,8 +212,13 @@ class Invalidations:
     def history(self, login, cid, before=None):
         sid=self.owner(login,cid)
         if self.store.schema_version<7:return dict(batches=[],next_before=None)
+        expired="""(e.kind='diagnostic' AND NOT EXISTS(SELECT 1 FROM diagnostic_attempts a WHERE a.id=e.source_id))
+            OR (e.kind='observation' AND NOT EXISTS(SELECT 1 FROM observations o WHERE o.id=e.source_id))"""
+        if self.store.schema_version>=8:
+            expired+=' OR EXISTS(SELECT 1 FROM retention_state t WHERE t.character_id=b.character_id AND e.original_at<=t.cutoff)'
         rows=self.db.execute('''SELECT b.*,c.id AS commit_id,c.recorded_at AS committed_at,
             (SELECT COUNT(*) FROM reading_events WHERE batch_id=b.id) AS count,
+            (SELECT COUNT(*) FROM reading_events e WHERE e.batch_id=b.id AND ('''+expired+''')) AS expired_count,
             (SELECT COUNT(*) FROM reading_validity WHERE batch_id=b.id AND action='invalidate') AS remaining
             FROM reading_batches b JOIN reading_commits c ON c.batch_id=b.id WHERE b.streamer_id=? AND b.character_id=?
             AND c.id<? ORDER BY c.id DESC LIMIT ?''',(sid,cid,before or 2**63-1,PAGE+1)).fetchall()

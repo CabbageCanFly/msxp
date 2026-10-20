@@ -1,6 +1,6 @@
 """SQLite base schema and additive migrations, applied in one transaction."""
 
-VERSION = 7
+VERSION = 9
 STATEMENTS = (
     """CREATE TABLE streamers (
         id INTEGER PRIMARY KEY, login TEXT NOT NULL UNIQUE,
@@ -173,4 +173,38 @@ MIGRATION_7 = (
     *tuple(f"""CREATE TRIGGER {table}_no_{action.lower()} BEFORE {action} ON {table}
         BEGIN SELECT RAISE(ABORT,'reading validity audit is append-only'); END"""
         for table in ('reading_batches','reading_events','reading_commits') for action in ('UPDATE','DELETE')),
+)
+
+# Raw evidence expires; these checkpoints and the administration audit do not.
+MIGRATION_8 = (
+    """CREATE TABLE retention_state (
+        character_id INTEGER PRIMARY KEY REFERENCES characters(id),
+        cutoff TEXT NOT NULL, checkpoint_json TEXT NOT NULL
+    )""",
+    """CREATE TABLE trusted_checkpoints (
+        session_id INTEGER PRIMARY KEY REFERENCES sessions(id),
+        through_id INTEGER NOT NULL, checkpoint_json TEXT NOT NULL,
+        original_gain INTEGER NOT NULL, original_bridged INTEGER NOT NULL
+    )""",
+    """CREATE TABLE retention_meta (
+        id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL DEFAULT 0,
+        attempt_id INTEGER NOT NULL DEFAULT 0, observation_id INTEGER NOT NULL DEFAULT 0,
+        run_id INTEGER NOT NULL DEFAULT 0
+    )""",
+    'INSERT INTO retention_meta(id) VALUES(1)',
+)
+
+MIGRATION_9 = (
+    """CREATE TABLE daily_character_exp (
+        character_id INTEGER NOT NULL REFERENCES characters(id),
+        utc_date TEXT NOT NULL, observed_at TEXT NOT NULL,
+        level INTEGER CHECK(level BETWEEN 1 AND 200),
+        current_exp INTEGER CHECK(current_exp >= 0),
+        percentage_bp INTEGER CHECK(percentage_bp BETWEEN 0 AND 9999),
+        source TEXT NOT NULL CHECK(source IN ('diagnostic','trusted_ocr','manual_correction')),
+        level_basis TEXT, exp_basis TEXT, percentage_basis TEXT,
+        CHECK(current_exp IS NOT NULL OR percentage_bp IS NOT NULL),
+        CHECK(utc_date=substr(observed_at,1,10)),
+        PRIMARY KEY(character_id,utc_date)
+    ) WITHOUT ROWID""",
 )

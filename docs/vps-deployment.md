@@ -3,7 +3,9 @@
 The public frontend is hosted separately on Cloudflare Pages (`https://msxp.pages.dev`).
 The VPS runs Twitch capture, OCR, SQLite, EXP calculations, background publishing and a
 read-only HTTPS JSON API. Background: [VPS readiness](vps-readiness.md).
-Nothing here has been deployed, and no live database has been migrated.
+The backend has passed the separate Ubuntu 26.04 VPS capture/API trial. The
+Windows production DB has not been migrated and the VPS production tracker service
+is not yet enabled. The [24-hour retention changes](24h-retention.md) have not been deployed.
 
 ```
 browser ── https://msxp.pages.dev (Cloudflare Pages: HTML/JS/CSS, other worktree)
@@ -178,8 +180,8 @@ python -c "import sys,hashlib,sqlite3,pathlib;p=pathlib.Path(sys.argv[1]).resolv
      Both lines must print.
    - The Pages frontend shows current readings.
 
-   Only then run `systemctl enable msxp-tracker msxp-backup.timer` and take a first
-   backup: `systemctl start msxp-backup`.
+   Only then run `systemctl enable msxp-tracker`. Leave `msxp-backup.timer` disabled;
+   the provider already supplies seven-day automatic snapshots for MVP.
 8. **Roll back if startup or verification fails.**
    - *The VPS has not recorded any new attempt* (count still equals the final Windows
      count): `systemctl stop msxp-tracker` and keep the VPS copy for diagnosis.
@@ -204,11 +206,13 @@ Windows file), or to accept the differing hash.
 
 ## Backups and restore
 
-`msxp-backup.timer` runs `tools/backup_database.py` daily. It takes a consistent online
-copy (WAL included) into `private/backups/tracker-<UTC>.sqlite3`, runs
-`integrity_check` and `foreign_key_check`, and never overwrites. Local copies older than
-14 days are deleted. Copy backups off the VPS separately, for example with `rsync` over
-SSH from another host.
+For MVP, use the provider's seven-day automatic server snapshots. The separate
+14-day local `msxp-backup.timer` remains disabled; off-site automation is outside
+this feature. `tools/backup_database.py` remains available for explicit consistent
+migration/rehearsal copies (WAL included), with integrity and FK validation.
+See [retention and snapshot restore risks](24h-retention.md#snapshots-and-remaining-limits):
+restoring rewinds admin actions and readings, and expired evidence is not recoverable
+from a compact checkpoint. Rehearse restore on a disposable copy first.
 
 Restore uses the same verified copy, into the database path:
 
@@ -242,6 +246,7 @@ procedure above only for a real recovery.
 ## Operations
 
 - `journalctl -u msxp-tracker -f`
+- The proposed unit includes `--retention-24h`; see [reporting, boundary allowances and expired admin targets](24h-retention.md).
 - `systemctl stop msxp-tracker`: SIGINT finalizes runs; allow up to 60 s.
 - The manual-EXP admin server is started by hand only when needed, then reached by
   tunnel: `ssh -L 8766:127.0.0.1:8766 vps`, then `sudo -u msxp .venv/bin/python -m

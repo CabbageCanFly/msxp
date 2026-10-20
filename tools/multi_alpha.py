@@ -23,6 +23,7 @@ from exp_tracker.metrics import ResourceMonitor
 from exp_tracker.recognition import configure_tesseract
 from exp_tracker.server import CHANNEL, create_server
 from exp_tracker.store import Store, utc
+from exp_tracker.retention_files import OperatorLog
 from local_alpha import report_attempt
 
 APP = 'multi_alpha_v1'
@@ -162,11 +163,11 @@ def options(row, database, output):
 
 def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
              continuous=False, max_attempts=None, stop_after_seconds=None, rotate=None,
-             activity=None, active_runs=None, simulated=False, workers=1):
+             activity=None, active_runs=None, simulated=False, maintain=None, workers=1):
     """No queue: one due-time per lane, rotating ties, elapsed slots skipped.
 
     workers>1 runs that many lanes' attempts at once, never two for one lane. Rotation,
-    emit (logs and the single SQLite writer) and status stay on this thread.
+    emit (logs and the single SQLite writer), status and maintain (retention) stay on this thread.
     """
     started, wall = clock(), datetime.now(timezone.utc)
     for lane in lanes:
@@ -278,6 +279,7 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
     stopping = False
     try:
         while True:
+            if maintain:maintain()
             pending = [] if stopping or len(running) >= workers else [
                 i for i,lane in enumerate(lanes) if not lane['stopped'] and lane['channel'] not in running and
                 (lane['attempts'] < (max_attempts if continuous else lane['args'].count)
@@ -325,6 +327,7 @@ def main(argv=None):
     cli.add_argument('--replay', action='append', default=[], metavar='CHANNEL=PRIVATE_LOG')
     cli.add_argument('--exit-after-capture', action='store_true')
     cli.add_argument('--continuous',action='store_true',help='Continue until Ctrl+C, rotating each channel at 60 attempts')
+    cli.add_argument('--retention-24h',action='store_true',help='Hourly evidence/log retention during continuous capture')
     cli.add_argument('--public-only',action='store_true',help='Serve only the public homepage, character pages and OBS overlay; developer routes return 404')
     cli.add_argument('--cors-origin',action='append',default=[],metavar='ORIGIN',help='Exact frontend origin allowed to read the API, e.g. https://msxp.pages.dev; repeatable')
     cli.add_argument('--twitch-status',action='store_true',help='Opt in to cached official live status; requires local Twitch API environment credentials')
@@ -337,6 +340,8 @@ def main(argv=None):
     args = cli.parse_args(argv)
     httpd = thread = None
     try:
+        if args.retention_24h and (not args.continuous or args.replay):
+            raise ValueError('--retention-24h requires continuous capture')
         if not 1<=args.workers<=4:
             raise ValueError('--workers must be 1..4')
         if not math.isfinite(args.hud_cache_seconds) or not 0<=args.hud_cache_seconds<=3600:
@@ -395,6 +400,9 @@ def main(argv=None):
             else:
                 os.environ['OMP_THREAD_LIMIT'] = '1'
                 directory.mkdir(parents=True, exist_ok=False)
+                if args.retention_24h:
+                    from exp_tracker.retention_files import own
+                    own(directory,database)
                 with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database) as store:
                     diagnostic = Diagnostics(store)
                     handles = {}
@@ -424,7 +432,26 @@ def main(argv=None):
                                 raise ValueError('Startup assignment changed; no capture started')
                             httpd.active_run_ids.add(lane['run_id'])
                         print(f'Capture RUNNING: at most {args.workers} active job(s), one per channel, bounded per-channel attempts, no queued frames.',flush=True)
-                        with (directory/'operator.jsonl').open('x',encoding='utf-8') as operator:
+                        with OperatorLog(directory) as operator:
+                            maintenance_due=0
+                            def maintain():
+                                nonlocal maintenance_due
+                                if not args.retention_24h or time.monotonic()<maintenance_due:return
+                                from exp_tracker.retention import prune
+                                from exp_tracker.retention_files import register,cleanup
+                                try:
+                                    root=directory.parent
+                                    register(root,database,store)
+                                    result=prune(store,dry_run=False,active_runs=httpd.active_run_ids)
+                                    print('Retention SQLite: '+json.dumps(result),flush=True)
+                                    files=cleanup(root,database,store,dry_run=False,
+                                        active_logs=[lane['args'].output for lane in lanes]+([operator.path] if operator.path else []))
+                                    store.db.execute('PRAGMA wal_checkpoint(PASSIVE)')
+                                    print('Retention files: '+json.dumps(files),flush=True)
+                                    maintenance_due=time.monotonic()+(60 if result['batch_limit_reached'] else 3600)
+                                except (OSError,ValueError,sqlite3.Error) as error:
+                                    maintenance_due=time.monotonic()+60
+                                    print(f'Retention postponed: {type(error).__name__}: {error}',file=sys.stderr,flush=True)
                             def emit(lane, record):
                                 if record['type']=='summary' and lane.get('rotation_failed'):
                                     raise ValueError('Rotation intent already logged; keep database run unfinished')
@@ -469,7 +496,7 @@ def main(argv=None):
                                     old.close()
                                 httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(following)
                                 print(f"{lane['channel']}: scheduled rotation after 60 committed attempts; session {lane['session_id']} retained",flush=True)
-                            scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate) if args.continuous else {}
+                            scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate,maintain=maintain) if args.continuous else {}
                             for lane in lanes:
                                 lane['options']={'resident':resident} if resident else {}
                                 if args.hud_cache_seconds:  # Per channel; survives rotation, not restarts.

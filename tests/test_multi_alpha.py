@@ -197,6 +197,19 @@ def test_live_authorization_and_check_do_not_connect_or_write(multi,monkeypatch)
     assert not calls and not (path.parent/'shared.sqlite3').exists()
 
 
+def test_continuous_retention_runs_under_coordinator_ownership(multi,monkeypatch):
+    from exp_tracker import retention
+    module,path,_,calls,_=multi
+    seen=[];original=retention.prune
+    def capture(store,**kwargs):
+        seen.append(set(kwargs['active_runs']))
+        return original(store,**kwargs)
+    monkeypatch.setattr(retention,'prune',capture)
+    assert main(multi,'--continuous','--retention-24h','--max-attempts','2')==0
+    assert len(seen)==1 and len(seen[0])==2 and len(calls)==4
+    assert list((path.parent/'multi-alpha/runs').glob('*/.retention-owner.json'))
+
+
 def test_mid_run_character_switch_stops_only_that_lane(multi,monkeypatch):
     module,path,_,_,_=multi
     original=module.shadow.capture_attempt

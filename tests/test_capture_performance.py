@@ -310,3 +310,87 @@ def test_resident_worker_processes_are_killed_on_timeout_and_close(tmp_path, mon
     finally:
         resident.close()
     assert process.wait(timeout=5) is not None and resident.processes == {}
+
+
+def test_maintenance_runs_only_on_coordinator_thread_including_while_attempts_are_in_flight(schedule):
+    main = threading.get_ident(); lock = threading.Lock(); flying = set(); calls = []; emitted = []
+    def perform(lane, index, seek):
+        with lock: flying.add(lane['channel'])
+        time.sleep(.15)
+        with lock: flying.discard(lane['channel'])
+        return attempt(index)
+    def maintain():
+        with lock: calls.append((threading.get_ident(), frozenset(flying)))
+    group = lanes('a', 'b', 'c')
+    assert schedule(group, perform, lambda lane, record: emitted.append((lane['channel'], record['index'])),
+                    workers=2, maintain=maintain) is False
+    assert calls and all(ident == main for ident, _ in calls)
+    assert calls[0][1] == frozenset()                          # First pass runs before any dispatch.
+    assert any(busy for _, busy in calls)                      # ...and later passes overlap in-flight work.
+    for c in 'abc':
+        assert [i for channel, i in emitted if channel == c] == [1, 2, 3]
+
+
+def test_interrupt_during_maintenance_records_in_flight_attempts(schedule):
+    release = threading.Event(); emitted = []; both = threading.Barrier(3); passes = [0]
+    def perform(lane, index, seek):
+        both.wait(5); release.wait(10)
+        return attempt(index)
+    def maintain():
+        passes[0] += 1
+        if passes[0] == 3:                                      # Passes: before dispatch, after a, after b.
+            both.wait(5)                                        # Both attempts are now running...
+            raise KeyboardInterrupt                             # ...when Ctrl+C lands inside a prune.
+    group = lanes('a', 'b')
+    begun = time.monotonic()
+    assert schedule(group, perform, lambda lane, record: emitted.append((lane['channel'], record['reasons'])),
+                    workers=2, maintain=maintain, max_attempts=3, continuous=True) is True
+    release.set()
+    assert time.monotonic()-begun < 3
+    assert sorted(emitted) == [('a', ['operator_interrupted']), ('b', ['operator_interrupted'])]
+
+
+def test_retention_maintenance_overlaps_in_flight_worker_and_restarts_cleanly(multi, monkeypatch):
+    from exp_tracker import retention
+    from exp_tracker.diagnostics import Diagnostics
+    from exp_tracker.store import Store
+    module, path = multi[0], multi[1]
+    real = time.monotonic; shift = [0.0]
+    # Only collect() and maintain() read this clock: jumping it makes retention due mid-run.
+    monkeypatch.setattr(module, 'time', SimpleNamespace(monotonic=lambda: real()+shift[0], sleep=time.sleep))
+    coordinator = threading.get_ident(); flying = set(); lock = threading.Lock()
+    pruned = threading.Event(); seen = []; original = retention.prune
+    def prune(store, **kwargs):
+        with lock: seen.append((threading.get_ident(), set(kwargs['active_runs']), frozenset(flying)))
+        result = original(store, **kwargs)
+        pruned.set()
+        return result
+    monkeypatch.setattr(retention, 'prune', prune)
+    def capture(args, source, requirements, index, **kwargs):
+        channel = args.tracking_channel
+        with lock: flying.add(channel)
+        if channel == 'alpha' and index == 1:
+            pruned.clear(); shift[0] += 7200                    # Maintenance falls due while alpha is in flight.
+            assert pruned.wait(10)                              # Unblocked only by a prune on the coordinator.
+        with lock: flying.discard(channel)
+        return record(index)
+    monkeypatch.setattr(module.shadow, 'capture_attempt', capture)
+    flags = ('--continuous', '--retention-24h', '--max-attempts', '2', '--workers', '2', '--resident-neural')
+    monkeypatch.setattr(module.shadow.ResidentNeural, 'close', lambda self: None)
+    assert run_main(multi, *flags) == 0
+    assert all(ident == coordinator for ident, _, _ in seen) and len(seen) >= 2
+    overlapped = [(active, busy) for _, active, busy in seen if 'alpha' in busy]
+    assert overlapped and all(len(active) == 2 for active, _ in overlapped)   # Both in-flight runs protected.
+    db = path.parent/'shared.sqlite3'
+    with Store(db, read_only=True) as store:
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0] == 4
+        assert not store.db.execute('SELECT 1 FROM diagnostic_runs WHERE summary_json IS NULL').fetchone()
+    seen.clear()
+    assert run_main(multi, *flags) == 0                         # Restart: new runs, same DB, retention again.
+    assert seen and all(ident == coordinator for ident, _, _ in seen)
+    with Store(db, read_only=True) as store:
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_runs').fetchone()[0] == 4
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0] == 8
+        assert not store.db.execute('SELECT 1 FROM diagnostic_runs WHERE summary_json IS NULL').fetchone()
+        assert all(Diagnostics(store).snapshot(c)['run_status'] == 'completed' for c in ('alpha', 'beta'))
+    assert list((path.parent/'multi-alpha/runs').glob('*/.retention-owner.json'))

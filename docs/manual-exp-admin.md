@@ -1,5 +1,11 @@
 # Manual Level / EXP administration (A1 / A2)
 
+With [schema-8 retention](24h-retention.md), audit records remain available but
+expired original readings cannot be corrected, invalidated or restored. Frozen
+corrections cannot be amended/undone. Ranges crossing the retained floor are
+rejected; use an explicit current baseline for new information. Migration alone
+does not expire anything.
+
 The CLI and separate local browser dashboard share A1.1's SQLite correction rules.
 The public server remains read-only. Neither interface captures video or contacts
 Twitch. Run from this worktree with its
