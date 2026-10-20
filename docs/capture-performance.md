@@ -12,8 +12,11 @@ production database was opened. All figures below are **workstation** measuremen
 
 ## Three opt-in changes
 
-All default to today's behaviour; production changes only when these flags are added
-to `ExecStart` in `deploy/msxp-tracker.service`.
+All default to today's behaviour: `--workers 1` (the unchanged serial path, run inline
+on the coordinator thread), no cache and one neural process per attempt. Without these
+flags, `capture_attempt` receives exactly the arguments it did before; a test asserts
+that. `deploy/msxp-tracker.service` is unchanged, so production changes only when flags
+are added to its `ExecStart`. **HUD caching stays disabled** until separately approved.
 
 | Flag (`tools/multi_alpha.py`) | Effect | Accuracy |
 |---|---|---|
@@ -150,10 +153,11 @@ gap, which is the progress engine's continuity ceiling
 What is required for 15 channels at ≈60 s on the 4 vCPU VPS:
 
 1. **Bounded parallelism is required in every configuration**, because Twitch capture
-   alone is 15 × 2.75 s ≈ 41 s of mostly network waiting per minute. Use
-   `--workers 3` without the cache, or `--workers 2–3` with it.
+   alone is 15 × 2.75 s ≈ 41 s of mostly network waiting per minute. Benchmark
+   `--workers 2` and `3` first; the cache stays disabled for that benchmark.
 2. **`--resident-neural`**: no accuracy change, ≈1 CPU-s saved per attempt.
-3. **`--hud-cache-seconds 300`** only if the competing-HUD blind window is acceptable.
+3. **`--hud-cache-seconds 300`** is a later, separate decision, only if the
+   competing-HUD blind window is acceptable.
    It cuts total capture CPU by roughly a third, leaving room for the publisher.
    [VPS readiness](vps-readiness.md) shows the publisher saturating the GIL at 10+
    channels and 100 viewers. Capture adds 0.25 appends per second at 15 × 60 s, half the
@@ -180,51 +184,133 @@ than the workstation, single-channel 308 MiB).
 
 ## VPS benchmark commands
 
-Run from a **separate checkout of this branch**, never the production `/opt/msxp/app`.
-It reuses the installed venvs read-only and writes only under its own `private/`.
-Production capture competes for the same 4 vCPUs, so stop `msxp-tracker` for clean
-numbers, or accept that the figures include its load. Nothing here touches
-`private/vps/tracker.sqlite3` or connects to Twitch.
+Run as **root** (`sudo -i`), from a **separate benchmark checkout**, never the production
+`/opt/msxp/app`. It follows the production ownership model from
+`deploy/install-ubuntu.sh`:
+
+- code is root-owned and read-only to the service;
+- only `private/` is `msxp:msxp 0750`;
+- everything that runs or writes does so as `msxp`, so every database, log and summary
+  is `msxp`-owned;
+- `/opt/msxp` itself is not writable by `msxp`.
+
+The installed venvs are reused read-only. Every benchmark gets a new database under the
+benchmark checkout's `private/bench/`. Nothing here touches `private/vps/tracker.sqlite3`.
+
+The configuration rewrite **refuses any non-`file` source**, so no Twitch connection is
+possible. Relative video paths are resolved against `BASE`, the directory the original
+offline configuration was written for, and are written out as absolute paths. Each
+video must be a regular file readable by `msxp`. Production capture shares the same
+4 vCPUs: stop `msxp-tracker` for clean numbers, or record that it was running.
 
 ```sh
-# Once: a benchmark checkout owned by msxp, with the existing RapidOCR venv linked in.
-# (Copy this branch to the VPS first, e.g. a git bundle, after approving a commit.)
-sudo -u msxp git clone --branch feat/capture-performance <bundle-or-remote> /opt/msxp/bench
-cd /opt/msxp/bench && sudo -u msxp mkdir -p private/bench
-sudo -u msxp ln -s /opt/msxp/app/private/rapidocr private/rapidocr
-# SRC = the 15-channel offline config used for the 202 s measurement, copied into private/bench/.
+# --- Once, as root. On Windows, after a commit is approved:
+#   git bundle create msxp-perf.bundle feat/capture-performance   (then scp it to /root/)
+git clone --branch feat/capture-performance /root/msxp-perf.bundle /opt/msxp/bench  # root:root code
+cd /opt/msxp/bench
+install -d -o msxp -g msxp -m 0750 private private/bench private/videos
+sudo -u msxp ln -s /opt/msxp/app/private/rapidocr private/rapidocr  # Pinned neural venv, read-only reuse.
+# The 15-channel offline config behind the 202 s measurement, and its videos if msxp
+# cannot already read them where they are:
+install -o msxp -g msxp -m 0640 /path/to/offline15.json private/bench/offline15.json
+# install -o msxp -g msxp -m 0640 /path/to/*.mp4 private/videos/
 
-bench() {  # bench NAME [multi_alpha flags...]: new DB per run, 60 s cadence, 5 attempts per channel
+# --- Each session, as root, in /opt/msxp/bench.
+PY=/opt/msxp/app/.venv/bin/python
+SRC=private/bench/offline15.json
+BASE=/opt/msxp/app   # Relative "file" paths in SRC were written against this directory.
+as_msxp() { sudo -u msxp env HOME=/opt/msxp PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1     PYTHONUNBUFFERED=1 OMP_THREAD_LIMIT=1 "$@"; }
+
+bench() {  # bench NAME [multi_alpha flags...]: new DB, 60 s cadence, 5 attempts per channel
   name=$1; shift
-  sudo -u msxp /opt/msxp/app/.venv/bin/python -c 'import json,sys
-c=json.load(open(sys.argv[1])); c["database"]="private/bench/%s.sqlite3"%sys.argv[2]; c["port"]=0
-for s in c["streams"]: s["interval"]=60
-json.dump(c,open("private/bench/%s.json"%sys.argv[2],"x"))' "$SRC" "$name"
-  sudo -u msxp env PYTHONPATH=src OMP_THREAD_LIMIT=1 /opt/msxp/app/.venv/bin/python tools/multi_alpha.py \
-    --config "private/bench/$name.json" --continuous --max-attempts 5 --exit-after-capture --public-only "$@" \
-    | tee "private/bench/$name.log"
+  as_msxp "$PY" - "$SRC" "$BASE" "$name" <<'EOF' || return 1
+import json, os, sys
+from pathlib import Path
+source, base, name = sys.argv[1:]
+config = json.load(open(source, encoding='utf-8-sig'))
+config.update(database=f'private/bench/{name}.sqlite3', port=0)
+for stream in config['streams']:
+    if stream.get('source') != 'file':
+        sys.exit(f"{stream.get('channel')}: only local-video sources may be benchmarked")
+    path = Path(stream['file'])
+    path = (path if path.is_absolute() else Path(base) / path).resolve()
+    if not path.is_file() or not os.access(path, os.R_OK):
+        sys.exit(f'{path}: missing or not readable by msxp')
+    stream.update(file=str(path), interval=60)
+with open(f'private/bench/{name}.json', 'x', encoding='utf-8') as handle:  # Never overwrite.
+    json.dump(config, handle, indent=1)
+EOF
+  as_msxp "$PY" tools/multi_alpha.py --config "private/bench/$name.json" --continuous       --max-attempts 5 --exit-after-capture --public-only "$@" 2>&1 | as_msxp tee "private/bench/$name.log"
   run=$(sed -n 's/^Private capture logs: //p' "private/bench/$name.log")
-  sudo -u msxp env PYTHONPATH=src /opt/msxp/app/.venv/bin/python tools/summarize_capture_run.py "$run" \
-    | tee "private/bench/$name.summary.json"
+  [ -n "$run" ] || { echo "$name: no run directory; read private/bench/$name.log" >&2; return 1; }
+  as_msxp "$PY" tools/summarize_capture_run.py "$run" | as_msxp tee "private/bench/$name.summary.json"
 }
 
-SRC=private/bench/offline15.json
+# Cache stays off. Serial baseline first, then the resident worker with 2 and 3 workers.
 bench vps-a-serial
-bench vps-f-w2-resident --workers 2 --resident-neural
-bench vps-g-w3-resident --workers 3 --resident-neural
-bench vps-c-w2-cache    --workers 2 --resident-neural --hud-cache-seconds 300
-bench vps-h-w3-cache    --workers 3 --resident-neural --hud-cache-seconds 300
+bench vps-b-resident    --resident-neural
+bench vps-c-w2-resident --workers 2 --resident-neural
+bench vps-d-w3-resident --workers 3 --resident-neural
+# Separately, while vps-d runs:  uptime; top -b -n1 | head -20
 ```
 
+Each run takes about 5–12 minutes: 5 rounds of 15 channels at 60 s, longer when serial.
 Compare `mean_actual_interval_seconds`, `max_actual_interval_seconds`, the per-lane
 `skipped deadlines=` lines in each `.log`, and the final `Resources:` line (sampled CPU,
-peak RSS). Take the smallest worker count with zero skipped deadlines and a maximum
-interval well under 120 s. Also run `uptime` or `top -b -n1` during a run to see the
-load average against 4 cores.
+peak RSS). Choose the smallest worker count with zero skipped deadlines and a maximum
+interval well under 120 s. A rejected configuration writes nothing; fix it and rerun
+the same NAME.
+Afterwards, `rm -r /opt/msxp/bench` removes everything the benchmark created.
 
-To adopt a result, append the chosen flags to `ExecStart` in
+To adopt a result later, append the chosen flags to `ExecStart` in
 `deploy/msxp-tracker.service` and change the channels' `interval` in
 `private/vps/config.json`. Then use the normal controlled restart.
+
+## Integration with 24-hour retention (pending)
+
+A trial `git merge-tree` of `feat/capture-performance` (98eebac) with
+`feat/24h-retention` (604bf41) auto-merges README.md. It leaves six conflict hunks, all
+in `tools/multi_alpha.py`:
+
+1. `schedule()` signature and docstring: keep both `workers=1` and `maintain=None`.
+2. Loop head: put `if maintain:maintain()` first inside the new `while True:`, before
+   the `pending` computation.
+3. Argument validation: keep both the `--workers`/`--hud-cache-seconds` checks and the
+   `--retention-24h requires continuous capture` check.
+4. Keep retention's `own(directory, database)` and the N-worker `ResourceMonitor` scope.
+5. Keep the N-worker `Capture RUNNING` message, retention's `with OperatorLog(directory)
+   as operator:` and its `maintain()` definition. `emit` only uses `operator.write` and
+   `operator.flush`, which `OperatorLog` provides.
+6. Keep `maintain=maintain` in `scheduler_options`, plus the per-lane options, `perform`
+   and `workers=args.workers` in the `schedule` call.
+
+Behaviour to preserve and test after the merge:
+
+- **`maintain()` must stay on the coordinator thread.** `prune()` runs inside the
+  coordinator's own SQLite connection and transaction. It temporarily rewrites
+  `streamers.selected_character_id` there. Workers never touch the store, so this stays
+  safe only while maintenance is never moved into a worker or another thread.
+- With workers it can run while attempts are in flight. Those attempts' runs remain in
+  `httpd.active_run_ids`, which `prune(active_runs=...)` protects. Their current logs
+  stay in `active_logs` because only the coordinator rotates `lane['args'].output`.
+  `cleanup()` only removes inactive logs and crops older than 24 h 5 min.
+- A long prune delays result collection and dispatch, not the in-flight work.
+  `coordinator_attempt_seconds` is measured in the worker. Scheduler delay and skipped
+  deadlines can grow for channels that fall due during a prune; benchmark once with
+  `--retention-24h` on a realistically sized database copy.
+- Retention's new `guard()` in `Diagnostics.append` raises `ValueError` for an expired
+  timestamp. In both paths that marks the lane `persistence_failed`. Workers emit
+  seconds after capture, so it should not trigger.
+- Add one combined test: `--continuous --retention-24h --workers 2`, asserting that
+  prune runs on the coordinator thread with both run IDs active.
+- The retention unit adds `--retention-24h` to `ExecStart`; performance flags go on the
+  same line.
+- `docs/continuous-alpha.md` and `docs/multi-alpha.md` still say one job runs at a time.
+  That stays true by default; add the `--workers` exception when integrating.
+
+At review time the retention worktree also had **uncommitted** changes
+(`diagnostic_evidence.py`, `retention.py`, a new `tests/test_transition_retention.py`),
+so repeat this check against the branch as actually merged.
 
 ## Not done
 

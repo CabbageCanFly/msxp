@@ -233,3 +233,80 @@ def test_run_summary_reports_stage_means_and_region_reuse(tmp_path, monkeypatch)
     assert (result['mean_work_seconds'], result['localization_seconds'], result['neural_seconds']) == (3, 2, 1)
     assert (result['cached_region_attempts'], result['cached_localization_seconds']) == (2, 1)
     assert result['mean_actual_interval_seconds'] == 60
+
+
+def test_coordinator_ctrl_c_with_busy_workers_is_bounded_and_nothing_emits_later(schedule):
+    import _thread
+    release = threading.Event(); emitted = []
+    def perform(lane, index, seek):
+        release.wait(10)  # Stuck in a subprocess wait, as a hung capture would be.
+        return attempt(index)
+    group = lanes('a', 'b', 'c')
+    timer = threading.Timer(.3, _thread.interrupt_main)  # Ctrl+C reaches only the coordinator thread.
+    started = time.monotonic(); timer.start()
+    try:
+        assert schedule(group, perform, lambda lane, record: emitted.append((lane['channel'], record['reasons'])), workers=2) is True
+    except KeyboardInterrupt:
+        pytest.fail('interrupt escaped the scheduler')
+    finally:
+        timer.cancel()
+    assert time.monotonic()-started < 3                       # Did not wait for the 10 s workers.
+    assert sorted(emitted) == [('a', ['operator_interrupted']), ('b', ['operator_interrupted'])]
+    release.set(); time.sleep(.3)
+    assert len(emitted) == 2                                  # Late worker results are discarded.
+    assert all(lane['interrupted'] for lane in group) and group[2]['attempts'] == 0
+
+
+def test_parallel_interrupt_then_clean_restart_on_the_same_database(multi, monkeypatch):
+    from exp_tracker.diagnostics import Diagnostics
+    from exp_tracker.store import Store
+    module, path = multi[0], multi[1]
+    closed = []
+    monkeypatch.setattr(module.shadow.ResidentNeural, 'close', lambda self: closed.append(self))
+    count = [0]; lock = threading.Lock()
+    def capture(args, source, requirements, index, **kwargs):
+        with lock:
+            count[0] += 1; current = count[0]
+        if current == 2: raise KeyboardInterrupt
+        return record(index)
+    monkeypatch.setattr(module.shadow, 'capture_attempt', capture)
+    assert run_main(multi, '--workers', '2', '--resident-neural') == 130
+    assert len(closed) == 1                                   # Resident closed on interrupt, too.
+    db = path.parent/'shared.sqlite3'
+    with Store(db, read_only=True) as store:
+        first = {c: Diagnostics(store).snapshot(c)['run_status'] for c in ('alpha', 'beta')}
+        attempts = store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]
+    assert first == {'alpha': 'interrupted', 'beta': 'interrupted'}
+    monkeypatch.setattr(module.shadow, 'capture_attempt', lambda *a, **kw: record(a[3]))
+    assert run_main(multi, '--workers', '2', '--resident-neural') == 0 and len(closed) == 2
+    with Store(db, read_only=True) as store:
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_runs').fetchone()[0] == 4
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0] == attempts+4
+        assert not store.db.execute('SELECT 1 FROM diagnostic_runs WHERE summary_json IS NULL').fetchone()
+        assert all(Diagnostics(store).snapshot(c)['run_status'] == 'completed' for c in ('alpha', 'beta'))
+
+
+DEAF = 'import time\ntime.sleep(30)\n'  # Never reads stdin: a large request fills the pipe.
+
+
+def test_resident_worker_processes_are_killed_on_timeout_and_close(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path('tools').resolve()))
+    shadow = importlib.import_module('shadow_capture')
+    (tmp_path/'deaf.py').write_text(DEAF); (tmp_path/'worker.py').write_text(WORKER)
+    deaf, live = [sys.executable, str(tmp_path/'deaf.py')], [sys.executable, str(tmp_path/'worker.py')]
+    resident = shadow.ResidentNeural()
+    try:
+        started = time.monotonic()
+        with pytest.raises(CaptureError, match='neural_timeout'):
+            resident(deaf, b'x'*(4 << 20), .5)                # Larger than any pipe buffer.
+        assert time.monotonic()-started < 5 and resident.processes == {}
+        resident(live, b'one', 10)
+        (process, _), = resident.processes.values()
+        with pytest.raises(CaptureError, match='neural_timeout'):
+            resident(live, b'hang', .5)
+        assert process.wait(timeout=5) is not None            # The hung process is dead, not orphaned.
+        resident(live, b'two', 10)
+        (process, _), = resident.processes.values()
+    finally:
+        resident.close()
+    assert process.wait(timeout=5) is not None and resident.processes == {}
