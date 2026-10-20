@@ -111,6 +111,29 @@ def coverage(observations, total):
         categories_overlap=True, trusted=False)
 
 
+# Everything else (EXP/level text, frame hash, numeric checks) can attribute a reading.
+HELD_ENVELOPE = ('type', 'trusted', 'index', 'attempted_at', 'received_at', 'requested_at', 'scheduler_delay_seconds',
+                 'timing_mode', 'actual_interval_seconds', 'skipped_deadlines', 'coordinator_attempt_seconds',
+                 'simulated_scheduler_seconds', 'source', 'timings', 'resources')
+
+
+def identity_held(record):
+    """Ownership hold before attribution: held evidence is nested where no decoder reads it.
+
+    Fails closed: character-name evidence without an explicit False decision is held.
+    Idempotent, so live writes and log replay store identical payloads.
+    """
+    name = record.get('character_name') if isinstance(record, dict) and record.get('type') == 'attempt' else None
+    if name is None or isinstance(name, dict) and name.get('reading_hold_recommended') is False:
+        return record
+    name = name if isinstance(name, dict) else {}
+    held = {k: record[k] for k in HELD_ENVELOPE if k in record}
+    held.update(status='unavailable', current=False, reasons=['identity_hold'],
+                identity_hold=dict(hold_reasons=name.get('hold_reasons'), identity_conflict=name.get('identity_conflict'),
+                                   evidence={k: v for k, v in record.items() if k not in HELD_ENVELOPE}))
+    return held
+
+
 def encoded(record):
     if not isinstance(record, dict) or record.get('trusted') is not False:
         raise ValueError('Expected an explicitly untrusted shadow record')
@@ -178,6 +201,7 @@ class Diagnostics:
             return self._begin(following,channel,configuration)
 
     def _append(self, run_id, record):
+        record = identity_held(record)
         payload = encoded(record)
         run = self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?', (run_id,)).fetchone()
         if run is None:

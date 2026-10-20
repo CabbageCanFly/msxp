@@ -384,30 +384,114 @@ the previous character's EXP. One reference sighting alone (A→B→B→A) does 
 a pending switch before expiry; a single-frame mismatch (A→A→B→A) is held only for
 that frame and leaves no suggestion.
 
-### Integration boundary with `multi_alpha.py` (not implemented)
+### Coordinator integration: ownership holds before attribution (opt-in, local video)
 
-In `multi_alpha.py` every attempt record is bound to a run, and every run is bound
-to one `(character_id, session_id)` at startup. The record is then written by
-`diagnostic.append(lane['run_id'], record)` inside `emit(lane, record)`. That is
-the attribution point, so a future integration should:
+In `multi_alpha.py` every run is bound to one `(character_id, session_id)` when it
+begins, so anything appended to it is attributed to that character. Attribution is
+also not limited to `candidate`: `observation()` re-parses `neural.text`, the product
+projections run grammar recovery on `raw_text`, and levels come from `visual_level`,
+`visual_attempts` and `neural_level`. A flag or a cleared `candidate` would leak.
 
-1. Create one `IdentityCapture(channel, confirmed=<selected label>)` per lane, from
-   the Store's existing `selected_character_id` label. Never derive it from OCR.
-2. Pass it to `capture_attempt(..., identity=...)`, which already shares the lane's
-   resident worker and located HUD.
-3. In `emit`, **before** `diagnostic.append` attributes the reading, check
-   `record['character_name']['reading_hold_recommended']`. A held record should keep
-   its raw evidence but be stored as unattributed/held, not as an EXP observation of
-   the selected character. How held records are stored is a schema decision for that
-   milestone.
-4. After an operator accepts a switch: `Store.select_character` (which ends the old
-   session with `character_switch`) → `Store.start_session` → rotate the lane to a new
-   run bound to the new session → `identity.select(label, at)`. Held readings from
-   the pending window stay unattributed unless an operator assigns them explicitly.
-   Do not replay them into either history automatically.
+Alternatives considered:
 
-This milestone only reports these decisions. EXP ingestion, selection, sessions,
-histories, roster, public UI/API and systemd configuration are unchanged.
+| Option | Why not |
+| --- | --- |
+| Hold flag / clear `candidate` only | Raw text and level fields still reach every projection |
+| Hold inside the `observation()` decoder | Full B numbers stay top-level for readers that bypass it (publisher, admin preview, future code) |
+| Reuse the admin `reading_validity` invalidations | Mixes an automatic policy into the operator audit; second write per attempt; `mask()` adds barriers and rewrites status |
+| New held-attempts table/schema | Not needed: existing structures can carry it safely |
+
+Chosen: `exp_tracker.diagnostics.identity_held(record)`, a pure, idempotent rewrite at
+the persistence boundary. A held attempt keeps only a non-numeric envelope
+(`HELD_ENVELOPE`: index, timestamps, source, timings, scheduler fields) and becomes
+`status: "unavailable"`, `current: false`, `reasons: ["identity_hold"]`. Everything else
+(EXP/level text, frame hash, `character_name` including `numeric_check`) is preserved
+untouched under `identity_hold.evidence`, next to `hold_reasons` and `identity_conflict`.
+No decoder reads that key, and `identity_hold` is not in the public reason allowlist.
+Every projection therefore sees an ordinary unreadable attempt: no EXP, percentage, pace,
+level, chart or last-known state, while the private evidence stays reviewable. It fails
+closed: an attempt with `character_name` whose decision is not exactly `false` is held.
+Capture/recognition failures carry an explicit `false` because they hold no reading.
+
+It runs in two places. `emit` applies it **before** the private lane JSONL write, so
+the log, the developer log viewer and SQLite hold identical payloads and replay stays
+byte-identical. `Diagnostics._append` applies it again for every writer, including replay
+of logs written without the coordinator hold. Attempt indices stay contiguous; sessions,
+run binding, rotation and the schema are unchanged.
+
+`multi_alpha.py --character-names` (local video only; implies `--resident-neural`):
+
+1. One `IdentityCapture(channel, confirmed=<configured character>)` per lane. The
+   configured character is the label `initialize()` already verified against the Store
+   selection. It must be the exact in-game name (case-sensitive); otherwise every
+   readable frame is a `name_mismatch` and held, which is safe but tracks nothing.
+2. It goes to the existing `capture_attempt(..., identity=...)`, sharing the lane's
+   located HUD (and optional `CachedLocator`) and the one resident worker.
+3. Identity state lives per lane in memory. It survives 60-attempt rotation, not a
+   restart. A restarted coordinator starts from the operator selection again, so a
+   still-visible other character is held from its first readable frame (`name_mismatch`).
+4. Nothing selects, renames or creates a character. Run configuration records
+   `character_names`, `identity_policy` and `resident_neural`. With the flag off, headers,
+   payloads and public results are unchanged.
+
+Later, an operator-accepted switch must be `Store.select_character` (ends the old
+session with `character_switch`) → `Store.start_session` → a new run → `identity.select`.
+Held readings stay in the old run's private evidence. Releasing one would need an
+explicit operator action, for example a manual correction. Never replay them into
+either history automatically. Held evidence is pruned by the existing 24-hour
+retention like all other diagnostic evidence.
+
+#### Offline reproduction (fresh disposable databases, local video only)
+
+`multi_alpha.py` uses the worktree's `private/rapidocr/.venv`. In a worktree without
+one, link the original checkout's ignored environment (read-only use):
+
+```powershell
+$repo = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+$python = "$repo\.venv\Scripts\python.exe"
+New-Item -ItemType Junction -Path private\rapidocr -Target "$repo\private\rapidocr"
+
+# private/character-name/coordinator/config-enabled.json: a NEW database path, and
+# "character" = the exact in-game name selected for that lane:
+#   streamtwo / hefferheffer / sample-stream2.mp4 start 3120 interval 15 count 4
+#   splice    / emmies       / integration/switch-montage.mkv start 0 interval 10 count 4
+& $python tools/multi_alpha.py --config private/character-name/coordinator/config-enabled.json --character-names --workers 2 --exit-after-capture
+# Contrast: the same config with another NEW database and no --character-names.
+# Replay check: a third NEW database, --replay CHANNEL=<private run>/CHANNEL/capture.jsonl per lane.
+```
+
+Results (2026-10-20, workstation, real RapidOCR/Tesseract):
+
+| Lane | Attempt | Name read | Decision | Public card effect |
+| --- | --- | --- | --- | --- |
+| streamtwo (`hefferheffer`) | 1–4 | `hefferheffer` | accepted | 475 / 84.82%, level 7 (unchanged behavior) |
+| splice (`emmies`) | 1–2 | `emmies` | accepted | last attributable reading 1169 / 94.12% |
+| splice | 3 | `hefferheffer` | held: `name_mismatch`, `unverified_numeric_anomaly` (`level_decrease`) | none; evidence 475 / 84.82%, L7 kept privately |
+| splice | 4 | `hefferheffer` | held: + `pending_switch` | none; evidence 207 / 12.06%, L10 kept privately |
+
+The `emmies` card kept 1169 / 94.12% (attempt 2), no level and no pace. **With the
+feature off, the same splice made the `emmies` card show `hefferheffer`'s 207 / 12.06%
+at level 10**, the contamination this prevents. Replaying the enabled run's logs into a
+third database stored byte-identical payloads. No character, roster entry or trusted
+observation was created. Name work: mean 67 ms, max 81 ms per capture (8 captures).
+Whole-attempt times are not comparable across these runs. The disabled run started a
+worker per attempt instead of the resident, and Tesseract time varies by frame. The
+boundary rewrite costs ~4 µs per held attempt (0.14 µs otherwise), and a held payload
+grows ~4% (7.8 → 8.2 KB, under the 64 KiB record limit).
+
+Tests: `tests/test_identity_coordinator.py` drives the real `capture_attempt` →
+`analyze` → `IdentityCapture.inspect` → `emit` → `Diagnostics` path through the real
+coordinator and SQLite. Only frames, HUD locator, level OCR and the resident worker are
+stubbed. Two channels run a 19-step script: stable A, similar-EXP B→B, a superseded
+return, a capture failure, unreadable and conflicting names, a normal level-up with
+unreadable names, a dismissed switch, stale name evidence and an unverified level
+decrease. Public projections (card, directory, chart extras, rolling history) of the
+held run equal a control where each held attempt is an evidence-free attempt. This
+also holds when a held attempt is the latest one. Releasing the evidence changes
+them, which proves the comparison is sensitive. The other checks:
+- A lane whose names always match is identical with the feature on or off.
+- Replay and restart payloads are identical, and old untransformed logs are still held.
+- A pending switch crosses the 60-attempt rotation, and indices stay contiguous.
 
 Lifecycle verification: **283 focused tests passed** (the command below; 17 new
 sequences cover A→A→B→B, A→A→B→A, A→B→B→A→A with and without an operator identity,
@@ -456,7 +540,7 @@ large jumps, normal level-ups and possible progression after a gap. The similar-
 switch tests establish suggestions entirely from names, without any numeric anomaly.
 
 ```powershell
-& $python -m pytest -q tests/test_character_identity.py tests/test_character_name_ocr.py tests/test_shadow_capture.py tests/test_shadow_neural_level.py tests/test_capture_performance.py tests/test_adaptive_hud.py tests/test_recognition.py tests/test_video.py tests/test_validation.py tests/test_exp_consistency.py tests/test_capture_ocr_guard.py -n 0
+& $python -m pytest -q tests/test_character_identity.py tests/test_identity_coordinator.py tests/test_multi_alpha.py tests/test_diagnostics.py tests/test_diagnostic_history.py tests/test_rolling_history.py tests/test_product.py tests/test_card_projection.py tests/test_character_name_ocr.py tests/test_shadow_capture.py tests/test_shadow_neural_level.py tests/test_capture_performance.py tests/test_adaptive_hud.py tests/test_recognition.py tests/test_video.py tests/test_validation.py tests/test_exp_consistency.py tests/test_capture_ocr_guard.py -n 0
 ```
 
 ### Incremental overhead and 15-channel / 60-second target

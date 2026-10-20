@@ -395,8 +395,10 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
                           reasons=[str(error) if isinstance(error, CaptureError) else 'recognition_failed'])
         record['timings']['recognition_total_seconds'] = clock() - tick
     if identity is not None and 'character_name' not in record:
+        # No analyzed fields were merged, so there is no reading to attribute or hold.
         record['character_name']=dict(evidence=dict(status='capture_or_recognition_failed',trusted=False),
-            suggestion=identity.missing(record.get('received_at',record['attempted_at'])),tracking_action='none')
+            suggestion=identity.missing(record.get('received_at',record['attempted_at'])),
+            reading_hold_recommended=False,hold_reasons=[],tracking_action='none')
     record['timings']['attempt_seconds'] = clock() - attempt_started
     return record
 

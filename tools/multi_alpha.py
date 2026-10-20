@@ -18,7 +18,7 @@ import time
 import uuid
 
 import shadow_capture as shadow
-from exp_tracker.diagnostics import Diagnostics
+from exp_tracker.diagnostics import Diagnostics, identity_held
 from exp_tracker.metrics import ResourceMonitor
 from exp_tracker.recognition import configure_tesseract
 from exp_tracker.server import CHANNEL, create_server
@@ -337,6 +337,7 @@ def main(argv=None):
     cli.add_argument('--workers',type=int,default=1,help='Concurrent capture/OCR attempts, 1..8 (one per channel at a time); SQLite stays single-writer. Above 4 is not yet validated on the VPS')
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
+    cli.add_argument('--character-names',action='store_true',help='Local video only: hold readings whose own-name evidence does not match the selected character; implies --resident-neural')
     args = cli.parse_args(argv)
     httpd = thread = None
     try:
@@ -367,8 +368,12 @@ def main(argv=None):
         for row in streams:
             opts = options(row, database, directory/row['channel']/'capture.jsonl')
             if args.continuous: opts.count=60
+            if args.character_names and row['source']!='file':
+                raise ValueError('--character-names is limited to local video sources')
             if not args.replay:
                 source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
+                # After prepare: its standalone no-DB guard does not apply, holds are enforced at emit/append.
+                opts.character_names=args.character_names
                 lanes.append({**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes})
         if not args.replay:
             configure_tesseract()
@@ -406,7 +411,7 @@ def main(argv=None):
                 with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database) as store:
                     diagnostic = Diagnostics(store)
                     handles = {}
-                    resident = shadow.ResidentNeural() if args.resident_neural else None
+                    resident = shadow.ResidentNeural() if args.resident_neural or args.character_names else None
                     instance=uuid.uuid4().hex
                     try:
                         def open_run(lane, run_id, previous=None):
@@ -453,6 +458,7 @@ def main(argv=None):
                                     maintenance_due=time.monotonic()+60
                                     print(f'Retention postponed: {type(error).__name__}: {error}',file=sys.stderr,flush=True)
                             def emit(lane, record):
+                                record = identity_held(record)  # Before the log too, so replay stores the same payload.
                                 if record['type']=='summary' and lane.get('rotation_failed'):
                                     raise ValueError('Rotation intent already logged; keep database run unfinished')
                                 record['resources'] = monitor.snapshot()
@@ -502,6 +508,9 @@ def main(argv=None):
                                 if args.hud_cache_seconds:  # Per channel; survives rotation, not restarts.
                                     lane['options']['analyze_frame']=functools.partial(shadow.analyze,
                                         locator=shadow.CachedLocator(args.hud_cache_seconds))
+                                if args.character_names:  # Per channel; survives rotation, not restarts.
+                                    from character_identity import IdentityCapture
+                                    lane['options']['identity']=IdentityCapture(lane['channel'],confirmed=lane['character'])
                             def perform(lane,n,seek):
                                 return shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek,**lane['options'])
                             interrupted = schedule(lanes,perform,emit,workers=args.workers,
