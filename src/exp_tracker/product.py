@@ -556,7 +556,7 @@ def player(snapshot,*,now=None,recent_snapshot=None):
     collected=collect(recent_snapshot or snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
     result['recent_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now,collected=collected)
     transition=(result.get('level_context') or {}).get('transition') or {}
-    filter_level=dict(value=transition['to_level']) if transition.get('phase')=='possible' else display_level
+    filter_level=dict(value=transition['to_level']) if transition.get('phase')=='possible' and not transition.get('evidence_exhausted') else display_level
     result['current_level_windows']=recent_windows(recent_snapshot or snapshot,filter_level,now=now,current_level_only=True,collected=collected)
     if recent_snapshot is not None:result['level_events']=level_events(recent_snapshot['observations'])
     result['recent_history']=dict(status=(recent_snapshot or snapshot).get('recent_history_status','ready'),

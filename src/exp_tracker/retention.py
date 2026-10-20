@@ -29,7 +29,12 @@ def unpack(value):
     if '$deque' in value:return deque(unpack(value['$deque'][0]),maxlen=value['$deque'][1])
     if '$set' in value:return set(unpack(value['$set']))
     if '$tuple' in value:return tuple(unpack(value['$tuple']))
-    return {k:unpack(v) for k,v in value.items()}
+    result={k:unpack(v) for k,v in value.items()}
+    # Also compact copies in old endpoints/display/provenance, including inactive characters.
+    if {'wrap_event_id','from_level','phase','samples'}<=result.keys():
+        from .diagnostic_evidence import compact_transition
+        return compact_transition(result)
+    return result
 
 
 def dumps(value):return json.dumps(pack(value),separators=(',',':'),allow_nan=False)

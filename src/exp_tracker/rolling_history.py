@@ -314,7 +314,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
     if point and (not state['level_at'] or datetime.fromisoformat(point['effective_at'])>=datetime.fromisoformat(state['level_at'])) and (
             manual is None or point['effective_at']>=manual['effective_at']):
         level=point['level'];transition={}
-    if transition.get('phase')=='possible':level=transition['to_level']
+    if transition.get('phase')=='possible' and not transition.get('evidence_exhausted'):level=transition['to_level']
     gains=[];coverage=Fraction(0);versions=set()
     points=sorted((r for r in state['rows'] if usable_endpoint(r)),key=lambda r:datetime.fromisoformat(r['timestamp']))
     for before,after in zip(points,points[1:]):

@@ -12,9 +12,11 @@ from .exp_requirements import community_table, requirement
 from .shadow_grammar import interpret_exp
 
 POLICY = 'experimental_level_v8'
-EXP_DERIVED_POLICY = 'exp_derived_level_v3'
+EXP_DERIVED_POLICY = 'exp_derived_level_v4'
 # Repeated forward evidence is still required for a wrap or a competing level.
 DERIVED_SAMPLES = 3
+# Keep the entire inference chain or withhold it; forgotten frames cannot become new support.
+TRANSITION_SAMPLES = 64
 # A near-100% to near-0% display is a level-up hypothesis, not proof. Heuristic, uncalibrated.
 WRAP_FROM_BP = 9500
 WRAP_TO_BP = 500
@@ -119,11 +121,21 @@ def _chain(samples):
 def _established(level, s, when, source, previous=None):
     return dict(level=level, confirmed=True, source=source, samples=[s], confirmed_at=when, supported_at=when,
         last_at=when, exp=s['exp'], bp=s['bp'], unsupported=0, competing=None, transition=None,
-        last_transition=(previous or {}).get('last_transition'))
+        last_transition=_resolved(previous['last_transition']) if (previous or {}).get('last_transition') else None)
+
+
+def compact_transition(tr):
+    """Bound legacy evidence and public provenance without re-evaluating a shortened chain."""
+    limit = TRANSITION_SAMPLES if 'before' in tr else DERIVED_SAMPLES
+    if len(tr['samples']) <= limit: return tr
+    result = {**tr, 'samples': tr['samples'][:limit-1] + tr['samples'][-1:],
+        'sample_count': max(tr.get('sample_count', 0), len(tr['samples']))}
+    if 'before' in tr: result['evidence_exhausted'] = True
+    return result
 
 
 def _resolved(tr, **changes):
-    return {**{k: v for k, v in tr.items() if k != 'before'}, **changes}
+    return compact_transition({**{k: v for k, v in tr.items() if k != 'before'}, **changes})
 
 
 def _revert(state, s, when, reason):
@@ -140,12 +152,14 @@ def _corroborate(state, s, when, by):
 
 
 def _wrap(current, state, s, when):
+    if state.get('last_transition'): state = {**state, 'last_transition': _resolved(state['last_transition'])}
     return dict(from_level=current, to_level=current + 1, phase='possible', detected_at=when, before_bp=state['bp'],
         after_bp=s['bp'], wrap_event_id=s['event_id'], wrap_frame=s['frame_sha256'], samples=[], before=state)
 
 
 def _transition_step(state, s, inference, level, when):
-    tr = state['transition']
+    tr = compact_transition(state['transition'])
+    state = {**state, 'transition': tr}
     if level == tr['to_level']:
         new = _corroborate(state, s, when, 'unique_exp_pair')
         return new, new['level'], 'exp_derived', 'level_up_corroborated_by_exp_pair'
@@ -158,11 +172,19 @@ def _transition_step(state, s, inference, level, when):
     if inference and tr['to_level'] not in inference['levels']:
         s = {**s, 'exp': None}  # Integer withheld by exp_validity; the percentage remains.
     if s['bp'] is None:
+        if tr.get('evidence_exhausted'):
+            return {**state, 'last_at': when}, None, 'unavailable', 'transition_evidence_limit'
         return {**state, 'last_at': when}, shown, phase, 'post_transition_unreadable'
     last = tr['samples'][-1]['bp'] if tr['samples'] else tr['after_bp']
     if 0 <= s['bp'] - last < LARGE_CHANGE_BP:
         seen = {t['frame_sha256'] for t in tr['samples']} | {tr['wrap_frame']}
-        tr = {**tr, 'samples': tr['samples'] + [s] if s['frame_sha256'] and s['frame_sha256'] not in seen else tr['samples']}
+        if not tr.get('evidence_exhausted') and s['frame_sha256'] and s['frame_sha256'] not in seen:
+            if len(tr['samples']) == TRANSITION_SAMPLES:
+                tr = {**tr, 'evidence_exhausted': True}
+            else:
+                tr = {**tr, 'samples': tr['samples'] + [s]}
+        if tr.get('evidence_exhausted'):
+            return ({**state, 'last_at': when, 'transition': tr}, None, 'unavailable', 'transition_evidence_limit')
         # Never promote into a level whose requirement is disputed or missing.
         if tr['phase'] == 'possible' and _chain(tr['samples']) and requirement(tr['to_level'])['to_next'] is not None:
             tr.update(phase='provisional', provisional_at=when)
@@ -247,7 +269,7 @@ def level_context(state, when):
         confirmed_at=state['confirmed_at'], supported_at=state['supported_at'], last_observed_at=state['last_at'],
         support_age_seconds=(datetime.fromisoformat(when) - datetime.fromisoformat(state['supported_at'])).total_seconds(),
         unsupported_frames=state['unsupported'], sample_event_ids=[s['event_id'] for s in state['samples']],
-        transition=tr, last_transition=state['last_transition'],
+        transition=tr, last_transition=_resolved(state['last_transition']) if state['last_transition'] else None,
         competing_level=(state['competing'] or {}).get('level'), replaced_level=state.get('replaced_level'),
         continuity='percentage_decrease_observed' if state.get('decrease_at') else 'ordered', verified=False, trusted=False)
 

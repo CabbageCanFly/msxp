@@ -203,9 +203,9 @@ cannot reopen a migrated schema-9 DB. File-owner markers
 bind absolute DB paths; relocated directories are left alone. No production
 restore/migration was performed here.
 
-Audit, session metadata and daily snapshots still grow intentionally. Exceptional
-unresolved inference state can also grow, as detailed below. This is raw-evidence
-retention, not a fixed disk quota. Monitor maintenance
+Audit, session metadata and daily snapshots still grow intentionally. Transition
+evidence is now bounded as detailed below. This is raw-evidence retention, not a
+fixed disk quota. Monitor maintenance
 failures, DB/WAL and private directory sizes. Sustained VPS maintenance latency,
 hard process termination and filesystem-failure recovery have not been measured.
 
@@ -256,14 +256,9 @@ Other checkpoint fields were checked for per-attempt growth:
 - Recent reader samples (3), context hashes (12), conditional support (2), and
   competing-level samples (3) are bounded. Anchors, barriers, pending quarantine,
   trusted totals and missing counts use fixed records/scalars, not attempt lists.
-- **Remaining exception:** `level_state.derived.transition.samples` appends unique
-  post-wrap samples while a level-up remains possible or provisional. Repeated
-  flat percentage-only evidence can keep this unresolved indefinitely. A synthetic
-  1,000-frame check retained all 1,000 samples; resolved transition provenance and
-  last-known display/context can also retain that list. This is separate from
-  `seen_frames`. Arbitrarily truncating it could change duplicate, numeric-chain
-  or level-up decisions, so this small fix leaves inference unchanged. A future
-  exact inference-summary change is needed for an overall fixed checkpoint bound.
+- `level_state.derived.transition.samples` previously accumulated every distinct
+  post-wrap observation. The bounded evidence budget described below now prevents
+  this last known lifetime-proportional checkpoint list from growing indefinitely.
 
 Focused regressions exercise five synthetic days at 20-second cadence with hourly
 serialization/restarts, exact expiry, refreshed duplicates, legacy sets and future
@@ -272,8 +267,8 @@ synthetic runs and match an unpruned reference's 5/10/15/30/60-minute and 24-hou
 metrics, including missing readings and the initial level-up. Their final full
 checkpoint was **112,705 bytes**, including **290 fingerprints / 23,201 bytes** at
 300-second cadence; full checkpoint sizes stayed within 2 kB across those cycles.
-These measurements use ordinary supported levels, not the unresolved-wrap
-exception. A separate experimental-punctuation duplicate regression deletes its
+These measurements predate the bounded-transition follow-up below. A separate
+experimental-punctuation duplicate regression deletes its
 original frame's run, reopens SQLite and still rejects recovery across the retained
 run boundary. This verifies an actual evidence veto as well as rolling parity.
 
@@ -283,6 +278,108 @@ cases deselected**. Two of those existing tests check incremental/full replay an
 the older window endpoint; the multi-day regression also passed a final repeat.
 No full suite, private recording replay, live database change or deployment was
 performed. `git diff --check` passed.
+
+## Bounded level-transition evidence
+
+A percentage wrap remains a **hypothesis**, with the existing possible,
+provisional, corroborated and abandoned phases. `exp_derived_level_v4` retains at
+most **64 distinct post-wrap samples** in active transition evidence. The wrap
+itself is separate. Until that budget is exhausted, inference uses the original
+complete chain: at least three independent frames, cumulative forward progress,
+every numeric pair ordered, and a supported destination-level requirement.
+`_chain()` and raw OCR recognition are unchanged. Flat samples do not prove a
+level-up; reused frame hashes never supply additional independent samples.
+
+If a 65th distinct sample would be added while still unresolved (including an
+already provisional transition), the transition becomes `evidence_exhausted`.
+Its phase and dated proof stay available, but further percentage-only observations
+return unavailable with `transition_evidence_limit`. They cannot promote the
+level, renew live level evidence or supply new EXP estimates through this
+transition. The full retained chain is frozen; it is not replaced by a rolling
+three-sample tail. A valid selected reader level or unique EXP/percentage pair
+can still corroborate the new level, and contradictory evidence can still abandon
+the hypothesis or revert to the previous level under the existing rules. The
+existing 120-second continuity expiry is unchanged. Restarting or pruning does
+not replenish the budget. Permanent dated last-known display remains independent.
+The public player and tracked-history current-level selectors also ignore an
+exhausted possible candidate: they retain the previously supported level rather
+than selecting `to_level`. Ordinary non-exhausted possible transitions keep their
+existing candidate filter. Previously supported provisional levels remain dated
+last-known evidence; later independent corroboration selects the confirmed level
+normally. Four integration cases cover both prior phases and EXP-pair/reader
+resolution, including public/tracked current-level windows and chart intervals.
+The targeted integration selection passed **88 tests**, with **one unavailable
+private-capture skip** and **six cases deselected**; the four new selector cases
+also passed separately. No full-suite run was needed.
+
+This intentionally trades availability for safety in long-lived obscured-HUD
+transitions. At 20-second cadence, 64 new distinct post-wrap captures span roughly
+21 minutes. Flat evidence followed by progression within that budget still
+promotes normally; progression after exhaustion is withheld until independent
+resolution. A provisional transition also stops renewing percentage estimates
+after exhaustion. Exact lifetime-wide frame uniqueness cannot be maintained with
+bounded hashes; recycling a window could let old frames count again, and simply
+dropping old numeric samples could erase a contradiction. No Bloom filter or new
+inference infrastructure is introduced.
+
+Resolved provenance and public `level_context` keep at most **three representative
+samples** (first two and last), with `sample_count` when samples were omitted.
+These are explanatory summaries, never fed back into `_chain()`. Active proof
+retains all of its budgeted samples; provenance omits the rollback `before` state.
+The rollback anchor and previous resolved transition also remain bounded.
+
+Compatibility needs no SQLite/schema or daily-snapshot migration. Checkpoint
+decoding compacts every transition copy, including old endpoints, saved display
+and `last_transition` for inactive characters. An oversized active legacy chain
+keeps its first 63 and final sample, is marked exhausted **before any inference**,
+and cannot promote because discarded evidence made the shortened chain look
+valid. Existing possible/provisional phase labels remain provenance. Resolved and
+public copies shrink to three samples. The next checkpoint write persists this
+compaction; old SQLite blobs can remain until then. Initially parsing an already
+large legacy JSON blob still temporarily costs memory proportional to that blob.
+Update all checkpoint readers/writers together. Older code ignores the exhaustion
+flag and must not read rewritten checkpoints; a binary downgrade needs a matching
+older provider snapshot. No production database was opened or migrated here.
+
+Synthetic measurements use retained Python object sizes (`sys.getsizeof`, shared
+objects counted once), not process RSS or interpreter/parser cache memory:
+
+| State after observations | Serialized JSON bytes | Retained Python heap bytes |
+|---|---:|---:|
+| Possible transition, full level state, 1,000 | 15,190 | 41,543 |
+| Possible transition, full level state, 10,000 | 15,193 | 42,799 |
+| Provisional transition, full level state, 1,000 | 15,351 | 41,685 |
+| Provisional transition, full level state, 10,000 | 15,354 | 43,007 |
+
+Both states still held 64 proof samples and at most three public samples after
+cold serialization/restart. The small byte differences include longer event IDs
+and JSON reload object sharing, not accumulated evidence. A four-day synthetic
+SQLite run at 120-second cadence exercises three daily prefix-pruning/restart
+cycles; live inference and every rolling metric match the unpruned reference,
+including later exact-pair corroboration. Its final full checkpoint measured
+**160,685 JSON bytes / 407,690 retained heap bytes**; the level-state portion was
+**18,302 / 54,940 bytes**. This whole-checkpoint measurement also includes the
+bounded frame-hash map and other retained state.
+
+Against the committed pre-change implementation, seven normal synthetic sequences
+(159 observations) matched level values/status, numerical eligibility and EXP/
+percentage readings, including normal promotion, flat-then-progress, duplicates,
+contradiction, exact-pair and reader corroboration. A 1,000-flat-sample sequence
+followed by progress deliberately changes from provisional promotion to withheld
+inference. Legacy compaction tests preserve a numeric veto that naive truncation
+would remove. Raw observations, trusted accounting and daily snapshot format are
+unchanged; unavailable inference never generates invented gain.
+
+Validation: **10 new transition regressions passed** and **128 existing focused
+level-inference, rolling-history, retention, fingerprint, daily-snapshot,
+incremental-checkpoint and publisher regressions passed**. **Eight private
+saved-recording cases were deselected; zero tests/sample tests skipped.** The
+concurrent-viewer publisher case initially hit sandbox `WinError 10013`, then
+passed with permitted localhost sockets. Full-checkpoint JSON/heap measurements
+across the three pruning cycles were **155,629 / 386,580**, **160,685 / 407,690**,
+and **160,685 / 407,690 bytes**; the first prefix was still filling the separate
+24-hour fingerprint window. `git diff --check` passed. No full suite or production
+operation was run.
 
 Synthetic checks cover window parity, level-ups, rotations, missing frames,
 inactivity/cold reads, corrections, invalidation/restoration/audit, atomic failure,
