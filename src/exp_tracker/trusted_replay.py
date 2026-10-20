@@ -9,16 +9,23 @@ from .validation import Observation,Transition,validate_transition
 MAX_ROWS=65536
 
 
-def replay(store, session_id):
+def replay(store, session_id, *, _force=False, _until_id=None):
     if store.schema_version<7 or session_id is None:return None
-    if not store.db.execute("SELECT 1 FROM reading_validity WHERE kind='observation' AND session_id=? LIMIT 1",(session_id,)).fetchone():return None
-    rows=store.db.execute('SELECT * FROM observations WHERE session_id=? ORDER BY id LIMIT ?',(session_id,MAX_ROWS+1)).fetchall()
+    from .retention import loads
+    frozen=store.db.execute('SELECT * FROM trusted_checkpoints WHERE session_id=?',(session_id,)).fetchone() if store.schema_version>=8 else None
+    if not _force and not frozen and not store.db.execute("SELECT 1 FROM reading_validity WHERE kind='observation' AND session_id=? LIMIT 1",(session_id,)).fetchone():return None
+    rows=store.db.execute('SELECT * FROM observations WHERE session_id=? AND id>? AND id<=? ORDER BY id LIMIT ?',
+        (session_id,frozen['through_id'] if frozen else 0,_until_id if _until_id is not None else 2**63-1,MAX_ROWS+1)).fetchall()
     if len(rows)>MAX_ROWS:return dict(unavailable=True,rows=[],last=None,last_event_at=None,broken=True,pending=0,gain=None,bridged=None)
     invalid={r[0] for r in store.db.execute("SELECT source_id FROM reading_validity WHERE kind='observation' AND action='invalidate' AND session_id=?",(session_id,))}
     session=store.db.execute('SELECT * FROM sessions WHERE id=?',(session_id,)).fetchone()
     login=store.db.execute('SELECT login FROM streamers WHERE id=?',(session['streamer_id'],)).fetchone()[0]
     boundaries=[e['effective_at'] for e in store.manual_history(login,character_id=session['character_id'],active_only=True) if e['session_id']==session_id]
     result=[];last=None;event_at=None;broken=True;pending=0;gain=0;bridged=0
+    if frozen:
+        saved=loads(frozen['checkpoint_json'])
+        last=saved['last'];event_at=saved['last_event_at'];broken=saved['broken'];pending=saved['pending'];gain=saved['gain'];bridged=saved['bridged']
+        if last:result.append(last)
     for source in rows:
         row=dict(source);raw=json.loads(row['diagnostic_json']);status=raw.get('status')
         if row['id'] in invalid:

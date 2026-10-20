@@ -142,7 +142,16 @@ class Diagnostics:
         if existing:
             if existing['streamer_id'] != streamer['id'] or existing['configuration_json'] != payload:
                 raise ValueError('Run ID reused with different source/configuration')
+            from .retention import checkpoint
+            floor=checkpoint(self.store,existing['character_id']).get('through_run',0)
+            if self.db.execute('SELECT rowid FROM diagnostic_runs WHERE run_id=?',(run_id,)).fetchone()[0]<=floor:
+                raise ValueError('Run ID belongs to expired reading history')
             return dict(existing)  # Replay retains the original assignment, including after a switch.
+        if self.store.schema_version>=8 and self.db.execute('''SELECT 1 FROM (
+                SELECT target_event_id FROM manual_corrections WHERE target_kind='diagnostic'
+                UNION ALL SELECT target_event_id FROM reading_events WHERE kind='diagnostic')
+                WHERE substr(target_event_id,1,instr(target_event_id,':')-1)=? LIMIT 1''',(run_id,)).fetchone():
+            raise ValueError('Run ID belongs to expired audit history')
         session = self.store._open_session(streamer['id'])
         if not session or session['character_id'] != streamer['selected_character_id']:
             raise ValueError('Explicitly select a character and start a session first')
@@ -152,9 +161,10 @@ class Diagnostics:
             if not rotation_link(previous,candidate) or self.db.execute(
                     'SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?',(previous['run_id'],)).fetchone()[0]!=60:
                 raise ValueError('Scheduled rotation needs a finalized matching 60-attempt predecessor')
+        from .retention import next_id
         self.db.execute('''INSERT INTO diagnostic_runs
-            (run_id,streamer_id,character_id,session_id,created_at,configuration_json)
-            VALUES (?,?,?,?,?,?)''', (run_id, streamer['id'], session['character_id'], session['id'], utc(), payload))
+            (rowid,run_id,streamer_id,character_id,session_id,created_at,configuration_json)
+            VALUES (?,?,?,?,?,?,?)''', (next_id(self.store,'diagnostic_runs','run_id'),run_id, streamer['id'], session['character_id'], session['id'], utc(), payload))
         return dict(self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?', (run_id,)).fetchone())
 
     def begin(self, run_id, channel, configuration):
@@ -187,6 +197,8 @@ class Diagnostics:
             received = record.get('received_at')
             if received is not None and timestamp(received) is None:
                 raise ValueError('Invalid receipt timestamp')
+            from .retention import guard
+            guard(self.store,run['character_id'],received or record['attempted_at'])
             source = record.get('source')
             configuration=json.loads(run['configuration_json'])
             if configuration.get('offline_fast_test') and (not isinstance(source,dict) or source.get('kind')!='file'):
@@ -218,9 +230,10 @@ class Diagnostics:
             last = self.db.execute('SELECT COALESCE(MAX(attempt_index),0) FROM diagnostic_attempts WHERE run_id=?', (run_id,)).fetchone()[0]
             if run['summary_json'] is not None or index != last + 1:
                 raise ValueError('Attempt order must be contiguous within an unfinished run')
+            from .retention import next_id
             self.db.execute('''INSERT INTO diagnostic_attempts
-                (run_id,attempt_index,attempted_at,received_at,recorded_at,payload_json,session_id) VALUES (?,?,?,?,?,?,?)''',
-                (run_id, index, timestamp(record['attempted_at']), timestamp(received), utc(), payload,run['session_id']))
+                (id,run_id,attempt_index,attempted_at,received_at,recorded_at,payload_json,session_id) VALUES (?,?,?,?,?,?,?,?)''',
+                (next_id(self.store,'diagnostic_attempts','attempt_id'),run_id, index, timestamp(record['attempted_at']), timestamp(received), utc(), payload,run['session_id']))
         return True
 
     def append(self, run_id, record):
@@ -312,6 +325,9 @@ class Diagnostics:
             trusted_state=state)
         result['manual_corrections'] = self.store.manual_history(channel,
             character_id=selected['id'] if selected else None,as_of=now) if selected else []
+        from .retention import checkpoint
+        frozen=checkpoint(self.store,selected['id'] if selected else None)
+        result['retention_display']=frozen.get('display',{})
         from .invalidations import states,revision as invalidation_revision,mask,barriers
         result['invalidation_revision']=invalidation_revision(self.store,channel)
         validity_key=(selected['id'] if selected else None,result['invalidation_revision'])
@@ -385,10 +401,18 @@ class Diagnostics:
         annotate(observations,result['manual_corrections'])
         if _rows_only:
             return observations  # Internal streaming history: reuse the exact sanitized decoder.
-        barriers(observations)
         total = self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE session_id=?' if self.store.schema_version>=4 else
             'SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?', (session['id'],)).fetchone()[0]
-        observations=project(observations)
+        seed=None
+        if frozen.get('tracked') and rows:
+            first=self.db.execute('SELECT rowid,* FROM diagnostic_runs WHERE run_id=?',(rows[0]['run_id'],)).fetchone()
+            earlier=self.db.execute('''SELECT 1 FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id
+                WHERE r.character_id=? AND r.rowid>? AND a.id<? LIMIT 1''',(selected['id'],frozen['through_run'],rows[0]['id'])).fetchone()
+            if not earlier and rotation_link(frozen['tracked']['previous_run'],first):
+                seed=deepcopy(frozen['tracked'])
+        barriers(observations,seed['barrier_state'] if seed else None)
+        from .diagnostic_evidence import Projected
+        observations=Projected(project(observations,state=seed['level_state'])) if seed else project(observations)
         for row in observations:
             if row.get('manual_point'):
                 row['manual_presentation']=corrected_reading(row['manual_point'],event_id=row['event_id'],
@@ -419,7 +443,8 @@ class Diagnostics:
                           or not reading['timestamp_ordered'])
         if active_runs is not None and result['run_status']=='unfinished' and run['run_id'] in active_runs:
             result['run_status']='active'
-        result['percentage_progress'] = progress(observations,now=now,stale_after_seconds=result['stale_after_seconds'],current_run_id=run['run_id'])
+        result['percentage_progress'] = progress(observations,now=now,stale_after_seconds=result['stale_after_seconds'],current_run_id=run['run_id'],
+            percentage_state=seed['percentage_state'] if seed else None)
         for observation_value,decision in zip(observations,result['percentage_progress']['percentage_reviews']):
             observation_value['percentage_review']=decision
         if result['historical']:
@@ -446,6 +471,7 @@ class Diagnostics:
         manual='(SELECT MAX(id) FROM manual_corrections WHERE streamer_id=s.id)' if self.store.schema_version>=5 else 'NULL'
         rename='(SELECT MAX(id) FROM character_renames WHERE streamer_id=s.id)' if self.store.schema_version>=6 else 'NULL'
         invalidation='(SELECT MAX(c.id) FROM reading_commits c JOIN reading_batches b ON b.id=c.batch_id WHERE b.streamer_id=s.id)' if self.store.schema_version>=7 else 'NULL'
+        retention='(SELECT revision FROM retention_meta WHERE id=1)' if self.store.schema_version>=8 else 'NULL'
         latest='SELECT MAX(id) FROM diagnostic_attempts WHERE session_id=se.id' if self.store.schema_version>=4 else (
             'SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id WHERE dr.session_id=se.id')
         return list(self.db.execute('''SELECT s.login,s.selected_character_id,se.id AS session_id,
@@ -454,7 +480,8 @@ class Diagnostics:
             ('''+latest+''') AS last_attempt_id,
             '''+manual+''' AS manual_revision,
             '''+rename+''' AS rename_revision,
-            '''+invalidation+''' AS invalidation_revision
+            '''+invalidation+''' AS invalidation_revision,
+            '''+retention+''' AS retention_revision
             FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
             LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
             '''+('WHERE s.login=? ' if login else '')+'ORDER BY s.login LIMIT 26',(login,) if login else ()))
@@ -482,11 +509,16 @@ class Diagnostics:
                         event_id=row['event_id'],timestamp=row['received_at'] or row['attempted_at'])
                     break
             point = p['latest_percentage']
+            from .retention import checkpoint
+            saved=checkpoint(self.store,(snap['selected_character'] or {}).get('id')).get('display',{})
+            if full is None:full=saved.get('full_exp')
+            if point is None and saved.get('reading'):
+                point=saved['reading']
             card = dict(channel=snap['channel'],character=snap['selected_character'],session=snap['session'],
                 source_kind=snap.get('source_kind'),
                 source_status=snap['source_status'],run_status=snap['run_status'],run_id=snap['run_id'],
                 reasons=last.get('reasons',[]),
-                last_attempt_at=last.get('received_at') or last.get('attempted_at'),
+                last_attempt_at=last.get('received_at') or last.get('attempted_at') or saved.get('latest_attempt_at'),
                 last_attempt_noncurrent=last.get('timestamp_ordered') is False or not last.get('fresh_at_capture'),
                 percentage={k:point[k] for k in ('percentage','evidence','timestamp','event_id')} if point else None,
                 full_exp=full,visual_level=last.get('visual_level'),neural_level=(last.get('neural_level') or {}).get('level'),

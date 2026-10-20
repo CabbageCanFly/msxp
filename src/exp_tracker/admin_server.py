@@ -112,12 +112,14 @@ def apply(store, data):
 
 
 def details(store, channel, cid, session=None):
+    from .retention import expired
     selected = character(store, channel, cid)
     result = inspect(store, channel, selected, session)
     result['character'] = selected
     validity={(kind,r['target_event_id']):r for (kind,_),r in states(store,selected['id']).items() if r['action']=='invalidate'}
     invalidations=Invalidations(store)
     for row in result['readings']:
+        row['expired']=expired(store,selected['id'],row['timestamp'])
         event=validity.get((row['kind'],str(row['identity'])))
         if event:
             original=invalidations.original(event)['original']

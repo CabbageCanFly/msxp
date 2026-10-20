@@ -13,6 +13,8 @@ POLICY='endpoint_pace_v3'
 RECOVERY_POLICY='conditional_percent_v1'
 TRACKED_POLICY='tracked_endpoint_exp_v5'
 PUBLIC_POLICY='public_endpoint_window_v1'
+# Longest live window plus causal warmup; age by replay time, never query time.
+FRAME_HISTORY_SECONDS=24*60*60+5*60
 
 
 def exp_interval(edge):
@@ -196,13 +198,18 @@ def collect(snapshot, *, now, read, max_interval_seconds,state=None):
     ``read`` is the existing product reading decoder, not a new numerical parser.
     """
     edges=[];recoveries=[];excluded=[];previous=None;prior_attempt=None;support=[];holes=[]
-    seen_events=set();seen_frames=set();epoch=0;identity=None;level=None;last_value=None;unrecorded=0;last_interval_end=None;numeric_gap=False
+    seen_events=set();seen_frames={};frame_time=None;epoch=0;identity=None;level=None;last_value=None;unrecorded=0;last_interval_end=None;numeric_gap=False
     if state:
         previous=state['previous'];prior_attempt=state['prior_attempt'];support=state['support'];holes=state['holes']
         seen_events=state['seen_events'];seen_frames=state['seen_frames'];epoch=state['epoch'];identity=state['identity']
         level=state['level'];last_value=state['last_value'];unrecorded=state['unrecorded']
         last_interval_end=state['last_interval_end']
         numeric_gap=state.get('numeric_gap',False)
+        frame_time=state.get('frame_time')
+    if isinstance(seen_frames,set):
+        # Old checkpoints lack dates: conservatively grandfather once, without refreshing on restart.
+        frame_time=min(datetime.fromisoformat(prior_attempt['timestamp']).timestamp(),now.timestamp()) if prior_attempt else now.timestamp()
+        seen_frames=dict.fromkeys(sorted(seen_frames),frame_time)
     reviews={r['event_id']:r for r in snapshot['percentage_progress']['percentage_reviews']}
     for row in snapshot['observations']:
         evidence=row.get('experimental_level') or {};stamp=row.get('received_at') or row.get('attempted_at')
@@ -215,6 +222,7 @@ def collect(snapshot, *, now, read, max_interval_seconds,state=None):
             operator_interrupted=row.get('status')=='capture_failed' and row.get('reasons')==['operator_interrupted'])
         key=tuple(context[k] for k in ('channel','source_channel','source_kind','source_identity','character_id','session_id'))
         hard=None;edge=None
+        when=None
         try:
             when=datetime.fromisoformat(stamp)
             if when.utcoffset() is None or when>now or row.get('timestamp_ordered') is False:raise ValueError
@@ -243,9 +251,18 @@ def collect(snapshot, *, now, read, max_interval_seconds,state=None):
             hard=edge
             if edge=='run_boundary':epoch+=1
         frame=row.get('frame_sha256')
+        observed=when.timestamp() if when is not None and when.utcoffset() is not None and when<=now else frame_time
+        if observed is not None:frame_time=observed if frame_time is None else max(frame_time,observed)
+        if frame_time is None:frame_time=now.timestamp()
+        while seen_frames:
+            oldest=next(iter(seen_frames))
+            if seen_frames[oldest]>=frame_time-FRAME_HISTORY_SECONDS:break
+            del seen_frames[oldest]
         if row['event_id'] in seen_events or frame and frame in seen_frames:hard='duplicate_capture'
         seen_events.add(row['event_id'])
-        if frame:seen_frames.add(frame)
+        if frame:
+            seen_frames.pop(frame,None)
+            seen_frames[frame]=frame_time
         localization_gap=bool(row.get('overlapping_hud_gap') is True and frame and row.get('capture_acquired') is True
             and row.get('received_at') and row.get('local_age_seconds') is not None and 0<=row['local_age_seconds']<=15)
         if (row.get('crop_suspect') or row.get('candidate_invalid') or row.get('percentage_only_invalid')
@@ -324,6 +341,6 @@ def collect(snapshot, *, now, read, max_interval_seconds,state=None):
     if state is not None:
         state.update(previous=previous,prior_attempt=prior_attempt,support=support,holes=holes,seen_events=seen_events,
             seen_frames=seen_frames,epoch=epoch,identity=identity,level=level,last_value=last_value,unrecorded=unrecorded)
-        state.update(last_interval_end=last_interval_end,numeric_gap=numeric_gap)
+        state.update(last_interval_end=last_interval_end,numeric_gap=numeric_gap,frame_time=frame_time)
     return dict(intervals=edges,recoveries=recoveries,excluded=excluded,epoch=epoch,
         latest=last_value,pending_missing=len(holes)+unrecorded,identity=identity)

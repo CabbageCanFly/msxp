@@ -1,5 +1,9 @@
 # Rolling EXP history
 
+The [schema-8 retention feature](24h-retention.md) adds persistent causal checkpoints
+and expires old raw evidence. Its policy supersedes the original no-deletion
+implementation notes below; public window/endpoint calculations remain unchanged.
+
 The player page now has **EXP tracked · Last 24h** and a **30 min** bar view
 covering a rolling 24 hours. The existing 1-minute/30-minute-axis and
 5-minute/2-hour-axis views, Level % chart, recent pace and strict ranking rules

@@ -27,10 +27,23 @@ def select_runs(diagnostic,channel,*,start,now):
     from .diagnostics import rotation_link
     store=diagnostic.store;db=diagnostic.db;streamer=store._channel(channel)
     character=streamer['selected_character_id']
+    from .retention import checkpoint
+    saved=checkpoint(store,character)
+    floor=saved.get('through_run',0)
+    if getattr(diagnostic,'_retention_prefix',None) is not None:
+        ids=diagnostic._retention_prefix
+        return [dict(r) for r in db.execute('SELECT rowid,* FROM diagnostic_runs WHERE character_id=? AND rowid>? ORDER BY rowid',
+            (character,floor)) if r['run_id'] in ids]
     owner='a.session_id IN (SELECT id FROM sessions WHERE streamer_id=? AND character_id=?)' if store.schema_version>=4 else 'r.streamer_id=? AND r.character_id=?'
     runs=[dict(r) for r in db.execute('SELECT DISTINCT r.rowid,r.* FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id '
         'WHERE '+owner+' AND a.attempted_at>=? AND a.attempted_at<=? ORDER BY r.rowid LIMIT ?',
         (streamer['id'],character,start.isoformat(),now.isoformat(),MAX_RUNS+1))] if character else []
+    runs=[r for r in runs if r['rowid']>floor]
+    # Resume the prefix even when no retained attempt falls inside the window.
+    if saved:
+        runs=[dict(r) for r in db.execute('''SELECT rowid,* FROM diagnostic_runs r WHERE character_id=? AND rowid>?
+            AND EXISTS(SELECT 1 FROM diagnostic_attempts a WHERE a.run_id=r.run_id AND a.attempted_at<=?)
+            ORDER BY rowid LIMIT ?''',(character,floor,now.isoformat(),MAX_RUNS+1))]
     selected={r['run_id']:r for r in runs}
     if len(selected)>MAX_RUNS:raise HistoryLimit('run_limit')
     for current in runs:
@@ -38,6 +51,7 @@ def select_runs(diagnostic,channel,*,start,now):
             config=json.loads(current['configuration_json'])
             previous=db.execute('SELECT rowid,* FROM diagnostic_runs WHERE run_id=?',(config.get('previous_run_id'),)).fetchone() if config.get('start_reason')=='scheduled_rotation' else None
             if not rotation_link(previous,current) or previous['run_id'] in selected:break
+            if previous['rowid']<=floor:break
             selected[previous['run_id']]=dict(previous);current=selected[previous['run_id']]
             if len(selected)>MAX_RUNS:raise HistoryLimit('run_limit')
     return sorted(selected.values(),key=lambda r:r['rowid'])
@@ -69,6 +83,12 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
     ``step`` mutates ``state`` for one run batch and returns its percentage reviews.
     """
     runs=select_runs(diagnostic,channel,start=start,now=now)
+    from .retention import checkpoint
+    frozen=checkpoint(diagnostic.store,diagnostic.store._channel(channel)['selected_character_id'])
+    mode=key[0] if key else None
+    if mode in frozen:
+        state.clear();state.update(thaw(frozen[mode]))
+    if frozen:key=(*key,frozen['through_run'])
     with LOCK:saved=checkpoints.get(key) if checkpoints is not None else None
     covered=0
     if saved and now>=saved['now'] and len(saved['runs'])<=len(runs) and all(
@@ -96,6 +116,8 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
             with LOCK:
                 if key not in checkpoints and len(checkpoints)>=MAX_CHECKPOINTS:checkpoints.pop(next(iter(checkpoints)))
                 checkpoints[key]=value
+    if getattr(diagnostic,'_retention_prefix',None) is not None:
+        diagnostic._retention_states[mode]=thaw(state)
     return state
 
 
@@ -132,6 +154,8 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
         earliest=diagnostic.db.execute('SELECT MIN(attempted_at) FROM diagnostic_attempts WHERE '+owner,
             (session,)).fetchone()[0]
         if earliest:start=datetime.fromisoformat(earliest)
+        if getattr(diagnostic,'_retention_prefix',None) is not None:
+            start=datetime.min.replace(tzinfo=timezone.utc)
     def step(state,run,batch):
         barriers(batch,state['barrier_state'])
         # select_runs already limits every independently bounded session to the selected character.
@@ -149,6 +173,27 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
         for row,decision in zip(batch,reviewed):
             if stamp(row)<start:continue
             row['percentage_review']=decision;rows.append(row);decisions.append(decision)
+        if getattr(diagnostic,'_retention_prefix',None) is not None and batch:
+            from .product import recent_windows,level_evidence,DISPLAY_LEVEL_STATUSES
+            evidence=dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions,reason='retained_history'))
+            saved=state.setdefault('retained_etas',{})
+            for m,w in recent_windows(evidence,None,now=now).items():
+                if w['eta']:saved[m]=w['eta']
+                pace=w.get('pace') or w.get('last_observed_pace')
+                if pace:state.setdefault('retained_paces',{})[m]=pace
+            display=getattr(diagnostic,'_retention_display_rows',[])+batch
+            keep=[]
+            for eligible in (
+                    lambda r:reading(r) is not None,
+                    lambda r:reading(r) is not None and reading(r)['exp'] is not None,
+                    lambda r:level_evidence(r)['status'] in DISPLAY_LEVEL_STATUSES and r.get('fresh_at_capture')):
+                found=next((r for r in reversed(display) if eligible(r)),None)
+                if found is not None and found not in keep:keep.append(found)
+            if display[-1] not in keep:keep.append(display[-1])
+            diagnostic._retention_display_rows=sorted(keep,key=stamp)
+            cutoff=stamp(batch[-1])-timedelta(minutes=65)
+            kept=[(r,d) for r,d in zip(rows,decisions) if stamp(r)>=cutoff]
+            state['rows']=[r for r,_ in kept];state['decisions']=[d for _,d in kept]
         if _historical and len(rows)>4096:
             # A lone new endpoint cannot evict the last supported rate.
             evidence=dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions))
@@ -173,6 +218,10 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     rows=[r for r,_ in kept];decisions=[d for _,d in kept]
     data=dict(percentage_reviews=decisions,reason=decisions[-1]['reason'] if decisions else 'no_observations')
     result=dict(base,observations=rows,percentage_progress=data,recent_history_status='ready',recent_history_receipt=receipt)
+    from .retention import checkpoint
+    frozen=checkpoint(diagnostic.store,(base['selected_character'] or {}).get('id'))
+    result['historical_etas']=dict(frozen.get('etas',{}),**state.get('retained_etas',{}))
+    result['historical_paces']=dict(frozen.get('paces',{}),**state.get('retained_paces',{}))
     if not _historical:
         # Module-level collect/PACE_TREND_SECONDS: re-importing them here made step()'s copies unbound.
         from .product import recent_windows
@@ -234,6 +283,9 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
                 state['level_at']=row.get('received_at') or row['attempted_at']
         collected=collect(dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions)),
             now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS,state=state['interval_state'])
+        if getattr(diagnostic,'_retention_prefix',None) is not None:
+            from .daily_snapshots import diagnostics as archive_daily
+            archive_daily(diagnostic.store,rows,collected['recoveries'])
         counts=state['exclusion_counts']
         for excluded in collected['excluded']:
             reason=excluded['reason'] or 'unavailable'
@@ -262,7 +314,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
     if point and (not state['level_at'] or datetime.fromisoformat(point['effective_at'])>=datetime.fromisoformat(state['level_at'])) and (
             manual is None or point['effective_at']>=manual['effective_at']):
         level=point['level'];transition={}
-    if transition.get('phase')=='possible':level=transition['to_level']
+    if transition.get('phase')=='possible' and not transition.get('evidence_exhausted'):level=transition['to_level']
     gains=[];coverage=Fraction(0);versions=set()
     points=sorted((r for r in state['rows'] if usable_endpoint(r)),key=lambda r:datetime.fromisoformat(r['timestamp']))
     for before,after in zip(points,points[1:]):

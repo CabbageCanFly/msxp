@@ -99,16 +99,17 @@ def percentage_point(row, *, include_recovered=True):
     return point, reason
 
 
-def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, min_readings=3, min_span_seconds=30, current_run_id=None,confirmation_seconds=CONFIRM_SECONDS):
+def progress(rows, *, now=None, stale_after_seconds=45, include_recovered=True, min_readings=3, min_span_seconds=30, current_run_id=None,confirmation_seconds=CONFIRM_SECONDS,percentage_state=None):
     if type(min_readings) is not int or min_readings<3 or not 30<=min_span_seconds<=86400:
         raise ValueError('Pace requires >=3 readings spanning >=30 seconds')
     now = now or datetime.now(timezone.utc)
     segments, comparisons = [], []
     previous, current, latest, latest_time = None, None, None, None
     seen = set()
-    projected=project(rows)
+    from .diagnostic_evidence import Projected
+    projected=rows if type(rows) is Projected else project(rows)
     evidence=[percentage_point(row,include_recovered=include_recovered) for row in projected]
-    reviews=review(projected,evidence,now=now,confirmation_seconds=confirmation_seconds)
+    reviews=review(projected,evidence,now=now,confirmation_seconds=confirmation_seconds,state=percentage_state)
     for row,(point,reason),decision in zip(projected,evidence,reviews):
         when = None
         if point and point['timestamp']:

@@ -7,6 +7,7 @@ function text(node,value,tag='p',className='') {
 }
 function button(node,label,fn) {const e=text(node,label,'button');e.type='button';e.addEventListener('click',fn);return e;}
 function values(node,row) {
+  if(row.expired) {text(node,'Original reading expired under 24-hour retention. Audit history is preserved.');return;}
   const original=row.original ?? {};
   const parts=[original.level==null ? null : `Level ${original.level}`,original.current_exp==null ? null : `${original.current_exp} EXP`,
     original.percentage==null ? null : `${original.percentage}%`].filter(v=>v!=null);
@@ -97,7 +98,8 @@ export function invalidationUI({api,onSaved}) {
       const card=document.createElement('article');card.dataset.invalidatedIdentity=row.identity;
       text(card,when(row.timestamp),'h3');values(card,row);text(card,'Invalidated — excluded from tracking.','p','muted');
       if(row.reason)text(card,row.reason);
-      button(card,'Restore',()=>single(row,scope,'restore'));$('invalidated-list').append(card);
+      if(!row.expired)button(card,'Restore',()=>single(row,scope,'restore'));
+      $('invalidated-list').append(card);
     }
     more=data.next_before;$('invalidated-more').hidden=!more;
     if(!$('invalidated-list').children.length)text($('invalidated-list'),'No invalidated readings.');
@@ -108,7 +110,8 @@ export function invalidationUI({api,onSaved}) {
       const card=document.createElement('article');card.dataset.invalidationBatch=event.id;
       text(card,`${event.action==='invalidate'?'Invalidated':'Restored'} ${event.count} reading${event.count===1?'':'s'}`,'h3');
       text(card,when(event.committed_at),'p','muted');if(event.reason)text(card,event.reason);
-      if(event.action==='invalidate' && event.remaining)button(card,`Restore batch (${event.remaining})`,()=>start({action:'restore_batch',channel:scope.channel,character_id:String(scope.character.id),batch_id:String(event.id)}));
+      if(event.action==='invalidate' && event.expired_count)text(card,`${event.expired_count} original reading${event.expired_count===1?' has':'s have'} expired. Whole-batch restore is unavailable. Use individual Restore for retained readings in Invalidated readings.`,'p','muted');
+      else if(event.action==='invalidate' && event.remaining)button(card,`Restore batch (${event.remaining})`,()=>start({action:'restore_batch',channel:scope.channel,character_id:String(scope.character.id),batch_id:String(event.id)}));
       else if(event.action==='invalidate')text(card,'No readings remain excluded by this batch.','p','muted');
       const advanced=document.createElement('details');text(advanced,'Advanced details','summary');text(advanced,JSON.stringify(event,null,2),'pre');card.append(advanced);
       $('invalidation-history').append(card);
