@@ -154,6 +154,10 @@ function renderReadings(data) {
     text(row, when(r.timestamp), 'h3');
     if (!numbers(row, r.presentation, r.presentation?.level?.value ?? r.original_level ?? r.original?.level))
       text(row, 'No readable level or EXP in this reading.', 'p', 'muted');
+    if(r.expired) {
+      text(row,'Reading expired under 24-hour retention. Audit history is preserved.','p','muted');
+      audit(row,r);$('readings').append(row);continue;
+    }
     const existing = scope.corrections?.find(e => e.active && e.kind === 'point' && e.target_kind === r.kind && String(e.target_event_id) === String(r.identity));
     if(r.invalidation)text(row,'Invalidated — excluded from tracking.','p','muted');
     if(!r.invalidation)button(row, existing ? 'Edit correction' : 'Fix', () => {

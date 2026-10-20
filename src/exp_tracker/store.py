@@ -12,7 +12,7 @@ import sqlite3
 
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition
-from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, STATEMENTS, VERSION
+from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, MIGRATION_8, MIGRATION_9, STATEMENTS, VERSION
 from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
@@ -40,7 +40,7 @@ class Store:
             with self._transaction():
                 version = self.db.execute("PRAGMA user_version").fetchone()[0]
                 if read_only:
-                    if version not in (3,4,5,6,VERSION):
+                    if version not in (3,4,5,6,7,8,VERSION):
                         raise ValueError(f"unsupported schema version {version}; initialize/migrate with the tracking CLI first")
                     self.schema_version=version
                     return
@@ -74,6 +74,14 @@ class Store:
                     for statement in MIGRATION_7:
                         self.db.execute(statement)
                     version = 7
+                if version == 7:
+                    for statement in MIGRATION_8:
+                        self.db.execute(statement)
+                    version = 8
+                if version == 8:
+                    for statement in MIGRATION_9:
+                        self.db.execute(statement)
+                    version = 9
                 if version != VERSION:
                     raise ValueError(f"unsupported schema version {version}")
                 self.db.execute(f"PRAGMA user_version={VERSION}")
@@ -284,6 +292,8 @@ class Store:
                 return dict(existing,duplicate=True)
             if not self.db.execute('SELECT 1 FROM characters WHERE id=? AND streamer_id=?',(character_id,streamer['id'])).fetchone():
                 raise ValueError('character does not belong to channel')
+            from .retention import guard
+            guard(self,character_id,when)
             if replaces_id is not None:
                 self._manual_revision(login,replaces_id)
                 if not reason:raise ValueError('amending a correction requires a reason')
@@ -314,6 +324,8 @@ class Store:
         if not event['active']:
             raise ValueError(f"correction is inactive; inspect successor {event['superseded_by']}" if event['superseded_by'] else
                              'retractions are audit records; submit a new set/correct to restore operator information')
+        from .retention import guard
+        guard(self,event['character_id'],event['effective_at'])
         return event
 
     def retract_manual(self, login, event_id, correction_id, *, reason):
@@ -384,6 +396,8 @@ class Store:
             if session_id is not None and session is None:
                 raise ValueError("session does not belong to channel")
             char = session["character_id"] if session else None
+            from .retention import guard, next_id
+            guard(self,char,when)
             state = self.db.execute("SELECT * FROM tracking_state WHERE character_id=?", (char,)).fetchone()
             from .trusted_replay import replay as replay_trusted
             revised=replay_trusted(self,session_id)
@@ -422,10 +436,10 @@ class Store:
             trusted = transition.status in {"accepted", "baseline"}
             reading = result.reading if trusted else None
             row_id = self.db.execute("""INSERT INTO observations(
-                event_id,streamer_id,session_id,character_id,observed_at,recorded_at,source,profile_hash,diagnostic_json,
+                id,event_id,streamer_id,session_id,character_id,observed_at,recorded_at,source,profile_hash,diagnostic_json,
                 outcome,reason,level,current_exp,percentage_bp,gained_exp,interval_start_observation_id,
-                missing_observations) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (event_id, streamer["id"], session_id, char, when, utc(), source, fingerprint, diagnostic,
+                missing_observations) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (next_id(self,'observations','observation_id'),event_id, streamer["id"], session_id, char, when, utc(), source, fingerprint, diagnostic,
                  transition.status, transition.reason, reading.level if reading else None,
                  reading.current_exp if reading else None, round(reading.percentage * 100) if reading else None,
                  transition.gained_exp, interval_start, missing)).lastrowid
@@ -460,6 +474,9 @@ class Store:
         gained = self.db.execute("SELECT COALESCE(SUM(gained_exp),0) FROM observations WHERE session_id=?", (session["id"],)).fetchone()[0] if session else 0
         bridged = self.db.execute("""SELECT COALESCE(SUM(gained_exp),0) FROM observations
                                   WHERE session_id=? AND missing_observations>0""", (session["id"],)).fetchone()[0] if session else 0
+        if self.schema_version>=8 and session:
+            totals=self.db.execute('SELECT original_gain,original_bridged FROM trusted_checkpoints WHERE session_id=?',(session['id'],)).fetchone()
+            if totals:gained+=totals[0];bridged+=totals[1]
         snapshot = dict(channel=streamer["login"], selected_character_id=streamer["selected_character_id"],
                     characters=chars, session=dict(session) if session else None, status=status,
                     reason="stale" if state and status == "paused" and state["status"] == "tracking" else state["reason"] if state else "select_character",

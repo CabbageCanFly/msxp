@@ -42,4 +42,4 @@ systemctl daemon-reload
 
 echo 'Installed. Nothing was enabled or started. Continue with docs/vps-deployment.md:'
 echo '  1. offline validation   2. edit /etc/msxp/msxp.env and private/vps/config.json'
-echo '  3. database migration    4. enable msxp-tracker, msxp-backup.timer and reload caddy'
+echo '  3. database migration    4. enable msxp-tracker and reload caddy (leave msxp-backup.timer disabled)'

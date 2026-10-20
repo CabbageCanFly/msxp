@@ -114,6 +114,11 @@ def recent_windows(snapshot,display_level,*,now,current_level_only=False,collect
             previous=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only)
             result[str(minutes)]['last_observed_pace']=({k:v for k,v in previous.items()
                 if k not in ('intervals','conditional_recoveries','excluded','latest_endpoint')} if previous else None)
+            if previous is None:
+                saved=deepcopy(snapshot.get('historical_paces',{}).get(str(minutes)))
+                if saved and (not current_level_only or saved['levels']==[(display_level or {}).get('value')]):
+                    saved.update(active=False,retained_history=True,recent_pool_expired=True)
+                    result[str(minutes)]['last_observed_pace']=saved
         current_basis=pace or result[str(minutes)].get('last_observed_pace')
         # Date the estimate at an observation, not at a poll that merely removes
         # old intervals. The gain/rate cards keep their actual current windows.
@@ -531,6 +536,12 @@ def player(snapshot,*,now=None,recent_snapshot=None):
             difference_percentage_points=segment['difference_percentage_points'],evidence_counts=segment['evidence_counts']) if usable else None,
         estimates=estimates(segment,progress['current_pace'],latest['bp']) if usable else estimates(None,None,0),
         windows=window_comparisons(snapshot,now=now),trusted=False,experimental=True)
+    # A compact dated display is never fed back into OCR validation or window gains.
+    saved=snapshot.get('retention_display',{})
+    for key in ('reading','display_level','latest_attempt_at'):
+        if result.get(key) is None:result[key]=deepcopy(saved.get(key))
+    if not rows and saved:
+        result['latest_attempt_status']=saved['latest_attempt_status'];result['level_context']=deepcopy(saved.get('level_context'))
     from .manual import present
     present(result,snapshot)
     display_level=result['display_level']
@@ -539,6 +550,7 @@ def player(snapshot,*,now=None,recent_snapshot=None):
         segment=historical,estimates=estimates(historical,historical['pace'],int(Fraction(historical['end_percentage'])*100)) if historical else estimates(None,None,0),
         label='EXPERIMENTAL / UNVERIFIED; early segment estimate, not a completed window')
     result['responsive_pace']=responsive_pace(snapshot,display_level,now=now)
+    if result['responsive_pace'] is None:result['responsive_pace']=deepcopy(saved.get('responsive_pace'))
     from .pace_intervals import collect_observed as collect
     # Both scopes use the same public observations, clock and limit.
     collected=collect(recent_snapshot or snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
