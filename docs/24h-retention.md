@@ -203,13 +203,86 @@ cannot reopen a migrated schema-9 DB. File-owner markers
 bind absolute DB paths; relocated directories are left alone. No production
 restore/migration was performed here.
 
-Audit, session metadata and exact duplicate-frame fingerprints can still grow.
-Fingerprints preserve the existing conditional-recovery duplicate gate; discarding
-them would weaken evidence rules. They are metadata, not raw attempt payloads.
-Exceptional unresolved inference state may also exceed normal checkpoint sizes.
-This is raw-evidence retention, not a fixed disk quota. Monitor maintenance
+Audit, session metadata and daily snapshots still grow intentionally. Exceptional
+unresolved inference state can also grow, as detailed below. This is raw-evidence
+retention, not a fixed disk quota. Monitor maintenance
 failures, DB/WAL and private directory sizes. Sustained VPS maintenance latency,
 hard process termination and filesystem-failure recovery have not been measured.
+
+## Bounded duplicate-frame checkpoint history
+
+The original `pace_intervals.collect()` kept every distinct frame hash in
+`seen_frames`. Retention cleared `seen_events` but serialized the complete frame
+set in `tracked.interval_state.diagnostic`. This was unbounded even with successful
+pruning: 1,576,800 distinct frames per year at a 20-second cadence require about
+**105.6 MB/year/character** of compact JSON hashes alone (67 bytes per hash).
+
+The collector now stores a hash-to-last-seen-time mapping ordered by last sighting.
+It evicts entries older than **24 hours plus five minutes**, inclusively preserving
+the lower boundary. Time advances with the maximum valid, nonfuture observation
+timestamp processed by replay, rather than the later API/maintenance query time.
+This preserves duplicate rejection while replaying historical rows, including
+rows on opposite sides of a scheduled rotation or pruning boundary. Repeating a
+hash refreshes its expiry even when that repeated capture is rejected, so a frozen
+frame repeated continually cannot age into eligible evidence. Future/malformed
+timestamps cannot advance the clock and prematurely remove protection.
+
+At 20-second cadence, a steady stream of unique hashes holds at most **4,336
+entries**, about **347 kB** for the mapping with typical epoch timestamps. The
+bound is elapsed time, not an attempt-count cap: faster imported timestamps can
+hold more entries. The map and its monotonic replay clock survive checkpoint
+serialization and cold restarts. Inactivity leaves a fixed dated window of hashes;
+the next observation ages it forward. Public API shapes, numerical eligibility,
+quarantine, continuity, level inference and the granular run-boundary allowance
+are unchanged. Hashes outside the horizon no longer veto a new capture solely
+because that image appeared in arbitrarily old history.
+
+No SQLite schema migration is needed. Existing undated hash sets load
+conservatively: all receive the checkpoint's final attempt time once. Unseen
+legacy hashes expire after one horizon of subsequent **prefix replay progress**;
+serialization/restart does not renew that grace. A genuinely repeated hash gets
+its real new last-seen time. Consequently an already oversized checkpoint may
+remain oversized temporarily, including during inactivity or a pruning backlog.
+Instantly trimming its undated hashes would discard unknown recent duplicate
+evidence. Update all processes that read checkpoints together; older code expects
+a set and cannot consume the new mapping. Restoring an old provider snapshot
+uses the same conservative conversion; no live copy was migrated here.
+
+Other checkpoint fields were checked for per-attempt growth:
+
+- `seen_events`, percentage-review `seen` sets and missing-event `holes` lists
+  are already cleared when a prefix is frozen. Without successful maintenance,
+  replay memory/raw history can still grow to the existing replay limits.
+- Recent reader samples (3), context hashes (12), conditional support (2), and
+  competing-level samples (3) are bounded. Anchors, barriers, pending quarantine,
+  trusted totals and missing counts use fixed records/scalars, not attempt lists.
+- **Remaining exception:** `level_state.derived.transition.samples` appends unique
+  post-wrap samples while a level-up remains possible or provisional. Repeated
+  flat percentage-only evidence can keep this unresolved indefinitely. A synthetic
+  1,000-frame check retained all 1,000 samples; resolved transition provenance and
+  last-known display/context can also retain that list. This is separate from
+  `seen_frames`. Arbitrarily truncating it could change duplicate, numeric-chain
+  or level-up decisions, so this small fix leaves inference unchanged. A future
+  exact inference-summary change is needed for an overall fixed checkpoint bound.
+
+Focused regressions exercise five synthetic days at 20-second cadence with hourly
+serialization/restarts, exact expiry, refreshed duplicates, legacy sets and future
+timestamps. Five further daily pruning/restart cycles span nearly seven days of
+synthetic runs and match an unpruned reference's 5/10/15/30/60-minute and 24-hour
+metrics, including missing readings and the initial level-up. Their final full
+checkpoint was **112,705 bytes**, including **290 fingerprints / 23,201 bytes** at
+300-second cadence; full checkpoint sizes stayed within 2 kB across those cycles.
+These measurements use ordinary supported levels, not the unresolved-wrap
+exception. A separate experimental-punctuation duplicate regression deletes its
+original frame's run, reopens SQLite and still rejects recovery across the retained
+run boundary. This verifies an actual evidence veto as well as rolling parity.
+
+Follow-up validation: **7 new fingerprint tests passed**; **176 existing focused
+tests passed**, with **4 private-recording skips** reported separately and **2 HTTP
+cases deselected**. Two of those existing tests check incremental/full replay and
+the older window endpoint; the multi-day regression also passed a final repeat.
+No full suite, private recording replay, live database change or deployment was
+performed. `git diff --check` passed.
 
 Synthetic checks cover window parity, level-ups, rotations, missing frames,
 inactivity/cold reads, corrections, invalidation/restoration/audit, atomic failure,
