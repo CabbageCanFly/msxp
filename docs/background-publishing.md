@@ -36,7 +36,8 @@ An entry expires on the unchanged `Diagnostics.due` rule: rolling windows that c
 age, rebuilt after 10 s. Tracked windows are refreshed every 30 s, as the former request
 cache did. One build per step means an expiring idle channel waits at most for the
 builds ranked above it. A continuously changing channel cannot repeatedly outrank an
-older due publication. Cold-start priority is bounded by the 25-channel publication limit.
+older due publication. Cold-start work grows with the visible roster; there is no
+fixed channel-count publication limit.
 
 **Presentation.** Requests only time-present published entries:
 
@@ -167,9 +168,9 @@ player, which is the next thing to make shared if many channels are active.
 - **Memory:** per channel, ≈9.5 MiB of checkpoints for a full day plus one published
   entry (card, chart history, tracked packet), and at most two cached bodies; homepage
   bytes are shared.
-- **Only the first 25 channels are published**, as before (`truncated`). A direct
-  request beyond the limit returns `503 publication_limit`, without claiming that an
-  unserviceable channel is warming. Unknown channels still return 404.
+- **All visible roster channels are published.** Newly configured channels warm
+  progressively; unknown channels still return 404. Twitch status requests are
+  split into batches of at most 25 logins. History work and cache bounds remain.
 - **Unchanged:** the developer diagnostics (`/dev/api/streams`, `/dashboard/*`) and the
   trusted `/api/streams/{ch}/state` overlay still compute per request.
 

@@ -24,6 +24,7 @@ from .twitch_auth import AppTokens,AuthError
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_STREAM_PAGES = 3
+STREAM_STATUS_BATCH = 25
 
 
 def thumbnail_url(template: str, width: int, height: int) -> str:
@@ -52,42 +53,47 @@ class StreamAvailability:
 
     def snapshot(self,channels,*,now=None):
         channels=tuple(sorted(set(channels)))
-        if len(channels)>25 or any(not re.fullmatch(r'[a-z0-9_]{1,25}',c) for c in channels):
-            raise ValueError('Bounded configured Twitch logins required')
+        if any(not re.fullmatch(r'[a-z0-9_]{1,25}',c) for c in channels):
+            raise ValueError('Valid configured Twitch logins required')
         now=now or datetime.now(timezone.utc)
         with self.lock:
             if self.clock()>=self.next_check:
-                reason=None;live=set();delay=60
+                reason=None;live=set();completed=set();delay=60
                 if not self.enabled:reason='not_enabled'
                 elif channels:
                     try:
                         client,token=self.auth.get()
-                        params=dict(user_login=list(channels),first=100);seen=set();reauthenticated=False
-                        for _ in range(MAX_STREAM_PAGES):
-                            try:response=self.fetch('streams',params.copy(),client,token,timeout=3)
-                            except HTTPError as error:
-                                if error.code!=401 or reauthenticated:raise
-                                reauthenticated=True
-                                client,token=self.auth.get(rejected_token=token)
-                                response=self.fetch('streams',params.copy(),client,token,timeout=3)
-                            data=response['data']
-                            if not isinstance(data,list) or len(data)>25:
-                                raise ValueError('Invalid stream status response')
-                            page=set()
-                            for row in data:
-                                if row.get('user_login') not in channels or row.get('type')!='live':
-                                    raise ValueError('Unexpected stream status response')
-                                page.add(row['user_login'])
-                            live.update(page)
-                            if len(live)==len(channels):break  # No unresolved channel needs another request.
-                            cursor=response.get('pagination',{}).get('cursor','')
-                            if not isinstance(cursor,str) or len(cursor)>2048:
-                                raise ValueError('Invalid pagination cursor')
-                            if not cursor:break
-                            if cursor in seen:
-                                reason='pagination_repeated_cursor';break
-                            seen.add(cursor);params['after']=cursor
-                        else:reason='pagination_limit'
+                        reauthenticated=False
+                        for offset in range(0,len(channels),STREAM_STATUS_BATCH):
+                            batch=channels[offset:offset+STREAM_STATUS_BATCH]
+                            params=dict(user_login=list(batch),first=100);seen=set()
+                            for _ in range(MAX_STREAM_PAGES):
+                                try:response=self.fetch('streams',params.copy(),client,token,timeout=3)
+                                except HTTPError as error:
+                                    if error.code!=401 or reauthenticated:raise
+                                    reauthenticated=True
+                                    client,token=self.auth.get(rejected_token=token)
+                                    response=self.fetch('streams',params.copy(),client,token,timeout=3)
+                                data=response['data']
+                                if not isinstance(data,list) or len(data)>STREAM_STATUS_BATCH:
+                                    raise ValueError('Invalid stream status response')
+                                page=set()
+                                for row in data:
+                                    if row.get('user_login') not in batch or row.get('type')!='live':
+                                        raise ValueError('Unexpected stream status response')
+                                    page.add(row['user_login'])
+                                live.update(page)
+                                if all(c in live for c in batch):break
+                                cursor=response.get('pagination',{}).get('cursor','')
+                                if not isinstance(cursor,str) or len(cursor)>2048:
+                                    raise ValueError('Invalid pagination cursor')
+                                if not cursor:break
+                                if cursor in seen:
+                                    reason='pagination_repeated_cursor';break
+                                seen.add(cursor);params['after']=cursor
+                            else:reason='pagination_limit'
+                            if reason:break
+                            completed.update(batch)
                     except AuthError as error:
                         reason=error.reason;delay=max(60,error.retry_after)
                     except HTTPError as error:
@@ -97,11 +103,11 @@ class StreamAvailability:
                             try:delay=max(60,min(900,int(error.headers.get('Retry-After','60'))))
                             except (TypeError,ValueError):pass
                     except (OSError,ValueError,TypeError,KeyError,AttributeError,URLError):reason='api_unavailable'
-                self.results={c:dict(status='live' if c in live else 'unknown' if reason else 'offline',
-                    reason=None if c in live else reason,checked_at=now.isoformat(),source='twitch_helix_get_streams',
-                    valid_until=datetime.fromtimestamp(now.timestamp()+(60 if c in live else delay),timezone.utc).isoformat(),
+                self.results={c:dict(status='live' if c in live else 'offline' if c in completed else 'unknown' if reason else 'offline',
+                    reason=None if c in live or c in completed else reason,checked_at=now.isoformat(),source='twitch_helix_get_streams',
+                    valid_until=datetime.fromtimestamp(now.timestamp()+(60 if c in live or c in completed else delay),timezone.utc).isoformat(),
                     last_known_status=(self.results.get(c,{}).get('last_known_status') if self.results.get(c,{}).get('status')=='unknown'
-                        else self.results.get(c,{}).get('status')) if reason and c not in live else None) for c in channels}
+                        else self.results.get(c,{}).get('status')) if reason and c not in live and c not in completed else None) for c in channels}
                 self.next_check=self.clock()+delay
             result={c:dict(self.results.get(c,dict(status='unknown',reason='awaiting_batch',checked_at=None,
                 valid_until=None,source='twitch_helix_get_streams'))) for c in channels}

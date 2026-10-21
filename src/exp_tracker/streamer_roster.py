@@ -16,8 +16,6 @@ from .video import Source
 from .writer_lock import writer_lease
 
 FLAGS = ('authorized','tracking_enabled','public_visible','automatic_characters')
-# shortcut: bound configured membership to 25 until directory pagination/larger roster refreshes are validated.
-MAX_MANAGED_STREAMERS = 25  # Independent of the coordinator's 1..8 capture workers.
 DEFAULTS = dict(interval=20, quality='best', timeout=20, max_age=15, ocr_timeout=10,
                 experimental_neural_level=False, save_crops=False)
 
@@ -88,8 +86,6 @@ def preview(store, raw):
     before=entry(store,login)
     if action=='roster_add':
         if before:raise ValueError('streamer already has roster settings; edit it instead')
-        if store.db.execute('SELECT COUNT(*) FROM streamer_capture').fetchone()[0]>=MAX_MANAGED_STREAMERS:
-            raise ValueError(f'at most {MAX_MANAGED_STREAMERS} managed channels')
         historical=store.db.execute('SELECT id FROM streamers WHERE login=?',(login,)).fetchone()
         value=dict(channel=login,origin='existing' if historical else 'discovered',authorized=False,tracking_enabled=False,
                    public_visible=True,automatic_characters=not historical,**DEFAULTS)
@@ -112,8 +108,6 @@ def commit(store, plan):
             return dict(saved=True,duplicate=True,configuration=json.loads(done['after_json']))
         if entry(store,plan['channel'])!=plan['before']:raise ValueError('streamer settings changed since preview; review again')
         value=plan['after']; validate_policy(store,value)
-        if plan['before'] is None and store.db.execute('SELECT COUNT(*) FROM streamer_capture').fetchone()[0]>=MAX_MANAGED_STREAMERS:
-            raise ValueError(f'at most {MAX_MANAGED_STREAMERS} managed channels')
         sid=store.add_channel(plan['channel'])
         revision=(plan['before'] or {}).get('revision',0)+1
         identity=dict(type='character_discovery',scope_id=f'roster-discovery:{sid}',started=False,verified=False,risk=None)
@@ -156,8 +150,8 @@ def status(store):
 def bootstrap_preview(path, rows, automatic, reason):
     path=Path(path).resolve(strict=True); info=ownership(path)
     if not isinstance(reason,str) or not reason.strip():raise ValueError('bootstrap reason is required')
-    if not 1<=len(rows)<=MAX_MANAGED_STREAMERS or not set(automatic)<={r['channel'] for r in rows}:
-        raise ValueError(f'choose 1..{MAX_MANAGED_STREAMERS} configured channels and explicit automatic subset')
+    if not rows or not set(automatic)<={r['channel'] for r in rows}:
+        raise ValueError('choose at least one configured channel and an explicit automatic subset')
     with Store(path,read_only=True) as source, source._transaction():
         if source.schema_version not in (9,10,11) or ready(source):raise ValueError('bootstrap supports schema 9..11 exactly once')
         proposed=[]

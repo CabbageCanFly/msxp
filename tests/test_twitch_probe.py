@@ -84,6 +84,28 @@ def test_disabled_missing_credentials_expired_cache_and_malformed_status_are_unk
     assert cache.snapshot(['alpha'],now=now+timedelta(seconds=61))['alpha']['status']=='unknown'
 
 
+@pytest.mark.parametrize('failure',[None,'rate_limit','wrong_batch'])
+def test_large_roster_uses_bounded_batches_and_preserves_known_statuses(monkeypatch,failure):
+    monkeypatch.setenv('TWITCH_CLIENT_ID','private');monkeypatch.setenv('TWITCH_ACCESS_TOKEN','private')
+    channels=[f'channel{i:03}' for i in range(76)];calls=[]
+    def fetch(endpoint,params,*args,**kwargs):
+        batch=params['user_login'];calls.append(batch)
+        assert 1<=len(batch)<=25
+        if failure and len(calls)==2:
+            if failure=='rate_limit':raise HTTPError('private',429,'private',{'Retry-After':'120'},None)
+            return dict(data=[dict(user_login=channels[0],type='live')])
+        return dict(data=[dict(user_login=batch[0],type='live')])
+    cache=StreamAvailability(enabled=True,fetch=fetch,clock=lambda:0)
+    result=cache.snapshot(channels)
+    completed=channels if failure is None else channels[:25]
+    assert calls==[channels[i:i+25] for i in range(0,76 if failure is None else 50,25)]
+    for i,c in enumerate(channels):
+        expected='unknown' if c not in completed else 'live' if i%25==0 else 'offline'
+        assert result[c]['status']==expected
+        if expected=='unknown':assert result[c]['reason']==('rate_limited' if failure=='rate_limit' else 'api_unavailable')
+    assert cache.snapshot(channels)==result
+
+
 def test_rate_limit_respects_bounded_retry_after(monkeypatch):
     monkeypatch.setenv('TWITCH_CLIENT_ID','private');monkeypatch.setenv('TWITCH_ACCESS_TOKEN','private')
     calls=[];seconds=[0]

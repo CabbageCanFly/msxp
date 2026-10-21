@@ -60,8 +60,8 @@ def validate_config(value, *, offline_fast_test=False, existing_root=None):
     if not isinstance(value, dict) or set(value) - {'database', 'port', 'streams'}:
         raise ValueError('Expected database, port and streams configuration')
     streams = value.get('streams')
-    if not isinstance(streams, list) or not 0 <= len(streams) <= 25:
-        raise ValueError('Configure at most 25 explicit stream assignments')
+    if not isinstance(streams, list):
+        raise ValueError('Configure a list of explicit stream assignments')
     requested = Path(value.get('database', 'private/multi-alpha/tracking.sqlite3'))
     database = (existing_root/requested).resolve() if existing_root else private(requested)
     if existing_root and not any(database.is_relative_to(existing_root/name) for name in ('private','artifacts')):

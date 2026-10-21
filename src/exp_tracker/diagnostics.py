@@ -571,7 +571,7 @@ class Diagnostics:
             '''+retention+''' AS retention_revision
             FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
             LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
-            '''+where+'ORDER BY s.login LIMIT 26',(login,) if login else ()))
+            '''+where+'ORDER BY s.login',(login,) if login else ()))
 
     def card(self,cache,head,*,now,checkpoints=None,eta_cache=None,character=None):
         """One shared computation per channel revision for the homepage and character API.
@@ -626,14 +626,14 @@ class Diagnostics:
         cards = []
         with self.store._transaction():
             heads=self.heads()
-            for head in heads[:25]:
+            for head in heads:
                 self.card(cache,head,now=now,checkpoints=checkpoints,eta_cache=eta_cache)
-            for head in heads[:25]:
+            for head in heads:
                 cards.append(present_card(cache[head['login']][1],now=now,active_runs=active_runs,coordinator_status=coordinator_status))
-            allowed = {head['login'] for head in heads[:25]}
+            allowed = {head['login'] for head in heads}
             for key in list(cache):
                 if key not in allowed: del cache[key]
-        return dict(streams=cards,truncated=len(heads)>25,poll_seconds=2,served_at=utc(now),trusted=False)
+        return dict(streams=cards,truncated=False,poll_seconds=2,served_at=utc(now),trusted=False)
 
 
 def main(argv=None):

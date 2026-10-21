@@ -128,8 +128,9 @@ Daylight-saving ambiguities require a choice; technical details stay in Advanced
 saving. **Invalidated readings** provides individual and batch **Restore** actions;
 original OCR and audit history remain intact. See the guide for limits and conflicts.
 
-The **[multi-stream local alpha](docs/multi-alpha.md)** runs 1–25 explicit assignments
-sequentially by default (opt-in `--workers 2..8`, see [capture performance](docs/capture-performance.md);
+The **[multi-stream local alpha](docs/multi-alpha.md)** has no fixed channel-count
+limit and runs explicit assignments sequentially by default (opt-in `--workers 2..8`,
+see [capture performance](docs/capture-performance.md);
 `--stagger-capture` and `--resident-tesseract`, see [performance integration](docs/performance-integration.md))
 with one shared database/server, a real `/streams` directory and
 separately gated experimental percentage progress. Start with the offline

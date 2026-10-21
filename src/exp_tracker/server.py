@@ -145,10 +145,6 @@ class Handler(BaseHTTPRequestHandler):
                     else:body=publisher.history(channel)
                     if body is None:
                         with Store(self.server.database,read_only=True) as store:store._channel(channel)  # Unknown: 404.
-                        with publisher.lock:
-                            limited=publisher.truncated and not publisher.visibility and channel not in {h['login'] for h in publisher.heads}
-                        if limited:
-                            self.reply(503,{'error':'publication_limit','limit':25});return
                         publisher.want(channel)
                         self.reply(503,{'error':'warming_up','retry_after_seconds':2},headers=[('Retry-After','2')])
                     else:
@@ -179,7 +175,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 try:
                     with Store(self.server.database, read_only=True) as store:
-                        channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login LIMIT 25')]
+                        channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login')]
                         store._channel(channel)
                         query=parse_qs(urlsplit(self.path).query,keep_blank_values=True,max_num_fields=8)
                         allowed={'session','run','before','start','end'} if diagnostic_api or dashboard else {'session','before'} if history_api else set()
@@ -319,7 +315,7 @@ def main(argv=None):
             if server.diagnostic_dashboard or server.public_only:
                 print(f"EXP Tracker homepage: http://127.0.0.1:{server.server_port}/",flush=True)
                 with Store(server.database, read_only=True) as store:
-                    channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login LIMIT 25')]
+                    channels = [row[0] for row in store.db.execute('SELECT login FROM streamers ORDER BY login')]
                 for channel in channels:
                     print(f"Character: http://127.0.0.1:{server.server_port}/stream/{channel}",flush=True)
                     print(f"Experimental OBS overlay (500x160): http://127.0.0.1:{server.server_port}/live/overlay/{channel}",flush=True)

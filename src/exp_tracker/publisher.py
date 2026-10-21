@@ -153,13 +153,13 @@ class Publisher:
                     visibility=visible(store)
                     with self.lock:
                         idle=time.monotonic()-VIEW_IDLE_SECONDS
-                        directory_logins={h['login'] for h in directory[:25]}
+                        directory_logins={h['login'] for h in directory}
                         self.channel_views={c:seen for c,seen in self.channel_views.items()
                             if seen>=idle and c not in directory_logins}
                         requested=list(self.channel_views)
                     extra=[h for c in requested for h in diagnostics.heads(c)]
-                    heads=[*directory[:25],*extra]
-                    logins=[h['login'] for h in directory[:25]]
+                    heads=[*directory,*extra]
+                    logins=[h['login'] for h in directory]
                     sources = store.db.execute('''SELECT s.login,r.configuration_json AS config,
                         (SELECT payload_json FROM diagnostic_attempts WHERE run_id=r.run_id ORDER BY attempt_index DESC LIMIT 1) AS payload
                         FROM streamers s LEFT JOIN diagnostic_runs r ON r.rowid=(
@@ -171,20 +171,20 @@ class Publisher:
                 statuses = self.server.twitch_availability.snapshot(twitch, now=now)
                 with self.lock:self.statuses = statuses
                 now = self.clock()  # Network time is not part of the subsequent database snapshot.
-                pending = self.due(directory[:25], now)
+                pending = self.due(directory, now)
                 requested = self.due(extra, now)
                 views = self.due_views(diagnostics, heads, now)
                 # Browsing must not delay fresh tracked-channel publications.
                 if pending:self.build(diagnostics, store, pending[0], now)
                 elif requested:self.build(diagnostics, store, requested[0], now)
                 elif views:self.build(diagnostics, store, views[0][1][1], now, view=views[0][1:])
-                if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in directory[:25]):
+                if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in directory):
                     self.stats['ready_at'] = time.monotonic()
                 return len(pending) + len(requested) + len(views) > 1
 
     def publish_heads(self, heads, statuses, visibility=None, *, extra=()):
         """Channel list and Twitch status; removed channels lose every cached state."""
-        directory=list(heads[:25]); truncated=len(heads)>25
+        directory=list(heads); truncated=False
         heads=[*directory,*extra]
         logins = {h['login'] for h in heads}
         with self.lock:

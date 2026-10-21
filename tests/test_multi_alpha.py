@@ -270,16 +270,17 @@ def test_fast_test_is_explicit_and_never_allowed_for_twitch(multi):
     assert main(multi,'--offline-fast-test','--check')==1
 
 
-def test_25_assignments_and_monotonic_stop_condition(multi):
+@pytest.mark.parametrize('count',[25,40])
+def test_many_assignments_and_monotonic_stop_condition(multi,count):
     _,path,config,calls,_=multi
     template=config['streams'][0]
-    config['streams']=[{**template,'channel':f'source_{i}','character':f'Character {i}'} for i in range(25)]
+    config['streams']=[{**template,'channel':f'source_{i}','character':f'Character {i}'} for i in range(count)]
     path.write_text(json.dumps(config))
-    assert main(multi,'--continuous','--stop-after-seconds','26')==0
-    assert len(calls)==26 and len({c[0] for c in calls})==25
+    assert main(multi,'--continuous','--stop-after-seconds',str(count+1))==0
+    assert len(calls)==count+1 and len({c[0] for c in calls})==count
     with Store(path.parent/'shared.sqlite3',read_only=True) as store:
-        assert store.db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0]==25
-        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==26
+        assert store.db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0]==count
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==count+1
 
 
 def test_continuous_interrupt_finalizes_and_does_not_run_more_jobs(multi,monkeypatch):

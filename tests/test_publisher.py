@@ -377,16 +377,19 @@ def test_presentation_cache_is_not_resurrected_after_removal(tracking,clock):
         assert ('character','alpha') not in p.presented
 
 
-def test_channel_beyond_publication_limit_is_not_promised_a_never_built_entry(tracking,clock):
+@pytest.mark.parametrize('count',[40,80])
+def test_channels_beyond_25_are_published_and_can_be_requested(tracking,clock,count):
     from tests.test_server import request
     path,store,d=tracking
-    for i in range(25):store.add_channel(f'channel{i:02}')
+    for i in range(count):store.add_channel(f'channel{i:02}')
     with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
-        for endpoint in ('/api/players/channel24','/api/players/channel24/history'):
+        server.publisher.settle()  # Each inline pass still bounds its work to 64 builds.
+        for endpoint in (f'/api/players/channel{count-1:02}',f'/api/players/channel{count-1:02}/history'):
             status,headers,body=request((server,None),endpoint)
-            assert status==503 and json.loads(body)==dict(error='publication_limit',limit=25)
+            assert status==200
             assert 'Retry-After' not in headers
-        assert 'channel24' not in server.publisher.wanted
+        home=json.loads(server.publisher.homepage())
+        assert len(home['players'])==count+1 and not home['truncated']
 
 
 def test_identity_invalidation_precedes_network_and_build_clock_follows_it(tracking,clock,monkeypatch):

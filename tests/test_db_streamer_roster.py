@@ -665,7 +665,7 @@ def test_visible_managed_directory_precedes_more_than_25_historical_channels(man
     tables=['streamers','characters','sessions','diagnostic_attempts','manual_corrections','reading_events']
     before=dump_tables(path,tables)
     with Store(path,read_only=True) as store:
-        assert len(Diagnostics(store).heads())==26
+        assert len(Diagnostics(store).heads())==13+len(ids)
         assert {h['login'] for h in Diagnostics(store).heads(public_directory=True)}==expected
     with create_server(path,port=0,public_only=True) as server:
         checked=[]
@@ -719,13 +719,30 @@ def test_historical_direct_channel_cache_is_bounded_evicts_and_expires(managed):
         assert 'aaa29' not in p.entries
 
 
-def test_managed_membership_limit_counts_paused_channels_not_workers(managed):
-    path=managed[3]
-    for i in range(roster.MAX_MANAGED_STREAMERS-13):change(path,f'paused{i}',public_visible=False)
+def test_bootstrap_accepts_more_than_25_reviewed_assignments(legacy):
+    _,_,config,path,_=legacy
     with Store(path) as store:
-        assert len(roster.entries(store))==roster.MAX_MANAGED_STREAMERS
-        with pytest.raises(ValueError,match='managed channels'):
-            roster.preview(store,dict(action='roster_add',channel='oneextra',reason=REASON))
+        for i in range(13,40):
+            login=f'channel{i}';label=f'Reviewed character {i}'
+            store.add_channel(login);cid=store.add_character(login,label);store.select_character(login,cid)
+            config['streams'].append(dict(channel=login,character=label,source='twitch',authorized=True))
+    bootstrap(legacy)
+    with Store(path,read_only=True) as store:
+        assert len(roster.entries(store))==40
+        assert len({r['selected_character_id'] for r in store.db.execute('SELECT selected_character_id FROM streamers')})==40
+
+
+def test_roster_and_public_directory_support_more_than_25_channels(managed):
+    from exp_tracker.server import create_server
+    path=managed[3]
+    for i in range(37):change(path,f'paused{i}')
+    with Store(path) as store:
+        rows=roster.entries(store)
+        assert len(rows)==50 and sum(r['tracking_enabled'] for r in rows)==13
+    with create_server(path,port=0,public_only=True) as server:
+        code,home=get(server,'/api/players')
+        assert code==200 and not home['truncated'] and not home.get('warming')
+        assert {p['channel'] for p in home['players']}=={r['channel'] for r in rows}
 
 
 def test_reserved_name_never_confirms_or_archives_pending_identity(managed):

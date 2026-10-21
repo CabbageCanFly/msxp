@@ -218,7 +218,7 @@ unmanaged/hidden historical channels cannot crowd out visible managed channels o
 cause a misleading truncation warning. Historical direct URLs warm on demand through
 the same publisher, with eight additional channel views and a 60s idle expiry/LRU
 replacement. Directory refreshes take priority. Browsing these URLs adds no Twitch
-status requests or capture work. The original JSON-mode directory limit is unchanged.
+status requests or capture work. JSON-mode directories also have no fixed channel-count limit.
 Status distinguishes desired tracking from observed waiting/running/draining/error,
 shows last attempts/current character/identity where available and labels old runtime
 heartbeats. The portal polls status every 5s. Changes while editing require another
@@ -239,16 +239,23 @@ before explicitly enabling it. Once approved:
 ```
 
 Desired settings survive crashes and restarts, including automatically selected
-characters and identity conflicts. The current bound is **25 managed channels**;
+characters and identity conflicts. There is **no fixed managed-channel count limit**;
 pause/hide preserves membership rather than deleting history. There is no destructive
 delete, global character linking, remote administration or automatic history merging.
 
-This is a **configured-membership** limit, including paused/hidden channels, not a
-worker count. `MAX_MANAGED_STREAMERS` centralizes it; capture concurrency independently
-stays 1..8 workers. Raising it alone would make a larger visible roster exceed the
-current 25-entry directory. The recommended follow-up is a larger configuration cap
-plus paginated directory/metadata publication, retaining the independent worker cap
-and serialized capture writer. Do not set workers equal to configured streamers.
+Capture concurrency independently stays 1..8 workers with one serialized capture
+writer. The public directory includes all visible managed channels; optional Twitch
+status checks use batches of at most 25 logins. Hidden historical/character views,
+per-history work bounds and acceleration caches retain their separate limits.
+Removing the count cap does not establish throughput at larger rosters: capture
+cadence, publication latency and memory remain limited by the host. No database
+migration is needed; restart backend/admin processes to load this change. Do not set
+workers equal to configured streamers.
+
+Synthetic checks cover a 40-channel bootstrap and JSON coordinator, a 50-channel
+managed directory, 81 published channels and 76 batched Twitch statuses, including
+partial API failures. These demonstrate removal of software count limits, not live
+capture throughput at those sizes.
 
 `PendingOCR` is an exact, reserved internal name, not a real identity or an alias to
 rename into one. Shared diagnostic writes hold its numeric evidence even outside

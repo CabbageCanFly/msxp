@@ -208,4 +208,4 @@ def test_empty_and_disabled_configs_bounded_and_fast_video_settings(roster):
     assert roster[0].main(['--config', str(path), '--offline-fast-test', 'disable', 'alpha']) == 0
     with pytest.raises(ValueError, match='No enabled'): module.load_config(path, offline_fast_test=True)
     config['streams'] *= 13
-    with pytest.raises(ValueError, match='at most 25'): module.validate_config(config)
+    with pytest.raises(ValueError, match='distinct Twitch login'): module.validate_config(config,offline_fast_test=True)

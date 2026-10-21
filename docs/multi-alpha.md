@@ -3,8 +3,9 @@
 Current follow-up: [continuous capture, safe rotation, fast offline testing and
 historical browsing](continuous-alpha.md). The finite workflow below remains supported.
 
-One coordinator runs **1–25 explicit assignments**, one capture/OCR job at a time by
-default, one shared SQLite database and one localhost HTTP server. `--workers 2..8` opts
+One coordinator runs **explicit assignments without a fixed channel-count limit**,
+one capture/OCR job at a time by default, one shared SQLite database and one localhost
+HTTP server. `--workers 2..8` opts
 in to that many concurrent jobs, at most one per channel, with the same single SQLite
 writer ([capture performance](capture-performance.md)). Counts above 4 are opt-in
 experiments, not yet performance-validated on the VPS. All neural and
