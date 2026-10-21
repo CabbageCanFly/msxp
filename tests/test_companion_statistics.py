@@ -36,9 +36,9 @@ def test_endpoint_pace_uses_full_elapsed_gap_and_combined_endpoint_quantization(
     rate=get(d,75)['responsive_pace']
     assert rate['active'] and rate['readings']==5 and rate['interruptions']==0
     assert rate['coverage_seconds']['approximate']==75 and rate['span_seconds']['approximate']==75
-    assert rate['estimates']['percentage_per_hour']['value']['approximate']==pytest.approx(98.4)
+    assert rate['estimates']['percentage_per_hour']['value']['approximate']==pytest.approx(24.6)
     # Shared real endpoints cancel within the single endpoint-supported chain.
-    assert rate['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']==pytest.approx(97.92)
+    assert rate['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']==pytest.approx(24.48)
     assert not get(d,75)['windows']['5']['eligible']
 
 
@@ -68,9 +68,8 @@ def test_public_net_and_strict_chart_have_independent_connection_policies(tracki
             append(d,i,f'[{pct}%]',frame_sha256=f'{i:064x}')
     result=get(d,75)
     if boundary=='loss':
-        assert result['recent_windows']['5']['gain'] is None
-        assert result['recent_windows']['5']['reason']=='observed_exp_decrease'
-        assert not result['responsive_pace']['active']  # Earlier rate can remain historical.
+        assert result['recent_windows']['5']['gain']['approximate']>0
+        assert result['responsive_pace']['active']  # Only positive intervals count, on either side of the loss.
     else:
         assert result['responsive_pace']['readings']==(5 if boundary=='anomaly' else 6)
         assert result['responsive_pace']['interruptions']==0
@@ -112,10 +111,10 @@ def test_missing_capture_expires_old_intervals_without_adding_gain_or_time(track
     append(d,22,None,status='capture_failed',received_at=None,current=False)
     held=get(d,315)['responsive_pace']
     assert not held['active'] and held['age_seconds']==15
-    assert held['start']==(NOW+timedelta(seconds=15)).isoformat()
-    assert held['coverage_seconds']['approximate']==285 and held['readings']==20
+    assert held['start']==NOW.isoformat()
+    assert held['coverage_seconds']['approximate']==300 and held['readings']==21
     assert held['end']==before['end']
-    assert held['estimates']['percentage_per_hour']['value']['approximate']==pytest.approx(.68*3600/285)
+    assert held['estimates']['percentage_per_hour']['value']['approximate']==pytest.approx(.69*12)
     later=get(d,330)['responsive_pace']
-    assert later['start']==(NOW+timedelta(seconds=30)).isoformat()
-    assert later['coverage_seconds']['approximate']==270 and later['end']==before['end']
+    assert later['start']==(NOW+timedelta(seconds=15)).isoformat()
+    assert later['coverage_seconds']['approximate']==285 and later['end']==before['end']

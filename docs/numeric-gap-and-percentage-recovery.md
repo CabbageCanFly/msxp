@@ -1,5 +1,9 @@
 # Supported numeric gaps and independent percentage recovery
 
+The newer [rolling-window policy](rolling-window-gaps.md) supersedes the earliest/latest
+net subtraction and elapsed-time rate denominator below. Recognition and conditional
+percentage-recovery rules remain in effect; the following records the earlier milestone.
+
 ## Current public endpoint policy
 
 `public_endpoint_window_v1` uses one formula for every 5/10/15/30/60-minute

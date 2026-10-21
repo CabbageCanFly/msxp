@@ -62,6 +62,11 @@ legacy writer and expect that writer to implement the new confirmation workflow.
 
 ## Overnight/off-stream progression
 
+The subsequent [rolling-window accounting clarification](rolling-window-gaps.md)
+allows validated same-character gaps in sufficiently long windows. The earlier
+5-minute overnight tests below still exclude an eight-hour interval. Broadcast-session
+integration is not a prerequisite for this accounting policy and was not implemented.
+
 Disposable tests establish level 67, then return eight hours later at level 70.
 Two fresh selected-name observations and matching informative arithmetic raise the
 floor to 70 automatically. The ID/history are unchanged. Tests assert the public card

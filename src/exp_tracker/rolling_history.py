@@ -144,11 +144,11 @@ def window_rows(rows,start):
 
 
 def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,checkpoints=None):
-    """One hour plus causal warmup, never a browser-sized raw history response."""
+    """Two hours plus causal warmup for boundary-crossing 60m intervals."""
     from .diagnostics import rotation_link
     base=diagnostic._snapshot(channel,now=now,limit=1)
     receipt=dict(context_attempts=0,source_bytes=0,run_count=0)
-    start=now-timedelta(minutes=65);session=(base['session'] or {}).get('id')
+    start=now-timedelta(minutes=125);session=(base['session'] or {}).get('id')
     owner='session_id=?' if diagnostic.store.schema_version>=4 else 'run_id IN (SELECT run_id FROM diagnostic_runs WHERE session_id=?)'
     if _historical:
         earliest=diagnostic.db.execute('SELECT MIN(attempted_at) FROM diagnostic_attempts WHERE '+owner,
@@ -298,7 +298,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
         level_baseline_id=None,level_at=None,
         rows=[],last_row=None,exclusion_counts={})
     try:
-        state=replay(diagnostic,channel,start=start-timedelta(seconds=PACE_TREND_SECONDS),now=now,receipt=result,state=state,step=step,
+        state=replay(diagnostic,channel,start=start-timedelta(hours=24,minutes=5),now=now,receipt=result,state=state,step=step,
             checkpoints=checkpoints,key=('tracked',channel,character,manual_revision),
             keep=lambda s:dict(s,rows=window_rows(s['rows'],start)))
     except HistoryLimit:
@@ -324,8 +324,8 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
             result['exclusion_counts'][reason]=result['exclusion_counts'].get(reason,0)+1
             continue
         a,b=datetime.fromisoformat(gain['start']),datetime.fromisoformat(gain['end'])
-        if a<start<b:result['boundary_intervals_excluded']+=1
-        if a>=start and b<=now:
+        if gain['value']['numerator']<0:continue
+        if start<=b<=now and timedelta(0)<b-a<=timedelta(hours=24):
             gains.append(gain)
             amount=fraction(gain['value']);duration=elapsed_seconds(a,b)
             coverage+=duration;result['intervals']+=1
@@ -362,13 +362,14 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
                     level=pace['level'] if pace else None,levels=pace['levels'] if pace else [],trusted=False)
         # Copied: retained interval records must never be reachable from a response.
         result['chart_intervals']=deepcopy([{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
-            for g in gains if datetime.fromisoformat(g['start'])>=now-timedelta(minutes=60)])
-        current=[r for r in state['rows'] if r['level']['value']==level and datetime.fromisoformat(r['timestamp'])>=now-timedelta(minutes=60)]
+            for g in gains if now-timedelta(minutes=60)<=datetime.fromisoformat(g['end'])<=now
+            and datetime.fromisoformat(g['end'])-datetime.fromisoformat(g['start'])<=timedelta(minutes=60)])
+        _,current,_=window_endpoints(state['rows'],start=now-timedelta(minutes=60),end=now,level=level)
         result['current_level_chart_intervals']=[{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
-            for a,b in zip(current,current[1:]) if (g:=endpoint_interval(a,b)[0])]
+            for g in current['intervals']] if current else []
         result['chart_status']='ready' if max(len(result['chart_intervals']),len(result['current_level_chart_intervals']))<=4096 else 'history_limit'
         if result['chart_status']=='history_limit':result['chart_intervals']=[];result['current_level_chart_intervals']=[]
-    result.update(coverage_seconds=rational(coverage),unknown_seconds=rational(Fraction(86400)-coverage),requirement_versions=sorted(versions),
+    result.update(coverage_seconds=rational(coverage),unknown_seconds=rational(max(Fraction(0),Fraction(86400)-coverage)),requirement_versions=sorted(versions),
         buckets=[dict(start=b['start'],end=b['end'],value=rational(b['amount']) if b['amount'] is not None else None,
             covered=rational(b['coverage']),intervals=b['intervals'],
             state='missing' if b['amount'] is None else 'covered' if b['coverage']==1800 and not b['gap'] else 'partial') for b in bins])

@@ -247,9 +247,9 @@ def test_wrong_middle_frame_is_removed_before_level_and_gain_reconstruction(trac
     edge=result['chart_intervals'][0]
     assert edge['kind']=='endpoint_supported'
     assert edge['value']['approximate']==result['tracked_exp']['approximate']
-    for metric in result['windows'].values():
+    for minutes,metric in result['windows'].items():
         assert metric['gain']==result['tracked_exp']
-        assert metric['rate']['approximate']==result['tracked_exp']['approximate']*90
+        assert metric['rate']['approximate']==result['tracked_exp']['approximate']*60/int(minutes)
 
 
 def test_removing_multiple_huds_preserves_a_barrier(tracking):

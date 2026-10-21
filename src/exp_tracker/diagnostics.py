@@ -42,7 +42,7 @@ def due(player,built_at,now):
     """A cached player must be rebuilt as rolling windows age, even without a new revision."""
     paces=[player.get('responsive_pace')]+[w.get('pace') for w in player['recent_windows'].values()]
     pace_due=any(pace and not pace.get('retained_history') and
-        datetime.fromisoformat(pace['start'])<now-timedelta(seconds=pace['trend_seconds']) for pace in paces)
+        datetime.fromisoformat(pace['end'])<now-timedelta(seconds=pace['trend_seconds']) for pace in paces)
     history_due=(any(w['available'] for w in player['recent_windows'].values())
         and (now-datetime.fromisoformat(built_at)).total_seconds()>=10)
     return pace_due or history_due

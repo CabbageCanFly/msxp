@@ -214,7 +214,7 @@ def test_checkpoint_keeps_the_endpoint_before_the_window_for_the_boundary_pair(t
     d.rolling_history('alpha',now=now,checkpoints=checkpoints)  # r1 settles now: checkpoint saved at this clock.
     assert checkpoints[('tracked','alpha',1,((),0))]['now']==now
     full=d.rolling_history('alpha',now=now)
-    assert full['boundary_intervals_excluded']==1
+    assert full['boundary_intervals_excluded']==0
     assert d.rolling_history('alpha',now=now,checkpoints=checkpoints)==full
     later=now+timedelta(seconds=5)  # Later windows resume from it too.
     assert d.rolling_history('alpha',now=later,checkpoints=checkpoints)==d.rolling_history('alpha',now=later)

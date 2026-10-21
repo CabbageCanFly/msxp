@@ -110,21 +110,18 @@ def test_public_boundaries_and_missed_captures_match_causal_replay(tracking,kind
     for r,decision in zip(rows,decisions):r['percentage_review']=decision
     edges=collect_observed(dict(observations=rows,percentage_progress=dict(percentage_reviews=decisions)),now=now,read=reading,max_interval_seconds=300)['intervals']
     reference=dict(observations=rows);expected=expected_net(reference,now)
-    if kind=='session':
-        expected=sum(expected_net(dict(observations=[r for r in rows if r['session_id']==sid]),now) or 0
-                     for sid in {r['session_id'] for r in rows})
     assert (fraction(result['tracked_exp']) if result['tracked_exp'] else None)==expected
     assert result['tracked_exp'] is None or result['tracked_exp']['approximate']>=0
     assert not store.db.execute('select 1 from observations').fetchone()
 
 
-def test_window_edges_exclude_whole_crossing_intervals_and_never_prorate(tracking):
+def test_window_edges_include_whole_duration_eligible_crossing_intervals(tracking):
     _,_,d=tracking;d.begin('edges','alpha',config('edges'))
     for i,sec in enumerate((0,20,40,60),1):save(d,'edges',i,sec,3300+i*5,full=False)
     now=NOW+timedelta(seconds=325);result=d.rolling_history('alpha',now=now)
-    # 20->40 crosses the 5-minute start at 25s and is excluded in full.
-    assert fraction(result['windows']['5']['gain'])==Fraction((3320*1497832+5000)//10000-(3315*1497832+5000)//10000)
-    assert fraction(result['windows']['10']['gain'])==3*fraction(result['windows']['5']['gain'])
+    # 20->40 crosses the start at 25s; both it and 40->60 count without prorating.
+    assert fraction(result['windows']['5']['gain'])==Fraction((3320*1497832+5000)//10000-(3310*1497832+5000)//10000)
+    assert fraction(result['windows']['10']['gain'])==Fraction((3320*1497832+5000)//10000-(3305*1497832+5000)//10000)
     nested(result)
     assert d.rolling_history('alpha',now=NOW+timedelta(days=2))['tracked_exp'] is None
 
@@ -155,7 +152,7 @@ def test_tracked_gain_does_not_depend_on_rate_warmup(tracking):
     nested(h)
 
 
-@pytest.mark.parametrize('end,expected',[(300,5000),(300.000001,4000),(360,4000),(600,None)])
+@pytest.mark.parametrize('end,expected',[(300,5000),(300.000001,5000),(360,5000),(600,4000)])
 def test_exact_five_minute_capture_gap_and_whole_interval_cutoff(tracking,end,expected):
     from tests.test_exp_level_product import attempt as append
     from tests.test_exp_level_inference import display

@@ -10,7 +10,7 @@ from .diagnostic_percentage import boundary
 from .exp_requirements import requirement
 from .exp_consistency import MODES, assess
 
-WINDOWS=(5,10,15,30,60)
+WINDOWS=(5,10,15,30,60,1440)
 # Public level provenance: readers first, then labeled EXP-derived/retained/provisional context.
 DISPLAY_LEVEL_STATUSES=('agreement','provisional_neural','exp_derived','retained_level','provisional_level_up','manual_admin')
 PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
@@ -22,8 +22,8 @@ OBSERVED_MAX_MISSING=2
 
 
 def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=False,retain_history=True,collected=None,current_level_only=False):
-    """One public window: latest EXP coordinate minus earliest EXP coordinate."""
-    from .pace_intervals import collect_observed,window_endpoints,endpoint_interval,PUBLIC_POLICY
+    """Eligible whole-interval gains, normalized over the selected lookback duration."""
+    from .pace_intervals import collect_observed,window_endpoints,PUBLIC_POLICY
     rows=snapshot['observations'];reference=next((r.get('received_at') or r.get('attempted_at') for r in reversed(rows)),None)
     if now is None and reference is None:return None
     now=now or datetime.fromisoformat(reference)
@@ -44,10 +44,11 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
     first,last=selected[0],selected[-1];elapsed=elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))
     span=elapsed
     if gain.get('coverage_seconds'):elapsed=fraction(gain['coverage_seconds'])
-    amount=fraction(gain['value']);rate=amount*3600/elapsed;req=requirement(last['level']['value'])
+    denominator=Fraction(minutes*60)
+    amount=fraction(gain['value']);rate=amount*3600/denominator;req=requirement(last['level']['value'])
     percentage=None
     if first['level']['value']==last['level']['value'] and not gain.get('manual_boundaries'):
-        percentage=dict(value=rational(Fraction(last['bp']-first['bp'])*36/elapsed),**quantization_pace(first['bp'],last['bp'],elapsed))
+        percentage=dict(value=rational(Fraction(last['bp']-first['bp'])*36/denominator),**quantization_pace(first['bp'],last['bp'],denominator))
     calculated=estimates(dict(requirement=req),percentage,last['bp']) if percentage else estimates(None,None,0)
     hypotheses=(calculated['exp_per_hour'] or {}).get('hypotheses')
     eta_hypotheses=(calculated['eta'] or {}).get('hypotheses')
@@ -61,14 +62,12 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
         and snapshot.get('run_status') not in ('completed','interrupted') and snapshot.get('run_id',rows[-1].get('run_id'))==rows[-1].get('run_id'))
     if not active:calculated['eta']=None
     details=[];metadata={(e['before']['event_id'],e['after']['event_id']):e for e in collected.get('intervals',[])}
-    for a,b in zip(selected,selected[1:]):
-        interval,_=endpoint_interval(a,b)
-        if interval:
-            detail=metadata.get((a['event_id'],b['event_id']),{})
-            details.append(dict(first_event_id=a['event_id'],last_event_id=b['event_id'],start=a['timestamp'],end=b['timestamp'],
-                kind=detail.get('kind','endpoint_supported'),basis=interval['basis'],level=b['level']['value'],requirement=interval['requirement'],gain=interval['value'],
-                elapsed_seconds=rational(elapsed_seconds(datetime.fromisoformat(a['timestamp']),datetime.fromisoformat(b['timestamp']))),
-                missing_event_ids=detail.get('missing_event_ids',[]),unrecorded_attempts=detail.get('unrecorded_attempts',0)))
+    for interval in gain['intervals']:
+        detail=metadata.get((interval['first_event_id'],interval['last_event_id']),{})
+        details.append(dict(first_event_id=interval['first_event_id'],last_event_id=interval['last_event_id'],start=interval['start'],end=interval['end'],
+            kind=detail.get('kind','endpoint_supported'),basis=interval['basis'],level=interval['level'],requirement=interval['requirement'],gain=interval['value'],
+            elapsed_seconds=rational(elapsed_seconds(datetime.fromisoformat(interval['start']),datetime.fromisoformat(interval['end']))),
+            missing_event_ids=detail.get('missing_event_ids',[]),unrecorded_attempts=detail.get('unrecorded_attempts',0)))
     return dict(active=active,tentative=len(selected)<3 or elapsed<30,level=last['level']['value'],levels=sorted({p['level']['value'] for p in selected}),
         eta_at=last['timestamp'],start=first['timestamp'],end=last['timestamp'],source_kind=last.get('source_kind'),source_identity=last.get('source_identity'),
         readings=len(selected),last_observed_eta=saved_eta,span_seconds=rational(span),coverage_seconds=rational(elapsed),interruptions=int(bool(gain.get('manual_boundaries'))),
@@ -77,11 +76,11 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
         evidence_counts={kind:sum(p['evidence']==kind for p in selected) for kind in ('strict_full','strict_percentage_only','grammar_recovered','conditional_symbol')},
         conditional_recoveries=collected['recoveries'],excluded=collected['excluded'],latest_endpoint=collected.get('latest'),
         policy=PUBLIC_POLICY,minimum_seconds=0,trend_seconds=minutes*60,trusted=False,retained_history=retained,recent_pool_expired=retained,
-        aging_allowed=False,reason=snapshot['percentage_progress']['reason'],identity_verified=False,denominator='actual_public_endpoint_elapsed_time')
+        aging_allowed=False,reason=snapshot['percentage_progress']['reason'],identity_verified=False,denominator='selected_window_duration')
 
 
 def recent_windows(snapshot,display_level,*,now,current_level_only=False,collected=None):
-    """Net progress between public observations inside each lookback."""
+    """Whole eligible intervals and window-normalized rates for each lookback."""
     from .pace_intervals import collect_observed as collect,window_endpoints
     collected=collected or collect(snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
     result={}
@@ -91,7 +90,7 @@ def recent_windows(snapshot,display_level,*,now,current_level_only=False,collect
         observed=dict(available=False)
         if pace:
             percentage=pace['estimates']['percentage_per_hour']
-            change=fraction(percentage['value'])*fraction(pace['coverage_seconds'])/36 if percentage else None
+            change=fraction(percentage['value'])*minutes*60/36 if percentage else None
             observed=dict(available=True,start=pace['start'],end=pace['end'],span_seconds=pace['span_seconds'],
                 coverage_seconds=pace['coverage_seconds'],readings=pace['readings'],interruptions=pace['interruptions'],
                 unavailable_attempts=pace['missing_attempts'],missing_attempts=0,paused=not pace['active'],

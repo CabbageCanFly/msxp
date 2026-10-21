@@ -22,8 +22,8 @@ def window(rows,seconds=300,*,level=None,current=False):
 def test_numeric_endpoints_ignore_acquisition_and_process_metadata(change):
     rows=[numeric(1,0,10000),numeric(2,60,11000),missing(3,120),dict(numeric(4,300,15000),**change)]
     w=window(rows)
-    assert w['gain']['approximate']==(1000 if change.get('session_id') else 5000)
-    assert w['observed']['coverage_seconds']['approximate']==(60 if change.get('session_id') else 300)
+    assert w['gain']['approximate']==5000
+    assert w['observed']['coverage_seconds']['approximate']==300
     assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==60000
 
 
@@ -48,7 +48,7 @@ def test_mixed_interior_percentage_does_not_replace_numeric_window_endpoints():
     assert window(rows)['gain']['approximate']==5000
 
 
-@pytest.mark.parametrize('clock,expected',[(300,5000),(300.000001,4000),(360,4000),(601,None)])
+@pytest.mark.parametrize('clock,expected',[(300,5000),(300.000001,5000),(360,5000),(601,None)])
 def test_exact_window_boundary_and_partial_history(clock,expected):
     rows=[numeric(1,0,10000),numeric(2,60,11000),numeric(3,300,15000)]
     w=window(rows,clock)
@@ -74,13 +74,13 @@ def test_level_up_uses_requirement_and_current_level_uses_its_observed_endpoints
 def test_missing_transition_table_is_explicit_but_current_numeric_level_still_works():
     rows=[point(1,0,100,'0.01',level=90),point(2,30,200,'0.01',level=91),point(3,60,300,'0.01',level=91)]
     w=window(rows,60)
-    assert w['gain'] is None and w['reason']=='level_transition_requirement_unavailable'
+    assert w['gain']['approximate']==100  # Unknown transition excluded; valid level-91 interval remains.
     assert window(rows,60,level=91,current=True)['gain']['approximate']==100
 
 
-def test_exp_loss_is_net_not_a_sum_of_only_positive_intervals():
+def test_exp_loss_does_not_reduce_earned_gain_in_longer_windows():
     rows=[numeric(1,0,11000),numeric(2,60,10999),numeric(3,120,12000)]
-    assert window(rows,120)['gain']['approximate']==1000
+    assert window(rows,120)['gain']['approximate']==1001
     w=window(rows[:2],60)
     assert w['gain'] is None and w['reason']=='observed_exp_decrease'
 

@@ -121,9 +121,9 @@ def test_sqlite_recent_numeric_windows_include_bound_restart_and_actual_gap_time
         assert w['gain']['approximate']==both
         assert w['pace']['coverage_seconds']['approximate']==720
         assert w['pace']['readings']==6 and w['pace']['interruptions']==0
-        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==both*5
+        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==both*60/int(minutes)
         assert not w['complete_window']
-    assert windows['10']['gain']['approximate']==new[-1]-old[-1]
+    assert windows['10']['gain']['approximate']==new[-1]-old[-2]
     assert p['windows']==strict
     with Store(path,read_only=True) as restarted:
         again=Diagnostics(restarted)
@@ -179,9 +179,9 @@ def test_integer_rate_can_support_eta_inside_one_displayed_percentage_bin():
     rows=[point(1,0,660960,'37.60'),point(2,20,660978,'37.60')]
     pace=recent_windows(snapshot(rows,20),dict(value=67),now=NOW+timedelta(seconds=20))['5']['pace']
     assert pace['estimates']['percentage_per_hour']['value']['approximate']==0
-    assert pace['estimates']['exp_per_hour']['value']['approximate']==3240
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==216
     eta=pace['estimates']['eta']
-    assert eta['seconds']['approximate']==pytest.approx((1757815-660978)/3240*3600)
+    assert eta['seconds']['approximate']==pytest.approx((1757815-660978)/216*3600)
     assert eta['hypotheses'] is None and not eta['trusted']
 
 
@@ -215,12 +215,12 @@ def test_directory_ages_selected_samples_and_expires_them_without_new_attempts(t
     for i in range(1,4):saved_attempt(d,'run',i,(i-1)*20,3300+i*5)
     cache={}
     first=d.directory(cache,now=NOW+timedelta(seconds=320))['streams'][0]['player']
-    assert first['recent_windows']['5']['pace']['readings']==2
+    assert first['recent_windows']['5']['pace']['readings']==3
     assert first['recent_windows']['5']['observed']['age_seconds']==280
-    later=d.directory(cache,now=NOW+timedelta(seconds=321))['streams'][0]['player']
+    later=d.directory(cache,now=NOW+timedelta(seconds=341))['streams'][0]['player']
     assert not later['recent_windows']['5']['available']
-    assert later['recent_windows']['5']['last_observed_pace']['age_seconds']==281
-    assert later['recent_windows']['10']['observed']['age_seconds']==281
+    assert later['recent_windows']['5']['last_observed_pace']['age_seconds']==301
+    assert later['recent_windows']['10']['observed']['age_seconds']==301
 
 
 def test_recent_history_limit_fails_closed(tracking,monkeypatch):
@@ -249,7 +249,7 @@ def test_recent_window_replays_old_rotation_quarantine_before_retaining_one_hour
     now=NOW+timedelta(minutes=180)
     recent=d.recent_snapshot('alpha',now=now)
     assert recent['recent_history_receipt']['context_attempts']==180
-    assert len(recent['observations'])==66
+    assert len(recent['observations'])==126  # Two hours plus context for boundary-crossing 60m intervals.
     # A cold start at the time-range boundary would accept the repeated 25%.
     assert all(not r['percentage_review']['public_eligible'] for r in recent['observations'][:-2])
     result=recent_windows(recent,dict(value=64),now=now)['60']

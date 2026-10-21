@@ -494,6 +494,17 @@ test('public endpoint bars record net changes at receipt without spreading captu
   assert.equal(chart.bins.reduce((sum,b)=>sum+(b.value??0),0),4000);
 });
 
+test('rolling interval bars include qualifying boundary crossings only at real later endpoints',()=>{
+  const p=page('player'),anchor=Date.parse('2026-01-01T00:10:00Z');p.context.anchor=anchor;
+  const interval=(a,b,value)=>({connect_previous:true,gain:{policy:'public_endpoint_window_v2',
+    start:new Date(anchor+a*1000).toISOString(),end:new Date(anchor+b*1000).toISOString(),value:{approximate:value}}});
+  p.context.rows=[interval(-310,-290,100),interval(-290,0,20)];
+  const bins=JSON.parse(p.run('JSON.stringify(bucketHistory(rows,anchor,60,300).bins)'));
+  assert.deepEqual(bins.map(b=>b.value),[100,null,null,null,20]);
+  p.context.rows=[interval(-301,0,100),interval(-60,0,-5)];
+  assert.equal(p.run('bucketHistory(rows,anchor,60,300).bins.reduce((s,b)=>s+(b.value??0),0)'),0);
+});
+
 test('missing level requirement is an explicit public window limitation',()=>{
   const p=page('player'),base=player({recent_windows:{5:{available:false,gain:null,
     reason:'level_transition_requirement_unavailable'}}});

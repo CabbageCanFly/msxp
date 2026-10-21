@@ -196,7 +196,7 @@ function etaText(value,compact=false) {
   return '~'+parts.join(' ');
 }
 function rateTitle(rate) {
-  if(!rate)return 'Needs two supported readings and a positive, comparable elapsed interval. Recent pace includes time between valid endpoints; complete-window rankings remain separate.';
+  if(!rate)return 'Needs two supported readings with an interval no longer than the selected window. EXP/hour uses eligible gain divided by the selected window duration; complete-window rankings remain separate.';
   return `Experimental estimate, not earned EXP. ${Object.entries(rate.hypotheses ?? {}).map(([rule,b])=>`${rule}: ${numbers.format(Math.round(b.lower.approximate))}–${numbers.format(Math.round(b.upper.approximate))} EXP/h`).join('; ')}. Community requirement ${rate.requirement.version}; quantization bounds exclude OCR errors.`;
 }
 function metricValue(p,key) {
@@ -295,7 +295,7 @@ function renderPlayer() {
   if(view==='player') {
     const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
     amount('tracked-exp',rolling?.tracked_exp?`~${expText(rolling.tracked_exp.approximate,true)}`:'—',rolling?.tracked_exp?`~${expText(rolling.tracked_exp.approximate)}`:'—');
-    el('tracked-exp').title=rolling?`${el('tracked-exp').dataset.fullNumber} EXP; ${rolling.start} – ${rolling.end}; selected character only. Latest minus earliest usable EXP, including known level requirements across level-ups. Numeric EXP or rounded percentage-based estimates can contribute. Capture gaps and restarts do not remove progress. Not exact EXP earned today.`:'';
+    el('tracked-exp').title=rolling?`${el('tracked-exp').dataset.fullNumber} EXP; ${rolling.start} – ${rolling.end}; selected character only. Whole validated intervals ending in the window, each no longer than it, including known level requirements across level-ups. Numeric EXP or rounded percentage-based estimates can contribute. Not exact EXP earned today.`:'';
     const rollingAge=(performance.now()-rollingReceived)/1000;
     el('tracked-note').textContent=rollingFailed?(rolling?`Saved · updated ${ageText(rollingAge)}`:'History unavailable'):rolling?.status==='history_limit'?'History unavailable':rolling?(rolling.tracked_exp?`${spanText(rolling.coverage_seconds.approximate)} tracked`:'No comparable readings'):'Loading history';
     const early=p.early_pace,text=earlyText(p);
@@ -328,9 +328,10 @@ function bucketHistory(history,anchor,seconds,rangeSeconds=null) {
   let previousEnd=-Infinity;
   for(const row of history) {
     const g=row.gain,a=Date.parse(g?.start),b=Date.parse(g?.end),amount=g?.value?.approximate;
-    if(!row.connect_previous || !Number.isFinite(a) || !Number.isFinite(b) || b<=a || a<previousEnd || a<start || b>anchor || !Number.isFinite(amount) || amount<0 && g.policy!=='public_endpoint_window_v1')continue;
+    const rolling=g?.policy==='public_endpoint_window_v2';
+    if(!row.connect_previous || !Number.isFinite(a) || !Number.isFinite(b) || b<=a || a<previousEnd || (rolling?b<start || b-a>range*1000:a<start) || b>anchor || !Number.isFinite(amount) || amount<0 && g.policy!=='public_endpoint_window_v1')continue;
     previousEnd=b;
-    if(g.policy==='public_endpoint_window_v1') {
+    if(rolling || g.policy==='public_endpoint_window_v1') {
       const bin=bins[Math.min(bins.length-1,Math.floor((b-start)/step))];
       bin.value=(bin.value ?? 0)+amount;bin.covered=Math.min(seconds,bin.covered+(b-a)/1000);bin.intervals++;bin.gap=true;
       continue;

@@ -667,7 +667,9 @@ remain separate characters. There is no global character registry or name-based 
   session/run, and writes **that second capture as index 1 / first baseline**.
   The first held frame's EXP is never backfilled into either history. Its level
   evidence may help validate the new character's level. Returning to A reuses A's ID
-  but starts a new session; no A–B or prior-session pace interval is joined.
+  but starts a new session. Different-character histories are never joined. The later
+  [rolling-window policy](rolling-window-gaps.md) permits validated intervals across
+  internal sessions of the same character when their duration fits the window.
 - New creation stops at 16 total character records per channel, including bootstrap
   and manual records. Existing IDs can still be selected. This limits damage from
   repeated OCR errors; an exceptional cap conflict remains held for review.
