@@ -2,7 +2,12 @@
 
 const view=document.body.dataset.view;
 const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?location.pathname.split('/')[2]:null;
-const endpoint=channel?`/api/players/${encodeURIComponent(channel)}`:'/api/players';
+// The static Pages export names its API origin on <html data-api> (tools/export_pages.py); the Python server
+// leaves it unset, so requests stay same-origin. Same exact-origin rule as the server's --cors-origin.
+const apiOrigin=document.documentElement?.dataset.api ?? '';
+if(apiOrigin && !/^(https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+|http:\/\/(?:localhost|127\.0\.0\.1))(?::[0-9]{1,5})?$/.test(apiOrigin))
+  throw new Error(`Invalid data-api origin: ${apiOrigin}`);
+const endpoint=channel?`${apiOrigin}/api/players/${encodeURIComponent(channel)}`:`${apiOrigin}/api/players`;
 // The server lowercases logins; an empty path keeps the static HTML title.
 if(view==='player' && channel)document.title=`${channel.toLowerCase()} · EXP Tracker`;
 const numbers=new Intl.NumberFormat('en-US'),shortNumber=new Intl.NumberFormat('en-US',{maximumSignificantDigits:3});
@@ -668,7 +673,7 @@ async function pollRolling(force=false) {
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
   rollingController=controller;
   try {
-    const response=await fetch(`/api/players/${encodeURIComponent(channel)}/history`,{cache:'no-store',signal:controller.signal});
+    const response=await fetch(`${apiOrigin}/api/players/${encodeURIComponent(channel)}/history`,{cache:'no-store',signal:controller.signal});
     if(!response.ok)throw new Error('History unavailable');
     const result=await response.json();
     if(!Array.isArray(result.buckets) || result.buckets.length!==48)throw new Error('Invalid history');
