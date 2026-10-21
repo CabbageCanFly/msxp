@@ -1,5 +1,9 @@
 # Exceptional validated-level repair
 
+The [isolated local Twitch trial](local-live-character-trial.md) deliberately leaves
+retention off so short-trial recovery evidence remains available. Never point its
+commands or this exceptional repair workflow at the running main tracker.
+
 The existing local manual-admin CLI now supports `repair-floor preview` and
 `repair-floor apply`. This recovers a reviewed false floor, such as repeated 87 OCR
 blocking a character actually at 67. Capture, ingestion, public APIs and the Admin

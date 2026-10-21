@@ -50,6 +50,10 @@ def coordinator(multi, monkeypatch):  # noqa: F811
     path.write_text(json.dumps(config))
     scripts, steps, played = dict(alpha=SWITCH, bravo=STABLE), {}, {}
     current = {}
+    class CaptureClock(datetime):
+        @classmethod
+        def now(cls, tz=None):return current.get('stamp',BASE).astimezone(tz)
+    monkeypatch.setattr(module.shadow,'datetime',CaptureClock)
 
     def sleep(seconds): now[0] += seconds
     monkeypatch.setattr(module, 'schedule', lambda lanes, perform, emit, **kw:
@@ -61,7 +65,11 @@ def coordinator(multi, monkeypatch):  # noqa: F811
             if metrics is None:  # EXP request; the name request is the one carrying metrics.
                 exp, pct = step['reading']
                 text = f'{exp}[{pct:.2f}%]'
-                return json.dumps(dict(text=text, raw=dict(txts=[text], scores=[.99]))).encode()
+                response=dict(text=text, raw=dict(txts=[text], scores=[.99]))
+                if '--experimental-neural-level' in command:
+                    from shadow_neural import level_result
+                    response['neural_level']=level_result(dict(txts=[str(step['level'])],scores=[.99]),0,0)
+                return json.dumps(response).encode()
             if step['stale']: time.sleep(1.05)
             names = [A, B] if step['name'] == 'CONFLICT' else [step['name']]
             return json.dumps(dict(text=None, raw=dict(txts=names, scores=[.99] * len(names)))).encode()
@@ -71,34 +79,37 @@ def coordinator(multi, monkeypatch):  # noqa: F811
     real = REAL_CAPTURE
     def capture(args, source, requirements, index, *, seek=None, **options):
         options.setdefault('resident', Resident())  # Same worker path whether or not names are enabled.
-        channel = args.tracking_channel
+        channel = args.channel or args.tracking_channel
         n = steps[channel] = steps.get(channel, 0) + 1
         step = scripts[channel][(n - 1) % len(scripts[channel])]
-        received = (BASE + timedelta(seconds=15 * n)).isoformat()
+        interval = next(row['interval'] for row in config['streams'] if row['channel']==channel)
+        received = (BASE + timedelta(seconds=interval * n)).isoformat()
+        current['stamp']=datetime.fromisoformat(received)
         if step == 'FAIL':
             class Failed:
                 source_bytes = 0
                 def frame(self, **kw): raise CaptureError('frame_timeout')
                 def close(self): pass
             return real(args, source, requirements, index, seek=seek, session_factory=lambda *a, **k: Failed(), **options)
-        stale = step[0] in ('STALE', 'DISMISS')
+        marked = step[0] in ('STALE', 'DISMISS', 'DUPLICATE', 'MULTI')
         if step[0] == 'DISMISS' and 'identity' in options:
             options['identity'].suggestions.dismiss(received)
-        name, level, bp = step[1:] if stale else step
-        current['step'] = dict(name=name, reading=reading(requirements, level, bp), stale=step[0] == 'STALE')
+        name, level, bp = step[1:] if marked else step
+        current['step'] = dict(name=name, level=level, reading=reading(requirements, level, bp), stale=step[0] == 'STALE')
         played.setdefault(channel, []).append(dict(n=n, name=name, level=level, reading=current['step']['reading']))
-        image = Image.new('RGB', (1920, 1080), (n % 256, 10 + n // 256, 20))
+        pixel = n-1 if step[0]=='DUPLICATE' else n
+        image = Image.new('RGB', (1920, 1080), (pixel % 256, 10 + pixel // 256, 20))
         data = BytesIO(); image.save(data, format='PNG')
         class Session:
             source_bytes = len(data.getvalue())
             def frame(self, **kw): return Frame(data.getvalue(), n, time.monotonic(), received)
             def close(self): pass
-        analyze = functools.partial(module.shadow.analyze, locator=lambda image: candidate(),
+        analyze = functools.partial(module.shadow.analyze, locator=lambda image: candidate() * (2 if step[0]=='MULTI' else 1),
                                     read_level=lambda crop: (level, []))
         return real(args, source, requirements, index, seek=seek, session_factory=lambda *a, **k: Session(),
                     analyze_frame=analyze, **options)
     monkeypatch.setattr(module.shadow, 'capture_attempt', capture)
-    return module, path, config, played, steps
+    return module, path, config, played, steps, scripts
 
 
 def run(coordinator, *extra):

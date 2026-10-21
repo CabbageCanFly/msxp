@@ -326,7 +326,7 @@ def parser():
     cli.add_argument('--output', type=Path, required=True)
     cli.add_argument('--save-crops', action='store_true', help='Save only field crops beside the NEW JSONL')
     cli.add_argument('--experimental-neural-level',action='store_true',help='Opt in to UNVERIFIED neutral4 level diagnostics in the existing neural worker')
-    cli.add_argument('--character-names',action='store_true',help='Local-video/no-DB only: review identity suggestions using the existing HUD and neural worker')
+    cli.add_argument('--character-names',action='store_true',help='No-DB review of name suggestions from local video or authorized Twitch; use multi_alpha for isolated automatic tracking')
     cli.add_argument('--name-interval',type=float,default=0,help='Name check interval in seconds; 0 checks every eligible capture. Numeric events and confirmation bypass it')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse the existing neural worker for EXP, level and optional names')
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Optional existing regional HUD cache; competing HUDs can go unseen until refresh')
@@ -438,8 +438,8 @@ def prepare(args, *, allow_missing_video=False, offline_fast_test=False):
     """Shared offline preflight. No database writes or remote connections."""
     if not 1 <= args.count <= 60:
         raise ValueError('count must be 1..60')
-    if getattr(args,'character_names',False) and (not args.file or args.channel or args.db):
-        raise ValueError('--character-names requires a local --file without --db')
+    if getattr(args,'character_names',False) and args.db:
+        raise ValueError('Standalone --character-names requires no --db; use multi_alpha for identity-aware persistence')
     for name, high in [('name_interval',3600),('hud_cache_seconds',3600)]:
         value=getattr(args,name,0)
         if not math.isfinite(value) or not 0<=value<=high:
@@ -527,7 +527,7 @@ def main(argv=None, *, on_record=None, on_activity=None):
         options['analyze_frame']=partial(analyze,locator=CachedLocator(args.hud_cache_seconds))
     if args.character_names:
         from character_identity import IdentityCapture
-        options['identity']=IdentityCapture(str(args.file.resolve()),interval=args.name_interval)
+        options['identity']=IdentityCapture(args.channel or str(args.file.resolve()),interval=args.name_interval)
     try:
         with args.output.open('x', encoding='utf-8') as output:
             run_id = uuid.uuid4().hex if diagnostics else None

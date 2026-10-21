@@ -206,13 +206,13 @@ def test_stale_or_failed_name_preserves_exp_result():
     assert result['character_name']['evidence']['status'] == 'failed'
 
 
-def test_name_mode_is_local_and_no_db_and_defaults_remain_opt_in(tmp_path):
+def test_standalone_name_mode_has_no_db_and_defaults_remain_opt_in(tmp_path):
     shadow = importlib.import_module('shadow_capture')
     ordinary = shadow.parser().parse_args(['--file', 'missing.mp4', '--output', str(tmp_path / 'x')])
     assert not ordinary.character_names and ordinary.name_interval == 0 and not ordinary.resident_neural
-    for source in (['--channel', 'example', '--authorized'], ['--file', 'missing.mp4', '--db', 'unused.db']):
+    for source in (['--channel', 'example', '--authorized','--db','unused.db'], ['--file', 'missing.mp4', '--db', 'unused.db']):
         args = shadow.parser().parse_args(source + ['--character-names', '--output', str(tmp_path / 'x')])
-        with pytest.raises(ValueError, match='local --file without --db'):
+        with pytest.raises(ValueError, match='requires no --db'):
             shadow.prepare(args)
 
 

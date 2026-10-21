@@ -92,6 +92,15 @@ new broadcast identifier) to existing session APIs. A timeout, one offline statu
 response or a coordinator restart should not alone be converted into a new stream.
 No Helix/Twitch network request was used for these tests.
 
+## Opt-in local Twitch activation follow-up
+
+The [isolated Twitch trial guide](local-live-character-trial.md) supersedes the
+earlier local-video-only activation restriction. The same full-frame two-vote policy,
+numeric guards, writer transactions and level floors are reused; there is no cache
+or broadcast reset. New path/marker/port/cadence safeguards isolate the main tracker.
+Only mocked Twitch-source acquisition was exercised; previous real saved-frame and
+CPU measurements below are historical, not live-Twitch performance measurements.
+
 ## Repairing a mistakenly established floor
 
 Repeated wrong OCR can still poison a floor. Normal corrections, invalidation alone,

@@ -16,6 +16,12 @@ The [pre-merge safety/performance review](character-name-ocr-review.md) records 
 rebase onto current main, replay/rename fixes, offline level-floor recovery, verified
 overnight progression and the 15-lane benchmark. Cache support remains a proposal.
 
+The [isolated local Twitch trial](local-live-character-trial.md) now enables opt-in
+live name OCR and automatic tracking with a new disposable DB/marker, separate port
+and logs, one worker and no retention/cache. Its exact Windows commands are for use
+after review; no live capture was performed for that milestone. Historical file-only
+restrictions below describe earlier milestones and are superseded by that guide.
+
 ## Run it
 
 Run from this worktree. Its optional environments and footage remain at their

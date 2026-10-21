@@ -1,4 +1,4 @@
-"""Offline autonomous attribution. All mutations run on the serialized Store writer."""
+"""Opt-in autonomous attribution. All mutations run on the serialized Store writer."""
 
 from copy import deepcopy
 from datetime import datetime

@@ -30,7 +30,7 @@ def utc(value=None):
 
 
 class Store:
-    def __init__(self, path: str | Path, *, read_only=False):
+    def __init__(self, path: str | Path, *, read_only=False, allow_migration=True):
         self.read_only = read_only
         target = Path(path).resolve().as_uri() + "?mode=ro" if read_only else path
         self.db = sqlite3.connect(target, uri=read_only, timeout=5, isolation_level=None)
@@ -44,6 +44,8 @@ class Store:
                         raise ValueError(f"unsupported schema version {version}; initialize/migrate with the tracking CLI first")
                     self.schema_version=version
                     return
+                if not allow_migration and version not in (0,VERSION):
+                    raise ValueError('automatic migration disabled; use a new trial database')
                 if version == 0:
                     if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
                         raise ValueError("unversioned existing database; refusing to adopt it")
