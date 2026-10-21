@@ -1,5 +1,9 @@
 # Isolated local Twitch character trial
 
+Existing accumulated multi-channel databases use the separate explicit
+[existing-tracker adoption workflow](existing-tracker-auto-adoption.md). The trial
+restrictions below are unchanged; do not use trial flags to bypass adoption.
+
 Run these commands **after review**. No live capture was performed for this milestone.
 Leave the existing main tracker running: never edit its config, use its DB/port,
 restart it or kill its processes. Start with **one authorized channel**, six captures

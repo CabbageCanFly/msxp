@@ -98,6 +98,10 @@ last-known levels and exposes early segment pace without relaxing fixed-window c
 Manage assignments with the [private roster CLI](docs/streamer-roster.md): add, disable,
 re-enable and inspect without deleting history; changes apply on controlled restart.
 
+[Existing tracker automatic adoption](docs/existing-tracker-auto-adoption.md) adds an
+explicit preview/backup/confirmation workflow for existing multi-alpha databases,
+with per-channel opt-in automation alongside unchanged manual tracking.
+
 [Manual administration (A1.1 / A2)](docs/manual-exp-admin.md) provides a local CLI and
 separate loopback-only browser dashboard for
 inspection, explicit-time Level / EXP baselines, historical reading corrections,
