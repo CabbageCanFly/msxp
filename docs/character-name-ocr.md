@@ -1,5 +1,9 @@
 # Offline character-name OCR
 
+For an established multi-channel database, see the reviewed, per-channel
+[existing-tracker adoption workflow](existing-tracker-auto-adoption.md). It preserves
+IDs/history and keeps the isolated trial workflow separate.
+
 The useful source is the **own-name line beneath the job in the bottom game status
 panel**. Existing RapidOCR weights read it well in this small development set.
 Automatic HUD localization is useful but incomplete. The standalone OCR tool only

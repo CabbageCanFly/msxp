@@ -38,26 +38,34 @@ def private(path):
     return shadow.private_path(Path(path))
 
 
-def load_config(path, *, offline_fast_test=False):
-    path = private(path)
+def load_config(path, *, offline_fast_test=False, existing_tracker=False):
+    path = Path(path).resolve() if existing_tracker else private(path)
+    root = None
+    if existing_tracker:
+        roots = [p.parent for p in path.parents if p.name in ('private','artifacts')]
+        if not roots:raise ValueError('Existing tracker config must remain under its checkout private/ or artifacts/')
+        root = roots[0]
     if path.stat().st_size > 32768:
         raise ValueError('Configuration exceeds 32 KiB')
     value = json.loads(path.read_text(encoding='utf-8-sig'))
-    database, port, streams = validate_config(value, offline_fast_test=offline_fast_test)
+    database, port, streams = validate_config(value, offline_fast_test=offline_fast_test,existing_root=root)
     active = [row for row in streams if row.get('enabled', True)]
     if not active:
         raise ValueError('No enabled assignments; enable a streamer or use the read-only server')
     return database, port, active
 
 
-def validate_config(value, *, offline_fast_test=False):
+def validate_config(value, *, offline_fast_test=False, existing_root=None):
     """Validate all assignments, including disabled ones; never initialize SQLite."""
     if not isinstance(value, dict) or set(value) - {'database', 'port', 'streams'}:
         raise ValueError('Expected database, port and streams configuration')
     streams = value.get('streams')
     if not isinstance(streams, list) or not 0 <= len(streams) <= 25:
         raise ValueError('Configure at most 25 explicit stream assignments')
-    database = private(value.get('database', 'private/multi-alpha/tracking.sqlite3'))
+    requested = Path(value.get('database', 'private/multi-alpha/tracking.sqlite3'))
+    database = (existing_root/requested).resolve() if existing_root else private(requested)
+    if existing_root and not any(database.is_relative_to(existing_root/name) for name in ('private','artifacts')):
+        raise ValueError('Existing tracker database must remain under its config checkout private/ or artifacts/')
     port = value.get('port', 8765)
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError('port must be 0..65535')
@@ -95,7 +103,7 @@ def validate_config(value, *, offline_fast_test=False):
     return database, port, result
 
 
-def owner_info(database, automatic, trial=None):
+def owner_info(database, automatic, trial=None, existing=()):
     """Read-only ownership preflight; never adopt or migrate another writer's DB."""
     marker = database.with_suffix(database.suffix+'.multi-alpha.json')
     if database.exists() != marker.exists():
@@ -105,6 +113,12 @@ def owner_info(database, automatic, trial=None):
     except PermissionError:raise ValueError('Cannot inspect ownership marker; another coordinator may own this database') from None
     if not isinstance(info,dict) or info.get('application') != APP:
         raise ValueError('Not a multi-alpha database marker')
+    if existing:
+        from exp_tracker.automatic_adoption import ownership as adopted_owner, states
+        adopted_owner(database)
+        with Store(database,read_only=True) as store:
+            if store.schema_version!=10 or not set(existing)<=states(store).keys():
+                raise ValueError('Existing automatic channels require reviewed adoption first; use tools/adopt_automatic.py')
     if automatic and info.get('automatic_characters') is not True:
         raise ValueError('Automatic testing requires a NEW disposable database or its own prior automatic-test database')
     if trial is not None:
@@ -119,6 +133,7 @@ def owner_info(database, automatic, trial=None):
 
 
 def live_trial(args, database, port, streams):
+    if getattr(args,'automatic_existing_channel',None):return None  # Separately adopted, never relax trial ownership.
     if not args.character_names or not any(row['source']=='twitch' for row in streams):return None
     root = private('private/character-live-trial')
     logs = private(args.log_root) if args.log_root else None
@@ -139,19 +154,21 @@ def live_trial(args, database, port, streams):
     return dict(live_twitch_trial=True,database=str(database),channels=sorted(row['channel'] for row in streams))
 
 
-def available_port(port):
+def available_port(port, *, existing=False):
     # A preflight probe, not a reservation; the actual HTTP bind still precedes all capture.
     with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as probe:
         if os.name=='nt':probe.setsockopt(socket.SOL_SOCKET,socket.SO_EXCLUSIVEADDRUSE,1)
         try:probe.bind(('127.0.0.1',port))
-        except OSError:raise ValueError(f'Localhost port {port} is unavailable; leave the main tracker alone and choose another trial port') from None
+        except OSError:
+            advice = 'an existing tracker may still own it; no capture started, wait for an operator-approved stop' if existing else 'leave the main tracker alone and choose another trial port'
+            raise ValueError(f'Localhost port {port} is unavailable; {advice}') from None
 
 
 @contextmanager
-def ownership(database, *, automatic=False, trial=None):
+def ownership(database, *, automatic=False, trial=None, existing=(), adopted=False):
     """A local provenance marker and OS-released lock; never adopt a single-stream DB."""
     marker = database.with_suffix(database.suffix+'.multi-alpha.json')
-    owner_info(database,automatic,trial)
+    owner_info(database,automatic,trial,existing)
     database.parent.mkdir(parents=True, exist_ok=True)
     if not marker.exists():
         with marker.open('x', encoding='utf-8') as f:
@@ -160,6 +177,8 @@ def ownership(database, *, automatic=False, trial=None):
         info = json.load(handle)
         if not isinstance(info,dict) or info.get('application') != APP:
             raise ValueError('Not a multi-alpha database marker')
+        if (adopted or existing) and (info.get('automatic_characters') or info.get('live_twitch_trial')):
+            raise ValueError('Existing tracker mode cannot adopt a trial ownership marker')
         if automatic and info.get('automatic_characters') is not True:
             raise ValueError('Automatic testing requires a NEW disposable database or its own prior automatic-test database')
         if trial is not None and any(info.get(key)!=value for key,value in trial.items()):
@@ -171,21 +190,25 @@ def check_assignments(database, streams):
     # Inspect every existing selection before making any assignment changes.
     if database.exists():
         with Store(database, read_only=True) as store:
+            from exp_tracker.automatic_adoption import states
+            adopted=states(store)
             for row in streams:
                 found = store.db.execute('SELECT selected_character_id FROM streamers WHERE login=?', (row['channel'],)).fetchone()
                 if found and found[0] is not None:
                     label = store.db.execute('SELECT label FROM characters WHERE id=?', (found[0],)).fetchone()[0]
-                    if label != row['character']:
+                    if label != row['character'] and row['channel'] not in adopted:
                         raise ValueError(f"Character mismatch for {row['channel']}: selected {label!r}; requested {row['character']!r}. Review the coordinated rename workflow in docs/manual-exp-admin.md; do not create another character.")
 
 
 def initialize(database, streams, say=print, *, automatic=False, allow_migration=True):
     if not automatic: check_assignments(database, streams)
     with Store(database,allow_migration=allow_migration) as store:
+        from exp_tracker.automatic_adoption import states
+        adopted=states(store)
         for row in streams:
             store.add_channel(row['channel'])
             selected=store._channel(row['channel'])['selected_character_id']
-            character = selected if automatic and selected is not None else store.add_character(row['channel'], row['character'])
+            character = selected if (automatic or row['channel'] in adopted) and selected is not None else store.add_character(row['channel'], row['character'])
             store.select_character(row['channel'], character, only_if_unselected=True)
             session = store.start_session(row['channel'], expected_character_id=character)
             row.update(character_id=character, session_id=session,
@@ -194,6 +217,32 @@ def initialize(database, streams, say=print, *, automatic=False, allow_migration
             unfinished = store.db.execute('SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=? AND summary_json IS NULL',(session,)).fetchone()[0]
             if unfinished:
                 say(f"{row['channel']}: preserved {unfinished} previous unfinished run(s); activity unknown. Starting a NEW run; existing identity/level guards and rolling-window endpoint rules still apply.")
+
+
+def existing_preflight(database, streams, enabled, *, required=False):
+    """No adoption at startup; persist selections even after automation is disabled."""
+    from exp_tracker.automatic_adoption import states
+    if not database.exists():
+        if enabled or required:raise ValueError('Existing automatic mode requires an adopted existing database')
+        return
+    with Store(database,read_only=True) as store:
+        adopted=states(store)
+        if required and (store.schema_version!=10 or not adopted):
+            raise ValueError('Existing tracker mode requires reviewed adoption before startup')
+        if not adopted and not enabled:return
+        configured={row['channel']:row for row in streams}
+        if not set(enabled)<=configured.keys() or not set(enabled)<=adopted.keys():
+            raise ValueError('Explicit automatic channels must be enabled in config and individually adopted')
+        for login,value in adopted.items():
+            if login in configured and login not in enabled and value['started'] and (not value['verified'] or value['risk']):
+                raise ValueError(f'{login}: unresolved adopted identity; resume automatic verification before disabling it')
+        for login in enabled:
+            row=configured[login]
+            if row['source']=='twitch' and not row.get('authorized'):
+                raise ValueError('Existing automatic Twitch channels require explicit capture authorization')
+            if row.get('interval',15)>CONFIRM_GAP_SECONDS/2:
+                raise ValueError('Automatic channel interval must allow two independent frames within 120 seconds (use <=60s)')
+        check_assignments(database,streams)
 
 
 def options(row, database, output):
@@ -387,9 +436,19 @@ def main(argv=None):
     cli.add_argument('--log-root',type=Path,help='Private root for new per-process capture directories; required for isolated live name trials')
     cli.add_argument('--character-names',action='store_true',help='Opt in to own-name evidence/holds; Twitch requires isolated live trial settings; implies --resident-neural')
     cli.add_argument('--automatic-characters',action='store_true',help='NEW disposable DB only: automatically switch after two strong independent full-frame name readings; local video or isolated authorized Twitch trial')
+    cli.add_argument('--automatic-existing-channel',action='append',default=[],metavar='CHANNEL',
+        help='Enable automation ONLY for this reviewed/adopted existing channel; repeat for more channels, omit to disable')
+    cli.add_argument('--existing-tracker',action='store_true',
+        help='Use a reviewed/adopted existing tracker config/database, including another checkout private path; required there even when automation is disabled')
     args = cli.parse_args(argv)
     httpd = thread = None
     try:
+        existing=args.automatic_existing_channel
+        existing_mode=args.existing_tracker or bool(existing)
+        if (len(set(existing))!=len(existing) or any(not CHANNEL.fullmatch(c) or c!=c.lower() for c in existing)):
+            raise ValueError('Existing automatic channels must be distinct lowercase Twitch logins')
+        if existing_mode and (args.automatic_characters or args.character_names or args.replay or existing and args.hud_cache_seconds):
+            raise ValueError('Existing automatic mode cannot combine with trial/name-only flags, replay or HUD cache')
         if args.automatic_characters:
             args.character_names=True
             if args.replay or args.hud_cache_seconds:
@@ -406,8 +465,15 @@ def main(argv=None):
             raise ValueError('--stop-after-seconds requires continuous mode and positive finite seconds')
         if args.replay and (args.continuous or args.offline_fast_test):
             raise ValueError('Historical replay cannot use continuous/fast-test capture settings')
-        database, port, streams = load_config(args.config,offline_fast_test=args.offline_fast_test)
+        database, port, streams = load_config(args.config,offline_fast_test=args.offline_fast_test,existing_tracker=existing_mode)
         trial = live_trial(args,database,port,streams)
+        if existing_mode:
+            from exp_tracker.automatic_adoption import ownership as adopted_owner
+            adopted_owner(database)
+            owner_info(database,False,existing=existing)
+            with writer_lease(database.with_suffix(database.suffix+'.multi-alpha.json')):pass
+            available_port(port,existing=True)
+        existing_preflight(database,streams,existing,required=existing_mode)
         if trial is not None:
             owner_info(database,args.automatic_characters,trial)
             if database.exists():
@@ -431,8 +497,8 @@ def main(argv=None):
             if not args.replay:
                 source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
                 # After prepare: its standalone no-DB guard does not apply, holds are enforced at emit/append.
-                opts.character_names=args.character_names
-                opts.automatic_characters=args.automatic_characters
+                opts.automatic_characters=args.automatic_characters or row['channel'] in existing
+                opts.character_names=args.character_names or opts.automatic_characters
                 lanes.append({**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes})
         if not args.replay:
             configure_tesseract()
@@ -442,13 +508,15 @@ def main(argv=None):
                 if lane['source'].kind=='file' and not Path(lane['source'].value).is_file():
                     print(f"{lane['channel']}: local video unavailable; bounded failed attempts will be retained, other channels continue",flush=True)
         if args.check:
-            owner_info(database,args.automatic_characters,trial)
+            owner_info(database,args.automatic_characters,trial,existing)
+            if existing_mode:print('Existing tracker automatic channels: '+(', '.join(existing) or 'none (persisted selections preserved)'))
             print('Preflight passed; no connections, database changes or capture started.')
             return 0
         print(f'Database: {database}',flush=True)
         if not args.replay: print(f'Private capture logs: {directory}',flush=True)
-        with ownership(database,automatic=args.automatic_characters,trial=trial):
-            initialize(database, streams,automatic=args.automatic_characters,allow_migration=trial is None)
+        with ownership(database,automatic=args.automatic_characters,trial=trial,existing=existing,adopted=existing_mode):
+            existing_preflight(database,streams,existing,required=existing_mode)
+            initialize(database, streams,automatic=args.automatic_characters,allow_migration=trial is None and not existing_mode)
             httpd = create_server(database, port=port, diagnostic_dashboard=not args.public_only,public_only=args.public_only,cors_origins=args.cors_origin,twitch_status=args.twitch_status,background=True)
             httpd.quiet = True
             httpd.active_run_ids = set()
@@ -468,13 +536,13 @@ def main(argv=None):
                 if args.retention_24h:
                     from exp_tracker.retention_files import own
                     own(directory,database)
-                with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database,allow_migration=trial is None) as store:
+                with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database,allow_migration=trial is None and not existing_mode) as store:
                     diagnostic = Diagnostics(store)
-                    if args.automatic_characters:
+                    if args.automatic_characters or existing:
                         from exp_tracker.character_automation import AutonomousCharacters
                         automation=AutonomousCharacters(store)
                     handles = {}
-                    resident = shadow.ResidentNeural() if args.resident_neural or args.character_names else None
+                    resident = shadow.ResidentNeural() if args.resident_neural or args.character_names or existing else None
                     instance=uuid.uuid4().hex
                     try:
                         def open_run(lane, run_id, previous=None):
@@ -521,7 +589,7 @@ def main(argv=None):
                                     maintenance_due=time.monotonic()+60
                                     print(f'Retention postponed: {type(error).__name__}: {error}',file=sys.stderr,flush=True)
                             def emit(lane, record):
-                                if args.automatic_characters and record['type']=='attempt':
+                                if lane['args'].automatic_characters and record['type']=='attempt':
                                     record['resources']=monitor.snapshot()
                                     following=uuid.uuid4().hex
                                     header=shadow.configuration(lane['args'],lane['table_bytes'],lane['table'],following)
@@ -606,10 +674,10 @@ def main(argv=None):
                                 if args.hud_cache_seconds:  # Per channel; survives rotation, not restarts.
                                     lane['options']['analyze_frame']=functools.partial(shadow.analyze,
                                         locator=shadow.CachedLocator(args.hud_cache_seconds))
-                                if args.character_names:  # Per channel; survives rotation, not restarts.
+                                if lane['args'].character_names:  # Per channel; survives rotation, not restarts.
                                     from character_identity import IdentityCapture
                                     lane['options']['identity']=IdentityCapture(lane['channel'],confirmed=lane['character'],
-                                        **({'confirmation_source':'persisted_selection'} if args.automatic_characters else {}))
+                                        **({'confirmation_source':'persisted_selection'} if lane['args'].automatic_characters else {}))
                             def perform(lane,n,seek):
                                 return shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek,**lane['options'])
                             interrupted = schedule(lanes,perform,emit,workers=args.workers,

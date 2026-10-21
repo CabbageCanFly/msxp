@@ -183,10 +183,15 @@ class AutonomousCharacters:
             if reference is not None and reference!=selected:
                 raise ValueError('Character identity reference changed; restart after a rename or selection')
             login = streamer['login']
+            from .automatic_adoption import state, save_state
+            adopted = state(self.store, streamer['id'])
             previous = self.db.execute('''SELECT a.payload_json FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id
                 WHERE r.streamer_id=? AND r.session_id=? ORDER BY a.id DESC LIMIT 1''',
                 (streamer['id'],run['session_id'])).fetchone()
             previous = original(json.loads(previous[0])) if previous else None
+            # Initial adoption cannot use pre-adoption/manual frames as identity votes.
+            if adopted and not adopted['verified'] and (previous or {}).get('existing_adoption_id') != adopted['adoption_id']:
+                previous = None
             current_name, prior_name = name_evidence(record), name_evidence(previous or {})
             switch = bool(current_name and current_name['name'] != selected and prior_name
                           and prior_name['name'] == current_name['name'] and independent(prior_name, current_name))
@@ -194,6 +199,8 @@ class AutonomousCharacters:
             target, target_session, target_run = run['character_id'], run['session_id'], run_id
             result = deepcopy(record)
             result['automation_input_sha256'] = digest
+            if adopted:
+                result['existing_adoption_id'] = adopted['adoption_id']
             if switch:
                 target_label = current_name['name']
                 found = self.db.execute('SELECT id FROM characters WHERE streamer_id=? AND label=?', (streamer['id'], target_label)).fetchone()
@@ -224,7 +231,7 @@ class AutonomousCharacters:
                                 tracking_action='automatic_character_switch')
             # A known mismatch remains a risk through unreadable frames and process restarts.
             observed = result.get('character_name', {}).get('evidence', {}).get('name')
-            risk = (previous or {}).get('automatic_identity_risk')
+            risk = adopted['risk'] if adopted else (previous or {}).get('automatic_identity_risk')
             if switch or current_name and current_name['name'] == selected:
                 risk = None
             elif observed and observed != selected:
@@ -234,9 +241,16 @@ class AutonomousCharacters:
                 name = result['character_name']
                 name['reading_hold_recommended'] = True
                 name['hold_reasons'] = list(dict.fromkeys(name.get('hold_reasons', []) + ['unresolved_name_mismatch']))
+            confirmed_adoption = bool(adopted and not adopted['verified'] and (switch or
+                current_name and prior_name and current_name['name'] == prior_name['name'] == selected
+                and independent(prior_name, current_name)))
+            if adopted and not adopted['verified'] and not confirmed_adoption and result.get('current'):
+                name = result.setdefault('character_name', {})
+                name['reading_hold_recommended'] = True
+                name['hold_reasons'] = list(dict.fromkeys(name.get('hold_reasons', []) + ['adoption_name_confirmation_pending']))
             result = identity_held(result)
             # Level proof may use the first B frame, but its EXP is never moved out of A's held run.
-            support = level_evidence(previous) if switch and previous else None
+            support = level_evidence(previous) if (switch or confirmed_adoption) and previous else None
             result = guard_level(self.store, target, result, support=support)
             self.diagnostics._append(target_run, result)
             result = json.loads(self.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE run_id=? AND attempt_index=?',
@@ -249,5 +263,12 @@ class AutonomousCharacters:
                                selected_at=record['received_at'])
                 self.db.execute('INSERT INTO automatic_character_events VALUES(?,?,?,?,?,?,?)',
                     (event, digest, streamer['id'], target, target_run, encoded(dict(type='receipt',trusted=False,**receipt)), utc()))
+            if adopted:
+                adopted['started'] = True
+                if confirmed_adoption:
+                    adopted.update(verified=True, verification=dict(run_id=target_run, index=result['index'],
+                        evidence=[prior_name, current_name]))
+                adopted['risk'] = risk
+                save_state(self.store, streamer['id'], adopted)
             if write: write(receipt, result)
             return dict(**receipt, record=result, duplicate=False)
