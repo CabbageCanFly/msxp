@@ -403,3 +403,19 @@ def test_home_roster_keeps_same_names_on_different_channels_separate(db, clock):
         code, body = get(httpd, f'/api/players/other_demo?character={other}')
         assert code == 200 and body['player']['reading'] is None and body['tracked_history']['character_id'] == other
     assert snapshot(db) == before
+
+
+def test_demo_extra_streamers_and_live_ticks_only_touch_recent_streams(tmp_path):
+    path = tmp_path / 'streams.sqlite3'
+    switches = demo.create(now=NOW, path=path, characters=1, streamers=5)
+    assert [s['name'] for s in switches][-4:] == ['Ember', 'Frost', 'Sprout', 'Quiet']
+    with Store(path) as store:
+        count = lambda: dict(store.db.execute('SELECT s.login, COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id '
+                                              'JOIN streamers s ON s.id=r.streamer_id GROUP BY s.login').fetchall())
+        before = count()
+        live = demo.tick(store, now=NOW + timedelta(seconds=demo.INTERVAL))
+        after = count()
+    # The stream that ended hours ago stays ended; every other stream gains exactly one frame.
+    assert set(live) == {CHANNEL, 'synthetic_ember', 'synthetic_frost', 'synthetic_sprout'}
+    assert {login: after[login] - before[login] for login in after} == {**dict.fromkeys(live, 1), 'synthetic_quiet': 0}
+    with pytest.raises(ValueError):demo.create(now=NOW, path=tmp_path / 'too-many.sqlite3', streamers=6)

@@ -1,7 +1,7 @@
 """SYNTHETIC multi-character demo: a fictional streamer, a disposable SQLite and no network.
 
-    python tools/character_demo.py create [--replace] [--characters 1|2|12]
-    python tools/character_demo.py serve [--port 8890]  # public-only local website
+    python tools/character_demo.py create [--replace] [--characters 1|2|12] [--streamers 1-5]
+    python tools/character_demo.py serve [--port 8890] [--live]  # public-only local website
     python tools/character_demo.py switch               # two-frame switch to the next saved character
 
 Readings go through the real automatic attribution path (two-frame name confirmation,
@@ -15,6 +15,8 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import threading
+import time
 
 from exp_tracker.character_automation import PLACEHOLDER_CHARACTER, AutonomousCharacters, name_evidence
 from exp_tracker.diagnostics import Diagnostics
@@ -32,6 +34,11 @@ INTERVAL = 30
 # (name, level, first basis points, basis points per reading, readings)
 SCENARIO = [('Alpha', 67, 2000, 12, 24), ('Beta', 43, 5000, 25, 30), ('Alpha', 67, 2276, 12, 56)]
 NAMES = ('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa', 'Lambda', 'Mu')
+# Extra fictional streams for homepage sorting: (channel, character, level, first bp, bp per reading, readings, minutes it ended before now).
+# Ember and Frost share a level so level ties break on EXP %; Quiet ended hours ago, so it has a 24h total but no live pace.
+STREAMS = [('synthetic_ember', 'Ember', 61, 7200, 30, 40, 0), ('synthetic_frost', 'Frost', 61, 4800, 9, 40, 0),
+           ('synthetic_sprout', 'Sprout', 32, 1500, 70, 30, 0), ('synthetic_quiet', 'Quiet', 70, 3000, 6, 40, 180)]
+LIVE_SECONDS = INTERVAL  # Same spacing as the generated history, so live paces match it.
 
 
 def configuration(run):
@@ -57,13 +64,18 @@ def attempt(index, name, level, bp, at, selected):
                 raw=dict(raw=dict(txts=[name], scores=[.99])))))
 
 
-def append(store, readings):
+def latest_run(store, channel):
+    return store.db.execute('SELECT r.run_id FROM diagnostic_runs r JOIN streamers s ON s.id=r.streamer_id WHERE s.login=? '
+                            'ORDER BY r.rowid DESC LIMIT 1', (channel,)).fetchone()[0]
+
+
+def append(store, readings, channel=CHANNEL):
     """Feed (name, level, bp, at) readings through automatic attribution; returns switch receipts."""
     policy, switches = AutonomousCharacters(store), []
     for name, level, bp, at in readings:
-        run = store.db.execute('SELECT run_id FROM diagnostic_runs ORDER BY rowid DESC LIMIT 1').fetchone()[0]
+        run = latest_run(store, channel)
         selected = store.db.execute('SELECT c.label FROM streamers s JOIN characters c ON c.id=s.selected_character_id WHERE s.login=?',
-                                    (CHANNEL,)).fetchone()[0]
+                                    (channel,)).fetchone()[0]
         index = store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?', (run,)).fetchone()[0] + 1
         following = hashlib.sha256(f'{run}:{index}'.encode()).hexdigest()[:32]
         receipt = policy.append(run, attempt(index, name, level, bp, at, selected), following, configuration(following))
@@ -71,9 +83,18 @@ def append(store, readings):
     return switches
 
 
-def create(*, now, path=DATABASE, characters=2):
+def start(store, channel, run, first):
+    store.add_channel(channel)
+    placeholder = store.add_character(channel, PLACEHOLDER_CHARACTER)
+    store.select_character(channel, placeholder, at=first - timedelta(seconds=1))
+    store.start_session(channel, at=first - timedelta(seconds=1))
+    Diagnostics(store).begin(run, channel, configuration(run))
+
+
+def create(*, now, path=DATABASE, characters=2, streamers=1):
     """The scenario ends one interval before now, so recent windows show the return to Alpha."""
     if characters not in (1, 2, 12):raise ValueError('Choose 1, 2 or 12 synthetic characters')
+    if not 1 <= streamers <= len(STREAMS) + 1:raise ValueError(f'Choose 1 to {len(STREAMS) + 1} synthetic streamers')
     scenario = SCENARIO if characters == 2 else [(name, 43 + i, 2000 + 200 * i, 12, 8) for i, name in enumerate(NAMES[:characters])]
     total = sum(row[4] for row in scenario)
     at = now - timedelta(seconds=INTERVAL * total)
@@ -82,12 +103,34 @@ def create(*, now, path=DATABASE, characters=2):
         for i in range(count):
             readings.append((name, level, bp + step * i, at)); at += timedelta(seconds=INTERVAL)
     with Store(path) as store:
-        store.add_channel(CHANNEL)
-        placeholder = store.add_character(CHANNEL, PLACEHOLDER_CHARACTER)
-        store.select_character(CHANNEL, placeholder, at=readings[0][3] - timedelta(seconds=1))
-        store.start_session(CHANNEL, at=readings[0][3] - timedelta(seconds=1))
-        Diagnostics(store).begin('synthetic-start', CHANNEL, configuration('synthetic-start'))
-        return append(store, readings)
+        start(store, CHANNEL, 'synthetic-start', readings[0][3])
+        switches = append(store, readings)
+        for channel, name, level, bp, step, count, ago in STREAMS[:streamers - 1]:
+            first = now - timedelta(minutes=ago, seconds=INTERVAL * count)
+            start(store, channel, f'synthetic-start-{channel}', first)
+            switches += append(store, [(name, level, bp + step * i, first + timedelta(seconds=INTERVAL * i)) for i in range(count)], channel)
+        return switches
+
+
+def tick(store, *, now):
+    """One live frame per recently active demo stream; returns {channel: run_id} for the stand-in coordinator."""
+    steps = {channel: step for channel, _, _, _, step, _, ago in STREAMS if not ago}
+    live = {}
+    for (channel,) in store.db.execute('SELECT login FROM streamers ORDER BY login').fetchall():
+        if channel != CHANNEL and channel not in steps:continue  # Ended streams stay ended.
+        name = store.db.execute('SELECT c.label FROM streamers s JOIN characters c ON c.id=s.selected_character_id WHERE s.login=?',
+                                (channel,)).fetchone()[0]
+        run = latest_run(store, channel)
+        rows = store.db.execute('SELECT a.payload_json FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id '
+                                'JOIN streamers s ON s.id=r.streamer_id WHERE s.login=? ORDER BY a.attempted_at DESC LIMIT 20', (channel,)).fetchall()
+        last = next((p for p in map(lambda row: json.loads(row[0]), rows) if (name_evidence(p) or {}).get('name') == name), None)
+        if last is None:continue
+        level, need = last['visual_level'], requirement(last['visual_level'])['to_next']
+        bp = -(-last['candidate'][0] * 10000 // need) + steps.get(channel, 12)
+        if bp >= 9990:continue  # Stop short of a level-up rather than synthesize one.
+        append(store, [(name, level, bp, now)], channel)
+        live[channel] = latest_run(store, channel)
+    return live
 
 
 def switch(*, now, path=DATABASE):
@@ -119,13 +162,28 @@ def switch(*, now, path=DATABASE):
         return append(store, [(name, level, bp, first), (name, level, bp + step, now)])
 
 
+def live_loop(server):
+    """Stands in for the capture coordinator so demo streams read as live; real capture is never started."""
+    while True:
+        now = datetime.now(timezone.utc)
+        with Store(DATABASE) as store:live = tick(store, now=now)
+        for channel, run in live.items():
+            server.active_run_ids.add(run)
+            server.coordinator_status[channel] = dict(state='waiting', updated_at=now.isoformat(), run_id=run,
+                                                      next_due_at=(now + timedelta(seconds=LIVE_SECONDS)).isoformat())
+        time.sleep(LIVE_SECONDS)
+
+
 def main(argv=None):
     cli = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = cli.add_subparsers(dest='command', required=True)
     create_cli = commands.add_parser('create')
     create_cli.add_argument('--replace', action='store_true', help='Replace a previous SYNTHETIC demo database')
     create_cli.add_argument('--characters', type=int, choices=(1, 2, 12), default=2, help='Synthetic roster size (default: 2)')
-    commands.add_parser('serve').add_argument('--port', type=int, default=8890)
+    create_cli.add_argument('--streamers', type=int, default=1, help=f'Fictional streamers on the homepage, 1-{len(STREAMS) + 1} (default: 1)')
+    serve_cli = commands.add_parser('serve')
+    serve_cli.add_argument('--port', type=int, default=8890)
+    serve_cli.add_argument('--live', action='store_true', help=f'Keep demo streams updating every {LIVE_SECONDS}s (writes only the demo database)')
     commands.add_parser('switch')
     args = cli.parse_args(argv)
     try:
@@ -138,7 +196,7 @@ def main(argv=None):
                     DATABASE.with_name(DATABASE.name + suffix).unlink(missing_ok=True)
             ROOT.mkdir(parents=True, exist_ok=True)
             MARKER.write_text(json.dumps(dict(synthetic=True, channel=CHANNEL)), encoding='utf-8')
-            for receipt in create(now=datetime.now(timezone.utc), characters=args.characters):
+            for receipt in create(now=datetime.now(timezone.utc), characters=args.characters, streamers=args.streamers):
                 print(f"SYNTHETIC: automatically selected {receipt['name']} / character {receipt['character_id']}")
             print(f'SYNTHETIC demo database: {DATABASE}')
         elif args.command == 'switch':
@@ -152,6 +210,7 @@ def main(argv=None):
             with create_server(DATABASE, port=args.port, public_only=True, background=True) as server:
                 print(f'SYNTHETIC demo (fictional streamer, no Twitch): http://127.0.0.1:{server.server_port}/stream/{CHANNEL}', flush=True)
                 print(f'Homepage: http://127.0.0.1:{server.server_port}/   Overlay: http://127.0.0.1:{server.server_port}/live/overlay/{CHANNEL}', flush=True)
+                if args.live:threading.Thread(target=live_loop, args=(server,), daemon=True).start()
                 try:server.serve_forever()
                 except KeyboardInterrupt:pass
         return 0
