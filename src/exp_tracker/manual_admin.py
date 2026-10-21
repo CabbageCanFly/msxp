@@ -113,9 +113,14 @@ def main(argv=None):
     rename=commands.add_parser('rename',help='Rename in place; coordinate the roster label before the next startup')
     rename.add_argument('--character-id',type=int,required=True);rename.add_argument('--new-name',required=True)
     rename.add_argument('--reason');rename.add_argument('--dry-run',action='store_true')
+    from . import floor_repair
+    floor_repair.arguments(commands.add_parser('repair-floor', help='Exceptional offline floor repair: preview, then explicitly apply'))
     args=parser.parse_args(argv)
     try:
         if not args.db.is_file():raise ValueError('database must already exist; initialize the explicit selection first')
+        if args.command=='repair-floor':
+            print(json.dumps(floor_repair.run(args),indent=2,allow_nan=False))
+            return 0
         if args.command in ('set','correct','amend'):
             if args.exp is None and args.percentage is None:raise ValueError('supply --exp and/or --percentage as well as --level')
             if args.level is not None and not 1<=args.level<=200 or args.exp is not None and not 0<=args.exp<2**63:

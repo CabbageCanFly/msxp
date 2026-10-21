@@ -66,7 +66,7 @@ def test_connection_metadata_preserves_gains_within_character_and_session_scope(
         rows[2]['neural_level'].update(level=70,text='70')
     snap,result=projected(rows,60)
     _,gain,_=window_endpoints(result['points'],start=NOW,end=NOW+timedelta(seconds=60))
-    assert gain['value']['approximate']==(2000 if boundary in ('character','session') else 4000)
+    assert gain['value']['approximate']==(2000 if boundary=='character' else 4001 if boundary=='loss' else 4000)
 
 
 def test_longer_windows_use_actual_endpoints_and_remain_nested():
@@ -98,11 +98,11 @@ def test_public_gain_and_pace_share_selected_character_segments(tracking,switch_
     d.begin('second','alpha',config('second'));save(d,'second',1,40,4000);save(d,'second',2,60,4010)
     now=NOW+timedelta(seconds=60);rolling=d.rolling_history('alpha',now=now)
     p=tracked_statistics(player(d.snapshot('alpha',now=now),now=now,recent_snapshot=d.recent_snapshot('alpha',now=now)),rolling,now=now)
-    w=p['recent_windows']['5'];gain=1498 if switch_character else (3305*1497832//10000-3300*1497832//10000)+1498;elapsed=20 if switch_character else 40
+    w=p['recent_windows']['5'];gain=1498 if switch_character else 4010*1497832//10000-3300*1497832//10000;elapsed=20 if switch_character else 60
     assert w['gain']['approximate']==w['pace']['total_gain']['approximate']==gain
     assert w['observed']['coverage_seconds']['approximate']==w['pace']['coverage_seconds']['approximate']==elapsed
-    assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==gain*3600/elapsed
-    assert not any(g['start']==(NOW+timedelta(seconds=20)).isoformat() and g['end']==(NOW+timedelta(seconds=40)).isoformat() for g in rolling['chart_intervals'])
+    assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==gain*12
+    assert any(g['start']==(NOW+timedelta(seconds=20)).isoformat() and g['end']==(NOW+timedelta(seconds=40)).isoformat() for g in rolling['chart_intervals']) is not switch_character
 
 
 @pytest.mark.parametrize('as_of,folders,expected,strict_expected,first_exp,last_exp',[

@@ -42,7 +42,7 @@ def due(player,built_at,now):
     """A cached player must be rebuilt as rolling windows age, even without a new revision."""
     paces=[player.get('responsive_pace')]+[w.get('pace') for w in player['recent_windows'].values()]
     pace_due=any(pace and not pace.get('retained_history') and
-        datetime.fromisoformat(pace['start'])<now-timedelta(seconds=pace['trend_seconds']) for pace in paces)
+        datetime.fromisoformat(pace['end'])<now-timedelta(seconds=pace['trend_seconds']) for pace in paces)
     history_due=(any(w['available'] for w in player['recent_windows'].values())
         and (now-datetime.fromisoformat(built_at)).total_seconds()>=10)
     return pace_due or history_due
@@ -109,6 +109,29 @@ def coverage(observations, total):
         neural_level_unavailable=sum(not r['neural_level'] or r['neural_level']['level'] is None for r in observations),
         level_conflicts=sum(bool(r['neural_level'] and r['neural_level']['comparison'] == 'conflict') for r in observations),
         categories_overlap=True, trusted=False)
+
+
+# Everything else (EXP/level text, frame hash, numeric checks) can attribute a reading.
+HELD_ENVELOPE = ('type', 'trusted', 'index', 'attempted_at', 'received_at', 'requested_at', 'scheduler_delay_seconds',
+                 'timing_mode', 'actual_interval_seconds', 'skipped_deadlines', 'coordinator_attempt_seconds',
+                 'simulated_scheduler_seconds', 'source', 'timings', 'resources')
+
+
+def identity_held(record):
+    """Ownership hold before attribution: held evidence is nested where no decoder reads it.
+
+    Fails closed: character-name evidence without an explicit False decision is held.
+    Idempotent, so live writes and log replay store identical payloads.
+    """
+    name = record.get('character_name') if isinstance(record, dict) and record.get('type') == 'attempt' else None
+    if name is None or isinstance(name, dict) and name.get('reading_hold_recommended') is False:
+        return record
+    name = name if isinstance(name, dict) else {}
+    held = {k: record[k] for k in HELD_ENVELOPE if k in record}
+    held.update(status='unavailable', current=False, reasons=['identity_hold'],
+                identity_hold=dict(hold_reasons=name.get('hold_reasons'), identity_conflict=name.get('identity_conflict'),
+                                   evidence={k: v for k, v in record.items() if k not in HELD_ENVELOPE}))
+    return held
 
 
 def encoded(record):
@@ -178,10 +201,20 @@ class Diagnostics:
             return self._begin(following,channel,configuration)
 
     def _append(self, run_id, record):
-        payload = encoded(record)
+        record = identity_held(record)
         run = self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?', (run_id,)).fetchone()
         if run is None:
             raise ValueError('Unknown diagnostic run')
+        if record.get('type')=='attempt':
+            existing=self.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE run_id=? AND attempt_index=?',
+                                     (run_id,record.get('index'))).fetchone()
+            if existing and existing[0]==encoded(record):return False
+        if (record.get('type')=='attempt' and self.store.schema_version>=10
+                and (json.loads(run['configuration_json']).get('automatic_characters') or
+                     self.db.execute('SELECT 1 FROM character_level_guard WHERE character_id=?',(run['character_id'],)).fetchone())):
+            from .character_automation import guard_level
+            record=guard_level(self.store,run['character_id'],record)
+        payload = encoded(record)
         kind = record.get('type')
         if kind == 'attempt':
             if not isinstance(record.get('status'), str) or any(
@@ -284,8 +317,8 @@ class Diagnostics:
         for row in rows[:limit]:
             config=json.loads(row['configuration_json']); summary=json.loads(row['summary_json']) if row['summary_json'] else {}
             values.append(dict(run_id=row['run_id'],created_at=row['created_at'],source_kind=config.get('source_kind') if config.get('source_kind') in ('file','twitch') else None,
-                completion_reason=summary.get('completion_reason') if summary.get('completion_reason') in ('scheduled_rotation','bounded_complete','stop_condition','operator_interrupted') else None,
-                start_reason=config.get('start_reason') if config.get('start_reason') in ('scheduled_rotation','process_start') else None,
+                completion_reason=summary.get('completion_reason') if summary.get('completion_reason') in ('scheduled_rotation','bounded_complete','stop_condition','operator_interrupted','automatic_character_switch') else None,
+                start_reason=config.get('start_reason') if config.get('start_reason') in ('scheduled_rotation','process_start','automatic_character_switch') else None,
                 status='interrupted' if summary.get('interrupted') else 'completed' if summary else 'unfinished',
                 attempts=self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?',(row['run_id'],)).fetchone()[0]))
         return dict(runs=values,next_before=rows[limit-1]['rowid'] if len(rows)>limit else None,trusted=False)
@@ -295,12 +328,17 @@ class Diagnostics:
         with self.store._transaction():
             return self._snapshot(channel, now=now, active_runs=active_runs,session_id=session_id,run_id=run_id,before=before,start=start,end=end,limit=limit)
 
-    def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS,_rows_only=False):
+    def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS,_rows_only=False,character=None):
         if type(limit) is not int or not 1<=limit<=PRODUCT_ROWS:raise ValueError('Invalid history limit')
         state = self.store._state(channel, as_of=now)
         selected = next((c for c in state['characters'] if c['id'] == state['selected_character_id']), None)
         session = state['session']
         historical=any(v is not None for v in (session_id,run_id,before,start,end))
+        if character is not None:
+            selected=next((c for c in state['characters'] if c['id']==character),None)
+            if selected is None:raise ValueError('unknown character')
+            session=self.character_session(channel,character)
+            historical=True
         if session_id is not None:
             if type(session_id) is not int or session_id<1: raise ValueError('Invalid session')
             found=self.db.execute('SELECT * FROM sessions WHERE id=? AND streamer_id=(SELECT id FROM streamers WHERE login=?)',(session_id,state['channel'])).fetchone()
@@ -328,6 +366,17 @@ class Diagnostics:
         from .retention import checkpoint
         frozen=checkpoint(self.store,selected['id'] if selected else None)
         result['retention_display']=frozen.get('display',{})
+        if self.store.schema_version>=10 and not historical and selected:
+            floor=self.db.execute('SELECT level,proof_json FROM character_level_guard WHERE character_id=?', (selected['id'],)).fetchone()
+            if floor and floor['level'] is not None:
+                proof=json.loads(floor['proof_json'])
+                result['retention_display']=deepcopy(result['retention_display'])
+                if ((result['retention_display'].get('display_level') or {}).get('value') or 0)<floor['level']:
+                    # Same shape as every display level: the public page reads its evidence.
+                    result['retention_display']['display_level']=dict(value=floor['level'],timestamp=proof['received_at'],
+                        event_id=f"level-floor:{selected['id']}",status='validated_level_floor',trusted=False,
+                        evidence=dict(value=floor['level'],status='validated_level_floor',reason='validated_level_floor',trusted=False))
+                result['retention_display'].setdefault('latest_attempt_status','unavailable')
         from .invalidations import states,revision as invalidation_revision,mask,barriers
         result['invalidation_revision']=invalidation_revision(self.store,channel)
         validity_key=(selected['id'] if selected else None,result['invalidation_revision'])
@@ -382,7 +431,7 @@ class Diagnostics:
             value['source_identity']=config.get('source_identity') if re.fullmatch(r'[0-9a-f]{64}',str(config.get('source_identity'))) else None
             value['coordinator_instance']=config.get('coordinator_instance') if re.fullmatch(r'[0-9a-f]{32}',str(config.get('coordinator_instance'))) else None
             value.update(assigned_channel=state['channel'], character_id=selected['id'], session_id=session['id'],
-                         run_start_reason=config.get('start_reason') if config.get('start_reason') in ('process_start','scheduled_rotation') else None,
+                         run_start_reason=config.get('start_reason') if config.get('start_reason') in ('process_start','scheduled_rotation','automatic_character_switch') else None,
                          run_interrupted=bool(row['summary_json'] and json.loads(row['summary_json']).get('interrupted')))
             localization = payload.get('localization')
             count = localization.get('count') if isinstance(localization, dict) else None
@@ -454,17 +503,46 @@ class Diagnostics:
             result['percentage_progress']['reason']='historical_window_not_current'
         return result
 
-    def rolling_history(self,channel,*,now=None,checkpoints=None):
+    def rolling_history(self,channel,*,now=None,checkpoints=None,character=None):
         from .rolling_history import aggregate
-        if self.db.in_transaction:return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints)
+        if self.db.in_transaction:return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints,character=character)
         with self.store._transaction():
-            return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints)
+            return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints,character=character)
 
-    def recent_snapshot(self,channel,*,now,eta_cache=None,checkpoints=None):
+    def recent_snapshot(self,channel,*,now,eta_cache=None,checkpoints=None,character=None):
         from .rolling_history import recent_snapshot
-        if self.db.in_transaction:return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints)
+        if self.db.in_transaction:return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints,character=character)
         with self.store._transaction():
-            return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints)
+            return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints,character=character)
+
+    def character_session(self,channel,character):
+        """Latest session (or None if unplayed) of this channel's character."""
+        found=self.db.execute('''SELECT * FROM sessions WHERE streamer_id=? AND character_id=? ORDER BY id DESC LIMIT 1''',
+            (self.store._channel(channel)['id'],character)).fetchone()
+        if not self.db.execute('SELECT 1 FROM characters WHERE id=? AND streamer_id=?',
+                (character,self.store._channel(channel)['id'])).fetchone():raise ValueError('unknown character')
+        return dict(found) if found else None
+
+    def roster(self,channel):
+        """Compact saved characters, including unplayed ones; no history replay or checkpoint unpacking."""
+        streamer=self.store._channel(channel)
+        owner='session_id=s.id' if self.store.schema_version>=4 else 'run_id IN (SELECT run_id FROM diagnostic_runs WHERE session_id=s.id)'
+        floor='(SELECT level FROM character_level_guard WHERE character_id=c.id)' if self.store.schema_version>=10 else 'NULL'
+        saved_level="(SELECT json_extract(checkpoint_json,'$.display.display_level.value') FROM retention_state WHERE character_id=c.id)" if self.store.schema_version>=8 else 'NULL'
+        saved_seen="(SELECT json_extract(checkpoint_json,'$.display.latest_attempt_at') FROM retention_state WHERE character_id=c.id)" if self.store.schema_version>=8 else 'NULL'
+        rows=[]
+        # Per-session subqueries walk the attempt indexes; a character has one session per switch.
+        # An identity-held frame (e.g. the next character's first frame) is not a sighting.
+        for row in self.db.execute(f'''SELECT c.id,c.label,{floor} AS floor,{saved_level} AS saved_level,{saved_seen} AS saved_seen,
+                MAX((SELECT attempted_at FROM diagnostic_attempts WHERE {owner}
+                     AND json_extract(payload_json,'$.identity_hold') IS NULL ORDER BY attempted_at DESC LIMIT 1)) AS seen,
+                MAX((SELECT MAX(id) FROM diagnostic_attempts WHERE {owner})) AS revision
+                FROM characters c LEFT JOIN sessions s ON s.character_id=c.id
+                WHERE c.streamer_id=? GROUP BY c.id ORDER BY c.id LIMIT 64''',(streamer['id'],)):
+            rows.append(dict(id=row['id'],label=row['label'],level=row['floor'] or row['saved_level'],
+                last_seen_at=row['seen'] or row['saved_seen'],revision=row['revision'],
+                current=row['id']==streamer['selected_character_id']))
+        return rows
 
     def heads(self,login=None):
         """Committed revision per channel: selection, open session, latest run and attempt."""
@@ -486,15 +564,16 @@ class Diagnostics:
             LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
             '''+('WHERE s.login=? ' if login else '')+'ORDER BY s.login LIMIT 26',(login,) if login else ()))
 
-    def card(self,cache,head,*,now,checkpoints=None,eta_cache=None):
+    def card(self,cache,head,*,now,checkpoints=None,eta_cache=None,character=None):
         """One shared computation per channel revision for the homepage and character API.
 
         Entry: (revision, card, extras); extras carry the character page's chart history.
+        character: an unselected character, presented from its latest session (pass its own cache).
         """
         key=tuple(head);cached=cache.get(head['login'])
         if cached is None or cached[0]!=key or due(cached[1]['player'],cached[1]['recent_as_of'],now):
-            snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS)
-            recent=self.recent_snapshot(head['login'],now=now,eta_cache=eta_cache,checkpoints=checkpoints)
+            snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS,character=character)
+            recent=self.recent_snapshot(head['login'],now=now,eta_cache=eta_cache,checkpoints=checkpoints,character=character)
             p = snap['percentage_progress']
             last = snap['observations'][-1] if snap['observations'] else {}
             full = None

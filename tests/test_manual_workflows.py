@@ -312,7 +312,7 @@ def test_every_historical_revision_invalidates_publication_without_another_attem
         assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==4
 
 
-def test_session_boundaries_do_not_supply_correction_or_reset_gains(tracking):
+def test_same_character_session_boundaries_preserve_valid_progress(tracking):
     _,store,d=tracking
     save(d,'run',1,0,3300);save(d,'run',2,20,3310)
     store.end_session('alpha',at=at(25));store.start_session('alpha',at=at(30))
@@ -320,9 +320,9 @@ def test_session_boundaries_do_not_supply_correction_or_reset_gains(tracking):
     d.begin('new-session','alpha',config('new-session'))
     save(d,'new-session',1,40,6000);save(d,'new-session',2,60,6010)
     result=d.rolling_history('alpha',now=at(60))
-    assert result['intervals']==2 and result['coverage_seconds']['approximate']==40
+    assert result['intervals']==3 and result['coverage_seconds']['approximate']==60
     assert result['tracked_exp']['approximate']==sum(g['value']['approximate'] for g in result['chart_intervals'])
-    assert all(g['start']!=at(20).isoformat() or g['end']!=at(40).isoformat() for g in result['chart_intervals'])
+    assert any(g['start']==at(20).isoformat() and g['end']==at(40).isoformat() for g in result['chart_intervals'])
 
 
 def test_explicit_unbound_baseline_between_sessions_does_not_leak_into_a_new_session(tracking):

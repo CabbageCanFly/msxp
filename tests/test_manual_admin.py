@@ -138,9 +138,9 @@ def test_correction_boundary_preserves_old_and_new_gains_without_artificial_gain
     assert result['coverage_seconds']['approximate']==40
     assert len(result['chart_intervals'])==2
     assert sum(g['value']['approximate'] for g in result['chart_intervals'])==expected
-    for metric in result['windows'].values():
+    for minutes,metric in result['windows'].items():
         assert metric['gain']['approximate']==expected
-        assert metric['rate']['approximate']==expected*90
+        assert metric['rate']['approximate']==expected*60/int(minutes)
         assert metric['observed']['coverage_seconds']['approximate']==40
     assert result==d.rolling_history('alpha',now=at(60))
     assert d.recent_snapshot('alpha',now=at(60),checkpoints=checkpoints,eta_cache=eta_cache)==d.recent_snapshot('alpha',now=at(60))
@@ -265,15 +265,15 @@ def test_current_level_filter_uses_manual_level_immediately_without_capture(trac
     assert tracked['current_level_windows']['5']['gain'] is None
 
 
-def test_manual_boundaries_do_not_drop_observed_losses_from_net_gain():
+def test_manual_boundaries_exclude_resets_and_losses_from_earned_gain():
     from exp_tracker.pace_intervals import window_endpoints
-    # A supported loss before the correction must still reduce the later net gain.
+    # A loss interval and a correction both start new earned-EXP baselines.
     points=[]
     for index,exp in enumerate((600000,599900,700000,700300)):
         points.append(dict(event_id=str(index),timestamp=at(index*20).isoformat(),level=dict(value=67),
-            exp=str(exp),bp=100,evidence='strict_full',manual_epoch=None if index<2 else 1))
+            exp=str(exp),bp=100,evidence='strict_full',accounting_scope='1:1',manual_epoch=None if index<2 else 1))
     _,gain,_=window_endpoints(points,start=NOW,end=at(60))
-    assert gain['value']['approximate']==200 and gain['coverage_seconds']['approximate']==40
+    assert gain['value']['approximate']==300 and gain['coverage_seconds']['approximate']==20
 
 
 def test_trusted_accounting_resumes_with_ocr_baseline_not_manual_gain(tracking,profile):

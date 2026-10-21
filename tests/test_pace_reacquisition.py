@@ -45,9 +45,9 @@ def test_matching_reacquisition_pools_only_valid_integer_edges(tracking):
     assert pace['interval_counts']==dict(direct=4,endpoint_supported=1)
     assert pace['coverage_seconds']['approximate']==90 and pace['span_seconds']['approximate']==90
     assert pace['basis']=='observed_exp_endpoints'
-    assert pace['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(4494*3600/90)
-    assert pace['estimates']['percentage_per_hour']['value']['approximate']==pytest.approx(12)
-    assert pace['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']==pytest.approx(11.6)
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==4494*12
+    assert pace['estimates']['percentage_per_hour']['value']['approximate']==pytest.approx(3.6)
+    assert pace['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']==pytest.approx(3.48)
     assert window_comparisons(snap,now=NOW+timedelta(seconds=90))==frozen_windows
     assert history(snap)==frozen_history
     assert not frozen_history[4]['connect_previous'] and frozen_history[5]['connect_previous']
@@ -74,9 +74,9 @@ def test_hard_boundaries_block_crossing_and_keep_unrelated_same_context_interval
     else:
         row['percentage_review'].update(public_eligible=kind=='loss',progress_eligible=kind=='loss',break_before='confirmed_change_new_baseline' if kind=='loss' else None)
     pace=responsive_pace(snap,dict(value=64),now=NOW+timedelta(seconds=90))
-    expected=(495783-494285)+(498779-498030) if kind=='session' else 498779-494285
+    expected=498779-494285
     assert pace['total_gain']['approximate']==expected
-    assert pace['coverage_seconds']['approximate']==(45 if kind=='session' else 90)
+    assert pace['coverage_seconds']['approximate']==90
     strict=collect(snap,now=NOW+timedelta(seconds=90),read=reading,max_interval_seconds=300)
     if kind in ('conflict','stale','crop','duplicate'):
         assert all(row['event_id'] not in (e['before']['event_id'],e['after']['event_id']) for e in strict['intervals'])
@@ -87,9 +87,9 @@ def test_pool_ages_without_new_captures_and_expired_history_is_not_current(track
     for i in range(1,22):append(d,i,f'[33.{i:02}%]')
     before=get(d,300)['responsive_pace']
     after=get(d,345)['responsive_pace']
-    assert before['readings']==21 and after['readings']==18
-    assert after['coverage_seconds']['approximate']==255
-    assert after['start']==(NOW+timedelta(seconds=45)).isoformat()
+    assert before['readings']==21 and after['readings']==19
+    assert after['coverage_seconds']['approximate']==270
+    assert after['start']==(NOW+timedelta(seconds=30)).isoformat()
     old=get(d,601)
     assert old['responsive_pace']['recent_pool_expired']
     assert not old['responsive_pace']['active'] and old['responsive_pace']['retained_history']
@@ -106,9 +106,9 @@ def test_directory_cache_expires_intervals_without_a_new_sqlite_revision(trackin
     cache={}
     before=d.directory(cache,now=NOW+timedelta(seconds=300))['streams'][0]['player']['responsive_pace']
     after=d.directory(cache,now=NOW+timedelta(seconds=345))['streams'][0]['player']['responsive_pace']
-    assert before['readings']==21 and after['readings']==18
-    assert after['coverage_seconds']['approximate']==255
-    assert after['start']==(NOW+timedelta(seconds=45)).isoformat()
+    assert before['readings']==21 and after['readings']==19
+    assert after['coverage_seconds']['approximate']==270
+    assert after['start']==(NOW+timedelta(seconds=30)).isoformat()
     expired=d.directory(cache,now=NOW+timedelta(seconds=601))['streams'][0]['player']['responsive_pace']
     assert not expired['active'] and expired['recent_pool_expired']
 

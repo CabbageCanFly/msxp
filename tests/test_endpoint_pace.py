@@ -59,7 +59,7 @@ def test_required_100k_to_800k_timeline_uses_all_elapsed_time(synthetic_requirem
     assert pace['active'] and pace['readings']==6
     assert pace['coverage_seconds']['approximate']==140
     assert pace['total_gain']['approximate']==700000
-    assert pace['estimates']['exp_per_hour']['value']['approximate']==18_000_000
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==8_400_000
     assert pace['interval_counts']==dict(direct=3,endpoint_supported=2)
     assert pace['missing_attempts']==2
     assert [(e['first_event_id'],e['last_event_id']) for e in pace['intervals']]==[
@@ -74,7 +74,7 @@ def test_uneven_gain_inside_gaps_cannot_bias_the_denominator(synthetic_requireme
     rows=timeline();rows[5]=point(6,100,650000,'6.50')
     pace=responsive_pace(snapshot(rows,140),dict(value=67),now=NOW+timedelta(seconds=140))
     assert pace['total_gain']['approximate']==700000 and pace['coverage_seconds']['approximate']==140
-    assert pace['estimates']['exp_per_hour']['value']['approximate']==18_000_000
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==8_400_000
     direct=[e for e in pace['intervals'] if e['kind']=='direct']
     assert sum(e['gain']['approximate'] for e in direct)==250000
     assert sum(e['elapsed_seconds']['approximate'] for e in direct)==60
@@ -98,7 +98,7 @@ def test_missing_captures_hold_sample_then_next_endpoint_updates_without_warmup(
     pace=responsive_pace(snapshot(rows,end),dict(value=67),now=NOW+timedelta(seconds=end))
     assert pace['active'] and pace['readings']==3 and pace['coverage_seconds']['approximate']==end
     assert pace['total_gain']['approximate']==300000
-    assert pace['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(300000*3600/end)
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==3_600_000
     assert pace['interval_counts']==dict(direct=1,endpoint_supported=1)
     assert pace['missing_attempts']==count
 

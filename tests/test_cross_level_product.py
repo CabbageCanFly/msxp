@@ -24,20 +24,30 @@ def levels():
 
 
 def expected_net(snap,now,minutes=1440,level=None):
-    """Independent whole-EXP reference from the public graph's endpoint values."""
+    """Independent sum of eligible adjacent nonnegative level/EXP coordinates."""
     from exp_tracker.product import reading
     points=[v for r in snap['observations'] if (v:=reading(r)) and v['fresh_at_capture']
         and not r.get('crop_suspect') and not v['simulated'] and v['level']['value'] is not None
-        and now-timedelta(minutes=minutes)<=datetime.fromisoformat(v['timestamp'])<=now
-        and (level is None or v['level']['value']==level)]
-    if len(points)<2:return None
-    first,last=points[0],points[-1];a,b=first['level']['value'],last['level']['value']
-    if b<a:return None
-    totals=[requirement(i)['to_next'] for i in range(a,b)]
-    if any(t is None for t in totals):return None
+        and datetime.fromisoformat(v['timestamp'])<=now]
     def value(p):return int(p['exp']) if p['exp'] is not None else (p['bp']*requirement(p['level']['value'])['to_next']+5000)//10000
-    amount=sum(totals)+value(last)-value(first)
-    return amount if amount>=0 else None
+    ordered=[]
+    for p in points:
+        if ordered and p['timestamp']<=ordered[-1]['timestamp']:continue
+        ordered.append(p)
+    gains=[]
+    for first,last in zip(ordered,ordered[1:]):
+        a,b=first['level']['value'],last['level']['value']
+        before,after=map(datetime.fromisoformat,(first['timestamp'],last['timestamp']))
+        if not now-timedelta(minutes=minutes)<=after<=now or after-before>timedelta(minutes=minutes):continue
+        if level is not None and (a!=level or b!=level):continue
+        if b<a or first.get('manual_epoch')!=last.get('manual_epoch'):continue
+        if str(first.get('accounting_scope')).partition(':')[0]!=str(last.get('accounting_scope')).partition(':')[0]:continue
+        totals=[requirement(i)['to_next'] for i in range(a,b)]
+        if any(t is None for t in totals):continue
+        if any(p['exp'] is None and requirement(p['level']['value'])['to_next'] is None for p in (first,last)):continue
+        amount=sum(totals)+value(last)-value(first)
+        if amount>=0:gains.append(amount)
+    return sum(gains) if gains else None
 
 
 def test_mixed_window_subtracts_level_exp_coordinates():
@@ -47,7 +57,7 @@ def test_mixed_window_subtracts_level_exp_coordinates():
     for w in recent_windows(snap,None,now=now).values():
         assert w['gain']['approximate']==expected
         assert w['pace']['coverage_seconds']['approximate']==80
-        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==expected*45
+        assert w['pace']['estimates']['exp_per_hour']['value']['approximate']==expected*60/w['minutes']
         assert w['pace']['estimates']['percentage_per_hour'] is None
         assert w['pace']['estimates']['exp_per_hour']['transition_gain_included']
         assert w['eta']['level']==68
@@ -101,7 +111,7 @@ def test_missing_transition_requirement_does_not_hide_current_numeric_gain():
     rows=levels()[:2]+[point(3,40,100,'0.01',level=100),point(4,60,200,'0.02',level=100)]
     snap=snapshot(rows,60);now=NOW+timedelta(seconds=60)
     w=recent_windows(snap,dict(value=100),now=now)['5']
-    assert w['gain'] is None and w['reason']=='level_transition_requirement_unavailable'
+    assert w['gain']['approximate']==288  # Known intervals remain valid around an unknown transition.
     current=recent_windows(snap,dict(value=100),now=now,current_level_only=True)['5']
     assert current['gain']['approximate']==100 and current['eta'] is None
 
@@ -125,7 +135,7 @@ def test_acquisition_and_process_boundaries_do_not_exclude_level_up_gain(boundar
     elif boundary=='missing':rows.insert(2,missing(8,30))
     else:rows[2]=point(3,40,1757100,'99.96')
     w=recent_windows(snapshot(rows,80),None,now=NOW+timedelta(seconds=80))['5']
-    expected=(1757288-1757100)+(1010-103) if boundary=='session' else requirement(67)['to_next']-1757100+1010
+    expected=requirement(67)['to_next']-1757100+1010
     assert w['pace'] and w['gain']['approximate']==expected
     assert not w['complete_window']
 

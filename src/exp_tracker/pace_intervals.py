@@ -12,7 +12,7 @@ from .shadow_grammar import interpret_exp
 POLICY='endpoint_pace_v3'
 RECOVERY_POLICY='conditional_percent_v1'
 TRACKED_POLICY='tracked_endpoint_exp_v5'
-PUBLIC_POLICY='public_endpoint_window_v1'
+PUBLIC_POLICY='public_endpoint_window_v2'
 # Longest live window plus causal warmup; age by replay time, never query time.
 FRAME_HISTORY_SECONDS=24*60*60+5*60
 
@@ -97,7 +97,7 @@ def endpoint_interval(before,after):
     """Net EXP in level/EXP coordinates; no capture-connection eligibility."""
     if before.get('manual_epoch') != after.get('manual_epoch'):
         return None,'manual_correction'
-    if before.get('accounting_scope')!=after.get('accounting_scope'):
+    if not same_character(before,after):
         return None,'character_or_session_changed'
     a,b=before['level']['value'],after['level']['value']
     if a is None or b is None:return None,'level_unavailable'
@@ -120,66 +120,79 @@ def endpoint_interval(before,after):
 
 
 def usable_endpoint(point):
-    return point['level']['value'] is not None and (point['exp'] is not None or requirement(point['level']['value'])['to_next'] is not None)
+    level=point['level']['value']
+    return (level is not None and point.get('exp_validity',{}).get('level') in (None,level)
+            and (point['exp'] is not None or requirement(level)['to_next'] is not None))
+
+
+def same_character(before,after):
+    # Scope was character:session in older persisted checkpoints; character IDs are Store-global.
+    a=str(before.get('accounting_scope') or '').partition(':')[0]
+    b=str(after.get('accounting_scope') or '').partition(':')[0]
+    return a not in ('','None') and a==b
 
 
 def window_endpoints(points,*,start,end,level=None):
-    """Select observations first; never select intervals to decide a window's gain."""
-    in_window=[p for p in points if start<=datetime.fromisoformat(p['timestamp'])<=end
-        and (level is None or p['level']['value']==level)]
-    selected=[p for p in in_window if usable_endpoint(p)]
-    selected.sort(key=lambda p:datetime.fromisoformat(p['timestamp']))
-    if len({(p.get('manual_epoch'),p.get('accounting_scope')) for p in selected})>1:
-        from itertools import groupby
-        used=[];gains=[];coverage=Fraction(0)
-        for _,group in groupby(selected,key=lambda p:(p.get('manual_epoch'),p.get('accounting_scope'))):
-            part=list(group)
-            if len(part)<2 or part[0]['timestamp']==part[-1]['timestamp']:continue
-            gain,_=endpoint_interval(part[0],part[-1])
-            if gain:
-                used.extend(part);gains.append(gain)
-                coverage+=elapsed_seconds(datetime.fromisoformat(part[0]['timestamp']),datetime.fromisoformat(part[-1]['timestamp']))
-        if not gains:return selected,None,'manual_correction_baseline_required'
-        combined=dict(gains[-1],start=used[0]['timestamp'],first_event_id=used[0]['event_id'],
-            value=rational(sum((Fraction(g['value']['numerator'],g['value']['denominator']) for g in gains),Fraction(0))),
-            coverage_seconds=rational(coverage),manual_boundaries=True,
-            requirements=[r for g in gains for r in g['requirements']],
-            transition_gain_included=any(g['transition_gain_included'] for g in gains),
-            basis=gains[0]['basis'] if len({g['basis'] for g in gains})==1 else 'mixed_exp_and_percentage_endpoints')
-        if combined['value']['numerator']<0:return used,None,'observed_exp_decrease'
-        return used,combined,None
-    if len(selected)<2 or selected[0]['timestamp']==selected[-1]['timestamp']:
-        if len(in_window)>=2 and len(selected)<2:
-            return selected,None,'level_unavailable' if any(p['level']['value'] is None for p in in_window) else 'percentage_requirement_unavailable'
-        return selected,None,'two_distinct_observation_times_required'
-    gain,reason=endpoint_interval(selected[0],selected[-1])
-    if gain and gain['value']['numerator']<0:return selected,None,'observed_exp_decrease'
-    return selected,gain,reason
+    """Sum disjoint nonnegative intervals ending in the window and no longer than it."""
+    ordered=sorted((p for p in points if usable_endpoint(p) and datetime.fromisoformat(p['timestamp'])<=end),
+                   key=lambda p:datetime.fromisoformat(p['timestamp']))
+    used=[];gains=[];coverage=Fraction(0);reason='two_distinct_observation_times_required'
+    for before,after in zip(ordered,ordered[1:]):
+        a,b=datetime.fromisoformat(before['timestamp']),datetime.fromisoformat(after['timestamp'])
+        if not start<=b<=end or b<=a:continue
+        if b-a>end-start:
+            reason='gap_exceeds_window';continue
+        if level is not None and (before['level']['value']!=level or after['level']['value']!=level):continue
+        gain,why=endpoint_interval(before,after)
+        if gain is None:
+            reason=why;continue
+        if gain['value']['numerator']<0:
+            reason='observed_exp_decrease';continue
+        if not used or used[-1]['event_id']!=before['event_id']:used.append(before)
+        used.append(after);gains.append(gain);coverage+=elapsed_seconds(a,b)
+    if not gains:
+        available=[p for p in points if start<=datetime.fromisoformat(p['timestamp'])<=end]
+        if len(available)>=2 and sum(usable_endpoint(p) for p in available)<2:
+            reason='level_unavailable' if any(p['level']['value'] is None for p in available) else 'percentage_requirement_unavailable'
+        return [],None,reason
+    return used,dict(gains[-1],start=used[0]['timestamp'],first_event_id=used[0]['event_id'],
+        value=rational(sum((Fraction(g['value']['numerator'],g['value']['denominator']) for g in gains),Fraction(0))),
+        coverage_seconds=rational(coverage),intervals=gains,
+        manual_boundaries=any(a['last_event_id']!=b['first_event_id'] for a,b in zip(gains,gains[1:])),
+        requirements=[r for g in gains for r in g['requirements']],
+        transition_gain_included=any(g['transition_gain_included'] for g in gains),
+        basis=gains[0]['basis'] if len({g['basis'] for g in gains})==1 else 'mixed_exp_and_percentage_endpoints'),None
 
 
 def collect_observed(snapshot, *, now, read, max_interval_seconds, state=None):
     """Already-public observations. Failures never clear an endpoint.
 
-    The diagnostic collector supplies only existing conditional-symbol readings;
-    none of its interval decisions is used for public gain eligibility.
+    The diagnostic collector supplies conditional-symbol readings and duplicate
+    detection, never its capture-gap or interval-inclusion decisions.
     """
     if state is None:state={}
     diagnostic=collect(snapshot,now=now,read=read,max_interval_seconds=max_interval_seconds,state=state.setdefault('diagnostic',{}))
     recovered={r['event_id']:r['value'] for r in diagnostic['recoveries'] if r['status']=='eligible_experimental'}
+    duplicates={r['event_id'] for r in diagnostic['excluded'] if r['reason']=='duplicate_capture'}
     previous=state.get('previous');holes=state.get('holes',[]);edges=[];points=[];excluded=[]
     character=(snapshot.get('selected_character') or {}).get('id')
+    last_time=state.get('last_time') or (previous['timestamp'] if previous else None)
     for row in snapshot['observations']:
         value=recovered.get(row['event_id']) or read(row)
-        if value and value['fresh_at_capture'] and not value['simulated'] and row.get('timestamp_ordered') is not False and not row.get('crop_suspect') and (character is None or row.get('character_id')==character):
+        if value and value['fresh_at_capture'] and not value['simulated'] and row['event_id'] not in duplicates and row.get('timestamp_ordered') is not False and not row.get('crop_suspect') and (character is None or row.get('character_id')==character):
             try:
                 when=datetime.fromisoformat(value['timestamp'])
                 if when.utcoffset() is None or when>now:raise ValueError
             except (TypeError,ValueError):continue
+            if last_time and when<=datetime.fromisoformat(last_time):
+                excluded.append(dict(event_id=row['event_id'],timestamp=value['timestamp'],reason='nonincreasing_timestamp'))
+                continue
+            last_time=value['timestamp']
             value=dict(value,source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),run_id=row.get('run_id'),index=row.get('index'),
                 accounting_scope=f"{row.get('character_id')}:{row.get('session_id')}")
             points.append(value)
             if not usable_endpoint(value):continue
-            if previous and previous.get('manual_epoch')==value.get('manual_epoch') and previous.get('accounting_scope')==value['accounting_scope'] and datetime.fromisoformat(previous['timestamp'])<when:
+            if previous and previous.get('manual_epoch')==value.get('manual_epoch') and same_character(previous,value) and datetime.fromisoformat(previous['timestamp'])<when:
                 edges.append(dict(before=previous,after=value,epoch=0,
                     identity=(row.get('assigned_channel') or row.get('channel'),row.get('channel'),row.get('source_kind'),row.get('source_identity'),row.get('character_id'),row.get('session_id')),
                     kind='endpoint_supported' if holes else 'direct',missing_event_ids=list(holes),
@@ -187,7 +200,7 @@ def collect_observed(snapshot, *, now, read, max_interval_seconds, state=None):
             previous=value;holes=[]
         else:
             holes.append(row['event_id']);excluded.append(dict(event_id=row['event_id'],timestamp=row.get('received_at') or row.get('attempted_at'),reason='public_observation_unavailable'))
-    state.update(previous=previous,holes=holes)
+    state.update(previous=previous,holes=holes,last_time=last_time)
     return dict(points=points,intervals=edges,recoveries=diagnostic['recoveries'],excluded=excluded,epoch=0,
         latest=previous,pending_missing=len(holes),identity=edges[-1]['identity'] if edges else None)
 

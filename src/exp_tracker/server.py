@@ -110,7 +110,10 @@ class Handler(BaseHTTPRequestHandler):
                     # Requests only present published state; inline servers settle it first.
                     publisher=self.server.publisher
                     if not publisher.background:publisher.settle()
-                    self.reply(200,publisher.homepage())
+                    mode=parse_qs(urlsplit(self.path).query).get('mode', ['streamers'])
+                    if mode not in (['streamers'], ['characters']):
+                        self.reply(400,{'error':'invalid_mode'});return
+                    self.reply(200,publisher.characters() if mode==['characters'] else publisher.homepage())
                 else:
                     channel=(product_api[1] if product_api else product_history[1] if product_history else product_page[2]).lower()
                     if not CHANNEL.fullmatch(channel):self.reply(400,{'error':'invalid_channel'});return
@@ -124,7 +127,14 @@ class Handler(BaseHTTPRequestHandler):
                         query=parse_qs(urlsplit(self.path).query)  # The request line is already bounded.
                         # Revisions of the chart history and tracked packet the page already holds; anything else means none.
                         known=tuple(v[0] if (v:=query.get(name)) and len(v)==1 and re.fullmatch(r'[0-9a-f]{16}',v[0]) else None for name in ('history','tracked'))
-                        body=publisher.character(channel,known)
+                        # View-only: one of this channel's saved characters; never changes the selection.
+                        view=query.get('character')
+                        if view is not None and (len(view)!=1 or not re.fullmatch(r'[1-9][0-9]{0,17}',view[0])):
+                            self.reply(400,{'error':'invalid_character'});return
+                        try:body=publisher.character(channel,known,int(view[0]) if view else None)
+                        except LookupError:
+                            self.reply(404,{'error':'unknown_character'})
+                            return
                     else:body=publisher.history(channel)
                     if body is None:
                         with Store(self.server.database,read_only=True) as store:store._channel(channel)  # Unknown: 404.

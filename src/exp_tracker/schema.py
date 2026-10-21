@@ -1,6 +1,6 @@
 """SQLite base schema and additive migrations, applied in one transaction."""
 
-VERSION = 9
+VERSION = 10
 STATEMENTS = (
     """CREATE TABLE streamers (
         id INTEGER PRIMARY KEY, login TEXT NOT NULL UNIQUE,
@@ -207,4 +207,22 @@ MIGRATION_9 = (
         CHECK(utc_date=substr(observed_at,1,10)),
         PRIMARY KEY(character_id,utc_date)
     ) WITHOUT ROWID""",
+)
+
+# Independent of expiring capture evidence and sessions; never erased by retention.
+MIGRATION_10 = (
+    """CREATE TABLE character_level_guard (
+        character_id INTEGER PRIMARY KEY REFERENCES characters(id),
+        level INTEGER CHECK(level BETWEEN 1 AND 200), proof_json TEXT,
+        pending_json TEXT, updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE automatic_character_events (
+        event_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
+        streamer_id INTEGER NOT NULL REFERENCES streamers(id),
+        character_id INTEGER NOT NULL REFERENCES characters(id),
+        run_id TEXT NOT NULL, receipt_json TEXT NOT NULL, recorded_at TEXT NOT NULL
+    )""",
+    """CREATE TRIGGER character_level_no_regression BEFORE UPDATE ON character_level_guard
+        WHEN OLD.level IS NOT NULL AND (NEW.level IS NULL OR NEW.level < OLD.level)
+        BEGIN SELECT RAISE(ABORT,'validated character level cannot regress'); END""",
 )

@@ -156,7 +156,7 @@ def test_missing_attempts_retain_dated_rate_without_fake_intervals(tracking,miss
     assert p['end']==base['end']
     # Aging the earliest point can change whole-EXP rounding by one EXP.
     assert p['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(
-        sum(e['gain']['approximate'] for e in p['intervals'])*3600/p['coverage_seconds']['approximate'])
+        sum(e['gain']['approximate'] for e in p['intervals'])*12)
     assert not value['windows']['5']['eligible']
     expired=refresh(value,now=NOW+timedelta(seconds=200+1800),activity=dict(state='waiting'))
     assert expired['responsive_pace']['presentation']['state']=='paused'
@@ -165,6 +165,6 @@ def test_missing_attempts_retain_dated_rate_without_fake_intervals(tracking,miss
     recovered=present(d,end+40)['responsive_pace']
     assert recovered['active'] and recovered['presentation']['state']=='observed'
     assert recovered['estimates']['exp_per_hour']['value']['approximate']==pytest.approx(
-        sum(e['gain']['approximate'] for e in recovered['intervals'])*3600/recovered['coverage_seconds']['approximate'])
+        sum(e['gain']['approximate'] for e in recovered['intervals'])*12)
     assert recovered['interval_counts']['endpoint_supported']==(1 if missing*20+20<=300 else 0)
     assert not store.db.execute('SELECT 1 FROM observations').fetchone()

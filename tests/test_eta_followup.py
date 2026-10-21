@@ -148,10 +148,10 @@ def test_sqlite_restores_dated_eta_across_restart_and_beyond_recent_query(tracki
     first=player(d.snapshot('alpha',now=now),now=now,recent_snapshot=d.recent_snapshot('alpha',now=now))
     d.begin('restart','alpha',config('restart',source_identity=None))
     failed=dict(type='attempt',trusted=False,index=1,current=False,
-        attempted_at=(NOW+timedelta(hours=2)).isoformat(),status='capture_failed',
+        attempted_at=(NOW+timedelta(hours=3)).isoformat(),status='capture_failed',
         source=dict(kind='twitch',channel='alpha'))
     d.append('restart',failed)
-    now=NOW+timedelta(hours=2,seconds=1)
+    now=NOW+timedelta(hours=3,seconds=1)
     raw=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     with Store(path,read_only=True) as reopened:
         reader=Diagnostics(reopened);cache={}
@@ -217,7 +217,7 @@ def test_eta_history_work_limit_is_explicit_and_does_not_affect_trusted_state(tr
     _,store,d=tracking
     for i in range(1,4):saved_attempt(d,'run',i,(i-1)*20,3300+i*5)
     monkeypatch.setattr(rolling_history,'MAX_EVENTS',2)
-    now=NOW+timedelta(hours=2)
+    now=NOW+timedelta(hours=3)
     result=player(d.snapshot('alpha',now=now),now=now,recent_snapshot=d.recent_snapshot('alpha',now=now))
     assert result['recent_history']['eta_status']=='history_limit'
     assert not any(w['eta'] for w in result['recent_windows'].values())

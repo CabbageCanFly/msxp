@@ -122,6 +122,15 @@ class Invalidations:
                     WHERE streamer_id=? AND character_id=? AND session_id IS NOT NULL AND observed_at>=? AND observed_at<?)
                 ORDER BY kind,source_id LIMIT ?''',(sid,cid,start,end,sid,cid,start,end,MAX_SELECTION+1))]
         if len(rows)>MAX_SELECTION:raise ValueError(f'more than {MAX_SELECTION:,} readings match; choose a smaller range')
+        if 'only' in spec:
+            only=spec['only']
+            if ('kind' in spec or 'batch_id' in spec or not isinstance(only,list) or len(only)>MAX_SELECTION or any(not isinstance(k,list) or len(k)!=2 or
+                    k[0] not in ('diagnostic','observation') or not isinstance(k[1],str) for k in only)):
+                raise ValueError('invalid explicit reading selection')
+            chosen={tuple(k) for k in only}
+            rows=[r for r in rows if (r['kind'],r['target_event_id']) in chosen]
+            if len(chosen)!=len(only) or chosen!={(r['kind'],r['target_event_id']) for r in rows}:
+                raise ValueError('explicit readings are duplicated or outside the reviewed range')
         validity=states(self.store,cid)
         points={(e['target_kind'],e['target_event_id']):e['id'] for e in self.store.manual_history(login,active_only=True)
                 if e['kind']=='point' and e['character_id']==cid}

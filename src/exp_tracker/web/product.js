@@ -14,6 +14,12 @@ let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=5,chartMode='
 let rollingData=null,rollingReceived=0,rollingRevision=null,rollingFailed=false,rollingController=null,rollingTimer=null;
 let tip=null,tipKey=null,tipPosition=null,tipDismissed=false,lastPointer=null;
 let currentLevelOnly=false,warming=false;
+// View-only character choice (?character=ID); null follows whichever character is being tracked.
+const characterParam=()=>{const id=new URLSearchParams(location.search).get('character');return view==='player' && /^[1-9][0-9]{0,17}$/.test(id ?? '')?id:null;};
+let viewCharacter=characterParam(),roster=[],rosterKey='',rosterViewing=null;
+const boardParam=()=>new URLSearchParams(location.search).get('mode')==='characters'?'characters':'streamers';
+let boardMode=boardParam();
+const inactiveView=()=>view==='player' && data?.view?.current===false;
 const el=id=>document.getElementById(id);
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
 function hideTip() { if(tip)tip.hidden=true;tipKey=null;tipPosition=null; }
@@ -67,7 +73,8 @@ function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l
 // Public labels follow accepted display evidence; possible wraps stay in the status and hover text.
 const LEVEL_SOURCES={exp_derived:'Inferred from EXP and percentage with the provisional community table; not read from the level HUD.',
   retained_level:'Last supported level, retained across percentage-only readings; not re-verified since then.',
-  provisional_level_up:'Provisional level-up inferred from a percentage wrap and forward progress; awaiting EXP or level-reader corroboration.'};
+  provisional_level_up:'Provisional level-up inferred from a percentage wrap and forward progress; awaiting EXP or level-reader corroboration.',
+  validated_level_floor:'Last validated level for this character; shown until a newer supported level reading.'};
 function levelTransition(p) { const t=p.level_context?.transition;return t?.phase==='possible'?t:null; }
 function levelText(p) {
   const level=displayLevel(p);
@@ -152,6 +159,7 @@ function windowNote(p) {
     const old=current(p).stale || failed || o.paused;
     return `${spanText((o.coverage_seconds ?? o.span_seconds).approximate)} · ${o.readings} readings${o.interruptions?` · ${o.interruptions+1} sequences`:''}${o.span_seconds.approximate>=windowMinutes*60?' · complete window':' · partial history'}${old?` · last updated ${ageText(age)}`:''}`;
   }
+  if(inactiveView())return 'Saved history · not currently tracked';
   if(current(p).stale || failed)return 'Waiting for fresh readings';
   if(w?.eligible)return `Last ${windowMinutes} min · ${Math.round(w.coverage_seconds.approximate)}s observed · ${w.readings} readings`;
   if(w?.state==='unavailable')return 'Gathering a fresh comparison';
@@ -175,6 +183,8 @@ function captureText(p) {
     stopped:'Capture paused',coordinator_stopped:'Capture paused',previous_unfinished_run:'Capture stopped'})[state] ?? 'Capture paused';
 }
 function statusText(p) {
+  // Another character's saved state: never the tracked character's capture or Twitch status.
+  if(inactiveView())return `Not currently tracked · ${p.reading?'last reading '+ageText(current(p).age):'no saved readings'}`;
   let status=p.twitch?.status;
   const now=Date.parse(data?.served_at ?? data?.player?.latest_attempt_at)+(performance.now()-receivedAt);
   if(p.twitch?.valid_until && now>Date.parse(p.twitch.valid_until))status='unknown';
@@ -196,7 +206,7 @@ function etaText(value,compact=false) {
   return '~'+parts.join(' ');
 }
 function rateTitle(rate) {
-  if(!rate)return 'Needs two supported readings and a positive, comparable elapsed interval. Recent pace includes time between valid endpoints; complete-window rankings remain separate.';
+  if(!rate)return 'Needs two supported readings with an interval no longer than the selected window. EXP/hour uses eligible gain divided by the selected window duration; complete-window rankings remain separate.';
   return `Experimental estimate, not earned EXP. ${Object.entries(rate.hypotheses ?? {}).map(([rule,b])=>`${rule}: ${numbers.format(Math.round(b.lower.approximate))}–${numbers.format(Math.round(b.upper.approximate))} EXP/h`).join('; ')}. Community requirement ${rate.requirement.version}; quantization bounds exclude OCR errors.`;
 }
 function metricValue(p,key) {
@@ -228,19 +238,60 @@ function entry({player:p,value,rank}) {
   row.append(badge,level,identity,section,score);return row;
 }
 function renderBoard() {
+  const characters=boardMode==='characters';
+  document.querySelectorAll('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===boardMode)));
+  el('streamer-metrics').hidden=characters;el('streamer-windows').hidden=characters;el('character-controls').hidden=!characters;
+  el('connection').textContent=failed?'Connection interrupted · showing older readings':'Updates automatically · local tracker';
+  if(characters){renderCharacters();return;}
   const rows=ranked(data?.players ?? [],sort);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
   el('entries').replaceChildren(...rows.map(entry));
   [...el('entries').querySelectorAll('.exp-number')].filter(n=>n.clientWidth>0 && n.scrollWidth>n.clientWidth+1).forEach(n=>{n.textContent=n.dataset.compactNumber;});
   if(focus) [...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
+  el('empty').textContent='No characters yet. Start the local tracker with your channel and character.';
   el('board-count').textContent=data?`${rows.length} character${rows.length===1?'':'s'} · saved stream readings${data.warming?.length?` · preparing ${data.warming.length} more`:''}`:failed?'Tracker unavailable':'Loading your party…';
   el('ranking-count').textContent=`${rows.filter(r=>r.rank!=null).length} eligible · ${rows.length} shown`;
   el('ranking-note').textContent=sort==='level'?'Your party, by level':`Comparing complete ${windowMinutes}-minute windows`;
   el('ranking-note').title=sorts[sort]+(sort==='level'?'':` ${windowMinutes}-minute window; ≥90% contiguous coverage, no interpolation.`);
-  el('connection').textContent=failed?'Connection interrupted · showing older readings':'Updates automatically · local tracker';
   document.querySelectorAll('[data-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.sort===sort)));
   document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
+}
+function renderCharacters() {
+  const search=el('character-filter').value.trim().toLowerCase(),order=el('character-sort').value || 'recent';
+  const all=data?.characters ?? [],rows=all.filter(r=>`${r.label} ${r.channel}`.toLowerCase().includes(search));
+  rows.sort((a,b)=>(order==='level'?(b.level ?? -1)-(a.level ?? -1):order==='name'?a.label.localeCompare(b.label):
+    (Date.parse(b.last_seen_at) || 0)-(Date.parse(a.last_seen_at) || 0)) || a.channel.localeCompare(b.channel) || a.id-b.id);
+  const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
+  const now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
+  el('entries').replaceChildren(...rows.map(r=>{
+    const row=node('li','entry character-entry');row.dataset.channel=r.channel;row.dataset.character=r.id;
+    const level=node('span','level');level.append(node('small','','LV.'),node('strong','',r.level ?? '—'));
+    const identity=node('div','identity'),link=node('a','character',r.label);link.href=`/stream/${encodeURIComponent(r.channel)}?character=${r.id}`;
+    const status=node('span','status',r.current?'Currently tracked':'Not currently tracked');
+    status.className+=r.current?' roster-live':'';
+    identity.append(link,node('span','channel',r.channel),status);
+    const seen=node('span','saved-seen',r.last_seen_at?`Last reading ${ageText(Math.max(0,(now-Date.parse(r.last_seen_at))/1000))}`:'No saved readings');
+    if(r.last_seen_at)seen.title=localTime(r.last_seen_at);
+    row.append(level,identity,seen);return row;
+  }));
+  if(focus)[...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
+  el('empty').hidden=rows.length>0 || !data;
+  el('empty').textContent=search?'No characters match your search.':'No saved characters yet.';
+  el('board-count').textContent=data?`${all.length} saved character${all.length===1?'':'s'}${data.warming?.length?` · preparing ${data.warming.length} streamers`:''}`:failed?'Tracker unavailable':'Loading characters…';
+  el('ranking-note').textContent='Saved characters · historical levels and last readings';
+  el('ranking-note').title='Currently tracked means selected for capture; it does not establish that the stream is live. Open a character for its own EXP history.';
+  el('ranking-count').textContent=`${rows.length} shown · ${all.filter(r=>r.current).length} currently tracked`;
+}
+function selectBoard(mode,historyMode='push') {
+  if(!['streamers','characters'].includes(mode) || mode===boardMode)return;
+  boardMode=mode;
+  if(historyMode!=='none'){
+    const url=new URL(location.href);if(mode==='characters')url.searchParams.set('mode',mode);else url.searchParams.delete('mode');
+    history.pushState(null,'',url);
+  }
+  data=null;renderBoard();
+  if(activeController)activeController.abort();else poll();
 }
 function renderPlayer() {
   const p=data?.player,r=p?.reading;
@@ -286,7 +337,7 @@ function renderPlayer() {
   if(view==='overlay')el('eta').textContent=etaText(eta);
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';
   el('rate').dataset.paused=String(!!pace && !pace.active);
-  if(pace)el('rate').title=`${pace.label}; ${paceSample(pace.source)}. ${rateTitle(m?.exp_per_hour)}`;
+  if(pace)el('rate').title=`${pace.label}; ${paceSample(pace.source)}. EXP/hour divides eligible gain by the selected window duration. ${rateTitle(m?.exp_per_hour)}`;
   if(view==='overlay') {
     if(el('eta').clientWidth>0 && el('eta').scrollWidth>el('eta').clientWidth+1)el('eta').textContent=etaText(eta,true);
     if(pace && !pace.active && !failed && !p.twitch && !levelTransition(p) && !p.percentage_state?.pending_since && !['capture_finished','capture_interrupted','historical_session','stopped','coordinator_stopped'].includes(p.activity?.state))el('status').textContent=`Last estimate ${ageText(pace.age)}`;
@@ -295,20 +346,20 @@ function renderPlayer() {
   if(view==='player') {
     const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
     amount('tracked-exp',rolling?.tracked_exp?`~${expText(rolling.tracked_exp.approximate,true)}`:'—',rolling?.tracked_exp?`~${expText(rolling.tracked_exp.approximate)}`:'—');
-    el('tracked-exp').title=rolling?`${el('tracked-exp').dataset.fullNumber} EXP; ${rolling.start} – ${rolling.end}; selected character only. Latest minus earliest usable EXP, including known level requirements across level-ups. Numeric EXP or rounded percentage-based estimates can contribute. Capture gaps and restarts do not remove progress. Not exact EXP earned today.`:'';
+    el('tracked-exp').title=rolling?`${el('tracked-exp').dataset.fullNumber} EXP; ${rolling.start} – ${rolling.end}; selected character only. Whole validated intervals ending in the window, each no longer than it, including known level requirements across level-ups. Numeric EXP or rounded percentage-based estimates can contribute. Not exact EXP earned today.`:'';
     const rollingAge=(performance.now()-rollingReceived)/1000;
     el('tracked-note').textContent=rollingFailed?(rolling?`Saved · updated ${ageText(rollingAge)}`:'History unavailable'):rolling?.status==='history_limit'?'History unavailable':rolling?(rolling.tracked_exp?`${spanText(rolling.coverage_seconds.approximate)} tracked`:'No comparable readings'):'Loading history';
     const early=p.early_pace,text=earlyText(p);
     el('early-value').textContent=pace?`${pace.label} · ${paceSample(pace.source)}`:text ?? (early?.segment?'Estimate paused':'Building comparable history');
     el('early-note').textContent=text?'Experimental current segment · separate from completed-window comparisons.':early?.segment?'Last eligible estimate retained for inspection; waiting for fresh, connected readings.':'Needs 3 supported same-level readings over 30s; interruptions restart the segment.';
-    el('early-value').title=pace?`${pace.source.start} – ${pace.source.end}; ${(pace.source.coverage_seconds ?? pace.source.span_seconds).approximate}s of eligible elapsed intervals. ${pace.source.interval_counts?`${pace.source.interval_counts.direct} direct and ${pace.source.interval_counts.endpoint_supported} endpoint-supported intervals; gap time is included, with no intermediate values invented.`:'Missing intervals supply neither gain nor elapsed time.'} ${rateTitle(m?.exp_per_hour)}`:early?.segment?`${early.segment.start} – ${early.segment.end}; ${early.segment.readings} readings. ${rateTitle(early.estimates?.exp_per_hour)} Historical value: ${early.estimates?.exp_per_hour?.value.approximate ?? early.estimates?.percentage_per_hour?.value.approximate} ${early.estimates?.exp_per_hour?'EXP/h':'pp/h'}. Bounds exclude OCR errors.`:'';
+    el('early-value').title=pace?`${pace.source.start} – ${pace.source.end}; ${(pace.source.coverage_seconds ?? pace.source.span_seconds).approximate}s of eligible elapsed intervals. ${pace.source.interval_counts?`${pace.source.interval_counts.direct} direct and ${pace.source.interval_counts.endpoint_supported} endpoint-supported intervals; gap time is included, with no intermediate values invented.`:'Intermediate observations are never invented.'} Coverage describes evidence; EXP/hour divides eligible gain by the selected window duration. ${rateTitle(m?.exp_per_hour)}`:early?.segment?`${early.segment.start} – ${early.segment.end}; ${early.segment.readings} readings. ${rateTitle(early.estimates?.exp_per_hour)} Historical value: ${early.estimates?.exp_per_hour?.value.approximate ?? early.estimates?.percentage_per_hour?.value.approximate} ${early.estimates?.exp_per_hour?'EXP/h':'pp/h'}. Bounds exclude OCR errors.`:'';
     el('rate-label').textContent=m?.exp_per_hour?'EXP / hour':'% / hour';
     if(!m?.exp_per_hour && m?.percentage_per_hour)amount('rate',`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`,`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`);
     el('early-note').textContent=pace?.active?(pace.source.interruptions?'Unsafe intervals excluded':'') :pace?(['capture_finished','capture_interrupted','historical_session','coordinator_stopped'].includes(p.activity?.state)?'Saved trend':'Waiting for the next reading'):'Building history';
     el('early-note').hidden=!el('early-note').textContent;
     el('movement-label').textContent=`${observed?.historical || s.stale && ['completed','interrupted'].includes(p.capture_lifecycle)?'Saved':'Last'} ${windowMinutes} min`;
     el('segment-note').textContent=windowNote(p);
-    el('segment-note').title='Sums supported same-level endpoint intervals inside this real time window, including elapsed unreadable captures. Separate runs contribute independent intervals, never a difference across restart. Complete comparisons still need ≥90% uninterrupted coverage.';
+    el('segment-note').title='Sums validated endpoint gains when the newer reading is inside the selected window and the interval duration fits it, including known level-ups and verified same-character gaps across sessions. EXP/hour divides eligible gain by the selected window duration. Complete comparisons still need ≥90% uninterrupted coverage.';
     el('window-rate').textContent=selectedWindow(p)?.eligible && s.metrics?.exp_per_hour?`~${expText(s.metrics.exp_per_hour.value.approximate)}`:observed?(s.stale || failed || observed.paused?'Paused':'Not complete yet'):'Building history';
     if(selectedWindow(p)?.eligible && s.metrics?.exp_per_hour)amount('window-rate',`~${expText(s.metrics.exp_per_hour.value.approximate,true)}`,el('window-rate').textContent);
     else {delete el('window-rate').dataset.fullNumber;delete el('window-rate').dataset.compactNumber;}
@@ -328,9 +379,10 @@ function bucketHistory(history,anchor,seconds,rangeSeconds=null) {
   let previousEnd=-Infinity;
   for(const row of history) {
     const g=row.gain,a=Date.parse(g?.start),b=Date.parse(g?.end),amount=g?.value?.approximate;
-    if(!row.connect_previous || !Number.isFinite(a) || !Number.isFinite(b) || b<=a || a<previousEnd || a<start || b>anchor || !Number.isFinite(amount) || amount<0 && g.policy!=='public_endpoint_window_v1')continue;
+    const rolling=g?.policy==='public_endpoint_window_v2';
+    if(!row.connect_previous || !Number.isFinite(a) || !Number.isFinite(b) || b<=a || a<previousEnd || (rolling?b<start || b-a>range*1000:a<start) || b>anchor || !Number.isFinite(amount) || amount<0 && g.policy!=='public_endpoint_window_v1')continue;
     previousEnd=b;
-    if(g.policy==='public_endpoint_window_v1') {
+    if(rolling || g.policy==='public_endpoint_window_v1') {
       const bin=bins[Math.min(bins.length-1,Math.floor((b-start)/step))];
       bin.value=(bin.value ?? 0)+amount;bin.covered=Math.min(seconds,bin.covered+(b-a)/1000);bin.intervals++;bin.gap=true;
       continue;
@@ -389,7 +441,7 @@ function drawExpHistory() {
     if(chart.range===86400)shape('text',{...attrs,y:248}).textContent=tick.slice(5,10);
   }
   const count=chart.bins.filter(b=>b.value!=null).length;
-  el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?chart.range/60+' min':chart.range/3600+' hours'} · UTC${current(data.player).stale || rollingFailed && bucketSeconds===1800?' · saved history':''}${count?'':' · building history'}`;
+  el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?chart.range/60+' min':chart.range/3600+' hours'} · UTC${current(data.player).stale || rollingFailed && bucketSeconds===1800?' · saved history':''}${count?'':inactiveView()?' · no readings in this period':' · building history'}`;
   el('history-note').title='Observed endpoint differences are assigned to the bar containing the later observation. Missing observations are not reconstructed or spread through a gap. Known level-ups use the community EXP requirements. Faded bars have partial history; dashes are unknown, not zero. The 24h view always includes all levels.';
 }
 function drawHistory() {
@@ -462,24 +514,93 @@ async function poll() {
   if(activeController)return;
   clearTimeout(pollTimer);
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000),requested=performance.now();
+  const requestedView=viewCharacter;
+  const requestedMode=boardMode,unchanged=()=>requestedView===viewCharacter && requestedMode===boardMode;
   activeController=controller;
   try {
     // Name the chart history and tracked packet already held; the server omits them while unchanged.
     const held=channel && data?.history!==undefined && data.tracked_history!==undefined && data.history_revision && data.tracked_revision;
-    const response=await fetch(held?`${endpoint}?history=${data.history_revision}&tracked=${data.tracked_revision}`:endpoint,{cache:'no-store',signal:controller.signal});
+    const query=new URLSearchParams(held?{history:data.history_revision,tracked:data.tracked_revision}:{});
+    if(requestedView)query.set('character',requestedView);
+    if(view==='board' && requestedMode==='characters')query.set('mode','characters');
+    const response=await fetch(String(query)?`${endpoint}?${query}`:endpoint,{cache:'no-store',signal:controller.signal});
+    const body=await response.json().catch(()=>({}));
+    if(!unchanged())return;  // The visitor chose another character or homepage mode meanwhile.
     // The first publication or a changed character/session is not ready yet.
-    warming=response.status===503 && (await response.json().catch(()=>({}))).error==='warming_up';
+    warming=response.status===503 && body.error==='warming_up';
     if(warming){data=null;rollingData=null;rollingRevision=null;}
+    if(response.status===404 && body.error==='unknown_character'){selectCharacter(null,'replace');return;}
     if(!response.ok)throw new Error();
-    const body=await response.json();
     // An omitted section is the same revision this page holds; anything else arrives in full.
     if(held && body.history===undefined && body.history_revision===data.history_revision)body.history=data.history;
     if(held && body.tracked_history===undefined && body.tracked_revision===data.tracked_revision)body.tracked_history=data.tracked_history;
     data=body;receivedAt=requested;failed=false;
+    if(view==='player' && Array.isArray(data.roster))roster=data.roster;
     if(view==='player' && data.tracked_history){rollingData=data.tracked_history;rollingReceived=performance.now();rollingFailed=false;}
-    if(view==='board')renderBoard();else { renderPlayer();if(view==='player'){drawHistory();if(Array.isArray(data.history))pollRolling();} }
-  } catch { failed=true;if(view==='board')renderBoard();else renderPlayer(); }
-  finally { clearTimeout(timeout);activeController=null;pollTimer=setTimeout(poll,2000); }
+    if(view==='board')renderBoard();else { renderPlayer();if(view==='player'){renderRoster();drawHistory();if(Array.isArray(data.history))pollRolling();} }
+  } catch { if(!unchanged())return;failed=true;if(view==='board')renderBoard();else renderPlayer(); }
+  finally { clearTimeout(timeout);activeController=null;pollTimer=setTimeout(poll,unchanged()?2000:0); }
+}
+
+function rosterLink(r,viewing,className) {
+  const link=node('a',className),seen=node('span',r.current?'roster-live':'roster-seen',r.current?'Tracking':r.last_seen_at?'':'No readings');
+  // The tracked character's link follows live tracking; others are stable, shareable views.
+  link.href=r.current?location.pathname:`${location.pathname}?character=${r.id}`;link.dataset.character=r.id;
+  if(String(r.id)===viewing)link.setAttribute('aria-current','page');
+  if(!r.current && r.last_seen_at)seen.dataset.seen=r.last_seen_at;
+  const meta=node('span','roster-meta',`Lv. ${r.level ?? '—'} · `);meta.append(seen);
+  link.append(node('span','roster-name',r.label),meta);
+  link.title=`${r.label} · ${r.current?'currently tracked':r.last_seen_at?'last reading '+localTime(r.last_seen_at):'no saved readings'}`;
+  link.addEventListener('click',e=>{
+    if(e.button!==0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)return;
+    e.preventDefault();el('roster-all').open=false;selectCharacter(r.current?null:String(r.id));
+  });
+  return link;
+}
+function rosterEdges() {
+  const track=el('roster-track'),start=track.scrollLeft>1,end=track.scrollLeft+track.clientWidth<track.scrollWidth-1;
+  track.dataset.more=start && end?'both':start?'start':end?'end':'';
+}
+function rosterAges() {
+  const now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
+  document.querySelectorAll('#roster [data-seen]').forEach(n=>{n.textContent=ageText(Math.max(0,(now-Date.parse(n.dataset.seen))/1000));});
+}
+function renderRoster() {
+  // Two or more saved characters; the server already excludes the unrecognized placeholder.
+  el('roster').hidden=roster.length<2;
+  const viewing=viewCharacter ?? String(roster.find(r=>r.current)?.id ?? '');
+  const key=JSON.stringify([roster.map(r=>[r.id,r.label,r.level,r.current,r.current?null:r.last_seen_at]),viewing]);
+  if(key!==rosterKey) {
+    rosterKey=key;
+    const track=el('roster-track'),left=track.scrollLeft,focused=document.activeElement?.closest?.('#roster a');
+    const focus=focused && [focused.dataset.character,focused.closest('#roster-list')?'roster-list':'roster-track'];
+    track.replaceChildren(...roster.map(r=>rosterLink(r,viewing,'roster-chip')));track.scrollLeft=left;
+    el('roster-list').replaceChildren(...roster.map(r=>{const item=node('li');item.dataset.name=r.label.toLowerCase();item.append(rosterLink(r,viewing,'roster-option'));return item;}));
+    el('roster-all').hidden=roster.length<7;
+    el('roster-count').textContent=`All ${roster.length}`;el('roster-count').setAttribute('aria-label',`All ${roster.length} characters`);
+    filterRoster();
+    if(focus)el(focus[1]).querySelector(`[data-character="${focus[0]}"]`)?.focus({preventScroll:true});
+  }
+  // Ages change chip widths; fill them before positioning the viewed character.
+  rosterAges();
+  if(viewing!==rosterViewing)el('roster-track').querySelector('[aria-current]')?.scrollIntoView({block:'nearest',inline:'center'});
+  rosterViewing=viewing;rosterEdges();
+}
+function filterRoster() {
+  const text=el('roster-search').value.trim().toLowerCase();
+  for(const item of el('roster-list').children)item.hidden=!!text && !item.dataset.name.includes(text);
+}
+function selectCharacter(id,mode='push') {
+  if(id===viewCharacter)return;
+  viewCharacter=id;
+  if(mode!=='none') {
+    const url=new URL(location.href);if(id)url.searchParams.set('character',id);else url.searchParams.delete('character');
+    history[mode==='replace'?'replaceState':'pushState'](null,'',url);
+  }
+  // Never show the previous character's numbers while the chosen one loads.
+  data=null;rollingData=null;rollingRevision=null;warming=true;
+  renderPlayer();renderRoster();hideTip();
+  if(activeController)activeController.abort();else poll();
 }
 
 async function pollRolling(force=false) {
@@ -503,6 +624,11 @@ async function pollRolling(force=false) {
 document.addEventListener?.('visibilitychange',()=>{if(!document.hidden)poll();});
 globalThis.addEventListener?.('pageshow',poll);
 if(view==='board')globalThis.addEventListener?.('resize',renderBoard);
+if(view==='board') {
+  document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>selectBoard(button.dataset.mode)));
+  el('character-filter').addEventListener('input',renderBoard);el('character-sort').addEventListener('change',renderBoard);
+  globalThis.addEventListener?.('popstate',()=>selectBoard(boardParam(),'none'));
+}
 if(view==='board') document.querySelectorAll('[data-sort]').forEach(button=>button.addEventListener('click',()=>{sort=button.dataset.sort;if(sort in sorts)renderBoard();}));
 document.querySelectorAll('[data-window]').forEach(button=>button.addEventListener('click',()=>{
   const minutes=Number(button.dataset.window);if(![5,10,15,30,60].includes(minutes))return;windowMinutes=minutes;
@@ -516,9 +642,58 @@ if(view==='player') {
   globalThis.addEventListener?.('scroll',hideTip,true);
   document.querySelectorAll('[data-chart]').forEach(b=>b.addEventListener('click',()=>{if(!['exp','percentage'].includes(b.dataset.chart))return;chartMode=b.dataset.chart;drawHistory();}));
   document.querySelectorAll('[data-bucket]').forEach(b=>b.addEventListener('click',()=>{if(![60,300,1800].includes(Number(b.dataset.bucket)))return;bucketSeconds=Number(b.dataset.bucket);drawHistory();}));
-  globalThis.addEventListener?.('resize',()=>{renderPlayer();drawHistory();});
+  globalThis.addEventListener?.('resize',()=>{renderPlayer();drawHistory();rosterEdges();});
   const url=`${location.origin}/live/overlay/${encodeURIComponent(channel)}`;
   el('overlay-link').href=url;el('diagnostics').href=`/dashboard/${channel}`;el('history-link').href=`/dashboard/${channel}`;
+  const track=el('roster-track'),all=el('roster-all');
+  const modified=e=>e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
+  let drag=null,suppressClick=false;
+  track.addEventListener('wheel',e=>{
+    if(modified(e) || e.deltaX || !e.deltaY)return;
+    const before=track.scrollLeft,max=track.scrollWidth-track.clientWidth;
+    const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?track.clientWidth:1);
+    if(max<=1 || delta<0 && before<=1 || delta>0 && before>=max-1)return;
+    track.scrollLeft=Math.max(0,Math.min(max,before+delta));
+    if(track.scrollLeft!==before)e.preventDefault();
+  },{passive:false});
+  const finishDrag=e=>{
+    if(!drag || e.pointerId!==drag.id)return;
+    const id=drag.id;drag=null;delete track.dataset.dragging;
+    if(track.hasPointerCapture(id))track.releasePointerCapture(id);
+  };
+  track.addEventListener('pointerdown',e=>{
+    suppressClick=false;
+    if(e.pointerType!=='mouse' || e.isPrimary===false || e.button!==0 || modified(e) || track.scrollWidth<=track.clientWidth+1)return;
+    drag={id:e.pointerId,x:e.clientX,left:track.scrollLeft,moved:false};
+  });
+  track.addEventListener('pointermove',e=>{
+    if(!drag || drag.id!==e.pointerId)return;
+    if(!(e.buttons&1) || modified(e)){finishDrag(e);return;}
+    const distance=e.clientX-drag.x;
+    if(!drag.moved && Math.abs(distance)<6)return;
+    if(!drag.moved){drag.moved=true;suppressClick=true;track.dataset.dragging='true';track.setPointerCapture(e.pointerId);}
+    e.preventDefault();track.scrollLeft=drag.left-distance;
+  });
+  for(const type of ['pointerup','pointercancel','lostpointercapture'])track.addEventListener(type,finishDrag);
+  track.addEventListener('pointerleave',e=>{if(drag && !drag.moved)finishDrag(e);});
+  track.addEventListener('dragstart',e=>{if(drag)e.preventDefault();});
+  // Capture phase prevents the character link from handling the click after a drag.
+  track.addEventListener('click',e=>{
+    if(!suppressClick || e.detail===0 || e.button!==0 || modified(e))return;
+    suppressClick=false;e.preventDefault();e.stopImmediatePropagation();
+  },true);
+  track.addEventListener('scroll',rosterEdges,{passive:true});
+  track.addEventListener('keydown',e=>{
+    const links=[...track.querySelectorAll('a')],at=links.indexOf(document.activeElement);
+    const next={ArrowRight:at+1,ArrowLeft:at-1,Home:0,End:links.length-1}[e.key];
+    if(at<0 || next==null || !links[next])return;
+    e.preventDefault();links[next].focus();links[next].scrollIntoView({block:'nearest',inline:'nearest'});
+  });
+  el('roster-search').addEventListener('input',filterRoster);
+  all.addEventListener('toggle',()=>{if(all.open){el('roster-search').value='';filterRoster();el('roster-search').focus();}});
+  all.addEventListener('keydown',e=>{if(e.key==='Escape' && all.open){e.stopPropagation();all.open=false;all.querySelector('summary').focus();}});
+  document.addEventListener('pointerdown',e=>{if(all.open && !all.contains(e.target))all.open=false;});
+  globalThis.addEventListener?.('popstate',()=>selectCharacter(characterParam(),'none'));
   el('copy-overlay').addEventListener('click',async()=>{try {await navigator.clipboard.writeText(url);el('copy-status').textContent='Copied · use a 500 × 160 Browser Source';}catch{el('copy-status').textContent='Copy the Open OBS overlay link · 500 × 160';}});
 }
-poll();setInterval(()=>{if(view==='board')renderBoard();else renderPlayer();},1000);
+poll();setInterval(()=>{if(view==='board')renderBoard();else renderPlayer();if(view==='player')rosterAges();},1000);

@@ -11,6 +11,7 @@ import math
 import os
 from pathlib import Path
 import queue
+import socket
 import sqlite3
 import sys
 import threading
@@ -18,15 +19,19 @@ import time
 import uuid
 
 import shadow_capture as shadow
-from exp_tracker.diagnostics import Diagnostics
+from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS
+from exp_tracker.diagnostics import Diagnostics, identity_held
 from exp_tracker.metrics import ResourceMonitor
 from exp_tracker.recognition import configure_tesseract
 from exp_tracker.server import CHANNEL, create_server
 from exp_tracker.store import Store, utc
 from exp_tracker.retention_files import OperatorLog
+from exp_tracker.writer_lock import writer_lease
 from local_alpha import report_attempt
 
 APP = 'multi_alpha_v1'
+# Ceiling is half the two-frame gap so jittered consecutive frames confirm with margin.
+LIVE_TRIAL_INTERVAL = (15, CONFIRM_GAP_SECONDS/2)
 
 
 def private(path):
@@ -90,37 +95,76 @@ def validate_config(value, *, offline_fast_test=False):
     return database, port, result
 
 
+def owner_info(database, automatic, trial=None):
+    """Read-only ownership preflight; never adopt or migrate another writer's DB."""
+    marker = database.with_suffix(database.suffix+'.multi-alpha.json')
+    if database.exists() != marker.exists():
+        raise ValueError('Database ownership mismatch; choose a NEW shared database, do not import a single-stream DB')
+    if not marker.exists():return
+    try:info = json.loads(marker.read_text(encoding='utf-8'))
+    except PermissionError:raise ValueError('Cannot inspect ownership marker; another coordinator may own this database') from None
+    if not isinstance(info,dict) or info.get('application') != APP:
+        raise ValueError('Not a multi-alpha database marker')
+    if automatic and info.get('automatic_characters') is not True:
+        raise ValueError('Automatic testing requires a NEW disposable database or its own prior automatic-test database')
+    if trial is not None:
+        if any(info.get(key)!=value for key,value in trial.items()) or info.get('automatic_characters',False)!=automatic:
+            raise ValueError('Live trial requires a NEW disposable DB/marker or the exact prior live trial; do not adopt another database')
+        from exp_tracker.schema import VERSION
+        with Store(database,read_only=True) as store:
+            if store.schema_version!=VERSION:
+                raise ValueError('Live trial restart will not migrate an older database; use a NEW trial')
+    elif info.get('live_twitch_trial'):
+        raise ValueError('Restart this live trial with its explicit character-name/automatic flags and isolated settings')
+
+
+def live_trial(args, database, port, streams):
+    if not args.character_names or not any(row['source']=='twitch' for row in streams):return None
+    root = private('private/character-live-trial')
+    logs = private(args.log_root) if args.log_root else None
+    if (not database.is_relative_to(root) or database.parent==root or
+            private(args.config).parent!=database.parent or logs is None or logs==database.parent or
+            not logs.is_relative_to(database.parent) or logs in (database,args.config.resolve())):
+        raise ValueError('Live name trials require a NEW private/character-live-trial/TRIAL/ database, config beside it, and explicit --log-root inside that trial')
+    if database.exists() and database.stat().st_nlink>1:
+        raise ValueError('Hard-linked databases cannot isolate WAL and ownership markers')
+    if port==8765:raise ValueError('Live trial cannot use the default main port 8765; choose a separate port (e.g. 8879)')
+    if (len(streams)>2 or any(row['source']!='twitch' or not row.get('authorized') for row in streams)
+            or args.workers!=1 or args.retention_24h or args.hud_cache_seconds):
+        raise ValueError('Initial live name trial requires 1..2 authorized Twitch channels, one worker, no retention and no HUD cache')
+    low, high = LIVE_TRIAL_INTERVAL
+    if any(not low<=row.get('interval',15)<=high for row in streams):
+        raise ValueError(f'Live name trial interval must be {low:g}..{high:g} seconds: two-frame confirmation '
+                         f'needs consecutive name frames at most {CONFIRM_GAP_SECONDS:g} seconds apart')
+    return dict(live_twitch_trial=True,database=str(database),channels=sorted(row['channel'] for row in streams))
+
+
+def available_port(port):
+    # A preflight probe, not a reservation; the actual HTTP bind still precedes all capture.
+    with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as probe:
+        if os.name=='nt':probe.setsockopt(socket.SOL_SOCKET,socket.SO_EXCLUSIVEADDRUSE,1)
+        try:probe.bind(('127.0.0.1',port))
+        except OSError:raise ValueError(f'Localhost port {port} is unavailable; leave the main tracker alone and choose another trial port') from None
+
+
 @contextmanager
-def ownership(database):
+def ownership(database, *, automatic=False, trial=None):
     """A local provenance marker and OS-released lock; never adopt a single-stream DB."""
     marker = database.with_suffix(database.suffix+'.multi-alpha.json')
-    if database.exists() and not marker.exists() or marker.exists() and not database.exists():
-        raise ValueError('Database ownership mismatch; choose a NEW shared database, do not import a single-stream DB')
+    owner_info(database,automatic,trial)
     database.parent.mkdir(parents=True, exist_ok=True)
     if not marker.exists():
         with marker.open('x', encoding='utf-8') as f:
-            json.dump(dict(application=APP), f)
-    with marker.open('r+b') as handle:
-        if os.name == 'nt':
-            import msvcrt
-            acquire = lambda: msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            release = lambda: msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            acquire = lambda: fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            release = lambda: fcntl.flock(handle, fcntl.LOCK_UN)
-        try:
-            acquire()
-        except OSError:
-            raise ValueError('Another coordinator owns this shared database') from None
-        try:
-            info = json.load(handle)
-            if not isinstance(info,dict) or info.get('application') != APP:
-                raise ValueError('Not a multi-alpha database marker')
-            yield
-        finally:
-            handle.seek(0)
-            release()
+            json.dump(dict(application=APP,**({'automatic_characters':True} if automatic else {}),**(trial or {})), f)
+    with writer_lease(marker) as handle:
+        info = json.load(handle)
+        if not isinstance(info,dict) or info.get('application') != APP:
+            raise ValueError('Not a multi-alpha database marker')
+        if automatic and info.get('automatic_characters') is not True:
+            raise ValueError('Automatic testing requires a NEW disposable database or its own prior automatic-test database')
+        if trial is not None and any(info.get(key)!=value for key,value in trial.items()):
+            raise ValueError('Live trial ownership changed before acquiring the writer lease')
+        yield
 
 
 def check_assignments(database, streams):
@@ -135,19 +179,21 @@ def check_assignments(database, streams):
                         raise ValueError(f"Character mismatch for {row['channel']}: selected {label!r}; requested {row['character']!r}. Review the coordinated rename workflow in docs/manual-exp-admin.md; do not create another character.")
 
 
-def initialize(database, streams, say=print):
-    check_assignments(database, streams)
-    with Store(database) as store:
+def initialize(database, streams, say=print, *, automatic=False, allow_migration=True):
+    if not automatic: check_assignments(database, streams)
+    with Store(database,allow_migration=allow_migration) as store:
         for row in streams:
             store.add_channel(row['channel'])
-            character = store.add_character(row['channel'], row['character'])
+            selected=store._channel(row['channel'])['selected_character_id']
+            character = selected if automatic and selected is not None else store.add_character(row['channel'], row['character'])
             store.select_character(row['channel'], character, only_if_unselected=True)
             session = store.start_session(row['channel'], expected_character_id=character)
-            row.update(character_id=character, session_id=session)
+            row.update(character_id=character, session_id=session,
+                       character=store.db.execute('SELECT label FROM characters WHERE id=?',(character,)).fetchone()[0])
             say(f"Selected {row['channel']} / {row['character']!r} / session {session}")
             unfinished = store.db.execute('SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=? AND summary_json IS NULL',(session,)).fetchone()[0]
             if unfinished:
-                say(f"{row['channel']}: preserved {unfinished} previous unfinished run(s); activity unknown. Starting a NEW run; progress will not bridge the restart.")
+                say(f"{row['channel']}: preserved {unfinished} previous unfinished run(s); activity unknown. Starting a NEW run; existing identity/level guards and rolling-window endpoint rules still apply.")
 
 
 def options(row, database, output):
@@ -337,9 +383,17 @@ def main(argv=None):
     cli.add_argument('--workers',type=int,default=1,help='Concurrent capture/OCR attempts, 1..8 (one per channel at a time); SQLite stays single-writer. Above 4 is not yet validated on the VPS')
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
+    cli.add_argument('--ocr-python',type=Path,help='Reuse the existing isolated OCR Python, including at its original checkout path')
+    cli.add_argument('--log-root',type=Path,help='Private root for new per-process capture directories; required for isolated live name trials')
+    cli.add_argument('--character-names',action='store_true',help='Opt in to own-name evidence/holds; Twitch requires isolated live trial settings; implies --resident-neural')
+    cli.add_argument('--automatic-characters',action='store_true',help='NEW disposable DB only: automatically switch after two strong independent full-frame name readings; local video or isolated authorized Twitch trial')
     args = cli.parse_args(argv)
     httpd = thread = None
     try:
+        if args.automatic_characters:
+            args.character_names=True
+            if args.replay or args.hud_cache_seconds:
+                raise ValueError('Automatic testing requires capture with full-frame HUD localization, not replay/cache')
         if args.retention_24h and (not args.continuous or args.replay):
             raise ValueError('--retention-24h requires continuous capture')
         if not 1<=args.workers<=8:
@@ -353,6 +407,12 @@ def main(argv=None):
         if args.replay and (args.continuous or args.offline_fast_test):
             raise ValueError('Historical replay cannot use continuous/fast-test capture settings')
         database, port, streams = load_config(args.config,offline_fast_test=args.offline_fast_test)
+        trial = live_trial(args,database,port,streams)
+        if trial is not None:
+            owner_info(database,args.automatic_characters,trial)
+            if database.exists():
+                with writer_lease(database.with_suffix(database.suffix+'.multi-alpha.json')):pass
+            available_port(port)
         mappings = {}
         if args.replay:
             if args.check:
@@ -362,13 +422,17 @@ def main(argv=None):
                 raise ValueError('Replay needs exactly one CHANNEL=LOG for every configured channel')
             for path in mappings.values():
                 if not private(path).is_file(): raise ValueError('Replay log not found')
-        directory = private('private/multi-alpha/runs') / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:8])
+        directory = private(args.log_root or 'private/multi-alpha/runs') / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:8])
         lanes = []
         for row in streams:
             opts = options(row, database, directory/row['channel']/'capture.jsonl')
+            if args.ocr_python:opts.ocr_python=args.ocr_python.resolve()
             if args.continuous: opts.count=60
             if not args.replay:
                 source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
+                # After prepare: its standalone no-DB guard does not apply, holds are enforced at emit/append.
+                opts.character_names=args.character_names
+                opts.automatic_characters=args.automatic_characters
                 lanes.append({**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes})
         if not args.replay:
             configure_tesseract()
@@ -378,12 +442,13 @@ def main(argv=None):
                 if lane['source'].kind=='file' and not Path(lane['source'].value).is_file():
                     print(f"{lane['channel']}: local video unavailable; bounded failed attempts will be retained, other channels continue",flush=True)
         if args.check:
+            owner_info(database,args.automatic_characters,trial)
             print('Preflight passed; no connections, database changes or capture started.')
             return 0
         print(f'Database: {database}',flush=True)
         if not args.replay: print(f'Private capture logs: {directory}',flush=True)
-        with ownership(database):
-            initialize(database, streams)
+        with ownership(database,automatic=args.automatic_characters,trial=trial):
+            initialize(database, streams,automatic=args.automatic_characters,allow_migration=trial is None)
             httpd = create_server(database, port=port, diagnostic_dashboard=not args.public_only,public_only=args.public_only,cors_origins=args.cors_origin,twitch_status=args.twitch_status,background=True)
             httpd.quiet = True
             httpd.active_run_ids = set()
@@ -403,10 +468,13 @@ def main(argv=None):
                 if args.retention_24h:
                     from exp_tracker.retention_files import own
                     own(directory,database)
-                with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database) as store:
+                with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database,allow_migration=trial is None) as store:
                     diagnostic = Diagnostics(store)
+                    if args.automatic_characters:
+                        from exp_tracker.character_automation import AutonomousCharacters
+                        automation=AutonomousCharacters(store)
                     handles = {}
-                    resident = shadow.ResidentNeural() if args.resident_neural else None
+                    resident = shadow.ResidentNeural() if args.resident_neural or args.character_names else None
                     instance=uuid.uuid4().hex
                     try:
                         def open_run(lane, run_id, previous=None):
@@ -425,7 +493,7 @@ def main(argv=None):
                             lane['log'].write(json.dumps(header)+'\n'); lane['log'].flush()
                             return header
                         for lane, binding in zip(lanes, streams):
-                            lane.update(character_id=binding['character_id'], session_id=binding['session_id'])
+                            lane.update(character_id=binding['character_id'], session_id=binding['session_id'],character=binding['character'])
                             header=open_run(lane,uuid.uuid4().hex)
                             binding = diagnostic.begin(lane['run_id'], lane['channel'], header)
                             if (binding['character_id'],binding['session_id']) != (lane['character_id'],lane['session_id']):
@@ -453,6 +521,42 @@ def main(argv=None):
                                     maintenance_due=time.monotonic()+60
                                     print(f'Retention postponed: {type(error).__name__}: {error}',file=sys.stderr,flush=True)
                             def emit(lane, record):
+                                if args.automatic_characters and record['type']=='attempt':
+                                    record['resources']=monitor.snapshot()
+                                    following=uuid.uuid4().hex
+                                    header=shadow.configuration(lane['args'],lane['table_bytes'],lane['table'],following)
+                                    old_header=json.loads(store.db.execute('SELECT configuration_json FROM diagnostic_runs WHERE run_id=?', (lane['run_id'],)).fetchone()[0])
+                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode')})
+                                    pending={}
+                                    def write(receipt, payload):
+                                        handle=lane['log']
+                                        if receipt['switched']:
+                                            path=directory/lane['channel']/following/'capture.jsonl'
+                                            path.parent.mkdir(parents=True,exist_ok=False)
+                                            handle=path.open('x',encoding='utf-8')
+                                            pending.update(log=handle,path=path)
+                                            lane['log'].write(json.dumps(receipt['summary'])+'\n');lane['log'].flush()
+                                            handle.write(json.dumps(receipt['configuration'])+'\n')
+                                        handle.write(json.dumps(payload,allow_nan=False)+'\n');handle.flush()
+                                    try:
+                                        receipt=automation.append(lane['run_id'],record,following,header,write=write)
+                                    except BaseException:
+                                        if pending: pending['log'].close()
+                                        raise
+                                    if receipt['switched']:
+                                        previous,old=lane['run_id'],lane['log']
+                                        lane.update(run_id=receipt['run_id'],character_id=receipt['character_id'],
+                                            session_id=receipt['session_id'],character=receipt['name'],run_attempts=1,log=pending['log'])
+                                        lane['args'].output=pending['path'];handles[lane['channel']]=lane['log']
+                                        httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(lane['run_id'])
+                                        lane['options']['identity'].select(receipt['name'],record['received_at'],source='automatic_two_frame')
+                                        old.close()
+                                        print(f"{lane['channel']}: automatically selected {receipt['name']} / character {receipt['character_id']} / session {receipt['session_id']}",flush=True)
+                                    lane['commits']+=1
+                                    print(report_attempt(receipt['record'],True,database=database,channel=lane['channel'],
+                                        neural_enabled=lane['args'].experimental_neural_level).replace('#',lane['channel']+' #',1),flush=True)
+                                    return
+                                record = identity_held(record)  # Before the log too, so replay stores the same payload.
                                 if record['type']=='summary' and lane.get('rotation_failed'):
                                     raise ValueError('Rotation intent already logged; keep database run unfinished')
                                 record['resources'] = monitor.snapshot()
@@ -502,6 +606,10 @@ def main(argv=None):
                                 if args.hud_cache_seconds:  # Per channel; survives rotation, not restarts.
                                     lane['options']['analyze_frame']=functools.partial(shadow.analyze,
                                         locator=shadow.CachedLocator(args.hud_cache_seconds))
+                                if args.character_names:  # Per channel; survives rotation, not restarts.
+                                    from character_identity import IdentityCapture
+                                    lane['options']['identity']=IdentityCapture(lane['channel'],confirmed=lane['character'],
+                                        **({'confirmation_source':'persisted_selection'} if args.automatic_characters else {}))
                             def perform(lane,n,seek):
                                 return shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek,**lane['options'])
                             interrupted = schedule(lanes,perform,emit,workers=args.workers,

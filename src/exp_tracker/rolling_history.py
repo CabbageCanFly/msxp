@@ -22,11 +22,13 @@ class HistoryLimit(ValueError):
     pass
 
 
-def select_runs(diagnostic,channel,*,start,now):
-    """The full-replay run sequence: time-range runs plus verified rotation predecessors."""
+def select_runs(diagnostic,channel,*,start,now,character=None):
+    """The full-replay run sequence: time-range runs plus verified rotation predecessors.
+
+    character: an explicit character of this channel (default: the selected one)."""
     from .diagnostics import rotation_link
     store=diagnostic.store;db=diagnostic.db;streamer=store._channel(channel)
-    character=streamer['selected_character_id']
+    character=streamer['selected_character_id'] if character is None else character
     from .retention import checkpoint
     saved=checkpoint(store,character)
     floor=saved.get('through_run',0)
@@ -72,7 +74,7 @@ def run_rows(diagnostic,channel,run,*,now,receipt):
 RECEIPT=('run_count','context_attempts','source_bytes')
 
 
-def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,key=None,keep=lambda state:state):
+def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,key=None,keep=lambda state:state,character=None):
     """Full causal replay, resumed after the longest unchanged checkpointed run prefix.
 
     Attempts are INSERT-only and contiguous within an unfinished run, and a summary
@@ -82,9 +84,9 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
     count and last attempt ID. Anything else is a full replay from the first run.
     ``step`` mutates ``state`` for one run batch and returns its percentage reviews.
     """
-    runs=select_runs(diagnostic,channel,start=start,now=now)
+    runs=select_runs(diagnostic,channel,start=start,now=now,character=character)
     from .retention import checkpoint
-    frozen=checkpoint(diagnostic.store,diagnostic.store._channel(channel)['selected_character_id'])
+    frozen=checkpoint(diagnostic.store,diagnostic.store._channel(channel)['selected_character_id'] if character is None else character)
     mode=key[0] if key else None
     if mode in frozen:
         state.clear();state.update(thaw(frozen[mode]))
@@ -121,7 +123,7 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
     return state
 
 
-MAX_CHECKPOINTS=64  # Two per channel (24h, recent) for the 25-channel directory, plus headroom.
+MAX_CHECKPOINTS=80  # Two per channel (24h, recent) for 25 channels and 8 character views, plus headroom.
 LOCK=threading.Lock()  # Directory and character threads share one checkpoint store.
 
 
@@ -143,12 +145,14 @@ def window_rows(rows,start):
     return [r for r in rows if datetime.fromisoformat(r['timestamp'])>=cutoff]
 
 
-def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,checkpoints=None):
-    """One hour plus causal warmup, never a browser-sized raw history response."""
+def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,checkpoints=None,character=None):
+    """Two hours plus causal warmup for boundary-crossing 60m intervals.
+
+    character: an unselected character, read from its latest (historical) session."""
     from .diagnostics import rotation_link
-    base=diagnostic._snapshot(channel,now=now,limit=1)
+    base=diagnostic._snapshot(channel,now=now,limit=1,character=character)
     receipt=dict(context_attempts=0,source_bytes=0,run_count=0)
-    start=now-timedelta(minutes=65);session=(base['session'] or {}).get('id')
+    start=now-timedelta(minutes=125);session=(base['session'] or {}).get('id')
     owner='session_id=?' if diagnostic.store.schema_version>=4 else 'run_id IN (SELECT run_id FROM diagnostic_runs WHERE session_id=?)'
     if _historical:
         earliest=diagnostic.db.execute('SELECT MIN(attempted_at) FROM diagnostic_attempts WHERE '+owner,
@@ -211,7 +215,7 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     try:
         state=replay(diagnostic,channel,start=start,now=now,receipt=receipt,state=state,step=step,
             checkpoints=resume,key=('recent',channel,base['selected_character'] and base['selected_character']['id'],session,
-                revision(base['manual_corrections']),base['invalidation_revision']))
+                revision(base['manual_corrections']),base['invalidation_revision']),character=character)
     except HistoryLimit:
         return dict(base,observations=[],recent_history_status='history_limit',recent_history_receipt=receipt)
     kept=[(r,d) for r,d in zip(state['rows'],state['decisions']) if stamp(r)>=start]
@@ -231,25 +235,29 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
             attempt_revision=diagnostic.db.execute('SELECT MAX(id) FROM diagnostic_attempts WHERE '+owner+' AND attempted_at<=?',
                 ((base['session'] or {}).get('id'),now.isoformat())).fetchone()[0]
             key=(channel,(base['session'] or {}).get('id'),attempt_revision,base['run_id'],base['run_status'],revision(base['manual_corrections']),base['invalidation_revision'])
-            cached=eta_cache.get(channel) if eta_cache is not None else None
+            name=channel if character is None else (channel,character)
+            cached=eta_cache.get(name) if eta_cache is not None else None
             if cached is None or cached[0]!=key:
-                historical=recent_snapshot(diagnostic,channel,now=now,_historical=True)
+                historical=recent_snapshot(diagnostic,channel,now=now,_historical=True,character=character)
                 old=recent_windows(historical,None,now=now)
                 saved={m:w['eta'] for m,w in old.items()}
                 cached=(key,saved,historical['recent_history_status'],historical['recent_history_receipt'])
                 if eta_cache is not None:
-                    if channel not in eta_cache and len(eta_cache)>=25:eta_cache.pop(next(iter(eta_cache)))
-                    eta_cache[channel]=cached
+                    # 25 channels plus the publisher's MAX_VIEWS inactive-character views.
+                    if name not in eta_cache and len(eta_cache)>=33:eta_cache.pop(next(iter(eta_cache)))
+                    eta_cache[name]=cached
             result.update(historical_etas=cached[1],eta_history_status=cached[2],eta_history_receipt=cached[3])
     return result
 
 
-def aggregate(diagnostic,channel,*,now,checkpoints=None):
+def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
+    """character: an explicit character of this channel (default: the selected one)."""
     from .diagnostics import rotation_link
     if now.utcoffset() is None:raise ValueError('Aware history clock required')
     now=now.astimezone(timezone.utc);start=now-timedelta(hours=24)
     store=diagnostic.store;streamer=store._channel(channel)
-    character=streamer['selected_character_id']
+    inactive=character is not None and character!=streamer['selected_character_id']
+    character=streamer['selected_character_id'] if character is None else character
     manual_events=store.manual_history(channel,character_id=character,as_of=now) if character else []
     manual_revision=(revision(manual_events),invalidation_revision(store,channel))
     bins=[dict(start=(start+timedelta(minutes=30*i)).isoformat(),end=(start+timedelta(minutes=30*(i+1))).isoformat(),
@@ -298,14 +306,14 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
         level_baseline_id=None,level_at=None,
         rows=[],last_row=None,exclusion_counts={})
     try:
-        state=replay(diagnostic,channel,start=start-timedelta(seconds=PACE_TREND_SECONDS),now=now,receipt=result,state=state,step=step,
+        state=replay(diagnostic,channel,start=start-timedelta(hours=24,minutes=5),now=now,receipt=result,state=state,step=step,
             checkpoints=checkpoints,key=('tracked',channel,character,manual_revision),
-            keep=lambda s:dict(s,rows=window_rows(s['rows'],start)))
+            keep=lambda s:dict(s,rows=window_rows(s['rows'],start)),character=character)
     except HistoryLimit:
         limited=True
     result['exclusion_counts']=dict(state['exclusion_counts']);level=state['level']
     transition=(((state['last_row'] or {}).get('experimental_level') or {}).get('level_context') or {}).get('transition') or {}
-    session=store._open_session(streamer['id'])
+    session=diagnostic.character_session(channel,character) if inactive else store._open_session(streamer['id'])
     manual=next((e for e in reversed(active(manual_events)) if e['kind']=='baseline' and e['session_id']==(session['id'] if session else None)),None)
     if manual and manual['action']=='set' and manual['level'] is not None:
         if state['level_baseline_id']!=manual['id']:level=manual['level']
@@ -324,8 +332,8 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
             result['exclusion_counts'][reason]=result['exclusion_counts'].get(reason,0)+1
             continue
         a,b=datetime.fromisoformat(gain['start']),datetime.fromisoformat(gain['end'])
-        if a<start<b:result['boundary_intervals_excluded']+=1
-        if a>=start and b<=now:
+        if gain['value']['numerator']<0:continue
+        if start<=b<=now and timedelta(0)<b-a<=timedelta(hours=24):
             gains.append(gain)
             amount=fraction(gain['value']);duration=elapsed_seconds(a,b)
             coverage+=duration;result['intervals']+=1
@@ -362,13 +370,14 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None):
                     level=pace['level'] if pace else None,levels=pace['levels'] if pace else [],trusted=False)
         # Copied: retained interval records must never be reachable from a response.
         result['chart_intervals']=deepcopy([{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
-            for g in gains if datetime.fromisoformat(g['start'])>=now-timedelta(minutes=60)])
-        current=[r for r in state['rows'] if r['level']['value']==level and datetime.fromisoformat(r['timestamp'])>=now-timedelta(minutes=60)]
+            for g in gains if now-timedelta(minutes=60)<=datetime.fromisoformat(g['end'])<=now
+            and datetime.fromisoformat(g['end'])-datetime.fromisoformat(g['start'])<=timedelta(minutes=60)])
+        _,current,_=window_endpoints(state['rows'],start=now-timedelta(minutes=60),end=now,level=level)
         result['current_level_chart_intervals']=[{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
-            for a,b in zip(current,current[1:]) if (g:=endpoint_interval(a,b)[0])]
+            for g in current['intervals']] if current else []
         result['chart_status']='ready' if max(len(result['chart_intervals']),len(result['current_level_chart_intervals']))<=4096 else 'history_limit'
         if result['chart_status']=='history_limit':result['chart_intervals']=[];result['current_level_chart_intervals']=[]
-    result.update(coverage_seconds=rational(coverage),unknown_seconds=rational(Fraction(86400)-coverage),requirement_versions=sorted(versions),
+    result.update(coverage_seconds=rational(coverage),unknown_seconds=rational(max(Fraction(0),Fraction(86400)-coverage)),requirement_versions=sorted(versions),
         buckets=[dict(start=b['start'],end=b['end'],value=rational(b['amount']) if b['amount'] is not None else None,
             covered=rational(b['coverage']),intervals=b['intervals'],
             state='missing' if b['amount'] is None else 'covered' if b['coverage']==1800 and not b['gap'] else 'partial') for b in bins])

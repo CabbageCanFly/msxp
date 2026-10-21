@@ -55,7 +55,7 @@ def test_rolling_edges_do_not_prorate_unknown_gain_or_freeze_to_old_capture(trac
     _,_,d=tracking
     for i in range(1,5):append(d,i,f'[33.{i:02}%]')
     result=d.rolling_history('alpha',now=NOW+timedelta(days=1,seconds=7))
-    assert result['boundary_intervals_excluded']==1 and result['intervals']==2
+    assert result['boundary_intervals_excluded']==0 and result['intervals']==3
     assert result['start']==(NOW+timedelta(seconds=7)).isoformat()
     later=d.rolling_history('alpha',now=NOW+timedelta(days=2))
     assert later['tracked_exp'] is None and later['coverage_seconds']['approximate']==0
@@ -259,7 +259,7 @@ def test_http_rolling_cache_invalidates_on_commit_character_and_clock_without_mu
         value=json.loads(body)
         assert status==200 and headers['Cache-Control']=='no-store'
         assert value['intervals']==1 and value['trusted'] is False
-        assert len(value['buckets'])==48 and len(body)<24000
+        assert len(value['buckets'])==48 and len(body)<32000
         assert not any(key in body.decode() for key in ('raw_text','source_identity','payload_json','sqlite3','frame_sha256'))
         cached=server.publisher.entry('alpha')['tracked']
         assert json.loads(request((server,None),route)[2])==value

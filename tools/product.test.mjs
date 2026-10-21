@@ -4,21 +4,25 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../src/exp_tracker/web/product.js',import.meta.url),'utf8');
 class Element {
-  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={};}
+  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={};this.value='';}
   append(...c){this.children.push(...c);}replaceChildren(...c){this.children=c;}
-  setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v){(this.listeners??={})[k]=v;}
+  querySelector(){return null;}querySelectorAll(){return [];}contains(){return false;}focus(){}scrollIntoView(){}
+  setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v,options){(this.listeners??={})[k]=v;(this.listenerOptions??={})[k]=options;}
   getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
 }
-function page(view='overlay',fetcher=()=>new Promise(()=>{})){
-  const elements={},timers=[],events={};
+function page(view='overlay',fetcher=()=>new Promise(()=>{}),search=''){
+  const elements={},timers=[],events={},visits=[];
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
-  const context=vm.createContext({Intl,Date,BigInt,AbortController,performance:{now:()=>0},
-    location:{pathname:view==='overlay'?'/live/overlay/alpha':'/stream/alpha',origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
+  const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
+  const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
+  const context=vm.createContext({Intl,Date,BigInt,AbortController,URL,URLSearchParams,performance:{now:()=>0},
+    location:{pathname,search,href:'http://127.0.0.1:8765'+pathname+search,origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
+    history:{pushState:(s,t,u)=>visits.push(['push',String(u)]),replaceState:(s,t,u)=>visits.push(['replace',String(u)])},
     navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
-      querySelectorAll:selector=>selector==='[data-window]'?buttons:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
+      querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
-  return {context,elements,timers,buttons,events,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
+  return {context,elements,timers,buttons,modes,events,visits,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
 }
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
@@ -242,6 +246,9 @@ test('endpoint pace discloses elapsed gaps and conditional recovery is never str
   p.render(base);
   assert.match(p.elements['early-value'].textContent,/6 readings \/ 140s elapsed · 2 missing readings/);
   assert.match(p.elements['early-value'].title,/3 direct and 2 endpoint-supported intervals; gap time is included/);
+  assert.match(p.elements.rate.title,/EXP\/hour divides eligible gain by the selected window duration/);
+  assert.match(p.elements['segment-note'].title,/verified same-character gaps across sessions/);
+  assert.match(p.elements['segment-note'].title,/Complete comparisons still need ≥90% uninterrupted coverage/);
   assert.match(p.elements.exp.textContent,/^~/);
   assert.match(p.elements.exp.title,/conditional X-to-% recovery/);
   assert.equal(p.run('metricValue(data.player,"exp_hour")'),null);
@@ -494,6 +501,17 @@ test('public endpoint bars record net changes at receipt without spreading captu
   assert.equal(chart.bins.reduce((sum,b)=>sum+(b.value??0),0),4000);
 });
 
+test('rolling interval bars include qualifying boundary crossings only at real later endpoints',()=>{
+  const p=page('player'),anchor=Date.parse('2026-01-01T00:10:00Z');p.context.anchor=anchor;
+  const interval=(a,b,value)=>({connect_previous:true,gain:{policy:'public_endpoint_window_v2',
+    start:new Date(anchor+a*1000).toISOString(),end:new Date(anchor+b*1000).toISOString(),value:{approximate:value}}});
+  p.context.rows=[interval(-310,-290,100),interval(-290,0,20)];
+  const bins=JSON.parse(p.run('JSON.stringify(bucketHistory(rows,anchor,60,300).bins)'));
+  assert.deepEqual(bins.map(b=>b.value),[100,null,null,null,20]);
+  p.context.rows=[interval(-301,0,100),interval(-60,0,-5)];
+  assert.equal(p.run('bucketHistory(rows,anchor,60,300).bins.reduce((s,b)=>s+(b.value??0),0)'),0);
+});
+
 test('missing level requirement is an explicit public window limitation',()=>{
   const p=page('player'),base=player({recent_windows:{5:{available:false,gain:null,
     reason:'level_transition_requirement_unavailable'}}});
@@ -742,4 +760,229 @@ test('homepage ranks and renders the same without character-only current-level w
     return results;
   };
   assert.deepEqual(board(shown),board(full));
+});
+
+// Saved-character roster (view-only selection).
+const ALPHA={id:2,label:'Alpha',level:67,last_seen_at:'2026-01-01T00:00:00Z',current:true};
+const BETA={id:3,label:'Beta',level:43,last_seen_at:'2025-12-31T22:00:00Z',current:false};
+function body(roster,changes={}){return {player:player({character:{id:2,label:'Alpha'}}),roster,view:{character_id:2,current:true},served_at:'2026-01-01T00:00:00Z',...changes};}
+function server(responses){
+  const urls=[];
+  return {urls,fetch:async url=>{urls.push(url);const next=responses.length>1?responses.shift():responses[0];return {ok:next.status==null,status:next.status ?? 200,json:async()=>next.body ?? next};}};
+}
+const settle=async()=>{for(let i=0;i<4;i++)await new Promise(resolve=>setImmediate(resolve));};
+
+test('one saved character shows exactly the existing profile: no roster at all',async()=>{
+  const api=server([body([ALPHA])]),p=page('player',api.fetch);await settle();
+  assert.equal(p.elements.roster.hidden,true);assert.equal(p.elements['roster-all'].hidden,true);
+  assert.equal(p.elements['player-name'].textContent,'Alpha');assert.equal(api.urls[0],'/api/players/alpha');
+});
+
+test('a second saved character reveals the roster on the next poll; tracked character first and marked',async()=>{
+  const api=server([body([ALPHA]),body([ALPHA,BETA])]),p=page('player',api.fetch);await settle();
+  assert.equal(p.elements.roster.hidden,true);
+  await p.run('poll()');
+  assert.equal(p.elements.roster.hidden,false);
+  const [alpha,beta]=p.elements['roster-track'].children;
+  assert.equal(alpha.attributes['aria-current'],'page');assert.equal(beta.attributes['aria-current'],undefined);
+  assert.equal(alpha.children[0].textContent,'Alpha');assert.equal(alpha.children[1].children[0].textContent,'Tracking');
+  assert.equal(beta.href,'/stream/alpha?character=3');assert.equal(alpha.href,'/stream/alpha');
+  assert.equal(p.elements['roster-all'].hidden,true);
+});
+
+test('choosing an inactive character is view-only, clears old numbers and discards a late response',async()=>{
+  let release;const api=server([body([ALPHA,BETA])]),p=page('player',api.fetch);await settle();
+  p.context.fetch=url=>{api.urls.push(url);return new Promise(resolve=>{release=resolve;});};
+  p.run('poll()');  // An Alpha poll is in flight when the visitor clicks Beta.
+  p.elements['roster-track'].children[1].listeners.click({button:0,preventDefault(){}});
+  assert.deepEqual(p.visits.at(-1),['push','http://127.0.0.1:8765/stream/alpha?character=3']);
+  assert.equal(p.run('data'),null);assert.equal(p.elements.exp.textContent,'—');
+  assert.equal(p.elements['roster-track'].children[1].attributes['aria-current'],'page');
+  release({ok:true,status:200,json:async()=>body([ALPHA,BETA])});await settle();
+  assert.equal(p.run('data'),null,'Late Alpha body must not render under the Beta selection');
+  assert.equal(p.timers.at(-1),0);
+  const inactive=body([ALPHA,BETA],{player:player({character:{id:3,label:'Beta'},age_seconds:7200,stale:true,activity:{state:'historical_session'}}),view:{character_id:3,current:false}});
+  p.context.fetch=async url=>{api.urls.push(url);return {ok:true,status:200,json:async()=>inactive};};
+  await p.run('poll()');
+  assert.match(api.urls.at(-1),/character=3/);
+  assert.equal(p.elements['player-name'].textContent,'Beta');
+  assert.match(p.elements.status.textContent,/^Not currently tracked · last reading 2h ago/);
+  assert.equal(p.elements['segment-note'].textContent,'Saved history · not currently tracked');
+  assert.equal(p.elements['roster-track'].children[1].attributes['aria-current'],'page');
+  assert.equal(p.elements['roster-track'].children[0].attributes['aria-current'],undefined);
+});
+
+test('a direct character URL is requested; an invalid one is ignored; an unknown one falls back to live',async()=>{
+  const direct=server([body([ALPHA,BETA],{view:{character_id:3,current:false}})]);
+  page('player',direct.fetch,'?character=3');await settle();assert.equal(direct.urls[0],'/api/players/alpha?character=3');
+  const invalid=server([body([ALPHA,BETA])]);page('player',invalid.fetch,'?character=3%20OR%201');await settle();
+  assert.equal(invalid.urls[0],'/api/players/alpha');
+  const unknown=server([{status:404,body:{error:'unknown_character'}},body([ALPHA,BETA])]),p=page('player',unknown.fetch,'?character=99');await settle();
+  assert.deepEqual(p.visits.at(-1),['replace','http://127.0.0.1:8765/stream/alpha']);
+  assert.equal(p.run('viewCharacter'),null);assert.equal(p.timers.at(-1),0);
+});
+
+test('large rosters stay one row and add a searchable list of every character',async()=>{
+  const many=Array.from({length:12},(_,i)=>({id:i+2,label:i?`Hero${i}`:'Alpha',level:30+i,last_seen_at:'2026-01-01T00:00:00Z',current:!i}));
+  const p=page('player',server([body(many)]).fetch);await settle();
+  assert.equal(p.elements['roster-track'].children.length,12);
+  assert.equal(p.elements['roster-all'].hidden,false);assert.equal(p.elements['roster-count'].textContent,'All 12');
+  p.elements['roster-search'].value='hero1';p.elements['roster-search'].listeners.input();
+  assert.deepEqual(p.elements['roster-list'].children.filter(item=>!item.hidden).map(item=>item.dataset.name),['hero1','hero10','hero11']);
+  const six=page('player',server([body(many.slice(0,6))]).fetch);await settle();assert.equal(six.elements['roster-all'].hidden,true);
+});
+
+for(const view of ['player','overlay'])test(`${view} renders a validated level floor as the display level`,()=>{
+  const p=page(view),evidence={value:67,status:'validated_level_floor',reason:'validated_level_floor',trusted:false};
+  p.render(player({display_level:{value:67,status:'validated_level_floor',evidence,timestamp:'2026-01-01T00:00:00Z',age_seconds:1}}));
+  assert.equal(p.elements.level.textContent,'Lv. 67');assert.match(p.elements.level.title,/Last validated level/);
+});
+
+test('homepage Characters uses compact records, scoped links and no stale pace rankings',async()=>{
+  const characters=[{...ALPHA,channel:'alpha'},{...BETA,channel:'alpha'},
+    {...BETA,id:9,channel:'other',label:'Alpha',level:99,last_seen_at:null}];
+  const api=server([{characters,served_at:'2026-01-01T00:00:00Z'}]);
+  const p=page('board',api.fetch,'?mode=characters');await settle();
+  assert.deepEqual(api.urls,['/api/players?mode=characters']);
+  assert.equal(p.elements['entries'].children.length,3);
+  assert.equal(p.elements['streamer-metrics'].hidden,true);assert.equal(p.elements['streamer-windows'].hidden,true);
+  assert.equal(p.elements['character-controls'].hidden,false);
+  const [alpha,beta,other]=p.elements.entries.children;
+  assert.equal(alpha.children[1].children[0].href,'/stream/alpha?character=2');
+  assert.equal(other.children[1].children[0].href,'/stream/other?character=9');
+  assert.equal(alpha.children[1].children[2].textContent,'Currently tracked');
+  assert.equal(beta.children[1].children[2].textContent,'Not currently tracked');
+  assert.equal(other.children[2].textContent,'No saved readings');
+  assert.match(p.elements['ranking-note'].textContent,/historical/);
+  p.elements['character-sort'].value='level';p.elements['character-sort'].listeners.change();
+  assert.equal(p.elements.entries.children[0].dataset.character,9);
+  p.elements['character-filter'].value='OTHER';p.elements['character-filter'].listeners.input();
+  assert.equal(p.elements.entries.children.length,1);assert.equal(p.elements.entries.children[0].dataset.channel,'other');
+  p.elements['character-filter'].value='missing';p.elements['character-filter'].listeners.input();assert.equal(p.elements.empty.hidden,false);
+});
+
+test('homepage toggle is view-only, preserves default cards and handles Back/Forward without reload',async()=>{
+  const streamers={players:[player()]},characters={characters:[{...ALPHA,channel:'alpha'}]};
+  const api=server([streamers,characters,streamers,characters]),p=page('board',api.fetch);await settle();
+  assert.equal(p.run('boardMode'),'streamers');assert.equal(p.elements.entries.children.length,1);
+  p.modes[1].listeners.click();await settle();
+  assert.equal(p.run('boardMode'),'characters');assert.match(p.visits[0][1],/\?mode=characters$/);
+  assert.equal(p.modes[1].attributes['aria-pressed'],'true');
+  p.context.location.search='';p.events.popstate();await settle();
+  assert.equal(p.run('boardMode'),'streamers');assert.equal(p.elements['streamer-metrics'].hidden,false);
+  p.context.location.search='?mode=characters';p.events.popstate();await settle();
+  assert.equal(p.run('boardMode'),'characters');assert.equal(p.visits.length,1);
+  assert.deepEqual(api.urls,['/api/players','/api/players?mode=characters','/api/players','/api/players?mode=characters']);
+});
+
+test('homepage discards a late Streamers response after changing to Characters',async()=>{
+  let finish;const p=page('board',()=>new Promise(resolve=>{finish=resolve;}));
+  p.modes[1].listeners.click();
+  finish({ok:true,json:async()=>({players:[player()]})});await settle();
+  assert.equal(p.run('boardMode'),'characters');assert.equal(p.run('data'),null);assert.equal(p.run('failed'),false);
+  assert.equal(p.timers.at(-1),0);
+});
+
+test('viewed roster chip is positioned after last-seen labels fill its final width',async()=>{
+  const p=page('player',server([body([ALPHA,BETA])]).fetch);await settle();
+  const query=p.context.document.querySelectorAll;
+  p.context.document.querySelectorAll=selector=>selector==='#roster [data-seen]'?
+    p.elements['roster-track'].children.map(link=>link.children[1].children[0]).filter(n=>n.dataset.seen):query(selector);
+  let positioned=false;
+  p.elements['roster-track'].querySelector=()=>({scrollIntoView(){
+    const beta=p.elements['roster-track'].children[1];
+    assert.equal(beta.children[1].children[0].textContent,'2h ago');positioned=true;
+  }});
+  p.run("viewCharacter='3';renderRoster()");assert(positioned);
+});
+
+function rosterMouse(p=page('player')){
+  const track=p.elements['roster-track'];track.clientWidth=200;track.scrollWidth=1000;
+  let left=200,captured=null;
+  Object.defineProperty(track,'scrollLeft',{get:()=>left,set:value=>{left=Math.max(0,Math.min(track.scrollWidth-track.clientWidth,value));}});
+  track.setPointerCapture=id=>{captured=id;};track.hasPointerCapture=id=>captured===id;
+  track.releasePointerCapture=()=>{captured=null;};
+  const fire=(type,changes={})=>{
+    const e={pointerType:'mouse',pointerId:1,isPrimary:true,button:0,buttons:1,clientX:150,
+      deltaX:0,deltaY:0,deltaMode:0,detail:1,prevented:false,stopped:false,
+      preventDefault(){this.prevented=true;},stopImmediatePropagation(){this.stopped=true;},...changes};
+    track.listeners[type](e);return e;
+  };
+  return {p,track,fire,captured:()=>captured};
+}
+
+test('roster converts only vertical unmodified wheel input, including line and page units',()=>{
+  const {track,fire}=rosterMouse();
+  assert.equal(track.listenerOptions.wheel.passive,false);
+  assert(fire('wheel',{deltaY:24}).prevented);assert.equal(track.scrollLeft,224);
+  assert(fire('wheel',{deltaY:-2,deltaMode:1}).prevented);assert.equal(track.scrollLeft,192);
+  assert(fire('wheel',{deltaY:1,deltaMode:2}).prevented);assert.equal(track.scrollLeft,392);
+  for(const changes of [{deltaX:10},{deltaX:10,deltaY:40},...['ctrlKey','metaKey','shiftKey','altKey'].map(k=>({[k]:true,deltaY:50}))]){
+    assert.equal(fire('wheel',changes).prevented,false);assert.equal(track.scrollLeft,392);
+  }
+});
+
+test('roster gives the page its vertical wheel back at either boundary or without overflow',()=>{
+  const {track,fire}=rosterMouse();track.scrollLeft=0;
+  assert.equal(fire('wheel',{deltaY:-40}).prevented,false);
+  assert(fire('wheel',{deltaY:2}).prevented);assert.equal(track.scrollLeft,2);
+  track.scrollLeft=790;assert(fire('wheel',{deltaY:40}).prevented);assert.equal(track.scrollLeft,800);
+  assert.equal(fire('wheel',{deltaY:40}).prevented,false);
+  assert(fire('wheel',{deltaY:-40}).prevented);assert.equal(track.scrollLeft,760);
+  track.scrollWidth=200;track.scrollLeft=0;
+  assert.equal(fire('wheel',{deltaY:40}).prevented,false);
+});
+
+test('mouse drag captures after a small threshold, moves the strip, and suppresses only its pointer click',()=>{
+  const {track,fire,captured}=rosterMouse();
+  assert.equal(track.listenerOptions.click,true);
+  assert.equal(fire('pointerdown').prevented,false);
+  assert.equal(fire('pointermove',{clientX:147}).prevented,false);assert.equal(captured(),null);
+  assert(fire('dragstart').prevented);
+  assert(fire('pointermove',{clientX:100}).prevented);assert.equal(track.scrollLeft,250);
+  assert.equal(captured(),1);assert.equal(track.dataset.dragging,'true');
+  fire('pointerleave');assert.equal(captured(),1); // Captured release outside still finishes the drag.
+  fire('pointerup',{buttons:0});assert.equal(captured(),null);assert.equal(track.dataset.dragging,undefined);
+  assert.equal(fire('click',{detail:0}).prevented,false); // Keyboard activation is never swallowed.
+  for(const changes of [{button:1},...['ctrlKey','shiftKey','metaKey','altKey'].map(k=>({[k]:true}))])assert.equal(fire('click',changes).prevented,false);
+  const click=fire('click');assert(click.prevented && click.stopped);
+  assert.equal(fire('click').prevented,false);
+});
+
+test('pointer cancellation, capture loss, early leave and released buttons clean up safely',()=>{
+  for(const ending of ['pointercancel','lostpointercapture','released_buttons','modified_move']){
+    const {track,fire,captured}=rosterMouse();fire('pointerdown');fire('pointermove',{clientX:100});
+    if(ending==='released_buttons')fire('pointermove',{buttons:0});
+    else if(ending==='modified_move')fire('pointermove',{ctrlKey:true});
+    else fire(ending);
+    assert.equal(track.dataset.dragging,undefined);assert.equal(captured(),null);
+    fire('pointermove',{clientX:50});assert.equal(track.scrollLeft,250);
+    fire('pointerdown');fire('pointerup',{buttons:0});assert.equal(fire('click').prevented,false);
+  }
+  const {track,fire}=rosterMouse();fire('pointerdown');fire('pointerleave');
+  assert.equal(fire('pointermove',{clientX:50}).prevented,false);assert.equal(track.scrollLeft,200);
+});
+
+test('touch, pen, modified, secondary and nonoverflow gestures retain native behavior',()=>{
+  for(const changes of [{pointerType:'touch'},{pointerType:'pen'},{button:1},{button:2},{isPrimary:false},
+    ...['ctrlKey','metaKey','shiftKey','altKey'].map(k=>({[k]:true}))]){
+    const {track,fire,captured}=rosterMouse();assert.equal(fire('pointerdown',changes).prevented,false);
+    assert.equal(fire('pointermove',{...changes,clientX:80}).prevented,false);
+    assert.equal(captured(),null);assert.equal(track.scrollLeft,200);
+  }
+  const {track,fire}=rosterMouse();track.scrollWidth=200;track.scrollLeft=0;
+  fire('pointerdown');assert.equal(fire('pointermove',{clientX:80}).prevented,false);
+});
+
+test('a plain roster click navigates, a drag does not, and the next normal click still navigates',async()=>{
+  const p=page('player',server([body([ALPHA,BETA])]).fetch);await settle();
+  const {track,fire}=rosterMouse(p),beta=track.children[1];
+  fire('pointerdown');fire('pointermove',{clientX:80});fire('pointerup',{buttons:0});
+  const dragged=fire('click');if(!dragged.stopped)beta.listeners.click(dragged);
+  assert.equal(p.visits.length,0);assert.equal(p.run('viewCharacter'),null);
+  fire('pointerdown');fire('pointermove',{clientX:148});fire('pointerup',{buttons:0});
+  const clicked=fire('click');if(!clicked.stopped)beta.listeners.click(clicked);
+  assert.equal(p.run('viewCharacter'),'3');assert.match(p.visits.at(-1)[1],/\?character=3$/);
+  assert.equal(p.elements['roster-list'].listeners?.wheel,undefined);
+  assert.equal(p.elements['roster-search'].listeners?.pointerdown,undefined);
 });

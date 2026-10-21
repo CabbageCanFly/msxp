@@ -28,7 +28,7 @@ def test_fixed_percentage_numeric_progress_supplies_level_exp_history_and_pace()
     assert [r['gain']['value']['approximate'] for r in chart[1:]]==[0,8,4]
     pace=responsive_pace(snap,dict(value=43),now=NOW+timedelta(seconds=45))
     assert pace['total_gain']['approximate']==12
-    assert pace['estimates']['exp_per_hour']['value']['approximate']==960
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==144
     assert pace['evidence_counts']['grammar_recovered']==1
 
 
@@ -94,7 +94,7 @@ def test_numeric_loss_within_one_percentage_bin_is_not_counted_as_a_gain():
     chart=history(snap)
     assert chart[1]['gain'] is None and chart[2]['gain']['value']['approximate']==8
     pace=responsive_pace(snap,dict(value=43),now=NOW+timedelta(seconds=30))
-    assert pace is None  # 82,338 - 82,342 is a net loss, despite the final +8 interval.
+    assert pace['total_gain']['approximate']==8  # The loss interval is excluded; subsequent valid progress counts.
 
 
 def test_grammar_recovered_pair_can_corroborate_a_real_wrap_hypothesis():
