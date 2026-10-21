@@ -87,23 +87,43 @@ def test_disabled_missing_credentials_expired_cache_and_malformed_status_are_unk
 @pytest.mark.parametrize('failure',[None,'rate_limit','wrong_batch'])
 def test_large_roster_uses_bounded_batches_and_preserves_known_statuses(monkeypatch,failure):
     monkeypatch.setenv('TWITCH_CLIENT_ID','private');monkeypatch.setenv('TWITCH_ACCESS_TOKEN','private')
-    channels=[f'channel{i:03}' for i in range(76)];calls=[]
+    channels=[f'channel{i:03}' for i in range(201)];calls=[]
     def fetch(endpoint,params,*args,**kwargs):
         batch=params['user_login'];calls.append(batch)
-        assert 1<=len(batch)<=25
+        assert 1<=len(batch)<=100
         if failure and len(calls)==2:
             if failure=='rate_limit':raise HTTPError('private',429,'private',{'Retry-After':'120'},None)
             return dict(data=[dict(user_login=channels[0],type='live')])
         return dict(data=[dict(user_login=batch[0],type='live')])
     cache=StreamAvailability(enabled=True,fetch=fetch,clock=lambda:0)
     result=cache.snapshot(channels)
-    completed=channels if failure is None else channels[:25]
-    assert calls==[channels[i:i+25] for i in range(0,76 if failure is None else 50,25)]
+    completed=channels if failure is None else channels[:100]
+    assert calls==[channels[i:i+100] for i in range(0,201 if failure is None else 200,100)]
     for i,c in enumerate(channels):
-        expected='unknown' if c not in completed else 'live' if i%25==0 else 'offline'
+        expected='unknown' if c not in completed else 'live' if i%100==0 else 'offline'
         assert result[c]['status']==expected
         if expected=='unknown':assert result[c]['reason']==('rate_limited' if failure=='rate_limit' else 'api_unavailable')
     assert cache.snapshot(channels)==result
+
+
+def test_completed_batch_expires_without_bypassing_later_batch_backoff(monkeypatch):
+    monkeypatch.setenv('TWITCH_CLIENT_ID','private');monkeypatch.setenv('TWITCH_ACCESS_TOKEN','private')
+    channels=[f'channel{i:03}' for i in range(101)];calls=[];seconds=[0]
+    def fetch(endpoint,params,*args,**kwargs):
+        calls.append(params)
+        if len(calls)>1:raise HTTPError('private',429,'private',{'Retry-After':'900'},None)
+        return dict(data=[dict(user_login=channels[0],type='live')])
+    cache=StreamAvailability(enabled=True,fetch=fetch,clock=lambda:seconds[0])
+    now=datetime(2026,1,1,tzinfo=timezone.utc)
+    initial=cache.snapshot(channels,now=now)
+    assert initial[channels[0]]['status']=='live' and initial[channels[1]]['status']=='offline'
+    assert cache.next_check==900
+    seconds[0]=61
+    expired=cache.snapshot(channels,now=now+timedelta(seconds=61))
+    for channel,previous in ((channels[0],'live'),(channels[1],'offline')):
+        assert expired[channel]['status']=='unknown' and expired[channel]['reason']=='stale_check'
+        assert expired[channel]['last_known_status']==previous
+    assert len(calls)==2
 
 
 def test_rate_limit_respects_bounded_retry_after(monkeypatch):

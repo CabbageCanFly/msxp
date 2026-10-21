@@ -123,7 +123,8 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
     return state
 
 
-MAX_CHECKPOINTS=80  # Bounded acceleration cache; eviction falls back to full causal replay.
+MAX_CHECKPOINTS=256  # Two per channel: room for 100 channels plus on-demand views.
+MAX_ETA_CACHE=256
 LOCK=threading.Lock()  # Directory and character threads share one checkpoint store.
 
 
@@ -258,7 +259,7 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
                 cached=(key,saved,historical['recent_history_status'],historical['recent_history_receipt'])
                 if eta_cache is not None:
                     # Bounded ETA acceleration cache, independent of roster membership.
-                    if name not in eta_cache and len(eta_cache)>=33:eta_cache.pop(next(iter(eta_cache)))
+                    if name not in eta_cache and len(eta_cache)>=MAX_ETA_CACHE:eta_cache.pop(next(iter(eta_cache)))
                     eta_cache[name]=cached
             result.update(historical_etas=cached[1],eta_history_status=cached[2],eta_history_receipt=cached[3])
     return result

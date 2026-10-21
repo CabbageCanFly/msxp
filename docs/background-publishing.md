@@ -170,7 +170,7 @@ player, which is the next thing to make shared if many channels are active.
   bytes are shared.
 - **All visible roster channels are published.** Newly configured channels warm
   progressively; unknown channels still return 404. Twitch status requests are
-  split into batches of at most 25 logins. History work and cache bounds remain.
+  split into batches of at most 100 logins. History work and cache bounds remain.
 - **Unchanged:** the developer diagnostics (`/dev/api/streams`, `/dashboard/*`) and the
   trusted `/api/streams/{ch}/state` overlay still compute per request.
 

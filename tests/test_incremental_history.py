@@ -117,6 +117,25 @@ def test_checkpoint_store_is_bounded(tracking,monkeypatch):
     assert len(checkpoints)==2 and ('tracked','alpha',1,((),0)) in checkpoints
 
 
+def test_100_idle_channels_reuse_checkpoints_and_historical_eta_cache(tracking,monkeypatch):
+    _,store,d=tracking;checkpoints={};etas={};channels=[f'cache{i}' for i in range(100)]
+    now=NOW+timedelta(hours=3)
+    for channel in channels:
+        store.add_channel(channel);cid=store.add_character(channel,'Synthetic character')
+        store.select_character(channel,cid);store.start_session(channel,at=NOW)
+        d.begin(channel,channel,config(channel,interval=20))
+        for i in (1,2):save(d,channel,i,i*20,3300+i*5,source=dict(kind='twitch',channel=channel))
+        d.append(channel,dict(type='summary',trusted=False,attempts=2,interrupted=False))
+        d.rolling_history(channel,now=now,checkpoints=checkpoints)
+        d.recent_snapshot(channel,now=now,checkpoints=checkpoints,eta_cache=etas)
+    seen=[];original=rolling_history.run_rows
+    monkeypatch.setattr(rolling_history,'run_rows',lambda *a,**k:seen.append(a[2]['run_id']) or original(*a,**k))
+    for channel in channels:
+        d.rolling_history(channel,now=now,checkpoints=checkpoints)
+        d.recent_snapshot(channel,now=now,checkpoints=checkpoints,eta_cache=etas)
+    assert not seen  # Neither the causal prefix nor the old ETA history was replayed.
+
+
 def saved_logs(root,channel):
     """Each saved capture log read once, as records in run order. Live capture may still
     append: a trailing unfinished line and a header-only new log are not yet part of it."""

@@ -245,7 +245,7 @@ delete, global character linking, remote administration or automatic history mer
 
 Capture concurrency independently stays 1..8 workers with one serialized capture
 writer. The public directory includes all visible managed channels; optional Twitch
-status checks use batches of at most 25 logins. Hidden historical/character views,
+status checks use batches of at most 100 logins. Hidden historical/character views,
 per-history work bounds and acceleration caches retain their separate limits.
 Removing the count cap does not establish throughput at larger rosters: capture
 cadence, publication latency and memory remain limited by the host. No database
@@ -253,9 +253,10 @@ migration is needed; restart backend/admin processes to load this change. Do not
 workers equal to configured streamers.
 
 Synthetic checks cover a 40-channel bootstrap and JSON coordinator, a 50-channel
-managed directory, 81 published channels and 76 batched Twitch statuses, including
-partial API failures. These demonstrate removal of software count limits, not live
-capture throughput at those sizes.
+managed directory, 81 published channels and 201 batched Twitch statuses, including
+partial API failures. A 100-channel idle replay verifies that the 256-entry
+checkpoint and ETA caches avoid rereading unchanged histories on the next pass.
+These demonstrate software behavior, not live capture throughput at those sizes.
 
 `PendingOCR` is an exact, reserved internal name, not a real identity or an alias to
 rename into one. Shared diagnostic writes hold its numeric evidence even outside

@@ -24,7 +24,7 @@ from .twitch_auth import AppTokens,AuthError
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_STREAM_PAGES = 3
-STREAM_STATUS_BATCH = 25
+STREAM_STATUS_BATCH = 100
 
 
 def thumbnail_url(template: str, width: int, height: int) -> str:

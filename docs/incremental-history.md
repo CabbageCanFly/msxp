@@ -32,9 +32,12 @@ buckets, chart intervals and boundary counts are recomputed from the retained
 intervals at each request's `now`, so windows expire with no new capture. The recent
 view retains its rows and reapplies the request's 65-minute cutoff.
 
-Checkpoints live in `server.checkpoints` (two per channel, at most 64, oldest evicted,
-guarded by one lock). Callers that pass no store, such as tests and tools, keep the
-original full replay.
+Checkpoints live in `server.checkpoints` (normally two per channel, at most 256,
+oldest evicted, guarded by one lock). The compact historical-ETA cache also holds
+256 entries. This gives 100 channels plus on-demand views room to reuse their
+state; these are cache bounds, not roster limits. Checkpoints can contain sizeable
+histories, so entry count is not a memory-size guarantee. Callers that pass no
+cache store, such as tests and tools, keep the original full replay.
 
 ## Validity, invalidation and pruning
 
