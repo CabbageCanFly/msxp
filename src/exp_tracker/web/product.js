@@ -195,36 +195,11 @@ function windowNote(p) {
   if(w?.eligible)return `Based on the full ${windowMinutes} min`;
   return 'Calculating…';
 }
-function captureText(p) {
-  const s=current(p),state=p.activity?.state;
-  if(failed)return 'Updates delayed';
-  if(state==='capture_finished' || state==='stopped' && p.activity.completion==='completed')return 'Tracking ended';
-  if(state==='capture_interrupted')return 'Tracking stopped';
-  if(['coordinator_stopped','previous_unfinished_run','historical_session'].includes(state) && s.stale)return p.reading?`Last tracked ${ageText(s.age)}`:'Tracking paused';
-  if(!p.reading)return p.latest_attempt_status==='capture_failed'?'Can\'t read the stream':'Waiting for EXP';
-  const attemptAge=p.latest_attempt_age_seconds==null?null:p.latest_attempt_age_seconds+(performance.now()-receivedAt)/1000;
-  if(attemptAge!=null && attemptAge>=0 && attemptAge<=p.stale_after_seconds && p.latest_attempt_at!==p.reading.timestamp &&
-      ['malformed_or_unavailable','unavailable'].includes(p.latest_attempt_status) && ['waiting','running'].includes(state))return 'EXP bar not visible';
-  if(s.stale)return 'Updates delayed';
-  if(p.percentage_state?.public_eligible===false && p.percentage_state?.pending_since)return 'Verifying EXP change';
-  if(p.latest_attempt_status==='capture_failed')return 'Waiting for an update';
-  if(state==='stopped' && p.activity.completion)return ({completed:'Tracking ended',interrupted:'Tracking stopped',failed:'Tracking stopped'})[p.activity.completion] ?? 'Tracking paused';
-  return ({running:'Updating',waiting:'Tracking',capture_delayed:'Updates running behind',capture_failing:'Trouble reading the stream',
-    stopped:'Tracking paused',coordinator_stopped:'Tracking paused',previous_unfinished_run:'Tracking stopped'})[state] ?? 'Tracking paused';
-}
 function statusText(p) {
   // Another character's saved state: never the tracked character's capture or Twitch status.
   if(inactiveView())return `Not currently tracked · ${p.reading?'last seen '+ageText(current(p).age):'nothing saved yet'}`;
-  let status=p.twitch?.status;
-  const now=Date.parse(data?.served_at ?? data?.player?.latest_attempt_at)+(performance.now()-receivedAt);
-  if(p.twitch?.valid_until && now>Date.parse(p.twitch.valid_until))status='unknown';
-  const capture=captureText(p);
-  const pending=levelTransition(p)?' · Possible level-up (confirming)':'';
-  if(status==='live')return `Live on Twitch · ${p.latest_attempt_status==='capture_failed'?'Can\'t read the stream':capture}${pending}`;
-  if(status==='offline')return `Offline on Twitch · ${p.twitch.capture_disagreement?'Tracker still updating':capture}${pending}`;
-  // Unknown Twitch status is never shown as live or offline.
-  if(status==='unknown' && p.latest_attempt_status==='capture_failed')return `Can't read the stream${pending}`;
-  return capture+pending;
+  // Public status is deliberately two-state; delays and capture issues still read as Tracking.
+  return p.twitch?.status==='offline'?'Offline':'Tracking';
 }
 function etaText(value,compact=false) {
   const seconds=value?.seconds?.approximate;
@@ -254,7 +229,7 @@ function ranked(players,key) {
   return rows.map(({player,value,order},i)=>{if(order!=null && order!==previous)rank=i+1;previous=order;return {player,value,rank:order==null?null:rank};});
 }
 function entry({player:p,value,rank}) {
-  const r=p.reading,s=current(p),row=node('li','entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale);row.dataset.state=s.stale || failed?'stale':['running','waiting'].includes(p.activity?.state)?'tracking':'paused';
+  const r=p.reading,s=current(p),row=node('li','entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale);row.dataset.state=statusText(p)==='Tracking'?'tracking':'paused';
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=node('span','level');level.append(node('small','','LV.'),node('strong','',levelText(p)));level.title=levelTitle(p);
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
@@ -264,8 +239,7 @@ function entry({player:p,value,rank}) {
   const label=node('span','exp-label'),integer=node('span','exp-number',displayedExp(r,true));
   integer.dataset.compactNumber=displayedExp(r);label.title=expTitle(r);label.append(node('small','','EXP'),integer,node('span','percentage',r?.percentage!=null?`[${percentageText(r)}]`:'Waiting for EXP'));
   bar.append(progress,label);
-  const o=observedWindow(p),old=s.stale || failed || o?.paused;
-  section.append(bar,node('div','exp-detail',`${o?`${movementText(o)} · last ${windowMinutes} min${old?' tracked':''}`:!selectedWindow(p)?.eligible && earlyText(p) || windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
+  section.append(bar,node('div','exp-detail',r?'Updated '+ageText(s.age):'No reading yet'));
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):`~${expText(value)}`),
     node('small','score-label',sort==='level'?'level':sort==='day'?'EXP · 24h':'EXP / hour'));
   score.title=sort==='exp_hour'?rateTitle(value):sort==='level'?levelTitle(p):value==null?'No tracked EXP in the last 24 hours':`~${expText(value,true)} EXP in the last 24 hours while tracked`;
