@@ -7,7 +7,7 @@ class Element {
   constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={};this.value='';}
   append(...c){this.children.push(...c);}replaceChildren(...c){this.children=c;}
   querySelector(){return null;}querySelectorAll(){return [];}contains(){return false;}focus(){}scrollIntoView(){}
-  setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v){(this.listeners??={})[k]=v;}
+  setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v,options){(this.listeners??={})[k]=v;(this.listenerOptions??={})[k]=options;}
   getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
 }
 function page(view='overlay',fetcher=()=>new Promise(()=>{}),search=''){
@@ -894,4 +894,95 @@ test('viewed roster chip is positioned after last-seen labels fill its final wid
     assert.equal(beta.children[1].children[0].textContent,'2h ago');positioned=true;
   }});
   p.run("viewCharacter='3';renderRoster()");assert(positioned);
+});
+
+function rosterMouse(p=page('player')){
+  const track=p.elements['roster-track'];track.clientWidth=200;track.scrollWidth=1000;
+  let left=200,captured=null;
+  Object.defineProperty(track,'scrollLeft',{get:()=>left,set:value=>{left=Math.max(0,Math.min(track.scrollWidth-track.clientWidth,value));}});
+  track.setPointerCapture=id=>{captured=id;};track.hasPointerCapture=id=>captured===id;
+  track.releasePointerCapture=()=>{captured=null;};
+  const fire=(type,changes={})=>{
+    const e={pointerType:'mouse',pointerId:1,isPrimary:true,button:0,buttons:1,clientX:150,
+      deltaX:0,deltaY:0,deltaMode:0,detail:1,prevented:false,stopped:false,
+      preventDefault(){this.prevented=true;},stopImmediatePropagation(){this.stopped=true;},...changes};
+    track.listeners[type](e);return e;
+  };
+  return {p,track,fire,captured:()=>captured};
+}
+
+test('roster converts only vertical unmodified wheel input, including line and page units',()=>{
+  const {track,fire}=rosterMouse();
+  assert.equal(track.listenerOptions.wheel.passive,false);
+  assert(fire('wheel',{deltaY:24}).prevented);assert.equal(track.scrollLeft,224);
+  assert(fire('wheel',{deltaY:-2,deltaMode:1}).prevented);assert.equal(track.scrollLeft,192);
+  assert(fire('wheel',{deltaY:1,deltaMode:2}).prevented);assert.equal(track.scrollLeft,392);
+  for(const changes of [{deltaX:10},{deltaX:10,deltaY:40},...['ctrlKey','metaKey','shiftKey','altKey'].map(k=>({[k]:true,deltaY:50}))]){
+    assert.equal(fire('wheel',changes).prevented,false);assert.equal(track.scrollLeft,392);
+  }
+});
+
+test('roster gives the page its vertical wheel back at either boundary or without overflow',()=>{
+  const {track,fire}=rosterMouse();track.scrollLeft=0;
+  assert.equal(fire('wheel',{deltaY:-40}).prevented,false);
+  assert(fire('wheel',{deltaY:2}).prevented);assert.equal(track.scrollLeft,2);
+  track.scrollLeft=790;assert(fire('wheel',{deltaY:40}).prevented);assert.equal(track.scrollLeft,800);
+  assert.equal(fire('wheel',{deltaY:40}).prevented,false);
+  assert(fire('wheel',{deltaY:-40}).prevented);assert.equal(track.scrollLeft,760);
+  track.scrollWidth=200;track.scrollLeft=0;
+  assert.equal(fire('wheel',{deltaY:40}).prevented,false);
+});
+
+test('mouse drag captures after a small threshold, moves the strip, and suppresses only its pointer click',()=>{
+  const {track,fire,captured}=rosterMouse();
+  assert.equal(track.listenerOptions.click,true);
+  assert.equal(fire('pointerdown').prevented,false);
+  assert.equal(fire('pointermove',{clientX:147}).prevented,false);assert.equal(captured(),null);
+  assert(fire('dragstart').prevented);
+  assert(fire('pointermove',{clientX:100}).prevented);assert.equal(track.scrollLeft,250);
+  assert.equal(captured(),1);assert.equal(track.dataset.dragging,'true');
+  fire('pointerleave');assert.equal(captured(),1); // Captured release outside still finishes the drag.
+  fire('pointerup',{buttons:0});assert.equal(captured(),null);assert.equal(track.dataset.dragging,undefined);
+  assert.equal(fire('click',{detail:0}).prevented,false); // Keyboard activation is never swallowed.
+  for(const changes of [{button:1},...['ctrlKey','shiftKey','metaKey','altKey'].map(k=>({[k]:true}))])assert.equal(fire('click',changes).prevented,false);
+  const click=fire('click');assert(click.prevented && click.stopped);
+  assert.equal(fire('click').prevented,false);
+});
+
+test('pointer cancellation, capture loss, early leave and released buttons clean up safely',()=>{
+  for(const ending of ['pointercancel','lostpointercapture','released_buttons','modified_move']){
+    const {track,fire,captured}=rosterMouse();fire('pointerdown');fire('pointermove',{clientX:100});
+    if(ending==='released_buttons')fire('pointermove',{buttons:0});
+    else if(ending==='modified_move')fire('pointermove',{ctrlKey:true});
+    else fire(ending);
+    assert.equal(track.dataset.dragging,undefined);assert.equal(captured(),null);
+    fire('pointermove',{clientX:50});assert.equal(track.scrollLeft,250);
+    fire('pointerdown');fire('pointerup',{buttons:0});assert.equal(fire('click').prevented,false);
+  }
+  const {track,fire}=rosterMouse();fire('pointerdown');fire('pointerleave');
+  assert.equal(fire('pointermove',{clientX:50}).prevented,false);assert.equal(track.scrollLeft,200);
+});
+
+test('touch, pen, modified, secondary and nonoverflow gestures retain native behavior',()=>{
+  for(const changes of [{pointerType:'touch'},{pointerType:'pen'},{button:1},{button:2},{isPrimary:false},
+    ...['ctrlKey','metaKey','shiftKey','altKey'].map(k=>({[k]:true}))]){
+    const {track,fire,captured}=rosterMouse();assert.equal(fire('pointerdown',changes).prevented,false);
+    assert.equal(fire('pointermove',{...changes,clientX:80}).prevented,false);
+    assert.equal(captured(),null);assert.equal(track.scrollLeft,200);
+  }
+  const {track,fire}=rosterMouse();track.scrollWidth=200;track.scrollLeft=0;
+  fire('pointerdown');assert.equal(fire('pointermove',{clientX:80}).prevented,false);
+});
+
+test('a plain roster click navigates, a drag does not, and the next normal click still navigates',async()=>{
+  const p=page('player',server([body([ALPHA,BETA])]).fetch);await settle();
+  const {track,fire}=rosterMouse(p),beta=track.children[1];
+  fire('pointerdown');fire('pointermove',{clientX:80});fire('pointerup',{buttons:0});
+  const dragged=fire('click');if(!dragged.stopped)beta.listeners.click(dragged);
+  assert.equal(p.visits.length,0);assert.equal(p.run('viewCharacter'),null);
+  fire('pointerdown');fire('pointermove',{clientX:148});fire('pointerup',{buttons:0});
+  const clicked=fire('click');if(!clicked.stopped)beta.listeners.click(clicked);
+  assert.equal(p.run('viewCharacter'),'3');assert.match(p.visits.at(-1)[1],/\?character=3$/);
+  assert.equal(p.elements['roster-list'].listeners?.wheel,undefined);
+  assert.equal(p.elements['roster-search'].listeners?.pointerdown,undefined);
 });

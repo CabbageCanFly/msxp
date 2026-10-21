@@ -646,6 +646,42 @@ if(view==='player') {
   const url=`${location.origin}/live/overlay/${encodeURIComponent(channel)}`;
   el('overlay-link').href=url;el('diagnostics').href=`/dashboard/${channel}`;el('history-link').href=`/dashboard/${channel}`;
   const track=el('roster-track'),all=el('roster-all');
+  const modified=e=>e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
+  let drag=null,suppressClick=false;
+  track.addEventListener('wheel',e=>{
+    if(modified(e) || e.deltaX || !e.deltaY)return;
+    const before=track.scrollLeft,max=track.scrollWidth-track.clientWidth;
+    const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?track.clientWidth:1);
+    if(max<=1 || delta<0 && before<=1 || delta>0 && before>=max-1)return;
+    track.scrollLeft=Math.max(0,Math.min(max,before+delta));
+    if(track.scrollLeft!==before)e.preventDefault();
+  },{passive:false});
+  const finishDrag=e=>{
+    if(!drag || e.pointerId!==drag.id)return;
+    const id=drag.id;drag=null;delete track.dataset.dragging;
+    if(track.hasPointerCapture(id))track.releasePointerCapture(id);
+  };
+  track.addEventListener('pointerdown',e=>{
+    suppressClick=false;
+    if(e.pointerType!=='mouse' || e.isPrimary===false || e.button!==0 || modified(e) || track.scrollWidth<=track.clientWidth+1)return;
+    drag={id:e.pointerId,x:e.clientX,left:track.scrollLeft,moved:false};
+  });
+  track.addEventListener('pointermove',e=>{
+    if(!drag || drag.id!==e.pointerId)return;
+    if(!(e.buttons&1) || modified(e)){finishDrag(e);return;}
+    const distance=e.clientX-drag.x;
+    if(!drag.moved && Math.abs(distance)<6)return;
+    if(!drag.moved){drag.moved=true;suppressClick=true;track.dataset.dragging='true';track.setPointerCapture(e.pointerId);}
+    e.preventDefault();track.scrollLeft=drag.left-distance;
+  });
+  for(const type of ['pointerup','pointercancel','lostpointercapture'])track.addEventListener(type,finishDrag);
+  track.addEventListener('pointerleave',e=>{if(drag && !drag.moved)finishDrag(e);});
+  track.addEventListener('dragstart',e=>{if(drag)e.preventDefault();});
+  // Capture phase prevents the character link from handling the click after a drag.
+  track.addEventListener('click',e=>{
+    if(!suppressClick || e.detail===0 || e.button!==0 || modified(e))return;
+    suppressClick=false;e.preventDefault();e.stopImmediatePropagation();
+  },true);
   track.addEventListener('scroll',rosterEdges,{passive:true});
   track.addEventListener('keydown',e=>{
     const links=[...track.querySelectorAll('a')],at=links.indexOf(document.activeElement);

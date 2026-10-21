@@ -13,6 +13,11 @@ database's selected character is changed only by automatic OCR (or an operator).
 - Order: tracked character first, then most recently seen. The row scrolls
   horizontally (touch, trackpad, Tab, ←/→/Home/End) with an edge fade when more exist.
   From 7 characters an **All N** button opens a searchable list.
+- Over the strip, an unmodified vertical mouse wheel scrolls the cards horizontally;
+  at either edge it returns to normal page scrolling. Horizontal trackpad input stays
+  native. Desktop mouse users can also drag (6 px threshold); releasing a drag never
+  opens a character. Touch swipes, keyboard links and the separate menu remain native.
+  The strip scrolls freely without snapping, keeping small wheel deltas and dragging responsive.
 - **One** saved character: no strip, labels or space; the page is unchanged.
   The strip appears on the next poll when a second character is saved.
 - Clicking a character sets `?character=ID` (shareable, back/forward work). Clicking the
