@@ -1,5 +1,10 @@
 # Ubuntu VPS backend deployment (Phase 2, Track A)
 
+For the current schema-11 database-roster rollout, use the
+[operator runbook and opt-in service drop-in](vps-roster-rollout.md). The JSON unit
+and installation recipe below remain legacy; do not reinstall them or enable their
+retention flag as part of the roster cutover.
+
 The public frontend is hosted separately on Cloudflare Pages (`https://msxp.pages.dev`).
 The VPS runs Twitch capture, OCR, SQLite, EXP calculations, background publishing and a
 read-only HTTPS JSON API. Background: [VPS readiness](vps-readiness.md).
