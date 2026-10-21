@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 
 from exp_tracker.metrics import ResourceMonitor
+from exp_tracker.recognition import ocr_engine
 from exp_tracker.video import CaptureError, Source, VideoSession
 from exp_tracker.shadow_types import parse_percentage_only, partial_percentage
 from exp_tracker.store import Store
@@ -336,8 +337,12 @@ def parser():
 
 
 def capture_attempt(args, source, requirements, index, *, seek=None, session_factory=ShadowSession,
-                    analyze_frame=analyze, clock=time.monotonic, resident=None, identity=None):
-    """One bounded acquisition/OCR operation, shared by coordinators; resident reuses a neural worker."""
+                    analyze_frame=analyze, clock=time.monotonic, resident=None, identity=None, tesseract=None):
+    """One bounded acquisition/OCR operation, shared by coordinators; resident reuses a neural worker.
+
+    tesseract (a resident_tesseract.TesseractPool) serves this attempt's Tesseract calls, on this
+    thread only; without it each call runs the Tesseract CLI.
+    """
     attempt_started = clock()
     record = dict(type='attempt', index=index, trusted=False, current=False,
                   attempted_at=datetime.now(timezone.utc).isoformat(),
@@ -373,6 +378,8 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
         record['timings']['capture_and_close_seconds'] = clock() - tick
     if frame is not None:
         tick = clock()
+        ocr = {}
+        scope = ocr_engine.set(lambda image, psm, whitelist: tesseract(image, psm, whitelist, metrics=ocr)) if tesseract else None
         try:
             experimental=getattr(args,'experimental_neural_level',False)
             reader=(lambda crop,level: neural_line(crop,args.ocr_python,args.ocr_timeout,level,
@@ -393,6 +400,10 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
             # Only CaptureError carries a safe reason; library messages may contain URLs.
             record.update(status='recognition_failed', current=False,
                           reasons=[str(error) if isinstance(error, CaptureError) else 'recognition_failed'])
+        finally:
+            if scope is not None:
+                ocr_engine.reset(scope)
+        record['timings'].update(ocr)
         record['timings']['recognition_total_seconds'] = clock() - tick
     if identity is not None and 'character_name' not in record:
         # No analyzed fields were merged, so there is no reading to attribute or hold.

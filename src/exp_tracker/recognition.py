@@ -4,6 +4,7 @@ Explicit field ROIs are trusted user calibration; automatic discovery requires
 HP, MP, EXP and LV in the geometry of the game status panel.
 """
 
+from contextvars import ContextVar
 from pathlib import Path
 import os
 import re
@@ -29,7 +30,14 @@ def configure_tesseract() -> None:
     pytesseract.pytesseract.tesseract_cmd = command
 
 
+# Optional engine(image, psm, whitelist) -> image_to_data DICT, set per capture attempt (and so per
+# thread) by its caller; unset, every call runs the Tesseract CLI through pytesseract as before.
+ocr_engine: ContextVar = ContextVar("ocr_engine", default=None)
+
+
 def _ocr(image: Image.Image, psm: int, whitelist: str = "") -> list[dict]:
+    if (engine := ocr_engine.get()) is not None:
+        return _tokens(engine(image, psm, whitelist))
     config = f"--psm {psm}"
     if whitelist:
         config += f" -c tessedit_char_whitelist={whitelist}"

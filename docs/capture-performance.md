@@ -24,6 +24,11 @@ are added to its `ExecStart`. **HUD caching stays disabled** until separately ap
 | `--hud-cache-seconds N` | Per channel, search a small box around the last **unique full-frame** HUD for up to N seconds, then rescan the full frame. Any doubt (0 or ≥2 candidates, different anchor spacing, EXP/level box moved more than 5 % of the spacing, level present/absent changed, frame size changed) rescans the full frame at once. | A **policy change**, see below. Off by default. |
 | `--workers N` (1–8) | Up to N channels' attempts run at once, never two for one channel. 5–8 are accepted for experiments but **not yet performance-validated on the VPS**; see below. Due-time selection, deadline skipping, rotation, log writes, the single SQLite writer and status updates stay on the coordinator thread. | No OCR change. |
 
+Two later opt-in flags, `--stagger-capture` (spread first captures; roster additions take
+the widest free gap) and `--resident-tesseract` (isolated, reused libtesseract workers in
+place of one CLI process per OCR call), are described in
+[staggered capture and resident Tesseract](performance-integration.md).
+
 Records from the region search carry `localization.candidates[0].search =
 "cached_region"` and `full_frame_age_seconds`, so they can be separated in SQLite.
 
