@@ -49,9 +49,13 @@ back a prefix and are not silently skipped.
 
 Retained 5/10/15/30/60-minute and 24-hour calculations use the existing endpoint,
 level-up and real-timestamp rules. The checkpoint preserves inference/quarantine
-across rotation. Boundary-straddling intervals remain excluded; unobserved time
-does not acquire invented gain. Last-known display values never enter interval
-inputs. Public URLs and JSON shapes remain unchanged. Retention revisions
+across rotation. Under the [rolling-window policy](rolling-window-gaps.md), an
+eligible interval ending inside a window contributes its whole nonnegative gain
+when its duration fits that window, even if its earlier endpoint precedes the
+window. This does not change the retention cutoff or recover deleted evidence;
+calculations require supported retained endpoints/checkpoints. No intermediate
+readings are invented, and last-known display values never enter interval inputs.
+Public URLs and JSON shapes remain unchanged. Retention revisions
 invalidate publisher cards and in-memory replay keys include the frozen prefix.
 
 ## Daily character snapshots (storage only)
@@ -151,7 +155,9 @@ their accounting is preserved in checkpoint totals.
 
 ## Operation and reporting
 
-The proposed `msxp-tracker.service` includes `--retention-24h` with `--continuous`.
+The legacy JSON `msxp-tracker.service` includes `--retention-24h` with `--continuous`.
+The opt-in [schema-11 VPS roster service](vps-roster-rollout.md) starts with retention
+disabled and requires separate copy rehearsal and operator approval to enable it.
 Nothing has been installed, started or enabled here. Maintenance runs before
 scheduled captures, including startup and repeated capture failures. SQLite
 failures roll back the transaction, print `Retention postponed`, and retry after
