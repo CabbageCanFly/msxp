@@ -202,10 +202,19 @@ class Diagnostics:
 
     def _append(self, run_id, record):
         record = identity_held(record)
-        payload = encoded(record)
         run = self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?', (run_id,)).fetchone()
         if run is None:
             raise ValueError('Unknown diagnostic run')
+        if record.get('type')=='attempt':
+            existing=self.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE run_id=? AND attempt_index=?',
+                                     (run_id,record.get('index'))).fetchone()
+            if existing and existing[0]==encoded(record):return False
+        if (record.get('type')=='attempt' and self.store.schema_version>=10
+                and (json.loads(run['configuration_json']).get('automatic_characters') or
+                     self.db.execute('SELECT 1 FROM character_level_guard WHERE character_id=?',(run['character_id'],)).fetchone())):
+            from .character_automation import guard_level
+            record=guard_level(self.store,run['character_id'],record)
+        payload = encoded(record)
         kind = record.get('type')
         if kind == 'attempt':
             if not isinstance(record.get('status'), str) or any(
@@ -308,8 +317,8 @@ class Diagnostics:
         for row in rows[:limit]:
             config=json.loads(row['configuration_json']); summary=json.loads(row['summary_json']) if row['summary_json'] else {}
             values.append(dict(run_id=row['run_id'],created_at=row['created_at'],source_kind=config.get('source_kind') if config.get('source_kind') in ('file','twitch') else None,
-                completion_reason=summary.get('completion_reason') if summary.get('completion_reason') in ('scheduled_rotation','bounded_complete','stop_condition','operator_interrupted') else None,
-                start_reason=config.get('start_reason') if config.get('start_reason') in ('scheduled_rotation','process_start') else None,
+                completion_reason=summary.get('completion_reason') if summary.get('completion_reason') in ('scheduled_rotation','bounded_complete','stop_condition','operator_interrupted','automatic_character_switch') else None,
+                start_reason=config.get('start_reason') if config.get('start_reason') in ('scheduled_rotation','process_start','automatic_character_switch') else None,
                 status='interrupted' if summary.get('interrupted') else 'completed' if summary else 'unfinished',
                 attempts=self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?',(row['run_id'],)).fetchone()[0]))
         return dict(runs=values,next_before=rows[limit-1]['rowid'] if len(rows)>limit else None,trusted=False)
@@ -352,6 +361,15 @@ class Diagnostics:
         from .retention import checkpoint
         frozen=checkpoint(self.store,selected['id'] if selected else None)
         result['retention_display']=frozen.get('display',{})
+        if self.store.schema_version>=10 and not historical and selected:
+            floor=self.db.execute('SELECT level,proof_json FROM character_level_guard WHERE character_id=?', (selected['id'],)).fetchone()
+            if floor and floor['level'] is not None:
+                proof=json.loads(floor['proof_json'])
+                result['retention_display']=deepcopy(result['retention_display'])
+                if ((result['retention_display'].get('display_level') or {}).get('value') or 0)<floor['level']:
+                    result['retention_display']['display_level']=dict(value=floor['level'],timestamp=proof['received_at'],
+                        event_id=f"level-floor:{selected['id']}",status='validated_level_floor',trusted=False)
+                result['retention_display'].setdefault('latest_attempt_status','unavailable')
         from .invalidations import states,revision as invalidation_revision,mask,barriers
         result['invalidation_revision']=invalidation_revision(self.store,channel)
         validity_key=(selected['id'] if selected else None,result['invalidation_revision'])
@@ -406,7 +424,7 @@ class Diagnostics:
             value['source_identity']=config.get('source_identity') if re.fullmatch(r'[0-9a-f]{64}',str(config.get('source_identity'))) else None
             value['coordinator_instance']=config.get('coordinator_instance') if re.fullmatch(r'[0-9a-f]{32}',str(config.get('coordinator_instance'))) else None
             value.update(assigned_channel=state['channel'], character_id=selected['id'], session_id=session['id'],
-                         run_start_reason=config.get('start_reason') if config.get('start_reason') in ('process_start','scheduled_rotation') else None,
+                         run_start_reason=config.get('start_reason') if config.get('start_reason') in ('process_start','scheduled_rotation','automatic_character_switch') else None,
                          run_interrupted=bool(row['summary_json'] and json.loads(row['summary_json']).get('interrupted')))
             localization = payload.get('localization')
             count = localization.get('count') if isinstance(localization, dict) else None

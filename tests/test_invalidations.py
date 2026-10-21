@@ -232,7 +232,7 @@ def test_schema_six_additive_upgrade_and_old_reader_does_not_migrate(tmp_path):
     before=path.read_bytes()
     with Store(path,read_only=True) as store:assert store.schema_version==6
     assert path.read_bytes()==before
-    with Store(path) as store:assert store.schema_version==VERSION==9
+    with Store(path) as store:assert store.schema_version==VERSION
 
 
 def test_wrong_middle_frame_is_removed_before_level_and_gain_reconstruction(tracking):

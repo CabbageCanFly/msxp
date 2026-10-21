@@ -12,7 +12,7 @@ import sqlite3
 
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition
-from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, MIGRATION_8, MIGRATION_9, STATEMENTS, VERSION
+from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, MIGRATION_8, MIGRATION_9, MIGRATION_10, STATEMENTS, VERSION
 from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
@@ -40,7 +40,7 @@ class Store:
             with self._transaction():
                 version = self.db.execute("PRAGMA user_version").fetchone()[0]
                 if read_only:
-                    if version not in (3,4,5,6,7,8,VERSION):
+                    if version not in (3,4,5,6,7,8,9,VERSION):
                         raise ValueError(f"unsupported schema version {version}; initialize/migrate with the tracking CLI first")
                     self.schema_version=version
                     return
@@ -82,6 +82,10 @@ class Store:
                     for statement in MIGRATION_9:
                         self.db.execute(statement)
                     version = 9
+                if version == 9:
+                    for statement in MIGRATION_10:
+                        self.db.execute(statement)
+                    version = 10
                 if version != VERSION:
                     raise ValueError(f"unsupported schema version {version}")
                 self.db.execute(f"PRAGMA user_version={VERSION}")
@@ -102,12 +106,14 @@ class Store:
 
     @contextmanager
     def _transaction(self):
-        self.db.execute("BEGIN" if self.read_only else "BEGIN IMMEDIATE")
+        nested = self.db.in_transaction
+        self.db.execute('SAVEPOINT store_nested' if nested else "BEGIN" if self.read_only else "BEGIN IMMEDIATE")
         try:
             yield
-            self.db.execute("COMMIT")
+            self.db.execute('RELEASE store_nested' if nested else "COMMIT")
         except BaseException:
-            self.db.execute("ROLLBACK")
+            self.db.execute('ROLLBACK TO store_nested' if nested else "ROLLBACK")
+            if nested: self.db.execute('RELEASE store_nested')
             raise
 
     def _channel(self, login):
@@ -292,6 +298,11 @@ class Store:
                 return dict(existing,duplicate=True)
             if not self.db.execute('SELECT 1 FROM characters WHERE id=? AND streamer_id=?',(character_id,streamer['id'])).fetchone():
                 raise ValueError('character does not belong to channel')
+            if self.schema_version>=10 and level is not None:
+                floor=self.db.execute('SELECT level,proof_json FROM character_level_guard WHERE character_id=?',(character_id,)).fetchone()
+                if (floor and floor['level'] is not None and level<floor['level']
+                        and (kind=='baseline' or datetime.fromisoformat(when)>=datetime.fromisoformat(json.loads(floor['proof_json'])['received_at']))):
+                    raise ValueError('current correction cannot regress the validated character level; historical corrections remain available')
             from .retention import guard
             guard(self,character_id,when)
             if replaces_id is not None:
@@ -315,6 +326,10 @@ class Store:
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (event_id,streamer['id'],character_id,session_id,when,recorded,action,level,current_exp,percentage_bp,reason,
                  kind,target_kind,target_event_id,replaces_id)).lastrowid
+            if self.schema_version>=10 and level is not None and floor and (floor['level'] is None or level>floor['level']):
+                proof=dict(level=level,received_at=when,basis='manual_admin',event_id=event_id)
+                self.db.execute('UPDATE character_level_guard SET level=?,proof_json=?,pending_json=NULL,updated_at=? WHERE character_id=?',
+                                (level,json.dumps(proof),recorded,character_id))
             return dict(self.db.execute('SELECT * FROM manual_corrections WHERE id=?',(row_id,)).fetchone(),duplicate=False)
 
     def _manual_revision(self, login, correction_id):
@@ -428,6 +443,12 @@ class Store:
                     prior = Observation(str(char), datetime.fromisoformat(previous["observed_at"]),
                                         Reading(previous["level"], previous["current_exp"], previous["percentage_bp"] / 100)) if previous and previous["session_id"] == session_id else None
                     transition = validate_transition(prior, observation)
+                    if self.schema_version>=10:
+                        floor=self.db.execute('SELECT level FROM character_level_guard WHERE character_id=?',(char,)).fetchone()
+                        if floor and floor['level'] is not None and result.reading.level<floor['level']:
+                            transition=Transition('rejected','validated_character_level_regression')
+                        elif floor and floor['level'] is not None and result.reading.level>floor['level']:
+                            transition=Transition('ambiguous','validated_character_level_confirmation_required')
                     if transition.status == "accepted" and state["continuity_broken"]:
                         transition = Transition("baseline", "continuity_resumed")
                     if transition.status == "accepted":

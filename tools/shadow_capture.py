@@ -489,8 +489,11 @@ def configuration(args, table_bytes, table, run_id=None):
         **({'run_id': run_id} if run_id else {}),
         **({'experimental_neural_level': True, 'neural_level_preprocessing': 'neutral4'}
            if args.experimental_neural_level else {}),
-        **({'character_names':True,'name_interval_seconds':args.name_interval,'identity_policy':'review_only_v2'}
+        **({'character_names':True,'name_interval_seconds':args.name_interval,
+            'identity_policy':'autonomous_two_frame_v1' if getattr(args,'automatic_characters',False) else 'review_only_v2'}
            if getattr(args,'character_names',False) else {}),
+        **({'automatic_characters':True,'level_policy':'monotone_two_frame_v1'}
+           if getattr(args,'automatic_characters',False) else {}),
         **({'resident_neural':True} if getattr(args,'resident_neural',False) or getattr(args,'character_names',False) else {}),
         **({'hud_cache_seconds':args.hud_cache_seconds} if getattr(args,'hud_cache_seconds',0) else {}))
 

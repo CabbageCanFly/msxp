@@ -157,8 +157,9 @@ The [offline character-name OCR prototype](docs/character-name-ocr.md) reads the
 own-name status-panel field using existing Tesseract/RapidOCR, exports private
 review evidence and proposes stable names for operator confirmation. Optional
 local-video diagnostic capture reuses its resident EXP worker for periodic and
-numeric-event checks, retaining possible switches for review. It does not change
-character selection or tracking history.
+numeric-event checks. The opt-in [autonomous offline MVP](docs/character-name-ocr.md#autonomous-offline-mvp)
+creates/selects per-stream characters in a disposable database after two strong,
+independent name frames, with separate sessions and persistent validated level floors.
 
 The separate [native level-digit experiment](docs/level-digits.md) trades coverage
 for safer rejection: 57 correct levels, zero incorrect accepts and 60 unavailable
@@ -195,7 +196,7 @@ existing SQLite state. Start with an existing demo database:
 Start-Process 'http://127.0.0.1:8765/overlay/demo'
 ```
 
-The read-only server supports schemas 3–9; writer initialization migrates to 9.
+The read-only server supports schemas 3–10; writer initialization migrates to 10.
 The linked guide covers creating a demo,
 explicitly migrating old databases, saved real OCR state and timed synthetic
 updates. HTTP never creates/migrates databases or writes tracking state.

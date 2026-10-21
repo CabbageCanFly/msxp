@@ -2,13 +2,16 @@
 
 The useful source is the **own-name line beneath the job in the bottom game status
 panel**. Existing RapidOCR weights read it well in this small development set.
-Automatic HUD localization is useful but incomplete. This prototype only proposes
-a name for operator review; it never opens a tracker database, changes a roster,
-selects a character, renames anything or merges EXP history.
+Automatic HUD localization is useful but incomplete. The standalone OCR tool only
+proposes names for review. The newer opt-in [autonomous offline MVP](#autonomous-offline-mvp)
+can create/select characters in its own disposable SQLite database. It never renames
+characters, merges histories or modifies a production roster/database.
 
 The [diagnostic capture follow-up](#diagnostic-capture-follow-up) below reuses the
 resident EXP worker and existing HUD layout, adds per-channel pending suggestions,
 and measures per-capture overhead. The initial offline evaluation remains below.
+Earlier milestone descriptions below describe their behavior at that time; automatic
+selection requires the separate flag documented at the end.
 
 ## Run it
 
@@ -604,3 +607,222 @@ occurring same-stream character switch, independent human label audit, VPS/live 
 trial, long-run false-owner rate, crowded multi-game-feed study or full/private-sample
 test suite was performed. Cache blind spots, systematic repeated spelling errors,
 arbitrary legitimate naming rules and stale/replayed game feeds remain limitations.
+
+## Autonomous offline MVP
+
+`tools/multi_alpha.py --automatic-characters` now commits character selection,
+session ownership and EXP baselines automatically. It implies `--character-names`
+and the existing resident worker. This flag accepts local video only, requires
+full-frame HUD localization (no cache/replay), and requires a **new disposable DB**
+or a DB originally created by this mode. An existing normal multi-alpha marker is
+refused before opening/migrating its DB. Defaults, production ingestion and deployment
+configuration have not changed.
+
+Run from this worktree using the existing development Python and ignored RapidOCR
+environment. Save this configuration under `private/character-name/auto-demo.json`;
+choose a fresh database filename each independent experiment:
+
+```json
+{
+  "database": "private/character-name/auto-demo.sqlite3",
+  "port": 0,
+  "streams": [{
+    "channel": "offline-demo",
+    "character": "Unknown",
+    "source": "file",
+    "file": "H:/Desktop/codex/msclassic-twitch-exp-tracker/samples/sample-stream2.mp4",
+    "start": 3120,
+    "interval": 15,
+    "count": 4
+  }]
+}
+```
+
+```powershell
+$repo = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+& "$repo\.venv\Scripts\python.exe" tools/multi_alpha.py --config private/character-name/auto-demo.json --automatic-characters --workers 2 --exit-after-capture
+# Existing private two-channel saved-frame splice used for the measured switch:
+& "$repo\.venv\Scripts\python.exe" tools/multi_alpha.py --config private/character-name/autonomous/video-config-v2.json --automatic-characters --workers 2 --exit-after-capture
+```
+
+`Unknown` is only a bootstrap record. Two confirmed observations create/select the
+actual visible name, leaving the placeholder and its history intact. On restart the
+DB selection takes precedence over the configuration's original bootstrap label.
+Existing IDs are reused only within the same channel; equal names on two channels
+remain separate characters. There is no global character registry or name-based merge.
+
+### Exact switching and availability rules
+
+- Two **consecutive qualifying captures** must have the same exact, case-sensitive
+  name, different canonical full-frame pixel hashes, increasing receipt timestamps
+  and at most 120 seconds between them. Each needs one full-scan HUD, a current
+  frame, a single raw name line matching the parsed ASCII name (2–12 alphanumeric
+  characters, first a letter) and finite RapidOCR score **at least .90**. Stale,
+  duplicate, out-of-order, low-confidence and multiple-HUD evidence cannot confirm.
+- The first different name is held under the old immutable run. The second selects
+  an existing matching character or creates one, ends the old session, starts a new
+  session/run, and writes **that second capture as index 1 / first baseline**.
+  The first held frame's EXP is never backfilled into either history. Its level
+  evidence may help validate the new character's level. Returning to A reuses A's ID
+  but starts a new session; no A–B or prior-session pace interval is joined.
+- New creation stops at 16 total character records per channel, including bootstrap
+  and manual records. Existing IDs can still be selected. This limits damage from
+  repeated OCR errors; an exceptional cap conflict remains held for review.
+- An unreadable name alone allows plausible existing-character EXP tracking.
+  Meaningful mismatch/conflict or the existing numerical anomaly policy still holds
+  unsafe readings. A known mismatch persists through unreadability and restart until
+  a strong selected-name observation clears it or a confirmed switch resolves it.
+  An already pending suggestion can require two returning A frames under the existing
+  conflict policy before tracking resumes.
+  One noisy name followed by A recovers automatically without creating anything.
+  Missing/conflicting captures break the two-capture confirmation streak.
+
+Name checks still use every eligible capture, sharing the EXP resident and already
+obtained HUD. Existing numerical validation requests verification for suspicious
+level/EXP changes; anomalies are never identity proof. Similar-level/EXP switches
+are detected by names alone. At a 60-second capture interval, two successful checks
+give roughly 60–120 seconds plus capture/OCR completion from an arbitrary switch.
+Missing panels/conflicts have no bounded detection latency. No extra model or full
+frame locator was introduced.
+
+### Transaction, restart and audit boundaries
+
+`exp_tracker.character_automation.AutonomousCharacters` runs on the existing serialized
+SQLite writer. Existing Store methods participate in one `BEGIN IMMEDIATE` via nested
+savepoints: validate the old assignment, finalize its run, add/select the character,
+end/start the session, bind a fresh run, persist the confirming baseline and write a
+unique decision receipt. An operator selection race rejects the stale capture.
+Same-input retries return the receipt without another character/session; changed
+contents under the same decision ID are rejected. Coordinator lane/identity state
+changes only after COMMIT. Other channels continue if one lane fails.
+
+Private JSONL flushes happen before COMMIT; flush or SQLite errors roll back the
+whole switch and stop that lane. A crash/rollback can leave uncommitted intent in a
+private log. SQLite is authoritative: restart reads its selected character/session
+and begins a fresh run, rather than replaying that intent as ownership. Rotation
+preserves confirmation evidence through the same session; a switch on the first
+capture after rotation can leave an intentionally empty finalized run.
+
+Schema 10 adds `character_level_guard` and `automatic_character_events`. The latter
+keeps the old/new IDs, decision ID, receipt time, run reference and both bounded name
+evidence references (hash, box, score). These references survive evidence retention;
+the expired raw crops/attempts do not. Raw OCR/provenance remain in private attempt
+JSON until retention. No public endpoint or trusted `observations` schema changed.
+Read-only schemas 3–9 remain supported without migration; writer initialization
+applies schema 10 transactionally. Only disposable databases were migrated here.
+
+### Persistent validated level floor
+
+Managed characters retain a monotone level independently of sessions, coordinator
+state, rolling history and 24-hour evidence deletion. Both diagnostic writers and
+trusted ingestion honor an established floor. A SQL trigger prevents lowering or
+clearing it. A lower-level frame is retained under `level_hold.evidence` and excluded
+from EXP/level/pace projection; the next valid frame can resume immediately. An empty
+new session displays the dated validated level without inventing EXP or pace.
+
+Initial OCR validation and each higher level require two distinct, increasing frames
+within 120 seconds, reusing existing level projection/inference and EXP/percentage
+arithmetic checks. Missing/held frames reset unfinished level confirmation. A single
+high level is held and cannot raise the floor. Returning to the validated level clears
+that pending high. The first startup frame therefore waits for level confirmation
+unless a validated floor/manual assertion already exists; this is an intentional
+bootstrap difference from an already established A session.
+
+For a missing EXP requirement or percentage-only level-up, two readers agreeing on
+the level (including neural score >= .90) can supply each frame's quality check;
+enable the existing `experimental_neural_level` stream option for that case. Full
+arithmetic inconsistency still rejects it. Without sufficient support the tool holds
+the uncertain level rather than declaring progress. Existing level inference remains
+in use; this module does not create another anomaly detector or EXP requirement table.
+
+An active explicit manual level assertion can seed/advance the floor immediately.
+Unvalidated historical diagnostic maxima are not imported. Current lower corrections,
+including historical baselines that would carry forward, are rejected for managed
+characters; earlier point corrections remain possible. Undoing a correction does not
+erase an established floor. Repairing an incorrectly established floor needs a future
+explicit audited repair workflow; automatic recognition never lowers it.
+
+Same-level EXP loss is **not** level regression. It remains subject to existing
+numeric death/loss and identity-verification rules. An old same-level clip with lower
+EXP cannot reliably be distinguished from a real death penalty. The MVP retains the
+evidence and makes no hard claim of replay or character ownership from that event.
+
+### Verification and saved-video outcomes
+
+`tests/test_autonomous_characters.py` exercises 23 disposable-DB scenarios: A A B B B
+(switch at 4), A B B A A (reuse A), noisy names, unreadability with/without an active
+conflict, similar numeric readings across characters, lower-level old clips, normal
+level-ups, false highs, same-level losses, unknown EXP requirements, percentage-only
+level-ups, manual corrections, schema-9 reading/migration, replay/idempotency, retention,
+parallel channels, stale roster labels on restart, rotation boundaries, operator races,
+multiple HUDs, creation limits, and rollback after a flushed log. Public current
+packets/history retain only the
+appropriate character/session; held raw numeric evidence does not enter projection.
+
+Private evidence is under `private/character-name/autonomous/` and corresponding
+`private/multi-alpha/runs/` directories. Source recordings were read from the original
+checkout. The splice is assembled from real saved full frames of different recordings;
+it is **not a naturally observed same-stream switch**. Frame/source labels and both
+positive and negative artifacts remain private.
+
+`private/character-name/autonomous/evaluation.json` contains a compact DB-derived
+review alongside the raw logs. Example successful decision (source hashes/boxes are
+retained in the full receipt):
+
+```json
+{
+  "channel": "splice",
+  "capture": 4,
+  "previous_character_id": 1,
+  "character_id": 3,
+  "name": "hefferheffer",
+  "session_id": 3,
+  "new_run_index": 1,
+  "pair": [475, 84.82],
+  "visible_feed_association": true
+}
+```
+
+| Experiment | Outcome |
+| --- | --- |
+| `video-config-v2.json`: emmies, emmies, hefferheffer x3 | All five names exact. First A level waits for confirmation; A2 is 1169 / 94.12%, level 9. B3 held under A. Capture 4 automatically creates/selects B (character 3, session 3), first baseline 475 / 84.82%, level 7. Capture 5 continues B. |
+| Same run, independent original Stream 2 video | Four exact hefferheffer names, first level waits then three accepted diagnostic readings. Own character 2 / session 2; no association with the splice's character 3. |
+| Original `video-config.json` splice, B middle frame missing HUD | B3 held, B4 no HUD, B5 only one fresh qualifying B after the gap. No switch or new character; negative preserved, no retry-based success claim. |
+| Synthetic Telfer-style level sequence 67,67,80,67,53,67,67 | Floor stays 67; single 80 and old 53 excluded; valid 67 resumes. Floor survives retention, restart and a fresh session. |
+
+The successful two-worker run committed all nine attempts, no skipped deadlines,
+requested/actual starts 10s/10s and 15s/15.001s. Total 51.122s wall, sampled process-tree
+40.906 CPU-s, peak 407.91 MiB. These are whole-run measurements, **not incremental
+automation overhead or a new VPS capacity benchmark**. The preceding measured ~90ms
+eligible-name cost and shared-worker contention remain applicable; this milestone
+adds serialized SQLite bookkeeping, with no new OCR calls.
+
+Focused and broader commands use workspace TEMP/TMP because this Windows sandbox
+blocks the default temporary directories. The full rerun passed **2,368**, skipped
+**119**, with one additional loopback viewer test excluded because sandbox client
+sockets are blocked. Of the skips, 117 are unavailable private samples, one an OS
+symlink case, and one an existing loopback restriction. The initial default-TEMP run's
+21 preview-directory errors disappeared after setting TEMP/TMP; its remaining client
+socket failure is that explicitly excluded case. No unexplained failures are hidden.
+Final focused checks after the additional multi-HUD/cap and retained-display checks:
+**45 passed** (automation/coordinator), and **87 passed / 3 private-sample skips**
+(automation/identity/retention/cards/daily snapshots before the final added cap test).
+The final timezone-aware historical-correction check and automation/Store/manual
+workflow regression run passed **156**, zero skips.
+
+```powershell
+$env:TEMP = (Resolve-Path private/character-name/autonomous/tmp).Path
+$env:TMP = $env:TEMP
+& "$repo\.venv\Scripts\python.exe" -m pytest -q tests/test_autonomous_characters.py -n 0
+& "$repo\.venv\Scripts\python.exe" -m pytest -q -n 8 -k 'not test_concurrent_viewers_share_one_projection_per_publication'
+```
+
+Limitations: systematic repeated wrong names can still create a wrong association;
+two independent pixels do not prove a fresh live broadcast or true ownership. A
+streamer watching another person's gameplay can cause association with that visible
+character. Decisions are per-channel and auditable for later removal; automatic history
+merging, repair/removal UI and production association changes remain out of scope.
+No live Twitch/VPS or long-running false-association trial was performed. This worktree
+is four commits ahead of and one behind local main (`790c273`, percentage-context fix);
+that unrelated main change was inspected and left unmerged/unmodified. Reconcile and
+revalidate before any production rollout.

@@ -21,11 +21,12 @@ PENDING_TTL_SECONDS = 600
 
 
 class IdentitySuggestions:
-    """One instance per channel. OCR only suggests; only select() records an operator identity."""
+    """One instance per channel. Only select() records a committed identity and its source."""
 
-    def __init__(self, channel, *, confirmed=None, pending_ttl=PENDING_TTL_SECONDS):
+    def __init__(self, channel, *, confirmed=None, pending_ttl=PENDING_TTL_SECONDS, confirmation_source='operator_confirmed'):
         self.channel = channel
         self.confirmed = confirmed
+        self.confirmation_source = confirmation_source
         self.pending_ttl = pending_ttl
         self.proposed = None
         self.proposed_evidence = []
@@ -44,11 +45,13 @@ class IdentitySuggestions:
         self.history.append({**self.pending_switch, 'state': state, 'resolved_at': at, 'resolved_by': by})
         self.pending_switch = None
 
-    def select(self, name, at):
-        """Integration boundary: call only after the operator-confirmed Store selection/session change."""
+    def select(self, name, at, *, source='operator_confirmed'):
+        """Integration boundary: call only after the Store selection/session transaction commits."""
         if self.pending_switch:
-            self._resolve('confirmed' if self.pending_switch['name'] == name else 'superseded', at, 'operator_selection')
+            self._resolve('confirmed' if self.pending_switch['name'] == name else 'superseded', at,
+                          'operator_selection' if source=='operator_confirmed' else source)
         self.confirmed, self.proposed, self.proposed_evidence, self.streak = name, None, [], []
+        self.confirmation_source = source
         self.reference_seen_at = None
 
     def dismiss(self, at):
@@ -60,7 +63,7 @@ class IdentitySuggestions:
     def snapshot(self, status):
         return dict(channel=self.channel, confirmed_name=self.confirmed, proposed_name=self.proposed,
                     proposed_evidence=self.proposed_evidence, reference_name=self.reference,
-                    reference_source='operator_confirmed' if self.confirmed else 'ocr_proposed' if self.proposed else None,
+                    reference_source=self.confirmation_source if self.confirmed else 'ocr_proposed' if self.proposed else None,
                     pending_switch=dict(self.pending_switch) if self.pending_switch else None,
                     history=list(self.history),
                     confirming_name=self.streak[-1]['name'] if self.streak else None,
@@ -116,16 +119,16 @@ class IdentitySuggestions:
 
 
 class IdentityCapture:
-    def __init__(self, channel, *, interval=0, confirmed=None):
-        self.suggestions = IdentitySuggestions(channel, confirmed=confirmed)
+    def __init__(self, channel, *, interval=0, confirmed=None, confirmation_source='operator_confirmed'):
+        self.suggestions = IdentitySuggestions(channel, confirmed=confirmed,confirmation_source=confirmation_source)
         self.interval = interval
         self.last_check = None
         self.previous = None
         self.latest = None
 
-    def select(self, name, at):
-        """After an operator-confirmed switch/new session; numbers never compare across characters."""
-        self.suggestions.select(name, at)
+    def select(self, name, at, *, source='operator_confirmed'):
+        """After a committed switch/new session; numbers never compare across characters."""
+        self.suggestions.select(name, at, source=source)
         self.previous = None
 
     def numeric_check(self, result, received_at, requirements):

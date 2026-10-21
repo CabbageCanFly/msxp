@@ -91,7 +91,7 @@ def validate_config(value, *, offline_fast_test=False):
 
 
 @contextmanager
-def ownership(database):
+def ownership(database, *, automatic=False):
     """A local provenance marker and OS-released lock; never adopt a single-stream DB."""
     marker = database.with_suffix(database.suffix+'.multi-alpha.json')
     if database.exists() and not marker.exists() or marker.exists() and not database.exists():
@@ -99,7 +99,7 @@ def ownership(database):
     database.parent.mkdir(parents=True, exist_ok=True)
     if not marker.exists():
         with marker.open('x', encoding='utf-8') as f:
-            json.dump(dict(application=APP), f)
+            json.dump(dict(application=APP,**({'automatic_characters':True} if automatic else {})), f)
     with marker.open('r+b') as handle:
         if os.name == 'nt':
             import msvcrt
@@ -117,6 +117,8 @@ def ownership(database):
             info = json.load(handle)
             if not isinstance(info,dict) or info.get('application') != APP:
                 raise ValueError('Not a multi-alpha database marker')
+            if automatic and info.get('automatic_characters') is not True:
+                raise ValueError('Automatic testing requires a NEW disposable database or its own prior automatic-test database')
             yield
         finally:
             handle.seek(0)
@@ -135,15 +137,17 @@ def check_assignments(database, streams):
                         raise ValueError(f"Character mismatch for {row['channel']}: selected {label!r}; requested {row['character']!r}. Review the coordinated rename workflow in docs/manual-exp-admin.md; do not create another character.")
 
 
-def initialize(database, streams, say=print):
-    check_assignments(database, streams)
+def initialize(database, streams, say=print, *, automatic=False):
+    if not automatic: check_assignments(database, streams)
     with Store(database) as store:
         for row in streams:
             store.add_channel(row['channel'])
-            character = store.add_character(row['channel'], row['character'])
+            selected=store._channel(row['channel'])['selected_character_id']
+            character = selected if automatic and selected is not None else store.add_character(row['channel'], row['character'])
             store.select_character(row['channel'], character, only_if_unselected=True)
             session = store.start_session(row['channel'], expected_character_id=character)
-            row.update(character_id=character, session_id=session)
+            row.update(character_id=character, session_id=session,
+                       character=store.db.execute('SELECT label FROM characters WHERE id=?',(character,)).fetchone()[0])
             say(f"Selected {row['channel']} / {row['character']!r} / session {session}")
             unfinished = store.db.execute('SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=? AND summary_json IS NULL',(session,)).fetchone()[0]
             if unfinished:
@@ -338,9 +342,14 @@ def main(argv=None):
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
     cli.add_argument('--character-names',action='store_true',help='Local video only: hold readings whose own-name evidence does not match the selected character; implies --resident-neural')
+    cli.add_argument('--automatic-characters',action='store_true',help='NEW disposable local-video DB only: automatically switch after two strong independent name frames')
     args = cli.parse_args(argv)
     httpd = thread = None
     try:
+        if args.automatic_characters:
+            args.character_names=True
+            if args.replay or args.hud_cache_seconds:
+                raise ValueError('Automatic offline testing requires capture with full-frame HUD localization, not replay/cache')
         if args.retention_24h and (not args.continuous or args.replay):
             raise ValueError('--retention-24h requires continuous capture')
         if not 1<=args.workers<=8:
@@ -374,6 +383,7 @@ def main(argv=None):
                 source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
                 # After prepare: its standalone no-DB guard does not apply, holds are enforced at emit/append.
                 opts.character_names=args.character_names
+                opts.automatic_characters=args.automatic_characters
                 lanes.append({**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes})
         if not args.replay:
             configure_tesseract()
@@ -387,8 +397,8 @@ def main(argv=None):
             return 0
         print(f'Database: {database}',flush=True)
         if not args.replay: print(f'Private capture logs: {directory}',flush=True)
-        with ownership(database):
-            initialize(database, streams)
+        with ownership(database,automatic=args.automatic_characters):
+            initialize(database, streams,automatic=args.automatic_characters)
             httpd = create_server(database, port=port, diagnostic_dashboard=not args.public_only,public_only=args.public_only,cors_origins=args.cors_origin,twitch_status=args.twitch_status,background=True)
             httpd.quiet = True
             httpd.active_run_ids = set()
@@ -410,6 +420,9 @@ def main(argv=None):
                     own(directory,database)
                 with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database) as store:
                     diagnostic = Diagnostics(store)
+                    if args.automatic_characters:
+                        from exp_tracker.character_automation import AutonomousCharacters
+                        automation=AutonomousCharacters(store)
                     handles = {}
                     resident = shadow.ResidentNeural() if args.resident_neural or args.character_names else None
                     instance=uuid.uuid4().hex
@@ -430,7 +443,7 @@ def main(argv=None):
                             lane['log'].write(json.dumps(header)+'\n'); lane['log'].flush()
                             return header
                         for lane, binding in zip(lanes, streams):
-                            lane.update(character_id=binding['character_id'], session_id=binding['session_id'])
+                            lane.update(character_id=binding['character_id'], session_id=binding['session_id'],character=binding['character'])
                             header=open_run(lane,uuid.uuid4().hex)
                             binding = diagnostic.begin(lane['run_id'], lane['channel'], header)
                             if (binding['character_id'],binding['session_id']) != (lane['character_id'],lane['session_id']):
@@ -458,6 +471,41 @@ def main(argv=None):
                                     maintenance_due=time.monotonic()+60
                                     print(f'Retention postponed: {type(error).__name__}: {error}',file=sys.stderr,flush=True)
                             def emit(lane, record):
+                                if args.automatic_characters and record['type']=='attempt':
+                                    record['resources']=monitor.snapshot()
+                                    following=uuid.uuid4().hex
+                                    header=shadow.configuration(lane['args'],lane['table_bytes'],lane['table'],following)
+                                    old_header=json.loads(store.db.execute('SELECT configuration_json FROM diagnostic_runs WHERE run_id=?', (lane['run_id'],)).fetchone()[0])
+                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode')})
+                                    pending={}
+                                    def write(receipt, payload):
+                                        handle=lane['log']
+                                        if receipt['switched']:
+                                            path=directory/lane['channel']/following/'capture.jsonl'
+                                            path.parent.mkdir(parents=True,exist_ok=False)
+                                            handle=path.open('x',encoding='utf-8')
+                                            pending.update(log=handle,path=path)
+                                            lane['log'].write(json.dumps(receipt['summary'])+'\n');lane['log'].flush()
+                                            handle.write(json.dumps(receipt['configuration'])+'\n')
+                                        handle.write(json.dumps(payload,allow_nan=False)+'\n');handle.flush()
+                                    try:
+                                        receipt=automation.append(lane['run_id'],record,following,header,write=write)
+                                    except BaseException:
+                                        if pending: pending['log'].close()
+                                        raise
+                                    if receipt['switched']:
+                                        previous,old=lane['run_id'],lane['log']
+                                        lane.update(run_id=receipt['run_id'],character_id=receipt['character_id'],
+                                            session_id=receipt['session_id'],character=receipt['name'],run_attempts=1,log=pending['log'])
+                                        lane['args'].output=pending['path'];handles[lane['channel']]=lane['log']
+                                        httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(lane['run_id'])
+                                        lane['options']['identity'].select(receipt['name'],record['received_at'],source='automatic_two_frame')
+                                        old.close()
+                                        print(f"{lane['channel']}: automatically selected {receipt['name']} / character {receipt['character_id']} / session {receipt['session_id']}",flush=True)
+                                    lane['commits']+=1
+                                    print(report_attempt(receipt['record'],True,database=database,channel=lane['channel'],
+                                        neural_enabled=lane['args'].experimental_neural_level).replace('#',lane['channel']+' #',1),flush=True)
+                                    return
                                 record = identity_held(record)  # Before the log too, so replay stores the same payload.
                                 if record['type']=='summary' and lane.get('rotation_failed'):
                                     raise ValueError('Rotation intent already logged; keep database run unfinished')
@@ -510,7 +558,8 @@ def main(argv=None):
                                         locator=shadow.CachedLocator(args.hud_cache_seconds))
                                 if args.character_names:  # Per channel; survives rotation, not restarts.
                                     from character_identity import IdentityCapture
-                                    lane['options']['identity']=IdentityCapture(lane['channel'],confirmed=lane['character'])
+                                    lane['options']['identity']=IdentityCapture(lane['channel'],confirmed=lane['character'],
+                                        **({'confirmation_source':'persisted_selection'} if args.automatic_characters else {}))
                             def perform(lane,n,seek):
                                 return shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek,**lane['options'])
                             interrupted = schedule(lanes,perform,emit,workers=args.workers,
