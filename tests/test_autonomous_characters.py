@@ -413,3 +413,177 @@ def test_percentage_only_levelup_can_use_two_independent_agreeing_readers(auto):
         result=policy.append('first',value,f'noop{i}',config(f'noop{i}'))
     assert result['record']['current']
     assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==68
+
+
+def test_saved_level_policy_cannot_bypass_a_newer_floor(auto):
+    _,store,_=auto
+    rows=sequence(auto,['Alpha']*4,levels=[67,67,68,68])
+    old=deepcopy(rows[1]['record'])
+    Diagnostics(store).append('first',dict(type='summary',trusted=False,attempts=4,interrupted=False))
+    Diagnostics(store).begin('replay','alpha',config('replay'))
+    old.update(index=1,attempted_at=(AT+timedelta(minutes=2)).isoformat(),received_at=(AT+timedelta(minutes=2)).isoformat())
+    Diagnostics(store).append('replay',old)
+    saved=json.loads(store.db.execute("SELECT payload_json FROM diagnostic_attempts WHERE run_id='replay'").fetchone()[0])
+    assert saved['level_hold']['reason']=='level_regression'
+    assert Diagnostics(store).append('replay',saved) is False
+
+
+@pytest.mark.parametrize('explicit_boundary',[False,True])
+def test_verified_overnight_progress_keeps_identity_without_offline_gain(auto,explicit_boundary):
+    _,store,policy=auto
+    initial=sequence(auto,['Alpha','Alpha'],levels=[67,67],bps=[5000,5010])
+    cid,sid=initial[-1]['character_id'],initial[-1]['session_id']
+    Diagnostics(store).append('first',dict(type='summary',trusted=False,attempts=2,interrupted=False))
+    morning=AT+timedelta(hours=8)
+    if explicit_boundary:
+        store.end_session('alpha',at=AT+timedelta(minutes=2))
+        store.start_session('alpha',at=morning)
+    Diagnostics(store).begin('morning','alpha',config('morning'))
+    rows=[]
+    for i in (1,2,3):
+        rows.append(policy.append('morning',record(i,level=70,bp=1000+i*10,at=morning+timedelta(seconds=i*15)),
+                                  f'no{i}',config(f'no{i}')))
+    assert not any(r['switched'] for r in rows)
+    assert all(r['character_id']==cid for r in rows)
+    assert (rows[-1]['session_id']!=sid)==explicit_boundary
+    assert rows[0]['record']['level_hold']['reason']=='level_confirmation_pending'
+    assert rows[1]['record']['current'] and rows[2]['record']['current']
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==70
+    card=Diagnostics(store).directory({},now=morning+timedelta(seconds=50))['streams'][0]['player']
+    assert card['display_level']['value']==70
+    assert int(card['reading']['exp'])==record(3,level=70,bp=1030)['candidate'][0]
+    assert card['responsive_pace']['start']==rows[1]['record']['received_at']
+    assert card['responsive_pace']['end']==rows[2]['record']['received_at']
+    assert {r['level'] for r in card['responsive_pace']['intervals']}=={70}
+    assert card['responsive_pace']['total_gain']['approximate']==record(3,level=70,bp=1030)['candidate'][0]-record(2,level=70,bp=1020)['candidate'][0]
+
+
+def test_zero_exp_does_not_arithmetically_validate_a_single_level_reader(auto):
+    _,store,policy=auto
+    rows=sequence(auto,['Alpha','Alpha'],levels=[67,67],bps=[0,0])
+    assert all(r['record']['level_hold']['reason']=='level_unvalidated' for r in rows)
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0] is None
+    for i in (3,4):
+        value=record(i,level=67,bp=0)
+        value['neural_level']=dict(level=67,text='67',status='numeric_candidate',score=.99,preprocessing='neutral4')
+        result=policy.append('first',value,f'no{i}',config(f'no{i}'))
+    assert result['record']['current']
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==67
+
+
+def test_commit_failure_rolls_back_switch_and_can_retry(auto):
+    _,store,policy=auto
+    sequence(auto,['Alpha','Alpha','Beta'])
+    store.db.execute('CREATE TABLE fail_commit (cid INTEGER REFERENCES characters(id) DEFERRABLE INITIALLY DEFERRED)')
+    def fail_at_commit(*args):store.db.execute('INSERT INTO fail_commit VALUES(-1)')
+    with pytest.raises(sqlite3.IntegrityError,match='FOREIGN KEY'):
+        policy.append('first',record(4,'Beta'),'failed',config('failed'),write=fail_at_commit)
+    assert not store.db.in_transaction
+    assert store.db.execute('SELECT COUNT(*) FROM characters').fetchone()[0]==1
+    assert store.db.execute('SELECT COUNT(*) FROM automatic_character_events').fetchone()[0]==0
+    assert store.db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0]==1
+    assert store.db.execute('SELECT summary_json FROM diagnostic_runs').fetchone()[0] is None
+    assert policy.append('first',record(4,'Beta'),'retry',config('retry'))['switched']
+
+
+def test_inflight_rename_stops_stale_identity_reference_instead_of_recreating_old_name(auto):
+    _,store,policy=auto
+    rows=sequence(auto,['Alpha','Alpha'])
+    store.rename_character('alpha',rows[-1]['character_id'],'Corrected',reason='Synthetic audit')
+    value=record(3)
+    value['character_name']['suggestion']=dict(reference_name='Alpha')
+    with pytest.raises(ValueError,match='reference changed'):
+        policy.append('first',value,'unused',config('unused'))
+    assert store.db.execute('SELECT COUNT(*) FROM characters').fetchone()[0]==1
+    assert store.db.execute('SELECT label FROM characters').fetchone()[0]=='Corrected'
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==30
+
+
+def test_cached_name_votes_cannot_clear_conflict_or_establish_switch(auto):
+    _,store,policy=auto
+    sequence(auto,['Alpha','Alpha','Beta'])
+    for i in (4,5):
+        value=record(i,'Beta')
+        value['character_name']['evidence']['provenance']['search']='cached_region'
+        result=policy.append('first',value,f'no{i}',config(f'no{i}'))
+        assert not result['switched'] and 'identity_hold' in result['record']
+    # A cached vote cannot pair with the first fresh full scan either.
+    assert not policy.append('first',record(6,'Beta'),'no6',config('no6'))['switched']
+    assert policy.append('first',record(7,'Beta'),'yes7',config('yes7'))['switched']
+
+
+def test_offline_audited_floor_repair_recipe_is_atomic_and_preserves_history(auto):
+    from exp_tracker.invalidations import Invalidations
+    path,store,policy=auto
+    sequence(auto,['Alpha']*4,levels=[67,67,70,70])
+    cid=store._channel('alpha')['selected_character_id']
+    old=dict(store.db.execute('SELECT * FROM character_level_guard').fetchone())
+    archive=json.dumps(old,sort_keys=True);digest=hashlib.sha256(archive.encode()).hexdigest()
+    when=AT+timedelta(minutes=2)
+    def repair(*,fail=False):
+        with store._transaction():
+            assert dict(store.db.execute('SELECT * FROM character_level_guard').fetchone())==old
+            service=Invalidations(store)
+            spec=dict(action='invalidate',kind='diagnostic',identity='first:4',timestamp=(AT+timedelta(seconds=60)).isoformat())
+            preview=service.preview('alpha',cid,spec)
+            batch=service.commit('alpha',cid,'repair-invalidation',spec,preview['fingerprint'],'Confirmed wrong level evidence')
+            Diagnostics(store)._append('first',dict(type='summary',trusted=False,attempts=4,interrupted=False))
+            store.end_session('alpha',at=when)
+            session=store.start_session('alpha',at=when,expected_character_id=cid)
+            # Deliberate operator-only replacement on an offline copy; never drop the monotone trigger.
+            store.db.execute('DELETE FROM character_level_guard WHERE character_id=?',(cid,))
+            baseline=store.correct_manual('alpha','repair-baseline',cid,level=67,current_exp=1000,effective_at=when,
+                                         session_id=session,reason=f'Floor repair; old guard SHA256={digest}; invalidation={batch["id"]}')
+            proof=dict(level=67,received_at=when.isoformat(),basis='manual_admin_repair',event_id=baseline['event_id'],
+                       superseded_level=old['level'],superseded_guard_sha256=digest,invalidation_batch=batch['id'])
+            store.db.execute('INSERT INTO character_level_guard VALUES(?,?,?,?,?)',(cid,67,json.dumps(proof),None,when.isoformat()))
+            if fail:raise OSError('Synthetic repair failure')
+    with pytest.raises(OSError):repair(fail=True)
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==70
+    assert store.db.execute('SELECT COUNT(*) FROM manual_corrections').fetchone()[0]==0
+    assert store.db.execute('SELECT COUNT(*) FROM reading_commits').fetchone()[0]==0
+    repair()
+    assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==4
+    assert store.db.execute('SELECT COUNT(*) FROM characters').fetchone()[0]==1
+    assert store.db.execute('SELECT COUNT(*) FROM character_level_guard').fetchone()[0]==1
+    Diagnostics(store).begin('repaired','alpha',config('repaired'))
+    result=policy.append('repaired',record(1,level=67,at=when+timedelta(seconds=15)),'unused',config('unused'))
+    assert result['record']['current']
+    with Store(path,read_only=True) as reopened:
+        saved=reopened.db.execute('SELECT * FROM character_level_guard').fetchone()
+        assert saved['level']==67 and json.loads(saved['proof_json'])['superseded_guard_sha256']==digest
+
+
+def test_large_level_jump_needs_repeated_selected_name_even_after_restart(auto):
+    path,store,_=auto
+    sequence(auto,['Alpha','Alpha'],levels=[67,67])
+    Diagnostics(store).append('first',dict(type='summary',trusted=False,attempts=2,interrupted=False))
+    with Store(path) as cold:
+        Diagnostics(cold).begin('returned','alpha',config('returned'))
+        policy=AutonomousCharacters(cold)
+        for i,name in enumerate((None,None,'Alpha','Alpha'),1):
+            value=record(i,name,level=70,bp=1000+i*10,at=AT+timedelta(hours=8,seconds=i*15))
+            result=policy.append('returned',value,f'no{i}',config(f'no{i}'))
+            if i<4:
+                assert not result['record']['current']
+                assert cold.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==67
+        assert result['record']['current']
+        assert cold.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==70
+
+
+def test_brief_coordinator_restart_keeps_session_and_normal_unreadable_name_levelup(auto):
+    path,store,_=auto
+    before=sequence(auto,['Alpha','Alpha'],levels=[67,67],bps=[9950,9970])
+    Diagnostics(store).append('first',dict(type='summary',trusted=False,attempts=2,interrupted=True))
+    with Store(path) as cold:
+        session=cold.start_session('alpha',at=AT+timedelta(seconds=35))
+        assert session==before[-1]['session_id']
+        header=config('restart');header['start_reason']='process_start'
+        Diagnostics(cold).begin('restart','alpha',header)
+        policy=AutonomousCharacters(cold)
+        for i in (1,2,3):
+            value=record(i,None,level=68,bp=i*10,at=AT+timedelta(seconds=30+i*15))
+            result=policy.append('restart',value,f'no{i}',config(f'no{i}'))
+        assert result['record']['current'] and result['session_id']==session
+        assert cold.db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0]==1
+        assert cold.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==68

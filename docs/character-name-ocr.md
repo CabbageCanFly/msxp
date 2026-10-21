@@ -12,6 +12,9 @@ resident EXP worker and existing HUD layout, adds per-channel pending suggestion
 and measures per-capture overhead. The initial offline evaluation remains below.
 Earlier milestone descriptions below describe their behavior at that time; automatic
 selection requires the separate flag documented at the end.
+The [pre-merge safety/performance review](character-name-ocr-review.md) records the
+rebase onto current main, replay/rename fixes, offline level-floor recovery, verified
+overnight progression and the 15-lane benchmark. Cache support remains a proposal.
 
 ## Run it
 
@@ -741,6 +744,8 @@ including historical baselines that would carry forward, are rejected for manage
 characters; earlier point corrections remain possible. Undoing a correction does not
 erase an established floor. Repairing an incorrectly established floor needs a future
 explicit audited repair workflow; automatic recognition never lowers it.
+The review now documents and tests a one-off offline-copy recovery procedure using
+the existing invalidation/correction audit; no new admin UI or automatic reset exists.
 
 Same-level EXP loss is **not** level regression. It remains subject to existing
 numeric death/loss and identity-verification rules. An old same-level clip with lower
@@ -822,7 +827,6 @@ two independent pixels do not prove a fresh live broadcast or true ownership. A
 streamer watching another person's gameplay can cause association with that visible
 character. Decisions are per-channel and auditable for later removal; automatic history
 merging, repair/removal UI and production association changes remain out of scope.
-No live Twitch/VPS or long-running false-association trial was performed. This worktree
-is four commits ahead of and one behind local main (`790c273`, percentage-context fix);
-that unrelated main change was inspected and left unmerged/unmodified. Reconcile and
-revalidate before any production rollout.
+No live Twitch/VPS or long-running false-association trial was performed. The initial
+milestone left main unmerged; the subsequent pre-merge review rebased the clean branch
+onto local main `4ab2293`, including `790c273`, and reran regressions.

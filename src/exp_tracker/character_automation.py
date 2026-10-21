@@ -67,10 +67,13 @@ def level_evidence(record):
     check=consistency(full,level)
     agreed=(projected['experimental_level']['status']=='agreement' and
             (row.get('neural_level') or {}).get('score',0)>=NEURAL_SEED_SCORE)
+    informative=bool(full and int(full['exp'])>0 and float(full['percentage'])>0)
     if (level is None or row['crop_suspect'] or not row['frame_sha256']
-            or not (check['status']=='consistent' or check['status']=='indeterminate' and agreed)):
+            or not (check['status']=='consistent' and (informative or agreed) or check['status']=='indeterminate' and agreed)):
         return None
-    return dict(level=level, pixel_sha256=record.get('character_name', {}).get('evidence', {}).get('pixel_sha256')
+    name=name_evidence(record)
+    return dict(level=level, name=name['name'] if name else None,
+                pixel_sha256=record.get('character_name', {}).get('evidence', {}).get('pixel_sha256')
                 or row['frame_sha256'], received_at=row['received_at'], basis=projected['experimental_level']['status'])
 
 
@@ -83,16 +86,19 @@ def level_held(record, reason, floor):
 
 def guard_level(store, character, record, *, support=None):
     """Persistent monotone floor; two independent arithmetically supported frames advance it."""
-    if 'level_hold' in record or 'level_policy' in record:
+    if 'level_hold' in record and record.get('current') is False:
         return record
     if not record.get('current'):
         store.db.execute('UPDATE character_level_guard SET pending_json=NULL WHERE character_id=? AND pending_json IS NOT NULL', (character,))
         return record
+    # A saved policy receipt can predate today's floor; only exact stored retries bypass validation.
+    record = {k:v for k,v in record.items() if k!='level_policy'}
     row = store.db.execute('SELECT * FROM character_level_guard WHERE character_id=?', (character,)).fetchone()
     floor = row['level'] if row else None
     pending = json.loads(row['pending_json']) if row and row['pending_json'] else None
     proof = json.loads(row['proof_json']) if row and row['proof_json'] else None
-    login = store.db.execute('SELECT s.login FROM streamers s JOIN characters c ON c.streamer_id=s.id WHERE c.id=?', (character,)).fetchone()[0]
+    owner = store.db.execute('SELECT s.login,c.label FROM streamers s JOIN characters c ON c.streamer_id=s.id WHERE c.id=?', (character,)).fetchone()
+    login = owner['login']
     # Explicit operator baselines are validated assertions; OCR-only legacy maxima are not imported.
     manual = [e for e in active(store.manual_history(login, character_id=character)) if e.get('level')]
     if manual:
@@ -109,7 +115,9 @@ def guard_level(store, character, record, *, support=None):
         reason, pending = 'level_regression', None
     elif qualified and (floor is None or qualified['level'] > floor):
         prior = support or pending
-        if prior and prior['level'] == qualified['level'] and independent(prior, qualified):
+        identity_supported=(floor is None or qualified['level']<=floor+1 or
+                            qualified['name']==(prior or {}).get('name')==owner['label'])
+        if prior and prior['level'] == qualified['level'] and independent(prior, qualified) and identity_supported:
             floor, proof, pending = qualified['level'], {**qualified, 'support': prior}, None
         else:
             pending, reason = qualified, 'level_confirmation_pending'
@@ -169,6 +177,9 @@ class AutonomousCharacters:
             if not session or session['id'] != run['session_id'] or streamer['selected_character_id'] != run['character_id']:
                 raise ValueError('Automatic attribution assignment changed')
             selected = self.db.execute('SELECT label FROM characters WHERE id=?', (run['character_id'],)).fetchone()[0]
+            reference=record.get('character_name',{}).get('suggestion',{}).get('reference_name')
+            if reference is not None and reference!=selected:
+                raise ValueError('Character identity reference changed; restart after a rename or selection')
             login = streamer['login']
             previous = self.db.execute('''SELECT a.payload_json FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id
                 WHERE r.streamer_id=? AND r.session_id=? ORDER BY a.id DESC LIMIT 1''',
