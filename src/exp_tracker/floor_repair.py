@@ -35,8 +35,8 @@ def owner(store, channel, cid, label):
 
 
 def validate(store, plan):
-    if store.schema_version != VERSION or VERSION != 10:
-        raise ValueError('floor repair requires schema 10; review the recovery tool before using another schema')
+    if store.schema_version not in (10,11) or VERSION not in (10,11):
+        raise ValueError('floor repair requires schema 10 or 11; review the recovery tool before using another schema')
     cid = plan['character_id']
     owner(store, plan['channel'], cid, plan['character'])
     trigger = store.db.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='character_level_no_regression'").fetchone()
@@ -229,7 +229,7 @@ def apply(path, channel, cid, label, plan, *, confirm, backup):
                 raise ValueError('not a multi-alpha database marker')
         # Opening Store read-only first prevents implicit migration before backup/locking.
         with Store(path, read_only=True) as store:
-            if store.schema_version != 10: raise ValueError('floor repair requires schema 10')
+            if store.schema_version not in (10,11): raise ValueError('floor repair requires schema 10 or 11')
             store.db.close()
             store.db = sqlite3.connect(path, timeout=0, isolation_level=None)
             store.db.row_factory = sqlite3.Row

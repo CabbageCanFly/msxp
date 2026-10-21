@@ -19,9 +19,9 @@ from .invalidations import Invalidations,states,validate_reason
 
 WEB = Path(__file__).with_name('web')
 PREVIEW_SECONDS = 900
-ROSTER_NOTICE = ('Rename preserves the character ID. Before the next coordinator startup, '
-                 'update the matching private roster character label and run its preflight. '
-                 'This dashboard does not edit configuration or restart capture.')
+ROSTER_NOTICE = ('Rename preserves the character ID. A database-managed roster reconciles the name at a safe capture boundary. '
+                 'For JSON-managed capture, update the private roster character label before restarting. '
+                 'This dashboard does not restart capture.')
 
 
 def integer(value, name):
@@ -178,6 +178,16 @@ class AdminServer(ThreadingHTTPServer):
         self.origin = f'http://127.0.0.1:{self.server_port}'
 
     def preview(self, raw):
+        if isinstance(raw,dict) and raw.get('action') in ('roster_add','roster_update'):
+            from . import streamer_roster as roster
+            with Store(self.database,read_only=True) as store, store._transaction():plan=roster.preview(store,raw)
+            with self.lock:
+                self.previews={k:v for k,v in self.previews.items() if v['expires']>time.monotonic()}
+                if len(self.previews)>=64:self.previews.pop(next(iter(self.previews)))
+                identity=secrets.token_urlsafe(24)
+                self.previews[identity]=dict(roster_plan=plan,expires=time.monotonic()+PREVIEW_SECONDS,result=None)
+            return dict(preview_id=identity,action=raw['action'],before=plan['before'],after=plan['after'],
+                        notice='Desired settings only. In-flight captures drain under their original settings before the lane changes.')
         if isinstance(raw,dict) and raw.get('action') in ('invalidate','restore','restore_batch'):
             return self.preview_readings(raw)
         data = operation(raw)
@@ -230,6 +240,11 @@ class AdminServer(ThreadingHTTPServer):
                 raise ValueError('preview expired or is unknown; preview again before saving')
             if item['result'] is not None:
                 return item['result']
+            if 'roster_plan' in item:
+                from . import streamer_roster as roster
+                with Store(self.database,allow_migration=False) as store:
+                    item['result']=roster.commit(store,item['roster_plan'])
+                return item['result']
             data = item['data']
             with writable_store(self.database, False) as store:
                 if character(store, data['channel'], data['character_id'])['label'] != item['character_label']:
@@ -281,12 +296,18 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == '/' and not url.query:
                 body = (WEB/'admin.html').read_bytes().replace(b'__ADMIN_TOKEN__', self.server.token.encode())
                 self.reply(200, body, 'text/html')
-            elif url.path in ('/admin.js', '/admin-time.js', '/admin-invalidations.js', '/admin.css') and not url.query:
+            elif url.path in ('/admin.js', '/admin-time.js', '/admin-invalidations.js', '/admin-streamers.js', '/admin.css') and not url.query:
                 self.reply(200, (WEB/url.path[1:]).read_bytes(), 'text/javascript' if url.path.endswith('.js') else 'text/css')
             elif url.path == '/api/channels' and not url.query:
                 with Store(self.server.database, read_only=True) as store:
                     channels = [dict(r) for r in store.db.execute('SELECT login,selected_character_id FROM streamers ORDER BY login')]
                 self.reply(200, dict(channels=channels, database=str(self.server.database)))
+            elif url.path=='/api/streamers' and not url.query:
+                from . import streamer_roster as roster
+                with Store(self.server.database,read_only=True) as store, store._transaction():
+                    managed=roster.ready(store)
+                    self.reply(200,dict(managed=managed,streamers=roster.status(store) if managed else [],
+                        notice=None if managed else 'Preview and apply tools/db_streamer_roster.py bootstrap before managing streamers.'))
             elif url.path == '/api/inspect':
                 query = parse_qs(url.query, keep_blank_values=True, max_num_fields=3)
                 if query.keys()-{'channel', 'character_id', 'session_id'} or any(len(v) != 1 for v in query.values()) or 'channel' not in query:

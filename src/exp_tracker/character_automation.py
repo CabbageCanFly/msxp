@@ -9,12 +9,11 @@ import math
 from .diagnostic_evidence import project, consistency, full_reading, CONFIRM_GAP_SECONDS, NEURAL_SEED_SCORE
 from .diagnostics import Diagnostics, HELD_ENVELOPE, encoded, identity_held
 from .manual import active
+from .models import PLACEHOLDER_CHARACTER
 from .shadow_view import observation
 from .store import utc
 
 MAX_AUTOMATIC_CHARACTERS = 16
-# The configured label before any name is recognized (docs/local-live-character-trial.md).
-PLACEHOLDER_CHARACTER = 'PendingOCR'
 
 
 def original(record):
@@ -38,7 +37,7 @@ def name_evidence(record):
     if (not record.get('current') or record.get('localization', {}).get('count') != 1 or value.get('status') != 'candidate'
             or value.get('received_at') != record.get('received_at')
             or record.get('character_name', {}).get('suggestion', {}).get('latest_status') in ('duplicate_frame','out_of_order')
-            or not isinstance(name, str) or not name.isascii() or not name.isalnum()
+            or not isinstance(name, str) or name == PLACEHOLDER_CHARACTER or not name.isascii() or not name.isalnum()
             or not name[0:1].isalpha() or not 2 <= len(name) <= 12
             or type(score) not in (int, float) or not math.isfinite(score) or not NEURAL_SEED_SCORE <= score <= 1
             or provenance.get('layout_count') != 1 or provenance.get('search') != 'full_frame'
@@ -185,12 +184,17 @@ class AutonomousCharacters:
             login = streamer['login']
             from .automatic_adoption import state, save_state
             adopted = state(self.store, streamer['id'])
+            from .streamer_roster import discovery_state, save_identity
+            discovery = None if adopted else discovery_state(self.store,streamer['id'])
+            adopted = adopted or discovery
+            identity_scope = 'roster_identity_scope' if discovery else 'existing_adoption_id'
+            identity_tag = (adopted.get('scope_id') or adopted.get('adoption_id')) if adopted else None
             previous = self.db.execute('''SELECT a.payload_json FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id
                 WHERE r.streamer_id=? AND r.session_id=? ORDER BY a.id DESC LIMIT 1''',
                 (streamer['id'],run['session_id'])).fetchone()
             previous = original(json.loads(previous[0])) if previous else None
             # Initial adoption cannot use pre-adoption/manual frames as identity votes.
-            if adopted and not adopted['verified'] and (previous or {}).get('existing_adoption_id') != adopted['adoption_id']:
+            if adopted and not adopted['verified'] and (previous or {}).get(identity_scope) != identity_tag:
                 previous = None
             current_name, prior_name = name_evidence(record), name_evidence(previous or {})
             switch = bool(current_name and current_name['name'] != selected and prior_name
@@ -200,7 +204,7 @@ class AutonomousCharacters:
             result = deepcopy(record)
             result['automation_input_sha256'] = digest
             if adopted:
-                result['existing_adoption_id'] = adopted['adoption_id']
+                result[identity_scope] = identity_tag
             if switch:
                 target_label = current_name['name']
                 found = self.db.execute('SELECT id FROM characters WHERE streamer_id=? AND label=?', (streamer['id'], target_label)).fetchone()
@@ -247,7 +251,12 @@ class AutonomousCharacters:
             if adopted and not adopted['verified'] and not confirmed_adoption and result.get('current'):
                 name = result.setdefault('character_name', {})
                 name['reading_hold_recommended'] = True
-                name['hold_reasons'] = list(dict.fromkeys(name.get('hold_reasons', []) + ['adoption_name_confirmation_pending']))
+                name['hold_reasons'] = list(dict.fromkeys(name.get('hold_reasons', []) +
+                    ['character_discovery_pending' if discovery else 'adoption_name_confirmation_pending']))
+            if selected==PLACEHOLDER_CHARACTER and not switch and result.get('current'):
+                name=result.setdefault('character_name',{})
+                name['reading_hold_recommended']=True
+                name['hold_reasons']=list(dict.fromkeys(name.get('hold_reasons',[])+['character_discovery_pending']))
             result = identity_held(result)
             # Level proof may use the first B frame, but its EXP is never moved out of A's held run.
             support = level_evidence(previous) if (switch or confirmed_adoption) and previous else None
@@ -269,6 +278,6 @@ class AutonomousCharacters:
                     adopted.update(verified=True, verification=dict(run_id=target_run, index=result['index'],
                         evidence=[prior_name, current_name]))
                 adopted['risk'] = risk
-                save_state(self.store, streamer['id'], adopted)
+                (save_identity if discovery else save_state)(self.store, streamer['id'], adopted)
             if write: write(receipt, result)
             return dict(**receipt, record=result, duplicate=False)

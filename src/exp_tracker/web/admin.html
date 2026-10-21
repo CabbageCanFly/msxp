@@ -14,6 +14,41 @@
   <header><span class="eyebrow">MapleStory Classic · Local admin</span><h1>Level &amp; EXP</h1>
     <p>Choose a character, enter the correct values, then review before saving.</p>
   </header>
+  <details id="streamers" class="panel" open>
+    <summary>Streamers</summary>
+    <p class="muted">Add a Twitch login without a character name. Review capture authorization before enabling tracking. Hiding keeps direct character links and history available.</p>
+    <button id="streamer-add" type="button" class="primary" disabled>Add streamer</button>
+    <button id="streamer-refresh" type="button">Refresh status</button>
+    <p id="streamer-status" role="status" aria-live="polite"></p>
+    <div id="streamer-list"></div>
+    <form id="streamer-form" hidden>
+      <h2 id="streamer-form-title">Add Twitch streamer</h2>
+      <label>Twitch login<input id="streamer-login" pattern="[A-Za-z0-9_]{1,25}" maxlength="25" required></label>
+      <label class="check"><input id="streamer-authorized" type="checkbox">I have permission to capture this stream</label>
+      <label class="check"><input id="streamer-tracking_enabled" type="checkbox">Enable tracking</label>
+      <label class="check"><input id="streamer-public_visible" type="checkbox">Show in public directory</label>
+      <label class="check"><input id="streamer-automatic_characters" type="checkbox">Discover and switch characters automatically</label>
+      <div class="fields">
+        <label>Capture interval (seconds)<input id="streamer-interval" type="number" min="5" max="300" step="any" required></label>
+        <label>Twitch quality<input id="streamer-quality" maxlength="40" required></label>
+      </div>
+      <details><summary>Capture settings</summary>
+        <label class="check"><input id="streamer-experimental_neural_level" type="checkbox">Neural level evidence</label>
+        <label class="check"><input id="streamer-save_crops" type="checkbox">Save private OCR crops</label>
+        <label>Capture timeout (seconds)<input id="streamer-timeout" type="number" min="1" max="30" step="any" required></label>
+        <label>Maximum frame age (seconds)<input id="streamer-max_age" type="number" min="1" max="30" step="any" required></label>
+        <label>OCR timeout (seconds)<input id="streamer-ocr_timeout" type="number" min="1" max="30" step="any" required></label>
+      </details>
+      <label>Reason<input id="streamer-reason" maxlength="1000" required></label>
+      <button type="submit" class="primary">Review streamer settings</button>
+      <button id="streamer-cancel" type="button">Cancel</button>
+    </form>
+    <section id="streamer-review" class="review" tabindex="-1" hidden>
+      <h2>Review streamer settings</h2><pre id="streamer-review-json"></pre>
+      <button id="streamer-confirm" type="button" class="primary">Confirm settings</button>
+      <button id="streamer-review-cancel" type="button">Keep editing</button>
+    </section>
+  </details>
   <p id="status" role="status" aria-live="polite">Loading characters…</p>
   <section class="panel" aria-labelledby="edit-title">
     <div id="pickers" class="fields selectors">
@@ -25,7 +60,7 @@
       <h2>Rename character</h2>
       <label>New name<input id="new-name" maxlength="100" required></label>
       <label>Reason <span class="optional">(optional)</span><input id="rename-reason" maxlength="1000"></label>
-      <p class="muted">All readings and corrections stay with this character. If it is in your capture roster, update its name there before the next restart.</p>
+      <p class="muted">All readings and corrections stay with this character. Database-managed capture reconciles the name automatically. For JSON-managed capture, update its roster label before restarting.</p>
       <button type="submit" class="primary">Review name change</button><button id="cancel-rename" type="button">Cancel</button>
     </form>
     <div id="latest" aria-label="Latest character information"></div>

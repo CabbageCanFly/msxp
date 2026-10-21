@@ -6,6 +6,7 @@ from .store import utc
 
 def save(store, character_id, observed_at, level, exp, bp, source, level_basis, exp_basis, percentage_basis):
     if exp is None and bp is None:return
+    if store._pending_character(character_id):return
     stamp=utc(datetime.fromisoformat(observed_at))
     store.db.execute('''INSERT INTO daily_character_exp VALUES(?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(character_id,utc_date) DO UPDATE SET

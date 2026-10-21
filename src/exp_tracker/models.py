@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 import math
 
+PLACEHOLDER_CHARACTER = 'PendingOCR'  # Reserved internal identity until name verification.
+
 
 @dataclass(frozen=True)
 class Region:

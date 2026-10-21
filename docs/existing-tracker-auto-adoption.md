@@ -1,5 +1,9 @@
 # Automatic tracking on an existing multi-alpha database
 
+After identity approval, the [database-managed roster](database-streamer-roster.md)
+can import these settings once and replace routine JSON/startup-channel arguments
+with protected live admin changes. Adoption/level-floor tools also support schema 11.
+
 This is an explicit operator workflow, not an automatic upgrade. The same owned
 database can run manual and automatic channels together, at their configured 20s
 intervals, using the existing scheduler, serialized writer, resident OCR worker,
@@ -47,7 +51,8 @@ created. The same applies to other correctly named channels. A mismatched alias
 still requires explicit historical-identity review; never infer the mapping from
 a newly observed name or its level/EXP.
 
-Schema 9 is migrated to 10 inside the adoption transaction; schema 10 stays 10.
+Schema 9 is migrated to 10 inside the adoption transaction; schemas 10 and 11 remain
+at their existing version. Schema 11 adds the optional database-managed roster.
 Existing level floors and checkpoints are preserved. Legacy raw OCR maxima are
 not imported as validated floors. Existing manual level assertions and the normal
 two-frame arithmetic-supported level policy still apply. Review any suspect legacy

@@ -9,7 +9,9 @@ content revisions it already holds is sent the chart history and tracked packet 
 A visitor may also view one of the channel's unselected characters. Those views are
 built by the same refresher, on demand, at most MAX_VIEWS at once. Least recently
 polled views are replaced when full; idle views expire after VIEW_IDLE_SECONDS.
-Viewing never changes the selection.
+Database-managed directories also allow MAX_CHANNEL_VIEWS hidden/historical channels
+on demand, with the same idle expiry. Directory refreshes have priority. Viewing
+never changes the selection.
 """
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -36,6 +38,7 @@ PRIVATE_FIELDS = frozenset({
 CHARACTER_ONLY = ('current_level_windows', 'tracked_current_level_windows')  # Only the character page's level toggle reads them.
 MAX_VIEWS = 8  # Unselected-character views across all channels.
 VIEW_IDLE_SECONDS = 60
+MAX_CHANNEL_VIEWS = 8  # Hidden/historical channels requested directly, separate from directory slots.
 
 
 def broadcast(players, statuses, now):
@@ -85,6 +88,8 @@ class Publisher:
         self.lock = threading.Lock()  # Guards the published fields below.
         self.work = threading.Lock()  # One refresher; inline requests take turns.
         self.entries = {}; self.heads = []; self.truncated = False; self.statuses = {}
+        self.visibility = {}
+        self.channel_views = {}; self.directory_logins = set()
         self.generation = 0; self.failures = {}; self.wanted = set()
         self.cards = {}  # Card cache owned by the refresher (see Diagnostics.card).
         self.presented = {}; self.present_locks = {}
@@ -99,7 +104,8 @@ class Publisher:
         self.stats['started_at'] = time.monotonic()
         try:  # Channel list only, so the first homepage already names warming channels.
             with Store(self.server.database, read_only=True) as store, store._transaction():
-                self.publish_heads(Diagnostics(store).heads(), self.statuses)
+                from .streamer_roster import visible
+                self.publish_heads(Diagnostics(store).heads(public_directory=True), self.statuses,visible(store))
         except Exception as error:
             self.stats['last_error'] = type(error).__name__
         if self.background:
@@ -125,7 +131,13 @@ class Publisher:
 
     def want(self, channel):
         """A viewer is waiting for this channel: build it before other cold channels."""
-        with self.lock:self.wanted.add(channel)
+        with self.lock:
+            if self.visibility and channel not in self.directory_logins:
+                if channel not in self.channel_views and len(self.channel_views)>=MAX_CHANNEL_VIEWS:
+                    evicted=min(self.channel_views,key=self.channel_views.get)
+                    del self.channel_views[evicted];self.wanted.discard(evicted)
+                self.channel_views[channel]=time.monotonic()
+            self.wanted.add(channel)
         self.wake.set()
 
     def step(self):
@@ -136,33 +148,53 @@ class Publisher:
             with Store(self.server.database, read_only=True) as store:
                 diagnostics = Diagnostics(store)
                 with store._transaction():
-                    heads = diagnostics.heads()
+                    directory = diagnostics.heads(public_directory=True)
+                    from .streamer_roster import visible
+                    visibility=visible(store)
+                    with self.lock:
+                        idle=time.monotonic()-VIEW_IDLE_SECONDS
+                        directory_logins={h['login'] for h in directory[:25]}
+                        self.channel_views={c:seen for c,seen in self.channel_views.items()
+                            if seen>=idle and c not in directory_logins}
+                        requested=list(self.channel_views)
+                    extra=[h for c in requested for h in diagnostics.heads(c)]
+                    heads=[*directory[:25],*extra]
+                    logins=[h['login'] for h in directory[:25]]
                     sources = store.db.execute('''SELECT s.login,r.configuration_json AS config,
                         (SELECT payload_json FROM diagnostic_attempts WHERE run_id=r.run_id ORDER BY attempt_index DESC LIMIT 1) AS payload
                         FROM streamers s LEFT JOIN diagnostic_runs r ON r.rowid=(
                             SELECT rowid FROM diagnostic_runs WHERE streamer_id=s.id ORDER BY rowid DESC LIMIT 1)
-                        ORDER BY s.login LIMIT 25''').fetchall()
+                        WHERE s.login IN ('''+(','.join('?' for _ in logins) or 'NULL')+') ORDER BY s.login',logins).fetchall()
                 twitch = [r['login'] for r in sources if (json.loads(r['config'] or '{}').get('source_kind') or
                     json.loads(r['payload'] or '{}').get('source', {}).get('kind')) == 'twitch']
-                self.publish_heads(heads, self.statuses)
+                self.publish_heads(directory, self.statuses,visibility,extra=extra)
                 statuses = self.server.twitch_availability.snapshot(twitch, now=now)
                 with self.lock:self.statuses = statuses
                 now = self.clock()  # Network time is not part of the subsequent database snapshot.
-                pending = self.due(heads[:25], now)
-                views = self.due_views(diagnostics, heads[:25], now)
+                pending = self.due(directory[:25], now)
+                requested = self.due(extra, now)
+                views = self.due_views(diagnostics, heads, now)
                 # Browsing must not delay fresh tracked-channel publications.
                 if pending:self.build(diagnostics, store, pending[0], now)
+                elif requested:self.build(diagnostics, store, requested[0], now)
                 elif views:self.build(diagnostics, store, views[0][1][1], now, view=views[0][1:])
-                if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in heads[:25]):
+                if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in directory[:25]):
                     self.stats['ready_at'] = time.monotonic()
-                return len(pending) + len(views) > 1
+                return len(pending) + len(requested) + len(views) > 1
 
-    def publish_heads(self, heads, statuses):
+    def publish_heads(self, heads, statuses, visibility=None, *, extra=()):
         """Channel list and Twitch status; removed channels lose every cached state."""
-        logins = {h['login'] for h in heads[:25]}
+        directory=list(heads[:25]); truncated=len(heads)>25
+        heads=[*directory,*extra]
+        logins = {h['login'] for h in heads}
         with self.lock:
-            if [h['login'] for h in heads[:25]] != [h['login'] for h in self.heads]:self.generation += 1
-            self.heads = list(heads[:25]); self.truncated = len(heads) > 25; self.statuses = statuses
+            if visibility is not None and visibility!=self.visibility:
+                self.visibility=dict(visibility);self.generation+=1
+            directory_logins={h['login'] for h in directory}
+            if (directory_logins!=self.directory_logins or truncated!=self.truncated
+                    or [h['login'] for h in heads] != [h['login'] for h in self.heads]):self.generation += 1
+            self.directory_logins=directory_logins
+            self.heads = heads; self.truncated = truncated; self.statuses = statuses
             for login in [c for c in self.entries if c not in logins]:
                 del self.entries[login]; self.generation += 1
             for head in self.heads:
@@ -304,7 +336,9 @@ class Publisher:
 
     def homepage(self):
         def build(now):
-            with self.lock:entries = dict(self.entries); heads = list(self.heads); statuses = self.statuses; truncated = self.truncated
+            with self.lock:
+                entries = dict(self.entries); heads = [h for h in self.heads if h['login'] in self.directory_logins]
+                statuses = self.statuses; truncated = self.truncated
             players = []; warming = []
             for head in heads:
                 entry = entries.get(head['login'])
@@ -326,14 +360,16 @@ class Publisher:
         def build(now):
             with self.lock:
                 rows = [dict(row, channel=head['login']) for head in self.heads
-                    if (entry := self.entries.get(head['login'])) for row in entry['roster']]
-                warming = [h['login'] for h in self.heads if h['login'] not in self.entries]
+                    if head['login'] in self.directory_logins and (entry := self.entries.get(head['login'])) for row in entry['roster']]
+                warming = [h['login'] for h in self.heads if h['login'] in self.directory_logins and h['login'] not in self.entries]
                 truncated = self.truncated
             return encode(dict(characters=rows, warming=warming, served_at=utc(now), truncated=truncated, poll_seconds=2, experimental=True))
         return self.present('home-characters', build)
 
     def entry(self, channel):
-        with self.lock:return self.entries.get(channel)
+        with self.lock:
+            if channel in self.channel_views:self.channel_views[channel]=time.monotonic()
+            return self.entries.get(channel)
 
     def character(self, channel, known=(None, None), view=None):
         """Serialized character body, or None while the channel has no published entry.

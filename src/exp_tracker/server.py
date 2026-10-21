@@ -15,7 +15,7 @@ from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
 from .diagnostics import Diagnostics, operation
 from .product import reading,PACE_TREND_SECONDS
-from .publisher import Publisher
+from .publisher import Publisher, public_character
 from .pace_intervals import collect
 from .twitch_probe import StreamAvailability
 from .twitch_auth import AppTokens
@@ -139,7 +139,7 @@ class Handler(BaseHTTPRequestHandler):
                     if body is None:
                         with Store(self.server.database,read_only=True) as store:store._channel(channel)  # Unknown: 404.
                         with publisher.lock:
-                            limited=publisher.truncated and channel not in {h['login'] for h in publisher.heads}
+                            limited=publisher.truncated and not publisher.visibility and channel not in {h['login'] for h in publisher.heads}
                         if limited:
                             self.reply(503,{'error':'publication_limit','limit':25});return
                         publisher.want(channel)
@@ -228,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
                 now = datetime.now(timezone.utc)
                 with Store(self.server.database, read_only=True) as store:
                     state = store.state(channel, as_of=now)
+                state['characters']=[public_character(c) for c in state['characters']]
                 state["selected_character"] = next((c for c in state["characters"] if c["id"] == state["selected_character_id"]), None)
                 state.update(served_at=utc(now), stale_after_seconds=STALE_AFTER_SECONDS)
                 self.reply(200, state)

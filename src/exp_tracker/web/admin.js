@@ -1,5 +1,6 @@
 import {timezone, localFields, localCandidates, localTimestamp, when, offset} from './admin-time.js';
 import {invalidationUI} from './admin-invalidations.js';
+import {streamerUI} from './admin-streamers.js';
 
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="admin-token"]').content;
@@ -8,6 +9,13 @@ let edit = {action: 'set', session: 'auto'}, exactTimestamp = null;
 const inputZone = timezone();
 let availableChannels=[];
 const validity=invalidationUI({api,onSaved:()=>load()});
+streamerUI({api,onSaved:async()=>{
+  const data=await api('/api/channels'),previous=$('channel').value;
+  availableChannels=data.channels;
+  $('channel').replaceChildren(...data.channels.map(c=>option(c.login,c.login)));
+  if(data.channels.some(c=>c.login===previous))$('channel').value=previous;
+  if(data.channels.length)await load(true);
+}});
 const option = (value, text) => new Option(text, String(value));
 const bpText = bp => bp == null ? '' : String(bp).padStart(3, '0').replace(/(..)$/, '.$1');
 
@@ -264,7 +272,7 @@ function showReview(value) {
   if (e.reason) text($('preview-values'), `Reason: ${e.reason}`);
   $('preview-warning').hidden = r?.exp_validity?.status !== 'invalid';
   $('preview-warning').textContent = "EXP values don't match. Check the level and any EXP values you've entered. Your entered values will be kept.";
-  $('preview-notice').textContent = value.action === 'rename' ? 'History stays with the same character. Update its name in the capture roster before the next restart.' :
+  $('preview-notice').textContent = value.action === 'rename' ? value.notice :
     value.action === 'undo' ? 'Original game readings are kept. Earlier versions of this correction will not be restored.' :
     'This corrects the recorded information. It does not add earned EXP or erase game readings.';
   $('preview-audit').textContent = JSON.stringify(value, null, 2);
@@ -285,7 +293,7 @@ async function submit(save = false, rename = false) {
       const value = await api('/api/save', {preview_id: previewId});
       $('saved-audit').textContent = JSON.stringify(value, null, 2); $('receipt').hidden = false; $('receipt').open = false;
       reset(); await load();
-      const message = value.action === 'rename' ? `Saved. Character renamed to ${value.event.label}. Update its name in your capture roster before the next restart.` :
+      const message = value.action === 'rename' ? `Saved. Character renamed to ${value.event.label}. ${value.notice}` :
         value.action === 'undo' ? 'Saved. Correction undone.' : 'Saved. Your changes have been applied.';
       status(scope ? message : `${message} Refresh failed: ${$('status').textContent}`, !scope);
       $('status').scrollIntoView({block: 'nearest'});

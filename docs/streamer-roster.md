@@ -1,5 +1,9 @@
 # Managing the local streamer roster
 
+For live changes without JSON edits/restarts, use the additive
+[database-managed roster](database-streamer-roster.md). This legacy JSON workflow
+remains available until the explicit database bootstrap is applied.
+
 Use `tools/stream_roster.py` to edit the existing private multi-alpha JSON safely.
 It never captures video, calls Twitch, writes SQLite, changes selected characters,
 or deletes history. The coordinator now supports **1–25 enabled assignments**

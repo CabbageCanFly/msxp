@@ -11,8 +11,8 @@ import re
 import sqlite3
 
 from .glyphs import GlyphProfile
-from .models import Reading, Recognition
-from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, MIGRATION_8, MIGRATION_9, MIGRATION_10, STATEMENTS, VERSION
+from .models import Reading, Recognition, PLACEHOLDER_CHARACTER
+from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, MIGRATION_8, MIGRATION_9, MIGRATION_10, MIGRATION_11, STATEMENTS, VERSION
 from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
@@ -39,12 +39,13 @@ class Store:
             self.db.execute("PRAGMA foreign_keys=ON")
             with self._transaction():
                 version = self.db.execute("PRAGMA user_version").fetchone()[0]
+                new_database = version==0
                 if read_only:
-                    if version not in (3,4,5,6,7,8,9,VERSION):
+                    if version not in (3,4,5,6,7,8,9,10,VERSION):
                         raise ValueError(f"unsupported schema version {version}; initialize/migrate with the tracking CLI first")
                     self.schema_version=version
                     return
-                if not allow_migration and version not in (0,VERSION):
+                if not allow_migration and version not in (0,10,VERSION):
                     raise ValueError('automatic migration disabled; use a new trial database')
                 if version == 0:
                     if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
@@ -88,9 +89,13 @@ class Store:
                     for statement in MIGRATION_10:
                         self.db.execute(statement)
                     version = 10
-                if version != VERSION:
+                if version == 10 and (allow_migration or new_database):
+                    for statement in MIGRATION_11:
+                        self.db.execute(statement)
+                    version = 11
+                if version != VERSION and not (version==10 and not allow_migration):
                     raise ValueError(f"unsupported schema version {version}")
-                self.db.execute(f"PRAGMA user_version={VERSION}")
+                self.db.execute(f"PRAGMA user_version={version}")
                 self.schema_version=version
             self.db.execute("PRAGMA journal_mode=WAL")
         except Exception:
@@ -146,6 +151,10 @@ class Store:
     def _open_session(self, streamer_id):
         return self.db.execute("SELECT * FROM sessions WHERE streamer_id=? AND ended_at IS NULL",
                                (streamer_id,)).fetchone()
+
+    def _pending_character(self, character_id):
+        return bool(self.db.execute('SELECT 1 FROM characters WHERE id=? AND label=?',
+                                   (character_id,PLACEHOLDER_CHARACTER)).fetchone())
 
     def _end(self, session, when, reason):
         state = self.db.execute("SELECT * FROM tracking_state WHERE character_id=?", (session["character_id"],)).fetchone()
@@ -300,6 +309,7 @@ class Store:
                 return dict(existing,duplicate=True)
             if not self.db.execute('SELECT 1 FROM characters WHERE id=? AND streamer_id=?',(character_id,streamer['id'])).fetchone():
                 raise ValueError('character does not belong to channel')
+            if self._pending_character(character_id):raise ValueError('PendingOCR cannot receive manual EXP assertions')
             if self.schema_version>=10 and level is not None:
                 floor=self.db.execute('SELECT level,proof_json FROM character_level_guard WHERE character_id=?',(character_id,)).fetchone()
                 if (floor and floor['level'] is not None and level<floor['level']
@@ -375,6 +385,8 @@ class Store:
             streamer=self._channel(login)
             character=self.db.execute('SELECT * FROM characters WHERE id=? AND streamer_id=?',(character_id,streamer['id'])).fetchone()
             if character is None:raise ValueError('character does not belong to channel')
+            if character['label']==PLACEHOLDER_CHARACTER or label==PLACEHOLDER_CHARACTER:
+                raise ValueError('PendingOCR is reserved for internal discovery and cannot be renamed')
             if character['label']==label:raise ValueError('character already has that name')
             if self.db.execute('SELECT 1 FROM characters WHERE streamer_id=? AND label=?',(streamer['id'],label)).fetchone():
                 raise ValueError('character name already exists in this channel')
@@ -429,7 +441,9 @@ class Store:
             interval_start = None
             missing = 0
             if ordered:
-                if result.status in {"offline", "paused"}:
+                if self._pending_character(char):
+                    transition = Transition('rejected','character_discovery_pending')
+                elif result.status in {"offline", "paused"}:
                     transition = Transition("rejected", ";".join(result.reasons) or result.status)
                 elif profile is None:
                     transition = Transition("rejected", "glyph_profile_required")

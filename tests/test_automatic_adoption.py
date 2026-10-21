@@ -74,15 +74,18 @@ def dump_tables(db, tables):
         return {t: [tuple(r) for r in store.db.execute(f'SELECT * FROM {t}')] for t in tables}
 
 
-@pytest.mark.parametrize('version', [9, 10])
+@pytest.mark.parametrize('version', [9, 10, 11])
 def test_atomic_adoption_preserves_thirteen_channel_history_and_ids(legacy, version):
     db, mappings = legacy[3:]
-    if version == 9:
+    if version < 11:
         with sqlite3.connect(db) as conn:
-            conn.execute('DROP TRIGGER character_level_no_regression')
-            conn.execute('DROP TABLE character_level_guard')
-            conn.execute('DROP TABLE automatic_character_events')
-            conn.execute('PRAGMA user_version=9')
+            for table in ('streamer_runtime','streamer_roster_events','streamer_capture','streamer_roster_bootstrap'):
+                conn.execute(f'DROP TABLE {table}')
+            if version==9:
+                conn.execute('DROP TRIGGER character_level_no_regression')
+                conn.execute('DROP TABLE character_level_guard')
+                conn.execute('DROP TABLE automatic_character_events')
+            conn.execute(f'PRAGMA user_version={version}')
     preserved = ['streamers','sessions','diagnostic_runs','diagnostic_attempts','observations',
                  'manual_corrections','tracking_state','retention_state','daily_character_exp',
                  'reading_batches','reading_events','reading_commits','reading_validity']
@@ -98,7 +101,7 @@ def test_atomic_adoption_preserves_thirteen_channel_history_and_ids(legacy, vers
     assert dump_tables(db.parent/'before.sqlite3', preserved)==before
     assert adoption.marker(db).read_bytes()==marker_before
     with Store(db,read_only=True) as store:
-        assert store.schema_version==10 and len(adoption.states(store))==13
+        assert store.schema_version==max(10,version) and len(adoption.states(store))==13
         assert [r[0] for r in store.db.execute('SELECT label FROM characters ORDER BY id')]==[m['name'] for m in mappings]
         assert store.db.execute('SELECT COUNT(*) FROM character_renames').fetchone()[0]==13
         assert store.db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
@@ -153,12 +156,16 @@ def test_rejected_mappings_stale_confirmation_and_backup_fail_without_changes(le
     assert not (db.parent/'unused.sqlite3').exists()
 
 
-@pytest.mark.parametrize('schema',[9,10])
+@pytest.mark.parametrize('schema',[9,10,11])
 def test_interrupted_adoption_rolls_back_migration_renames_and_retry(legacy,monkeypatch,schema):
     db=legacy[3]
-    if schema==9:
+    if schema<11:
         with sqlite3.connect(db) as conn:
-            conn.executescript('DROP TRIGGER character_level_no_regression; DROP TABLE character_level_guard; DROP TABLE automatic_character_events; PRAGMA user_version=9;')
+            for table in ('streamer_runtime','streamer_roster_events','streamer_capture','streamer_roster_bootstrap'):
+                conn.execute(f'DROP TABLE {table}')
+            if schema==9:
+                conn.executescript('DROP TRIGGER character_level_no_regression; DROP TABLE character_level_guard; DROP TABLE automatic_character_events;')
+            conn.execute(f'PRAGMA user_version={schema}')
     plan=adoption.preview(db,legacy[4],REASON)
     real=adoption.change
     def broken(*args):

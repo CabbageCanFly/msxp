@@ -54,8 +54,8 @@ def save_state(store, streamer, value):
 
 
 def validate(store, mappings, reason):
-    if store.schema_version not in (9, 10) or VERSION != 10:
-        raise ValueError('existing adoption supports schema 9 or 10 only')
+    if store.schema_version not in (9, 10, 11) or VERSION not in (10,11):
+        raise ValueError('existing adoption supports schema 9..11 only')
     if (not isinstance(reason, str) or not 12 <= len(reason.strip()) <= 1000 or
             any(ord(c) < 32 for c in reason)):
         raise ValueError('provide a meaningful single-line adoption reason (12..1000 characters)')
@@ -117,7 +117,7 @@ def preview(path, mappings, reason):
         plan['preserved'] = []
         for m in mappings:
             cid = m['character_id']
-            floor = source.db.execute('SELECT * FROM character_level_guard WHERE character_id=?', (cid,)).fetchone() if source.schema_version == 10 else None
+            floor = source.db.execute('SELECT * FROM character_level_guard WHERE character_id=?', (cid,)).fetchone() if source.schema_version >= 10 else None
             plan['preserved'].append(dict(character_id=cid, validated_floor=dict(floor) if floor else None,
                 tracking_state=dict(source.db.execute('SELECT * FROM tracking_state WHERE character_id=?', (cid,)).fetchone()),
                 counts={table: source.db.execute(f'SELECT COUNT(*) FROM {table} WHERE character_id=?', (cid,)).fetchone()[0]
@@ -160,7 +160,7 @@ def apply(path, plan, *, confirm, backup):
             store.db.execute('BEGIN EXCLUSIVE')
             try:
                 event = 'existing-adoption:' + plan['fingerprint'] + ':' + plan['mappings'][0]['channel']
-                if store.schema_version == 10 and store.db.execute('SELECT 1 FROM automatic_character_events WHERE event_id=?', (event,)).fetchone():
+                if store.schema_version >= 10 and store.db.execute('SELECT 1 FROM automatic_character_events WHERE event_id=?', (event,)).fetchone():
                     return dict(duplicate=True, adoption=plan['fingerprint'])
                 if database_digest(store) != plan['state_sha256']:
                     raise ValueError('stale preview: stop writers, then create and review a new preview')

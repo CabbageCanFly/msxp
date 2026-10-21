@@ -7,7 +7,8 @@ commands or this exceptional repair workflow at the running main tracker.
 The existing local manual-admin CLI now supports `repair-floor preview` and
 `repair-floor apply`. This recovers a reviewed false floor, such as repeated 87 OCR
 blocking a character actually at 67. Capture, ingestion, public APIs and the Admin
-browser never invoke it. Schema remains **10**. This milestone uses disposable DBs only.
+browser never invoke it. Schema **10** and the additive database-roster schema **11**
+are supported. This workflow was tested on disposable DBs only.
 
 Stop **all writers** and rehearse on a consistent private copy first. Use SQLite's
 backup API, not a copy of just the main file from a running WAL database. Preserve

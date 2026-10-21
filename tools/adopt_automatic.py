@@ -35,7 +35,7 @@ def main(argv=None):
                         (SELECT COUNT(*) FROM sessions t WHERE t.character_id=c.id) AS sessions
                     FROM streamers s LEFT JOIN characters c ON c.id=s.selected_character_id ORDER BY s.login''')]
                 for row in rows:
-                    floor = store.db.execute('SELECT level FROM character_level_guard WHERE character_id=?', (row['character_id'],)).fetchone() if store.schema_version==10 else None
+                    floor = store.db.execute('SELECT level FROM character_level_guard WHERE character_id=?', (row['character_id'],)).fetchone() if store.schema_version>=10 else None
                     latest = store.db.execute('''SELECT a.attempted_at,json_extract(a.payload_json,'$.status') AS status FROM diagnostic_attempts a
                         JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.character_id=? ORDER BY a.id DESC LIMIT 1''', (row['character_id'],)).fetchone()
                     row.update(validated_level=floor[0] if floor else None, latest_attempt=dict(latest) if latest else None)

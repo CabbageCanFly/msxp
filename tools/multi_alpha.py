@@ -117,7 +117,7 @@ def owner_info(database, automatic, trial=None, existing=()):
         from exp_tracker.automatic_adoption import ownership as adopted_owner, states
         adopted_owner(database)
         with Store(database,read_only=True) as store:
-            if store.schema_version!=10 or not set(existing)<=states(store).keys():
+            if store.schema_version not in (10,11) or not set(existing)<=states(store).keys():
                 raise ValueError('Existing automatic channels require reviewed adoption first; use tools/adopt_automatic.py')
     if automatic and info.get('automatic_characters') is not True:
         raise ValueError('Automatic testing requires a NEW disposable database or its own prior automatic-test database')
@@ -227,7 +227,7 @@ def existing_preflight(database, streams, enabled, *, required=False):
         return
     with Store(database,read_only=True) as store:
         adopted=states(store)
-        if required and (store.schema_version!=10 or not adopted):
+        if required and (store.schema_version not in (10,11) or not adopted):
             raise ValueError('Existing tracker mode requires reviewed adoption before startup')
         if not adopted and not enabled:return
         configured={row['channel']:row for row in streams}
@@ -258,20 +258,25 @@ def options(row, database, output):
 
 def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
              continuous=False, max_attempts=None, stop_after_seconds=None, rotate=None,
-             activity=None, active_runs=None, simulated=False, maintain=None, workers=1):
+             activity=None, active_runs=None, simulated=False, maintain=None, workers=1, reconcile=None):
     """No queue: one due-time per lane, rotating ties, elapsed slots skipped.
 
     workers>1 runs that many lanes' attempts at once, never two for one lane. Rotation,
     emit (logs and the single SQLite writer), status and maintain (retention) stay on this thread.
     """
     started, wall = clock(), datetime.now(timezone.utc)
-    for lane in lanes:
-        lane.update(due=started, attempts=0, run_attempts=0, frames=0, commits=0, stopped=False,
+    totals={}
+    total_fields=('attempts','frames','commits','skipped','capture_failures','ocr_failures','last_started',
+                  'elapsed_total','elapsed_count','duration_total','max_delay')
+    def initialize_lane(lane):
+        lane.update(due=clock(), attempts=0, run_attempts=0, frames=0, commits=0, stopped=False,_scheduled=True,
                     interrupted=False, skipped=0, capture_failures=0, ocr_failures=0, last_started=None,
                     elapsed_total=0,elapsed_count=0,duration_total=0,max_delay=0)
+        if reconcile:lane.update(totals.get(lane['channel'],{}))
         if activity is not None:
             activity[lane['channel']]=dict(state='waiting',run_id=lane['run_id'],updated_at=utc(),
                 next_due_at=utc(wall),requested_interval_seconds=lane['args'].interval)
+    for lane in lanes:initialize_lane(lane)
     turn = 0
     running = {}
     results = queue.Queue()
@@ -342,6 +347,7 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
         lane['run_attempts']=number
         lane['attempts'] += 1
         lane['frames'] += record.get('received_at') is not None
+        lane['last_attempt_at']=record.get('received_at') or record.get('attempted_at')
         lane['capture_failures'] += record.get('status')=='capture_failed'
         lane['ocr_failures'] += record.get('status') in ('recognition_failed','malformed_or_unavailable','unavailable')
         try:
@@ -361,6 +367,7 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
                 run_id=lane['run_id'],updated_at=utc(),next_due_at=utc(wall+timedelta(seconds=lane['due']-started)),
                 skipped_deadlines=lane['skipped'],requested_interval_seconds=lane['args'].interval,
                 actual_interval_seconds=elapsed)
+        if reconcile:totals[lane['channel']]={key:lane[key] for key in total_fields}
 
     def collect(timeout):
         # Short waits keep Ctrl+C responsive on Windows, where a blocked Queue.get ignores it.
@@ -374,22 +381,32 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
     stopping = False
     try:
         while True:
+            if stop_after_seconds is not None and clock()-started>=stop_after_seconds:stopping=True
+            if reconcile and not stopping:
+                reconcile(set(running),clock())
+                for lane in lanes:
+                    if not lane.get('_scheduled'):initialize_lane(lane)
             if maintain:maintain()
             pending = [] if stopping or len(running) >= workers else [
-                i for i,lane in enumerate(lanes) if not lane['stopped'] and lane['channel'] not in running and
+                i for i,lane in enumerate(lanes) if not lane['stopped'] and not lane.get('paused') and lane['channel'] not in running and
                 (lane['attempts'] < (max_attempts if continuous else lane['args'].count)
                  if not continuous or max_attempts is not None else True)]
             if not pending:
-                if not running: break
-                collect(math.inf)
+                if not running:
+                    if reconcile and not stopping and max_attempts is None:
+                        sleep(1);continue
+                    break
+                collect(1 if reconcile else math.inf)
                 continue
             index = min(pending, key=lambda i: (lanes[i]['due'], (i-turn)%len(lanes)))
             lane = lanes[index]
             if stop_after_seconds is not None and max(clock(),lane['due'])-started >= stop_after_seconds:
                 stopping = True
                 continue
-            if running and lane['due'] > clock():
-                collect(lane['due']-clock())  # Whichever comes first: a completion or this due time.
+            if lane['due'] > clock() and (running or reconcile):
+                delay=min(1,lane['due']-clock()) if reconcile else lane['due']-clock()
+                if running:collect(delay)
+                else:sleep(delay)
                 continue
             sleep(max(0, lane['due']-clock()))
             job = begin(lane)
@@ -417,7 +434,10 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
 
 def main(argv=None):
     cli = argparse.ArgumentParser(description=__doc__)
-    cli.add_argument('--config', type=Path, required=True)
+    source_config=cli.add_mutually_exclusive_group(required=True)
+    source_config.add_argument('--config', type=Path)
+    source_config.add_argument('--db-roster',type=Path,help='Use the explicitly bootstrapped database roster; no JSON or automatic-channel flags')
+    cli.add_argument('--port',type=int,default=8766,help='Public localhost port for --db-roster; existing JSON mode uses its config port')
     cli.add_argument('--check', action='store_true', help='Validate capture configuration without connecting or writing')
     cli.add_argument('--replay', action='append', default=[], metavar='CHANNEL=PRIVATE_LOG')
     cli.add_argument('--exit-after-capture', action='store_true')
@@ -443,6 +463,7 @@ def main(argv=None):
     args = cli.parse_args(argv)
     httpd = thread = None
     try:
+        db_mode=args.db_roster is not None
         existing=args.automatic_existing_channel
         existing_mode=args.existing_tracker or bool(existing)
         if (len(set(existing))!=len(existing) or any(not CHANNEL.fullmatch(c) or c!=c.lower() for c in existing)):
@@ -453,6 +474,9 @@ def main(argv=None):
             args.character_names=True
             if args.replay or args.hud_cache_seconds:
                 raise ValueError('Automatic testing requires capture with full-frame HUD localization, not replay/cache')
+        if db_mode and (not args.continuous or existing_mode or args.character_names or args.automatic_characters
+                        or args.replay or args.offline_fast_test or args.hud_cache_seconds):
+            raise ValueError('Database roster requires --continuous and fresh full-frame capture; no JSON/trial/automatic-channel/cache flags')
         if args.retention_24h and (not args.continuous or args.replay):
             raise ValueError('--retention-24h requires continuous capture')
         if not 1<=args.workers<=8:
@@ -465,15 +489,33 @@ def main(argv=None):
             raise ValueError('--stop-after-seconds requires continuous mode and positive finite seconds')
         if args.replay and (args.continuous or args.offline_fast_test):
             raise ValueError('Historical replay cannot use continuous/fast-test capture settings')
-        database, port, streams = load_config(args.config,offline_fast_test=args.offline_fast_test,existing_tracker=existing_mode)
-        trial = live_trial(args,database,port,streams)
+        if db_mode:
+            from exp_tracker import streamer_roster as roster
+            from exp_tracker.automatic_adoption import ownership as adopted_owner
+            database=args.db_roster.resolve(strict=True);port=args.port
+            if not 0<=port<=65535:raise ValueError('port must be 0..65535')
+            adopted_owner(database)
+            with Store(database,read_only=True) as reader:
+                desired=roster.entries(reader)
+                for row in desired:roster.validate_policy(reader,row)
+            streams=[dict(row,source='twitch',character='PendingOCR',count=60) for row in desired if row['tracking_enabled']]
+            trial=None
+            with writer_lease(database.with_suffix(database.suffix+'.multi-alpha.json')):pass
+            available_port(port,existing=True)
+        else:
+            database, port, streams = load_config(args.config,offline_fast_test=args.offline_fast_test,existing_tracker=existing_mode)
+            trial = live_trial(args,database,port,streams)
+            if database.exists():
+                from exp_tracker.streamer_roster import ready
+                with Store(database,read_only=True) as reader:
+                    if ready(reader):raise ValueError('Database roster is active; use --db-roster instead of overriding desired settings with JSON')
         if existing_mode:
             from exp_tracker.automatic_adoption import ownership as adopted_owner
             adopted_owner(database)
             owner_info(database,False,existing=existing)
             with writer_lease(database.with_suffix(database.suffix+'.multi-alpha.json')):pass
             available_port(port,existing=True)
-        existing_preflight(database,streams,existing,required=existing_mode)
+        if not db_mode:existing_preflight(database,streams,existing,required=existing_mode)
         if trial is not None:
             owner_info(database,args.automatic_characters,trial)
             if database.exists():
@@ -490,16 +532,19 @@ def main(argv=None):
                 if not private(path).is_file(): raise ValueError('Replay log not found')
         directory = private(args.log_root or 'private/multi-alpha/runs') / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:8])
         lanes = []
-        for row in streams:
-            opts = options(row, database, directory/row['channel']/'capture.jsonl')
+        def make_lane(row):
+            output=directory/row['channel']/uuid.uuid4().hex/'capture.jsonl' if db_mode else directory/row['channel']/'capture.jsonl'
+            opts = options(row, database, output)
             if args.ocr_python:opts.ocr_python=args.ocr_python.resolve()
             if args.continuous: opts.count=60
             if not args.replay:
                 source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
                 # After prepare: its standalone no-DB guard does not apply, holds are enforced at emit/append.
-                opts.automatic_characters=args.automatic_characters or row['channel'] in existing
+                opts.automatic_characters=args.automatic_characters or row['channel'] in existing or db_mode and row['automatic_characters']
                 opts.character_names=args.character_names or opts.automatic_characters
-                lanes.append({**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes})
+                return {**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes}
+        for row in streams:
+            if not args.replay:lanes.append(make_lane(row))
         if not args.replay:
             configure_tesseract()
             if any(row['source']=='twitch' for row in streams) and importlib.util.find_spec('streamlink') is None:
@@ -514,9 +559,11 @@ def main(argv=None):
             return 0
         print(f'Database: {database}',flush=True)
         if not args.replay: print(f'Private capture logs: {directory}',flush=True)
-        with ownership(database,automatic=args.automatic_characters,trial=trial,existing=existing,adopted=existing_mode):
-            existing_preflight(database,streams,existing,required=existing_mode)
-            initialize(database, streams,automatic=args.automatic_characters,allow_migration=trial is None and not existing_mode)
+        with ownership(database,automatic=args.automatic_characters,trial=trial,existing=existing,adopted=existing_mode or db_mode):
+            if not db_mode:
+                existing_preflight(database,streams,existing,required=existing_mode)
+                initialize(database, streams,automatic=args.automatic_characters,allow_migration=trial is None and not existing_mode)
+            else:lanes=[]  # Reconciliation initializes only desired active lanes on the writer thread.
             httpd = create_server(database, port=port, diagnostic_dashboard=not args.public_only,public_only=args.public_only,cors_origins=args.cors_origin,twitch_status=args.twitch_status,background=True)
             httpd.quiet = True
             httpd.active_run_ids = set()
@@ -536,13 +583,13 @@ def main(argv=None):
                 if args.retention_24h:
                     from exp_tracker.retention_files import own
                     own(directory,database)
-                with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database,allow_migration=trial is None and not existing_mode) as store:
+                with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database,allow_migration=trial is None and not existing_mode and not db_mode) as store:
                     diagnostic = Diagnostics(store)
-                    if args.automatic_characters or existing:
+                    if args.automatic_characters or existing or db_mode:
                         from exp_tracker.character_automation import AutonomousCharacters
                         automation=AutonomousCharacters(store)
                     handles = {}
-                    resident = shadow.ResidentNeural() if args.resident_neural or args.character_names or existing else None
+                    resident = shadow.ResidentNeural() if args.resident_neural or args.character_names or existing or db_mode else None
                     instance=uuid.uuid4().hex
                     try:
                         def open_run(lane, run_id, previous=None):
@@ -558,6 +605,7 @@ def main(argv=None):
                                 source_identity=hashlib.sha256(json.dumps(identity).encode()).hexdigest(),
                                 source_kind=source.kind,start_reason='scheduled_rotation' if previous else 'process_start',
                                 previous_run_id=previous,offline_fast_test=args.offline_fast_test,timing_mode='real')
+                            if db_mode:header.update(database_roster=True,roster_revision=lane['roster_revision'])
                             lane['log'].write(json.dumps(header)+'\n'); lane['log'].flush()
                             return header
                         for lane, binding in zip(lanes, streams):
@@ -594,7 +642,7 @@ def main(argv=None):
                                     following=uuid.uuid4().hex
                                     header=shadow.configuration(lane['args'],lane['table_bytes'],lane['table'],following)
                                     old_header=json.loads(store.db.execute('SELECT configuration_json FROM diagnostic_runs WHERE run_id=?', (lane['run_id'],)).fetchone()[0])
-                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode')})
+                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode','database_roster','roster_revision') if k in old_header})
                                     pending={}
                                     def write(receipt, payload):
                                         handle=lane['log']
@@ -669,7 +717,7 @@ def main(argv=None):
                                 httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(following)
                                 print(f"{lane['channel']}: scheduled rotation after 60 committed attempts; session {lane['session_id']} retained",flush=True)
                             scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate,maintain=maintain) if args.continuous else {}
-                            for lane in lanes:
+                            def lane_options(lane):
                                 lane['options']={'resident':resident} if resident else {}
                                 if args.hud_cache_seconds:  # Per channel; survives rotation, not restarts.
                                     lane['options']['analyze_frame']=functools.partial(shadow.analyze,
@@ -678,6 +726,31 @@ def main(argv=None):
                                     from character_identity import IdentityCapture
                                     lane['options']['identity']=IdentityCapture(lane['channel'],confirmed=lane['character'],
                                         **({'confirmation_source':'persisted_selection'} if lane['args'].automatic_characters else {}))
+                            for lane in lanes:lane_options(lane)
+                            if db_mode:
+                                from db_roster_runtime import Reconciler
+                                def start_dynamic(lane):
+                                    with store._transaction():
+                                        s=store._channel(lane['channel']);cid=s['selected_character_id']
+                                        if cid is None:
+                                            if lane['origin']!='discovered':raise ValueError('historical streamer has no selected identity')
+                                            cid=store.add_character(lane['channel'],'PendingOCR')
+                                            store.select_character(lane['channel'],cid,only_if_unselected=True)
+                                        sid=store.start_session(lane['channel'],expected_character_id=cid)
+                                        label=store.db.execute('SELECT label FROM characters WHERE id=?',(cid,)).fetchone()[0]
+                                        lane.update(character_id=cid,session_id=sid,character=label)
+                                        header=open_run(lane,uuid.uuid4().hex)
+                                        diagnostic.begin(lane['run_id'],lane['channel'],header)
+                                    lane_options(lane);httpd.active_run_ids.add(lane['run_id'])
+                                def close_dynamic(lane,reason):
+                                    try:
+                                        if not lane.get('persistence_failed'):
+                                            emit(lane,dict(type='summary',trusted=False,attempts=lane['run_attempts'],interrupted=False,completion_reason=reason))
+                                    finally:
+                                        httpd.active_run_ids.discard(lane['run_id']);lane['log'].close()
+                                reconciler=Reconciler(store,lanes,lambda row:make_lane(dict(row,source='twitch',count=60)),
+                                    start_dynamic,close_dynamic,httpd.coordinator_status,httpd.active_run_ids)
+                                scheduler_options['reconcile']=reconciler
                             def perform(lane,n,seek):
                                 return shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek,**lane['options'])
                             interrupted = schedule(lanes,perform,emit,workers=args.workers,
@@ -695,6 +768,8 @@ def main(argv=None):
                                     print(f"{lane['channel']}: final SQLite summary NOT committed; inspect private logs",flush=True)
                                 httpd.active_run_ids.discard(lane['run_id'])
                                 httpd.coordinator_status[lane['channel']]=dict(state='stopped',run_id=lane['run_id'],updated_at=utc())
+                            if db_mode:
+                                with store._transaction():store.db.execute("UPDATE streamer_runtime SET state='stopped',heartbeat_at=? WHERE state NOT IN ('paused','error')",(utc(),))
                             print('Capture stopped. UNVERIFIED diagnostics only. Resources: '+json.dumps(monitor.snapshot()),flush=True)
                             for lane in lanes:
                                 print(f"{lane['channel']}: {lane['frames']}/{lane['attempts']} frames, {lane['commits']} SQLite attempt commits; skipped deadlines={lane['skipped']}; capture failures={lane['capture_failures']}, OCR failures={lane['ocr_failures']}",flush=True)

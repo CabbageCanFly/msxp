@@ -1,6 +1,6 @@
 """SQLite base schema and additive migrations, applied in one transaction."""
 
-VERSION = 10
+VERSION = 11
 STATEMENTS = (
     """CREATE TABLE streamers (
         id INTEGER PRIMARY KEY, login TEXT NOT NULL UNIQUE,
@@ -225,4 +225,31 @@ MIGRATION_10 = (
     """CREATE TRIGGER character_level_no_regression BEFORE UPDATE ON character_level_guard
         WHEN OLD.level IS NOT NULL AND (NEW.level IS NULL OR NEW.level < OLD.level)
         BEGIN SELECT RAISE(ABORT,'validated character level cannot regress'); END""",
+)
+
+# Desired settings are separate from immutable capture ownership and operational status.
+MIGRATION_11 = (
+    '''CREATE TABLE streamer_capture (
+        streamer_id INTEGER PRIMARY KEY REFERENCES streamers(id),
+        authorized INTEGER NOT NULL CHECK(authorized IN (0,1)),
+        tracking_enabled INTEGER NOT NULL CHECK(tracking_enabled IN (0,1)),
+        public_visible INTEGER NOT NULL CHECK(public_visible IN (0,1)),
+        automatic_characters INTEGER NOT NULL CHECK(automatic_characters IN (0,1)),
+        settings_json TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('existing','discovered')),
+        revision INTEGER NOT NULL CHECK(revision>0), updated_at TEXT NOT NULL,
+        identity_json TEXT
+    )''',
+    '''CREATE TABLE streamer_roster_events (
+        event_id TEXT PRIMARY KEY, streamer_id INTEGER NOT NULL REFERENCES streamers(id),
+        fingerprint TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL,
+        reason TEXT NOT NULL, recorded_at TEXT NOT NULL
+    )''',
+    '''CREATE TABLE streamer_roster_bootstrap (
+        id INTEGER PRIMARY KEY CHECK(id=1), fingerprint TEXT NOT NULL, recorded_at TEXT NOT NULL
+    )''',
+    '''CREATE TABLE streamer_runtime (
+        streamer_id INTEGER PRIMARY KEY REFERENCES streamers(id),
+        revision INTEGER NOT NULL, state TEXT NOT NULL, run_id TEXT,
+        error TEXT, last_attempt_at TEXT, heartbeat_at TEXT NOT NULL
+    )''',
 )

@@ -205,6 +205,10 @@ class Diagnostics:
         run = self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?', (run_id,)).fetchone()
         if run is None:
             raise ValueError('Unknown diagnostic run')
+        if record.get('type')=='attempt' and record.get('current') and self.store._pending_character(run['character_id']):
+            name=record.get('character_name') or {}
+            record=identity_held(dict(record,character_name=dict(name,reading_hold_recommended=True,
+                hold_reasons=list(dict.fromkeys(name.get('hold_reasons',[])+['character_discovery_pending'])))))
         if record.get('type')=='attempt':
             existing=self.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE run_id=? AND attempt_index=?',
                                      (run_id,record.get('index'))).fetchone()
@@ -544,7 +548,7 @@ class Diagnostics:
                 current=row['id']==streamer['selected_character_id']))
         return rows
 
-    def heads(self,login=None):
+    def heads(self,login=None,*,public_directory=False):
         """Committed revision per channel: selection, open session, latest run and attempt."""
         manual='(SELECT MAX(id) FROM manual_corrections WHERE streamer_id=s.id)' if self.store.schema_version>=5 else 'NULL'
         rename='(SELECT MAX(id) FROM character_renames WHERE streamer_id=s.id)' if self.store.schema_version>=6 else 'NULL'
@@ -552,6 +556,11 @@ class Diagnostics:
         retention='(SELECT revision FROM retention_meta WHERE id=1)' if self.store.schema_version>=8 else 'NULL'
         latest='SELECT MAX(id) FROM diagnostic_attempts WHERE session_id=se.id' if self.store.schema_version>=4 else (
             'SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id WHERE dr.session_id=se.id')
+        where='WHERE s.login=? ' if login else ''
+        if public_directory and not login:
+            from .streamer_roster import ready
+            if ready(self.store):
+                where='WHERE EXISTS (SELECT 1 FROM streamer_capture c WHERE c.streamer_id=s.id AND c.public_visible=1) '
         return list(self.db.execute('''SELECT s.login,s.selected_character_id,se.id AS session_id,
             r.run_id,r.summary_json,
             (SELECT COUNT(*) FROM diagnostic_runs WHERE session_id=se.id AND summary_json IS NULL) AS unfinished_count,
@@ -562,7 +571,7 @@ class Diagnostics:
             '''+retention+''' AS retention_revision
             FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
             LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
-            '''+('WHERE s.login=? ' if login else '')+'ORDER BY s.login LIMIT 26',(login,) if login else ()))
+            '''+where+'ORDER BY s.login LIMIT 26',(login,) if login else ()))
 
     def card(self,cache,head,*,now,checkpoints=None,eta_cache=None,character=None):
         """One shared computation per channel revision for the homepage and character API.

@@ -98,6 +98,11 @@ last-known levels and exposes early segment pace without relaxing fixed-window c
 Manage assignments with the [private roster CLI](docs/streamer-roster.md): add, disable,
 re-enable and inspect without deleting history; changes apply on controlled restart.
 
+The [database-managed roster](docs/database-streamer-roster.md) adds a reviewed one-time
+JSON bootstrap and a protected Streamers admin area. Add unknown characters, pause,
+resume, configure or hide channels while the existing coordinator runs, without
+routine JSON edits or restarts.
+
 [Existing tracker automatic adoption](docs/existing-tracker-auto-adoption.md) adds an
 explicit preview/backup/confirmation workflow for existing multi-alpha databases,
 with per-channel opt-in automation alongside unchanged manual tracking.
