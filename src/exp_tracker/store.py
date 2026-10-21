@@ -89,11 +89,12 @@ class Store:
                     for statement in MIGRATION_10:
                         self.db.execute(statement)
                     version = 10
-                if version == 10 and (allow_migration or new_database):
+                # Existing databases cross this boundary only through reviewed roster bootstrap.
+                if version == 10 and new_database:
                     for statement in MIGRATION_11:
                         self.db.execute(statement)
                     version = 11
-                if version != VERSION and not (version==10 and not allow_migration):
+                if version not in (10,VERSION):
                     raise ValueError(f"unsupported schema version {version}")
                 self.db.execute(f"PRAGMA user_version={version}")
                 self.schema_version=version

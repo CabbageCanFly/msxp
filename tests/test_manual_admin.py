@@ -47,7 +47,7 @@ def test_additive_migration_and_restart(tmp_path,version):
             assert store.schema_version==version and store.manual_history('alpha')==[]
         assert path.read_bytes()==before
     with Store(path) as store:
-        assert store.schema_version==VERSION
+        assert store.schema_version==(10 if version else VERSION)
         store.add_channel('alpha');cid=store.add_character('alpha','Main');store.select_character('alpha',cid,at=NOW)
         result=correct(store,level=64,current_exp=0,percentage_bp=0,reason='baseline')
     with Store(path,read_only=True) as store:

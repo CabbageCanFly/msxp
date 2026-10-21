@@ -169,7 +169,7 @@ def test_schema_eight_upgrade_is_additive_and_readers_do_not_migrate(tmp_path):
     with Store(path,read_only=True) as store:assert store.schema_version==8
     assert before==path.read_bytes()
     with Store(path) as store:
-        assert store.schema_version==schema.VERSION and daily(store)==[]
+        assert store.schema_version==10 and daily(store)==[]
         assert not store.db.execute('PRAGMA foreign_key_check').fetchall()
 
 

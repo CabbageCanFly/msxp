@@ -19,6 +19,31 @@ streamer/character IDs, selections, sessions, history, corrections, invalidation
 level guards, adoption receipts and daily statuses are preserved. No tables are
 rebuilt. Existing schema-10 protected capture/repair paths remain supported.
 
+Existing databases do **not** automatically migrate to schema 11 when opened for
+writing. Ordinary `Store` opens (including `allow_migration=True`), admin corrections
+and renames, JSON capture/replay, tracking/retention CLIs, standalone capture tools,
+and adoption/floor-repair rehearsals stop at schema 10. Older supported schemas may
+still receive their existing additive migrations through 10. Fresh empty databases
+initialize at 11, and already-schema-11 databases remain writable; neither case
+implicitly bootstraps a roster. For an existing database, only the explicit roster
+bootstrap below applies migration 11, with its reviewed fingerprint, ownership lease,
+confirmation, verified backup and atomic rollback boundary.
+
+Writable entry points audited for this boundary:
+
+- `manual_admin.writable_store` (also used by the admin portal), tracking CLI,
+  diagnostic replay CLI and retention `--apply`: ordinary Store writers.
+- `capture.py`, `tools/shadow_capture.py`, `tools/replay_capture_crops.py`,
+  `tools/local_alpha.py` and JSON-mode `tools/multi_alpha.py` (initialization,
+  capture and replay): ordinary writers, or the existing stricter no-migration mode.
+- Automatic-adoption and floor-repair previews: ordinary writers on disposable
+  snapshots; their apply paths explicitly preserve schema 10/11 and never apply 11.
+- Demo, fixture and benchmark tools: ordinary writers, normally on fresh data.
+- Roster preview: ordinary snapshot writer followed by explicit `bootstrap_change`;
+  roster apply: read-only Store opened before taking the exclusive write transaction,
+  then explicit migration after the backup checks. Public HTTP/publisher paths stay
+  read-only throughout.
+
 The admin server writes desired settings through its existing token, exact-loopback
 Host, same-origin POST and preview/confirmation boundary. It does not capture frames
 or perform EXP attribution. Capture workers still return to **one serialized capture
@@ -254,7 +279,7 @@ add/pause/resume/settings changes, in-flight revision/disable races, selected-ID
 restart, rotation, retention, visibility and failed transactions on disposable data.
 `tools/admin-streamers.test.mjs` covers the form and stale-preview handling.
 
-The final Python regression run passed **2,662 tests**, with **122 skips** (private
+The roster-review Python regression run passed **2,662 tests**, with **122 skips** (private
 fixtures and environment restrictions); the concurrent localhost viewer test was
 excluded from that sandbox run. All three real localhost HTTP regressions, including
 that test, passed separately with sockets permitted. Frontend tests passed **141/141**.
@@ -263,6 +288,15 @@ passed **220 tests**, with six private/environment skips. The roster coverage in
 the operator CLI copy rehearsal, preview-version rejection, legacy interval defaults,
 43-channel historical-directory visibility, bounded historical URL browsing and
 reserved-placeholder guards through retention/restart and nonautomatic ingestion.
+
+The migration-boundary follow-up passed **438 focused tests** with one OS hard-link
+skip. Its full parallel run had **2,672 passes, 122 skips and one timing-sensitive
+failure**: `test_thirteen_channels_mixed_workers_restart_expand_and_disable` did not
+observe overlap between its 1 ms synthetic captures. That pre-existing test passed
+in the focused run and an isolated serial rerun. Its fixture uses schema 11, not the
+changed migration branch. No scheduler/performance changes were made to accommodate
+the overlap assumption. New regressions cover ordinary schema-10 Store/admin/CLI/
+JSON writes, fresh initialization, and explicit bootstrap rollback/retry through the CLI.
 
 The isolated browser smoke uses a new profile and synthetic database, adds a streamer
 without a character, confirms settings, changes visibility independently of tracking,

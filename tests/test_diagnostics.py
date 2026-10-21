@@ -193,7 +193,7 @@ def test_v2_migration_is_additive_and_reader_refuses_to_migrate(tmp_path):
     with pytest.raises(ValueError, match='schema version 2'):
         Store(path, read_only=True)
     with Store(path) as store:
-        assert store.db.execute('PRAGMA user_version').fetchone()[0] == VERSION
+        assert store.db.execute('PRAGMA user_version').fetchone()[0] == 10
         assert store.state('preserved')['channel'] == 'preserved'
         assert not store.db.execute('PRAGMA foreign_key_check').fetchall()
     with Store(path, read_only=True) as store:

@@ -46,6 +46,104 @@ def managed(legacy):
     return legacy
 
 
+@pytest.fixture
+def legacy10(legacy):
+    with sqlite3.connect(legacy[3]) as db:
+        for table in NEW_TABLES:db.execute(f'DROP TABLE {table}')
+        db.execute('PRAGMA user_version=10')
+    return legacy
+
+
+def assert_schema10(path):
+    with Store(path,read_only=True) as store:
+        assert store.schema_version==10
+        tables={r[0] for r in store.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert not tables.intersection(NEW_TABLES)
+        assert not store.db.execute('PRAGMA foreign_key_check').fetchall()
+
+
+@pytest.mark.parametrize('options',[{},dict(allow_migration=True),dict(allow_migration=False)])
+def test_ordinary_schema10_store_writes_never_install_roster_schema(legacy10,options):
+    path=legacy10[3]
+    preserved=['characters','sessions','diagnostic_attempts','observations','streamers']
+    before=dump_tables(path,preserved)
+    with Store(path,**options) as store:
+        cid=store._channel('channel0')['selected_character_id']
+        store.correct_manual('channel0','ordinary-write',cid,level=30,current_exp=125,now=True)
+        assert store.schema_version==10
+    assert_schema10(path)
+    assert dump_tables(path,preserved)==before
+    with Store(path,read_only=True) as store:
+        assert store.manual_history('channel0')[-1]['event_id']=='ordinary-write'
+
+
+def test_schema10_protected_admin_preview_and_save_do_not_install_roster(legacy10):
+    path=legacy10[3]
+    with Store(path,read_only=True) as store:before=roster.database_digest(store)
+    with AdminServer(path,0) as admin:
+        cid=legacy10[4][0]['character_id']
+        data=dict(action='set',channel='channel0',character_id=str(cid),level='30',exp='125',use_now=True)
+        code,_,preview=request(admin,'/api/preview','POST',data)
+        assert code==200,preview
+        assert_schema10(path)
+        with Store(path,read_only=True) as store:assert roster.database_digest(store)==before
+        code,_,saved=request(admin,'/api/save','POST',dict(preview_id=preview['preview_id']))
+        assert code==200,saved
+        assert not request(admin,'/api/streamers')[2]['managed']
+    assert_schema10(path)
+    with Store(path,read_only=True) as store:assert len(store.manual_history('channel0'))==2
+
+
+@pytest.mark.parametrize('operation',['manual','tracking','retention'])
+def test_unrelated_schema10_cli_writers_preserve_schema(legacy10,operation):
+    path=legacy10[3]
+    if operation=='manual':
+        from exp_tracker.manual_admin import main
+        argv=['--db',str(path),'--channel','channel0','set','--character','Main 0','--level','30','--exp','125','--now']
+    elif operation=='tracking':
+        from exp_tracker.tracking import main
+        argv=['--db',str(path),'--channel','channel0','character','AnotherSaved']
+    else:
+        from exp_tracker.retention import main
+        argv=['--db',str(path),'--apply']
+    assert main(argv)==0
+    assert_schema10(path)
+    with Store(path,read_only=True) as store:
+        assert store._channel('channel0')['selected_character_id']==legacy10[4][0]['character_id']
+
+
+def test_schema10_legacy_json_coordinator_preserves_schema_and_assignments(legacy10):
+    module,config,_,path,mappings=legacy10
+    before=dump_tables(path,['characters','sessions','streamers','manual_corrections'])
+    assert module.main(['--config',str(config),'--continuous','--max-attempts','2','--exit-after-capture'])==0
+    assert_schema10(path)
+    assert dump_tables(path,list(before))==before
+    with Store(path,read_only=True) as store:
+        assert all(store._channel(m['channel'])['selected_character_id']==m['character_id'] for m in mappings)
+        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==39
+
+
+def test_schema10_bootstrap_failure_rolls_back_and_explicit_cli_retry_succeeds(legacy10,monkeypatch):
+    path=legacy10[3];cli=importlib.import_module('db_streamer_roster')
+    planfile=path.parent/'schema10-review.json';backup=path.parent/'schema10-backup.sqlite3'
+    assert cli.main(['--db',str(path),'preview','--config',str(legacy10[1]),'--reason',REASON,'--preview',str(planfile)])==0
+    plan=json.loads(planfile.read_text())
+    assert plan['schema']==10
+    assert_schema10(path)
+    actual=roster.bootstrap_change
+    def fail(*args):actual(*args);raise OSError('interrupted schema11 bootstrap')
+    monkeypatch.setattr(roster,'bootstrap_change',fail)
+    confirm='bootstrap-roster:'+plan['fingerprint'][:16]
+    argv=['--db',str(path),'apply','--preview',str(planfile),'--confirm',confirm,'--backup',str(backup)]
+    assert cli.main(argv)==1
+    assert_schema10(path);assert_schema10(backup)
+    with Store(path,read_only=True) as store:assert roster.database_digest(store)==plan['state_sha256']
+    monkeypatch.setattr(roster,'bootstrap_change',actual)
+    assert cli.main([*argv[:-1],str(path.parent/'retry-backup.sqlite3')])==0
+    with Store(path,read_only=True) as store:assert store.schema_version==11 and roster.ready(store)
+    assert cli.main(argv)==0  # Exact successful preview remains idempotent.
+
+
 @pytest.mark.parametrize('version',[9,10,11])
 def test_bootstrap_is_explicit_atomic_preserves_thirteen_channels_and_history(legacy,version):
     _,_,config,path,mappings=legacy

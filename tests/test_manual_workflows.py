@@ -102,7 +102,7 @@ def test_legacy_partial_events_remain_readable_without_becoming_new_api_allowanc
         assert store.manual_history('alpha')[0]['level']==42
         assert get(Diagnostics(store))['display_level']['value']==42
     with Store(path) as store:
-        assert store.schema_version==VERSION
+        assert store.schema_version==10
         assert get(Diagnostics(store))['reading']['exp'] is None
         assert get(Diagnostics(store))['display_level']['value']==42
         with pytest.raises(ValueError):store.correct_manual('alpha','partial',1,level=49,effective_at=at(10))

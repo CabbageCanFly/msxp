@@ -37,6 +37,17 @@ def store(tmp_path):
         yield db
 
 
+@pytest.mark.parametrize('allow_migration',[True,False])
+def test_fresh_store_initializes_schema11_without_bootstrapping_roster(tmp_path,allow_migration):
+    from exp_tracker.streamer_roster import ready
+    path=tmp_path/'new.sqlite3'
+    with Store(path,allow_migration=allow_migration) as store:
+        assert store.schema_version==11 and not ready(store)
+        store.add_channel('newchannel')
+    with Store(path,allow_migration=False) as store:
+        assert store.schema_version==11 and store._channel('newchannel')
+
+
 def ingest(store, profile, event="one", seconds=1, result=None, **kwargs):
     session = store.state("alice", as_of=at(seconds))["session"]
     return store.ingest("alice", event, at(seconds), result if result is not None else reading(),
@@ -366,7 +377,7 @@ def test_version_one_migration_preserves_history_and_conservative_pauses(store, 
             legacy.executemany(f"INSERT INTO {table}({columns}) VALUES ({marks})", rows)
         legacy.execute("PRAGMA user_version=1")
     with Store(path) as migrated:
-        assert migrated.db.execute("PRAGMA user_version").fetchone()[0] == VERSION
+        assert migrated.db.execute("PRAGMA user_version").fetchone()[0] == 10
         assert not migrated.db.execute("PRAGMA foreign_key_check").fetchall()
         state = migrated.state("alice", as_of=at(3))
         assert state["observed_session_exp"] == 500 and state["bridged_session_exp"] == 0

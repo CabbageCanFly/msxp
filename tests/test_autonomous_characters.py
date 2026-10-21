@@ -398,7 +398,7 @@ def test_schema9_stays_readable_and_writer_migrates_atomically(tmp_path):
     with Store(path,read_only=True) as store:assert store.schema_version==9
     assert path.read_bytes()==before
     with Store(path) as store:
-        assert store.schema_version==schema.VERSION
+        assert store.schema_version==10
         assert store.db.execute('SELECT COUNT(*) FROM character_level_guard').fetchone()[0]==0
         assert store.db.execute('PRAGMA foreign_key_check').fetchone() is None
 
