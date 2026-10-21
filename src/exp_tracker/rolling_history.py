@@ -145,6 +145,20 @@ def window_rows(rows,start):
     return [r for r in rows if datetime.fromisoformat(r['timestamp'])>=cutoff]
 
 
+def tracked_checkpoint(state,start):
+    rows=window_rows(state['rows'],start)
+    counts=dict(state['exclusion_counts'])
+    points=[r for r in state['rows'] if usable_endpoint(r)]
+    cutoff=datetime.fromisoformat(rows[0]['timestamp']) if rows else start
+    # Preserve cumulative diagnostics for pairs that the checkpoint drops.
+    for before,after in zip(points,points[1:]):
+        if datetime.fromisoformat(before['timestamp'])>=cutoff:break
+        if before['timestamp']==after['timestamp']:continue
+        _,reason=endpoint_interval(before,after)
+        if reason:counts[reason]=counts.get(reason,0)+1
+    return dict(state,rows=rows,exclusion_counts=counts)
+
+
 def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,checkpoints=None,character=None):
     """Two hours plus causal warmup for boundary-crossing 60m intervals.
 
@@ -308,7 +322,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
     try:
         state=replay(diagnostic,channel,start=start-timedelta(hours=24,minutes=5),now=now,receipt=result,state=state,step=step,
             checkpoints=checkpoints,key=('tracked',channel,character,manual_revision),
-            keep=lambda s:dict(s,rows=window_rows(s['rows'],start)),character=character)
+            keep=lambda s:tracked_checkpoint(s,start),character=character)
     except HistoryLimit:
         limited=True
     result['exclusion_counts']=dict(state['exclusion_counts']);level=state['level']

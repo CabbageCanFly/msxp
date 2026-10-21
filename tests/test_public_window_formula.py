@@ -102,11 +102,11 @@ def test_current_level_only_follows_the_visible_possible_level_without_changing_
     assert d.rolling_history('alpha',now=now)['current_level']==43
 
 
-@pytest.mark.parametrize('clock,folders,expected',[
-    ('2026-10-19T14:42:43.515014+00:00',['20261019T143653Z-028bbd29','20261019T144105Z-03f4aa88'],16038),
-    ('2026-10-19T11:28:56.524233+00:00',['20261019T103818Z-62816188','20261019T112644Z-9a0733f3','20261019T112802Z-be8257c7'],16977),
-    ('2026-10-19T10:40:56.881611+00:00',['20261019T095936Z-ef8a3750','20261019T103818Z-62816188'],17175)])
-def test_exact_real_windows_public_cards_api_and_selected_graph(tracking,monkeypatch,clock,folders,expected):
+@pytest.mark.parametrize('clock,folders,expected,boundary_gain',[
+    ('2026-10-19T14:42:43.515014+00:00',['20261019T143653Z-028bbd29','20261019T144105Z-03f4aa88'],16038+3716,3716),
+    ('2026-10-19T11:28:56.524233+00:00',['20261019T103818Z-62816188','20261019T112644Z-9a0733f3','20261019T112802Z-be8257c7'],16977+1275,1275),
+    ('2026-10-19T10:40:56.881611+00:00',['20261019T095936Z-ef8a3750','20261019T103818Z-62816188'],17175+987,987)])
+def test_exact_real_windows_public_cards_api_and_selected_graph(tracking,monkeypatch,clock,folders,expected,boundary_gain):
     import exp_tracker.server as http
     from tests.test_server import request
     if any(not (SAVED/folder/'telfer1/capture.jsonl').exists() for folder in folders):pytest.skip('Private saved capture unavailable')
@@ -116,14 +116,19 @@ def test_exact_real_windows_public_cards_api_and_selected_graph(tracking,monkeyp
     p=tracked_statistics(player(d.snapshot('telfer1',now=now),now=now,recent_snapshot=snap),rolling,now=now)
     w=p['recent_windows']['5'];assert w['gain']['approximate']==expected
     assert w['pace']['total_gain']==w['gain']
-    assert fraction(w['pace']['estimates']['exp_per_hour']['value'])==expected*3600/fraction(w['observed']['span_seconds'])
-    graph=[g for g in rolling['chart_intervals'] if datetime.fromisoformat(g['start'])>=now-timedelta(minutes=5)]
+    assert fraction(w['pace']['estimates']['exp_per_hour']['value'])==expected*12
+    cutoff=now-timedelta(minutes=5)
+    graph=[g for g in rolling['chart_intervals'] if cutoff<=datetime.fromisoformat(g['end'])<=now
+        and datetime.fromisoformat(g['end'])-datetime.fromisoformat(g['start'])<=timedelta(minutes=5)]
     assert sum(fraction(g['value']) for g in graph)==expected
-    if expected==16038:
+    crossing=[g for g in graph if datetime.fromisoformat(g['start'])<cutoff]
+    assert len(crossing)==1 and fraction(crossing[0]['value'])==boundary_gain
+    if expected==19754:
         public_only=next(r for r in snap['observations'] if r['event_id']=='94320e2c03f849c6a0d4454a456b24d9:2')
         assert reading(public_only) and not public_only['percentage_review']['progress_eligible']
-        assert w['observed']['start']=='2026-10-19T14:38:07.930824+00:00'
-        assert w['observed']['span_seconds']['approximate']==275.58419
+        assert w['observed']['start']=='2026-10-19T14:37:16.239247+00:00'
+        assert fraction(w['observed']['span_seconds'])==fraction(w['observed']['coverage_seconds'])
+        assert fraction(w['observed']['span_seconds'])>300
     class Clock(datetime):
         @classmethod
         def now(cls,tz=None):return now

@@ -185,20 +185,23 @@ def saved_replay(store):
     return replay(store,'telfer1',folders,as_of=now)
 
 
-def test_saved_telfer_exact_17175_versus_9769_and_unchanged_source_records(tracking,monkeypatch):
+def test_saved_telfer_boundary_and_recovered_gains_and_unchanged_source_records(tracking,monkeypatch):
     import exp_tracker.server as server_module
     from tests.test_server import request
     path,store,_=tracking;d,now=saved_replay(store)
     raw=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     snap=d.snapshot('telfer1',now=now,limit=640);recent=d.recent_snapshot('telfer1',now=now)
     rolling=d.rolling_history('telfer1',now=now);p=tracked_statistics(player(snap,now=now,recent_snapshot=recent),rolling,now=now)
-    window=rolling['windows']['5'];assert window['gain']['approximate']==17175
+    window=rolling['windows']['5'];assert window['gain']['approximate']==17175+987
     assert p['recent_windows']['5']['gain']==window['gain']
     gains=[g for g in rolling['chart_intervals'] if g['start']>=window['window_start']]
     restored=[g for g in gains if g['value']['approximate'] in (1703,2284,3419)]
     assert sorted(g['value']['approximate'] for g in restored)==[1703,2284,3419]
     assert sum(g['value']['approximate'] for g in gains if g not in restored)==9769
     assert sum(g['value']['approximate'] for g in gains)==388651-371476
+    crossing=[g for g in rolling['chart_intervals'] if g['start']<window['window_start']<=g['end']]
+    assert len(crossing)==1 and crossing[0]['value']['approximate']==371476-370489==987
+    assert sum(g['value']['approximate'] for g in gains+crossing)==window['gain']['approximate']
     collected=collect(recent,now=now,read=reading,max_interval_seconds=300)['intervals']
     assert [exp_interval(g)['restart'] for g in collected if g.get('restart')]==['interrupted_same_assignment']
     values=[rolling['windows'][m]['gain']['approximate'] for m in ('5','10','15','30','60')]
@@ -215,8 +218,8 @@ def test_saved_telfer_exact_17175_versus_9769_and_unchanged_source_records(track
         card=json.loads(request((server,None),'/api/players/telfer1')[2])
         home=json.loads(request((server,None),'/api/players')[2])
         chart=json.loads(request((server,None),'/api/players/telfer1/history')[2])
-        assert card['player']['recent_windows']['5']['gain']['approximate']==17175
-        assert next(r for r in home['players'] if r['channel']=='telfer1')['recent_windows']['5']['gain']['approximate']==17175
-        assert chart['windows']['5']['gain']['approximate']==17175
+        assert card['player']['recent_windows']['5']['gain']==window['gain']
+        assert next(r for r in home['players'] if r['channel']=='telfer1')['recent_windows']['5']['gain']==window['gain']
+        assert chart['windows']['5']['gain']==window['gain']
     assert raw==[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     assert not store.db.execute('select 1 from observations').fetchone()

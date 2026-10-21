@@ -106,8 +106,8 @@ def test_public_gain_and_pace_share_selected_character_segments(tracking,switch_
 
 
 @pytest.mark.parametrize('as_of,folders,expected,strict_expected,first_exp,last_exp',[
-    ('2026-10-19T11:28:56.524233+00:00',['20261019T103818Z-62816188','20261019T112644Z-9a0733f3','20261019T112802Z-be8257c7'],16977,10375,550813,567790),
-    ('2026-10-19T10:40:56.881611+00:00',['20261019T095936Z-ef8a3750','20261019T103818Z-62816188'],17175,17175,371476,388651)])
+    ('2026-10-19T11:28:56.524233+00:00',['20261019T103818Z-62816188','20261019T112644Z-9a0733f3','20261019T112802Z-be8257c7'],18252,10375,549538,567790),
+    ('2026-10-19T10:40:56.881611+00:00',['20261019T095936Z-ef8a3750','20261019T103818Z-62816188'],18162,17175,370489,388651)])
 def test_saved_windows_and_public_api_share_numeric_totals(tracking,monkeypatch,as_of,folders,expected,strict_expected,first_exp,last_exp):
     import exp_tracker.server as server_module
     from tests.test_server import request
@@ -121,11 +121,12 @@ def test_saved_windows_and_public_api_share_numeric_totals(tracking,monkeypatch,
     w=p['recent_windows']['5'];pace=w['pace'];observed=w['observed']
     assert w['gain']['approximate']==last_exp-first_exp==expected
     assert pace['total_gain']==w['gain']
-    assert fraction(pace['estimates']['exp_per_hour']['value'])==Fraction(expected)*3600/fraction(observed['coverage_seconds'])
-    gains=[g for g in rolling['chart_intervals'] if datetime.fromisoformat(g['start'])>=cutoff]
+    assert fraction(pace['estimates']['exp_per_hour']['value'])==Fraction(expected)*12
+    gains=[g for g in rolling['chart_intervals'] if cutoff<=datetime.fromisoformat(g['end'])<=now
+        and datetime.fromisoformat(g['end'])-datetime.fromisoformat(g['start'])<=timedelta(minutes=5)]
     assert sum(fraction(g['value']) for g in gains)==expected
     assert observed['start']==gains[0]['start'] and observed['end']==gains[-1]['end']
-    assert 0<observed['coverage_seconds']['approximate']<300
+    assert observed['coverage_seconds']['approximate']>300
     assert [rolling['windows'][str(m)]['gain']['approximate'] for m in (5,10,15,30,60)]==sorted(rolling['windows'][str(m)]['gain']['approximate'] for m in (5,10,15,30,60))
     assert any(not r['connect_previous'] for r in history(recent)[1:])
     class Clock(datetime):

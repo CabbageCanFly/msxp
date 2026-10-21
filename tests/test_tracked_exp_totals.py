@@ -251,7 +251,8 @@ def test_saved_emmies_exact_discrepancy_is_fixed_and_nested_after_sqlite_restart
         before=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
         result=d.rolling_history('emmies',now=as_of)
         # Both same-assignment restarts count: +698, and 18,800 -> 19,577 (+777).
-        assert [float(v) for v in nested(result)]==[4757,9994,14696,27764,42703,42703]
+        # Whole intervals crossing the 5/10/15/30m starts add 455/307/427/528 EXP.
+        assert [float(v) for v in nested(result)]==[4757+455,9994+307,14696+427,27764+528,42703,42703]
         snap=d.snapshot('emmies',now=as_of,limit=640)
         p=tracked_statistics(player(snap,now=as_of,recent_snapshot=d.recent_snapshot('emmies',now=as_of)),result,now=as_of)
         assert p['recent_windows']['60']['gain']==result['tracked_exp']
