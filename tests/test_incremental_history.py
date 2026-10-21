@@ -218,3 +218,19 @@ def test_checkpoint_keeps_the_endpoint_before_the_window_for_the_boundary_pair(t
     assert d.rolling_history('alpha',now=now,checkpoints=checkpoints)==full
     later=now+timedelta(seconds=5)  # Later windows resume from it too.
     assert d.rolling_history('alpha',now=later,checkpoints=checkpoints)==d.rolling_history('alpha',now=later)
+
+
+@pytest.mark.parametrize('cutoff_seconds',[10,30,60])
+def test_checkpoint_preserves_exclusions_when_old_endpoint_pairs_are_pruned(tracking,cutoff_seconds):
+    _,_,d=tracking
+    d.begin('old','alpha',config('old'))
+    save(d,'old',1,0,3300,level=65)
+    save(d,'old',2,20,3310,level=64)
+    save(d,'old',3,40,3320,level=64)
+    d.append('old',dict(type='summary',trusted=False,attempts=3,interrupted=False))
+    now=NOW+timedelta(days=1,seconds=cutoff_seconds);checkpoints={}
+    for delta in (0,0,40,40):
+        at=now+timedelta(seconds=delta)
+        full=d.rolling_history('alpha',now=at)
+        assert full['exclusion_counts']['observed_level_decrease']==1
+        assert d.rolling_history('alpha',now=at,checkpoints=checkpoints)==full

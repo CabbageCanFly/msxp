@@ -195,8 +195,9 @@ def test_saved_65_to_66_and_unobserved_niru_advancement(tmp_path):
         d,now=replay(store,'niru',['20261018T211439Z-794bf39d','20261019T000710Z-bda4f628'],34)
         snap=d.recent_snapshot('niru',now=now);w=recent_windows(snap,None,now=now)['60']
         assert w['pace']['levels']==[57]  # level 56 was hours earlier, outside the actual window
-        # Numeric endpoints retain the 875s timeout gap (+34,537) and restart (+806).
-        assert w['gain']['approximate']==91765+34537+806
+        # The crossing 64,808 -> 65,705 interval adds 897 to the old contained total.
+        # Numeric endpoints also retain the 875s timeout gap (+34,537) and restart (+806).
+        assert w['gain']['approximate']==91765+34537+806+897==192813-64808
         old=d.rolling_history('niru',now=now)
         assert old['tracked_exp']['approximate']>w['gain']['approximate']
 
@@ -213,7 +214,7 @@ def test_unobserved_niru_level_advance_retains_both_sides_but_no_transition_gain
         assert w['gain']['approximate']==expected_net(d.recent_snapshot('niru',now=now),now,60)
         assert w['pace']['levels']==[56,57] and w['pace']['readings']>=127
         assert w['pace']['coverage_seconds']==w['pace']['span_seconds']
-        assert fraction(w['pace']['estimates']['exp_per_hour']['value'])==fraction(w['gain'])*3600/fraction(w['pace']['coverage_seconds'])
+        assert fraction(w['pace']['estimates']['exp_per_hour']['value'])==fraction(w['gain'])  # Selected 60m denominator.
         by_id={r['event_id']:r for r in snap['observations']}
         pace=responsive_pace(d.recent_snapshot('niru',now=now),dict(value=57),now=now,minutes=60,pool_history=True,retain_history=False)
         for edge in pace['intervals']:
