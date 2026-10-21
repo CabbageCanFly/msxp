@@ -10,7 +10,7 @@ class Element {
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v,options){(this.listeners??={})[k]=v;(this.listenerOptions??={})[k]=options;}
   getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
 }
-function page(view='overlay',fetcher=()=>new Promise(()=>{}),search=''){
+function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null){
   const elements={},timers=[],events={},visits=[];
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
@@ -18,7 +18,7 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search=''){
   const context=vm.createContext({Intl,Date,BigInt,AbortController,URL,URLSearchParams,performance:{now:()=>0},
     location:{pathname,search,href:'http://127.0.0.1:8765'+pathname+search,origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
     history:{pushState:(s,t,u)=>visits.push(['push',String(u)]),replaceState:(s,t,u)=>visits.push(['replace',String(u)])},
-    navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
+    navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{documentElement:{dataset:api==null?{}:{api}},body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
       querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
@@ -704,18 +704,20 @@ test('inferred level-up banner and chart marker stay provisional until corrobora
   }
 });
 
-for(const view of ['player','overlay'])test(`${view} polls name held history revisions, reuse unchanged sections and refetch in full after warming`,async()=>{
+// Same-origin (Python server) and a configured API origin (Pages export) poll identically.
+for(const view of ['player','overlay'])for(const api of [null,'https://api.example.org'])test(`${view} ${api?'with an API origin ':''}polls name held history revisions, reuse unchanged sections and refetch in full after warming`,async()=>{
+  const base=api ?? '';
   const requests=[],settle=async()=>{for(let i=0;i<4;i++)await new Promise(resolve=>setImmediate(resolve));};
   const rows=label=>[{event_id:label,timestamp:'2026-01-01T00:00:00Z'}],tracked=label=>({as_of:'2026-01-01T00:00:00Z',label});
   const body=(changes={})=>({player:player(),history_revision:'a'.repeat(16),tracked_revision:'b'.repeat(16),...changes});
   let reply=body({history:rows('first'),tracked_history:tracked('first')});
-  const p=page(view,url=>{requests.push(url);return reply instanceof Error?Promise.reject(reply):Promise.resolve({ok:reply.status!==503,status:reply.status??200,json:async()=>reply});});
+  const p=page(view,url=>{requests.push(url);return reply instanceof Error?Promise.reject(reply):Promise.resolve({ok:reply.status!==503,status:reply.status??200,json:async()=>reply});},'',api);
   await settle();
-  assert.equal(requests[0],'/api/players/alpha');  // First load: nothing held, full body.
+  assert.equal(requests[0],`${base}/api/players/alpha`);  // First load: nothing held, full body.
   const first=p.run('data.history');
   reply=body({player:player({reading:{...player().reading,percentage:'6.00',bp:600}})});  // Both sections unchanged and omitted.
   await p.run('poll()');
-  assert.equal(requests.at(-1),`/api/players/alpha?history=${'a'.repeat(16)}&tracked=${'b'.repeat(16)}`);
+  assert.equal(requests.at(-1),`${base}/api/players/alpha?history=${'a'.repeat(16)}&tracked=${'b'.repeat(16)}`);
   assert.equal(p.run('data.history'),first);assert.equal(p.run('data.tracked_history.label'),'first');
   assert.equal(p.elements.percentage.textContent,'6.00%');  // Live values still update.
   reply=body({history_revision:'c'.repeat(16),history:rows('second')});  // History changed, tracked unchanged.
@@ -723,16 +725,16 @@ for(const view of ['player','overlay'])test(`${view} polls name held history rev
   assert.equal(p.run('data.history[0].event_id'),'second');assert.equal(p.run('data.tracked_history.label'),'first');
   reply=new Error('offline');await p.run('poll()');assert.equal(p.run('failed'),true);
   reply=body({history_revision:'c'.repeat(16)});await p.run('poll()');  // Reconnect keeps the held revisions.
-  assert.equal(requests.at(-1),`/api/players/alpha?history=${'c'.repeat(16)}&tracked=${'b'.repeat(16)}`);
+  assert.equal(requests.at(-1),`${base}/api/players/alpha?history=${'c'.repeat(16)}&tracked=${'b'.repeat(16)}`);
   assert.equal(p.run('failed'),false);assert.equal(p.run('data.history[0].event_id'),'second');
   reply={status:503,error:'warming_up'};await p.run('poll()');assert.equal(p.run('data'),null);  // Character change.
   reply=body({player:player({character:{id:2,label:'New character'}}),history_revision:'d'.repeat(16),tracked_revision:'e'.repeat(16),history:rows('new'),tracked_history:tracked('new')});
   await p.run('poll()');
-  assert.equal(requests.at(-1),'/api/players/alpha');assert.equal(p.run('data.history[0].event_id'),'new');assert.equal(p.run('data.tracked_history.label'),'new');
+  assert.equal(requests.at(-1),`${base}/api/players/alpha`);assert.equal(p.run('data.history[0].event_id'),'new');assert.equal(p.run('data.tracked_history.label'),'new');
   reply=body({history_revision:'f'.repeat(16),tracked_revision:'e'.repeat(16)});await p.run('poll()');  // Omitted but not the held revision: never reused.
   assert.equal(p.run('data.history'),undefined);
   reply=body({history_revision:'f'.repeat(16),tracked_revision:'e'.repeat(16),history:rows('healed'),tracked_history:tracked('new')});await p.run('poll()');
-  assert.equal(requests.at(-1),'/api/players/alpha');assert.equal(p.run('data.history[0].event_id'),'healed');
+  assert.equal(requests.at(-1),`${base}/api/players/alpha`);assert.equal(p.run('data.history[0].event_id'),'healed');
 });
 
 test('homepage polls never name history revisions',async()=>{
@@ -1029,4 +1031,19 @@ test('24 hour ranking uses the saved total, including streams that are not live'
   const p=page('board'),day=gain=>({tracked_status:'ready',tracked_windows:{1440:{available:true,gain:{approximate:gain}}}});
   p.context.fixtures=[player({channel:'a',...day(500)}),player({channel:'b',stale:true,...day(9000)}),player({channel:'c'})];
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"day").map(r=>[r.player.channel,r.rank]))')),[['b',1],['a',2],['c',null]]);
+});
+
+test('the Pages export calls its configured API origin; backend-served pages stay same-origin',async()=>{
+  const api=server([body([ALPHA],{history:[]})]),p=page('player',api.fetch,'?character=2','https://api.example.org');await settle();
+  assert.equal(api.urls[0],'https://api.example.org/api/players/alpha?character=2');
+  assert.ok(api.urls.includes('https://api.example.org/api/players/alpha/history'));
+  // Overlay links and character links stay on the page's own origin, never the API's.
+  assert.equal(p.elements['overlay-url'].value,'http://127.0.0.1:8765/live/overlay/alpha');
+  const board=server([{players:[]}]);page('board',board.fetch,'','https://api.example.org');await settle();
+  assert.equal(board.urls[0],'https://api.example.org/api/players');
+  const local=server([body([ALPHA],{history:[]})]);page('player',local.fetch);await settle();
+  assert.equal(local.urls[0],'/api/players/alpha');assert.ok(local.urls.includes('/api/players/alpha/history'));
+  assert.equal(page('overlay',undefined,'','http://127.0.0.1:8890').run('endpoint'),'http://127.0.0.1:8890/api/players/alpha');
+  for(const bad of ['http://api.example.org','https://api.example.org/','https://api.example.org/api','javascript:alert(1)','//evil.example','https://API.example.org'])
+    assert.throws(()=>page('board',undefined,'',bad),/Invalid data-api origin/);
 });

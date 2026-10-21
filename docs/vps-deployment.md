@@ -8,12 +8,13 @@ retention flag as part of the roster cutover.
 The public frontend is hosted separately on Cloudflare Pages (`https://msxp.pages.dev`).
 The VPS runs Twitch capture, OCR, SQLite, EXP calculations, background publishing and a
 read-only HTTPS JSON API. Background: [VPS readiness](vps-readiness.md).
+The frontend build and Pages settings are in [Cloudflare Pages frontend](cloudflare-pages-deployment.md).
 The backend has passed the separate Ubuntu 26.04 VPS capture/API trial. The
 Windows production DB has not been migrated and the VPS production tracker service
 is not yet enabled. The [24-hour retention changes](24h-retention.md) have not been deployed.
 
 ```
-browser ── https://msxp.pages.dev (Cloudflare Pages: HTML/JS/CSS, other worktree)
+browser ── https://msxp.pages.dev (Cloudflare Pages: HTML/JS/CSS, tools/export_pages.py)
    │ fetch, simple GET, no credentials
    ▼
 Caddy :443 (TLS, HSTS, gzip/zstd) ── only GET /api/players[/{ch}[/history]]
