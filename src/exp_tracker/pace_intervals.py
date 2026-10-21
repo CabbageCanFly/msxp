@@ -190,6 +190,14 @@ def collect_observed(snapshot, *, now, read, max_interval_seconds, state=None):
             last_time=value['timestamp']
             value=dict(value,source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),run_id=row.get('run_id'),index=row.get('index'),
                 accounting_scope=f"{row.get('character_id')}:{row.get('session_id')}")
+            # A circular arithmetic level dip must not become a new subtraction baseline.
+            if (previous and usable_endpoint(value) and same_character(previous,value)
+                    and previous.get('manual_epoch')==value.get('manual_epoch')
+                    and value['level'].get('status') in ('exp_derived','retained_level','provisional_level_up')
+                    and value['level']['value']<previous['level']['value']):
+                holes.append(row['event_id'])
+                excluded.append(dict(event_id=row['event_id'],timestamp=value['timestamp'],reason='inferred_level_decrease'))
+                continue
             points.append(value)
             if not usable_endpoint(value):continue
             if previous and previous.get('manual_epoch')==value.get('manual_epoch') and same_character(previous,value) and datetime.fromisoformat(previous['timestamp'])<when:

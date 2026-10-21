@@ -59,6 +59,23 @@ losses/death penalties. This is necessary for shorter-window totals never to exc
 longer-window totals. Level decreases remain excluded; character level guards were
 not changed.
 
+Follow-up: a lower `exp_derived`, `retained_level` or `provisional_level_up`
+endpoint cannot replace the last usable higher-level endpoint of the same character
+and manual epoch. It is excluded as `inferred_level_decrease`, including from the
+next interval's baseline. Independent reader evidence and explicit character/manual
+boundaries keep their existing rules. No OCR digit is repaired or substituted.
+
+This prevents a circular arithmetic dip from creating a fictitious rebound gain.
+Saved Telfer reading `3f38932535654a45b6767472793b134f:7` at
+`2026-10-21T02:56:35.297019Z` contains `2632 / 0.35%`, deriving level 51 between
+level-71 endpoints. The old 51-to-71 interval added 26,052,025 EXP. Read-only replay
+with the guard changes the affected 30-minute bar from 26,080,498 to 33,704 EXP,
+matching a disposable-copy exclusion of that single reading. Raw evidence stays
+unchanged. Existing originals can also be excluded through the audited
+[admin range review](manual-exp-admin.md#exclude-incorrect-readings-without-replacement-exp).
+Restart the serving process after updating code to rebuild its in-memory caches;
+previously frozen retention checkpoints are not rewritten by this change.
+
 Absent, stale, ambiguous, simulated, invalidated and unsupported endpoints cannot vote
 as valid coordinates. Unusable observations do not erase the last usable endpoint;
 the duration test still applies to the resulting gap. Duplicate source captures are

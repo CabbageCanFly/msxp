@@ -24,6 +24,76 @@ def projected(rows,seconds):
     return snap,collect_observed(snap,now=NOW+timedelta(seconds=seconds),read=reading,max_interval_seconds=300)
 
 
+def inferred_dip():
+    rows=[point(1,0,876,'0.04',level=71),point(2,20,2453,'0.11',level=71),missing(3,40),
+          point(4,60,2632,'0.35',level=None),point(5,80,0,'0.35',level=None),missing(6,100),
+          point(7,120,7684,'0.35',level=None)]
+    for r in rows:
+        r['neural_level']=None
+        if r['visual_level'] is None:r['visual_status']='unavailable'
+    for index in (2,5):rows[index].update(status='unavailable',hud_count=2,reasons=['multiple_huds'])
+    # The bad pair seeds 51; a percentage-only frame can then retain that false level.
+    rows[4].update(raw_text='[0.35%]',candidate=None,status='diagnostic_percentage_only',
+                   percentage_only_candidate=dict(kind='percentage_only',percentage='0.35',percentage_bp=35,trusted=False))
+    return rows
+
+
+@pytest.mark.parametrize('batch_size',(1,3,7))
+def test_inferred_level_dip_cannot_create_a_false_cross_level_gain(batch_size):
+    from exp_tracker.pace_intervals import window_endpoints
+    rows=inferred_dip()
+    original=deepcopy(rows);snap=snapshot(rows,120)
+    assert snap['observations'][3]['experimental_level']['value']==51
+    assert snap['observations'][4]['experimental_level']['status']=='retained_level'
+    state={};points=[];excluded=[]
+    for start in range(0,len(rows),batch_size):
+        result=collect_observed(dict(snap,observations=snap['observations'][start:start+batch_size]),
+            now=NOW+timedelta(seconds=120),read=reading,max_interval_seconds=300,state=state)
+        points+=result['points'];excluded+=result['excluded']
+    _,gain,_=window_endpoints(points,start=NOW,end=NOW+timedelta(seconds=120))
+    assert gain['value']['approximate']==7684-876
+    assert [p['level']['value'] for p in points]==[71,71,71]
+    assert {r['event_id'] for r in excluded if r['reason']=='inferred_level_decrease'}=={'run:4','run:5'}
+    assert rows==original
+
+
+@pytest.mark.parametrize('boundary',('character','manual','reader'))
+def test_inferred_dip_guard_respects_explicit_boundaries_and_reader_evidence(boundary):
+    rows=[point(1,0,876,'0.04',level=71),point(5,60,2632,'0.35',level=None)]
+    for r in rows:r['neural_level']=None
+    rows[1]['visual_status']='unavailable'
+    if boundary=='character':rows[1]['character_id']=2
+    elif boundary=='manual':rows[1]['manual_epoch']='explicit-adjustment'
+    else:rows[1].update(visual_level=51,visual_status='available')
+    _,result=projected(rows,60)
+    assert [p['level']['value'] for p in result['points']]==[71,51]
+    assert not any(r['reason']=='inferred_level_decrease' for r in result['excluded'])
+
+
+def test_inferred_dip_is_excluded_from_rolling_bars_and_cold_rebuild(tracking):
+    from exp_tracker.store import Store
+    from exp_tracker.diagnostics import Diagnostics
+    from tests.test_product import append
+    path,store,d=tracking
+    for r in inferred_dip():
+        pair=r.get('candidate')
+        append(d,r['index'],r['raw_text'],attempted_at=r['attempted_at'],received_at=r['received_at'],
+            status=r['status'],visual_level=r['visual_level'],visual_status=r['visual_status'],neural_level=None,
+            candidate=[int(pair['exp']),float(pair['percentage'])] if pair else None,
+            frame_sha256=r.get('frame_sha256'),localization=dict(count=r['hud_count']))
+    d.append('run',dict(type='summary',trusted=False,attempts=7,interrupted=False))
+    raw=[r[0] for r in store.db.execute('SELECT payload_json FROM diagnostic_attempts ORDER BY id')]
+    now=NOW+timedelta(seconds=120)
+    checkpoints={};result=d.rolling_history('alpha',now=now,checkpoints=checkpoints)
+    assert result['tracked_exp']['approximate']==7684-876
+    assert sum(b['value']['approximate'] for b in result['buckets'] if b['value'])==7684-876
+    assert result['exclusion_counts']['inferred_level_decrease']==2
+    assert checkpoints and d.rolling_history('alpha',now=now,checkpoints=checkpoints)==result
+    with Store(path,read_only=True) as restarted:
+        assert Diagnostics(restarted).rolling_history('alpha',now=now)==result
+    assert raw==[r[0] for r in store.db.execute('SELECT payload_json FROM diagnostic_attempts ORDER BY id')]
+
+
 @pytest.mark.parametrize('failure',['missing','multiple_huds','stale','duplicate'])
 def test_failed_acquisition_does_not_erase_numeric_progress(failure):
     rows=[numeric(1,0,10000),numeric(2,60,11000),missing(3,120,source_identity='a'*64),numeric(4,300,15000)]
