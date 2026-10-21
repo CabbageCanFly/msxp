@@ -25,7 +25,7 @@ from exp_tracker.models import Reading, Recognition, Region, reading_errors
 from exp_tracker.parsing import parse_exp, parse_level
 from exp_tracker.recognition import _ocr, _read_field, _tokens, configure_tesseract
 from exp_tracker.trust import guard_unverified_exp
-from exp_tracker.diagnostic_geometry import exp_vertical_origin
+from exp_tracker.diagnostic_geometry import exp_vertical_origin, level_tile_box
 
 
 def label(token):
@@ -244,10 +244,7 @@ def same_layout(a, b, size):
 def level_reading(crop):
     """Suppress orange tile backgrounds with RGB minimum, not luma thresholding."""
     red,green,blue = crop.convert("RGB").split()
-    orange=ImageChops.darker(red.point(lambda p:255 if p>160 else 0),
-                            ImageChops.darker(ImageChops.subtract(red,green).point(lambda p:255 if p>30 else 0),
-                                              ImageChops.subtract(green,blue).point(lambda p:255 if p>20 else 0)))
-    box=orange.getbbox()
+    box=level_tile_box(crop)
     if box is None:
         return None,[]
     gray = ImageChops.darker(ImageChops.darker(red,green),blue)

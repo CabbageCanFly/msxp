@@ -2,7 +2,18 @@
 import math
 import re
 
+from PIL import ImageChops
+
 from .models import Region
+
+
+def level_tile_box(crop):
+    """Find the orange level tiles so both readers exclude surrounding HUD pixels."""
+    red,green,blue=crop.convert('RGB').split()
+    orange=ImageChops.darker(red.point(lambda p:255 if p>160 else 0),
+        ImageChops.darker(ImageChops.subtract(red,green).point(lambda p:255 if p>30 else 0),
+                         ImageChops.subtract(green,blue).point(lambda p:255 if p>20 else 0)))
+    return orange.getbbox()
 
 
 def overlapping_hud_gap(record):

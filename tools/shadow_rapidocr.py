@@ -36,7 +36,10 @@ def recognize_fields(engine,image,level_payload=None,*,experimental=False):
             else:
                 try:
                     from benchmark_rapidocr_levels import preprocess
+                    from exp_tracker.diagnostic_geometry import level_tile_box
                     started=time.perf_counter()
+                    box=level_tile_box(level)
+                    if box is not None: level=level.crop(box)
                     level=preprocess(level,'neutral4')
                     prep=time.perf_counter()-started
                     output=recognize(engine,level)

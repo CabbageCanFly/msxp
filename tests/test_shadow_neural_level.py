@@ -57,10 +57,11 @@ def test_extra_bytes_and_unsafe_crop_dimensions_rejected(modules):
         protocol.load_crop(b'not PNG',protocol.LEVEL_SIZE)
 
 
-def test_one_engine_exp_first_and_exact_frozen_neutral4(modules):
+@pytest.mark.parametrize('background',[(240,120,20),(80,80,80)])
+def test_one_engine_exp_first_and_exact_frozen_neutral4(modules,background):
     protocol,worker,_=modules
     preprocessor=importlib.import_module('benchmark_rapidocr_levels').preprocess
-    exp=Image.new('RGB',(50,15),'black'); crop=Image.new('RGB',(52,33),(240,120,20))
+    exp=Image.new('RGB',(50,15),'black'); crop=Image.new('RGB',(52,33),background)
     crop.putpixel((10,10),(200,210,220))
     calls=[]
     def engine(image,**kwargs):
@@ -72,6 +73,30 @@ def test_one_engine_exp_first_and_exact_frozen_neutral4(modules):
     assert calls[1].tobytes()==preprocessor(crop,'neutral4').tobytes()
     assert result['text']=='17[50.00%]' and result['neural_level']['level']==51
     assert result['neural_level']['source_complete'] is None and not result['neural_level']['trusted']
+
+
+def test_neural_level_uses_same_tiles_despite_surrounding_hud_pixels(modules):
+    from exp_tracker.diagnostic_geometry import level_tile_box
+    protocol,worker,_=modules
+    preprocessor=importlib.import_module('benchmark_rapidocr_levels').preprocess
+    tiles=Image.new('RGB',(23,13),(240,120,20))
+    tiles.putpixel((5,5),(255,255,255))
+    tiles.putpixel((17,5),(255,255,255))
+    expected=preprocessor(tiles,'neutral4')
+    for offset in ((2,5),(11,6)):
+        crop=Image.new('RGB',(37,24),(80,80,80))
+        crop.paste(tiles,offset)
+        assert level_tile_box(crop)==(*offset,offset[0]+23,offset[1]+13)
+        calls=[]
+        def engine(image,**kwargs):
+            calls.append(image.copy())
+            return output('17[50.00%]' if len(calls)==1 else '71')
+        result=worker.recognize_fields(engine,Image.new('RGB',(50,15)),
+                                      protocol.png_bytes(crop,protocol.LEVEL_SIZE),experimental=True)
+        assert len(calls)==2
+        assert calls[1].size==expected.size and calls[1].tobytes()==expected.tobytes()
+        assert result['neural_level']['level']==71
+        assert result['neural_level']['source_complete'] is None
 
 
 @pytest.mark.parametrize('text',['S 1','S1','B3','5I','5 1','0','201','051','日',''])
