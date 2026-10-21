@@ -32,6 +32,9 @@ buckets, chart intervals and boundary counts are recomputed from the retained
 intervals at each request's `now`, so windows expire with no new capture. The recent
 view retains its rows and reapplies the request's 65-minute cutoff.
 
+Optional [restart recovery](restart-recovery.md) persists compatible settled
+checkpoints in a separate disposable cache; the default remains memory-only.
+
 Checkpoints live in `server.checkpoints` (normally two per channel, at most 256,
 oldest evicted, guarded by one lock). The compact historical-ETA cache also holds
 256 entries. This gives 100 channels plus on-demand views room to reuse their

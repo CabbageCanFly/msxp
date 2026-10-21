@@ -52,6 +52,8 @@ The [EXP-derived level search](docs/exp-inference-performance.md) restores pre-m
 replay cost with an exact integer interval search over requirements.
 [Background publishing](docs/background-publishing.md) moves card, history and Twitch
 work out of HTTP requests; viewers read one shared, timestamped publication.
+[Restart recovery](docs/restart-recovery.md) adds opt-in persistent publications and
+history checkpoints, plus independent capture/API services with one capture writer.
 The [VPS readiness check](docs/vps-readiness.md) measures 100 viewers at 5 and 10
 channels, fixes the listen backlog, and lists the reverse-proxy and trial prerequisites.
 [VPS deployment](docs/vps-deployment.md) prepares the Ubuntu backend: an API-only Caddy

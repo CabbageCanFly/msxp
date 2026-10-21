@@ -1,0 +1,41 @@
+# OPT-IN: use only with the capture-only drop-in; never installed automatically.
+[Unit]
+Description=MapleStory Classic read-only public API and history publisher
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=msxp
+Group=msxp
+WorkingDirectory=/opt/msxp/app
+EnvironmentFile=/etc/msxp/msxp.env
+EnvironmentFile=/etc/msxp/roster.env
+EnvironmentFile=/etc/msxp/split.env
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/opt/msxp PYTHONPATH=/opt/msxp/app/src
+ExecStart=/opt/msxp/app/.venv/bin/python -m exp_tracker.server \
+    --db ${MSXP_DATABASE} --port 8765 --public-only \
+    --cors-origin https://msxp.pages.dev \
+    --publication-cache ${MSXP_PUBLICATION_CACHE} --runtime-state ${MSXP_RUNTIME_STATE} \
+    $MSXP_TWITCH_STATUS
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+# SQLite readers may need the existing WAL/SHM directory; Store opens history mode=ro.
+ReadWritePaths=/opt/msxp/app/private
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

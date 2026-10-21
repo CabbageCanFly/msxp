@@ -4,7 +4,7 @@ import os
 
 
 @contextmanager
-def writer_lease(marker):
+def writer_lease(marker, *, message='Another coordinator owns this shared database'):
     with marker.open('r+b') as handle:
         if os.name == 'nt':
             import msvcrt
@@ -17,7 +17,7 @@ def writer_lease(marker):
         try:
             acquire()
         except OSError:
-            raise ValueError('Another coordinator owns this shared database') from None
+            raise ValueError(message) from None
         try:
             yield handle
         finally:

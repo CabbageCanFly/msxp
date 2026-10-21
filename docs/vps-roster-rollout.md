@@ -11,6 +11,11 @@ capture and resident neural OCR; resident Tesseract used about 18% less sampled 
 with zero capture/OCR failures or skipped deadlines. This is supplied benchmark
 evidence, not a new measurement or validation of live Twitch capacity.
 
+After the bundled rollout, the optional [restart recovery guide](restart-recovery.md)
+adds independent API/capture services and a disposable publication cache. Its
+capture-only preflight retains the writer lease check but does not probe the API
+port; the API owns 8765. The bundled commands and approval gates below remain valid.
+
 ## Readiness findings and integration
 
 - The legacy unit uses JSON, omits the performance flags and enables retention at

@@ -106,3 +106,60 @@ def test_service_preflight_never_migrates_schema10(legacy10):
     with Store(path,read_only=True) as store:
         assert store.schema_version==10
         assert not store.db.execute("SELECT 1 FROM sqlite_master WHERE name='streamer_capture'").fetchone()
+
+
+def test_capture_only_preflight_ignores_api_port_but_checks_exclusive_writer(preflight,tmp_path,monkeypatch):
+    module,path,_=preflight
+    def occupied(*args,**kwargs):raise AssertionError('Capture-only must not probe the API port')
+    monkeypatch.setattr(module,'available_port',occupied)
+    runtime=path.parent/'capture-runtime.json'
+    argv=['--db-roster',str(path),'--continuous','--capture-only','--runtime-state',str(runtime),'--check']
+    assert module.main(argv)==0
+    assert not runtime.exists()
+    with writer_lease(path.with_suffix(path.suffix+'.multi-alpha.json')):
+        assert module.main(argv)==1
+
+
+@pytest.mark.parametrize('extra',([],['--public-only'],['--twitch-status'],['--cors-origin','https://msxp.pages.dev']))
+def test_capture_only_rejects_missing_heartbeat_and_http_options(preflight,extra):
+    module,path,_=preflight
+    argv=['--db-roster',str(path),'--continuous','--capture-only','--check']
+    if extra:argv+=['--runtime-state',str(path.parent/'runtime.json'),*extra]
+    assert module.main(argv)==1
+
+
+def test_capture_only_coexists_with_api_without_starting_a_second_publisher(managed,monkeypatch):
+    from exp_tracker.server import create_server
+    module,_,_,path,_=managed;runtime=path.parent/'runtime.json'
+    def forbidden(*args,**kwargs):raise AssertionError('Capture-only must not create HTTP or probe its port')
+    monkeypatch.setattr(module,'create_server',forbidden)
+    monkeypatch.setattr(module,'available_port',forbidden)
+    actual=module.shadow.capture_attempt;checks=[]
+    def capture(*args,**kwargs):
+        with pytest.raises(ValueError,match='Another coordinator'):
+            with writer_lease(path.with_suffix(path.suffix+'.multi-alpha.json')):pass
+        checks.append(True)
+        return actual(*args,**kwargs)
+    monkeypatch.setattr(module.shadow,'capture_attempt',capture)
+    with create_server(path,port=0,public_only=True,runtime_state=runtime) as api:
+        listener=api.socket.fileno()
+        assert module.main(['--db-roster',str(path),'--continuous','--capture-only',
+            '--runtime-state',str(runtime),'--max-attempts','1'])==0
+        assert checks and api.socket.fileno()==listener
+        api.publisher.settle()
+        assert api.publisher.entries and not api.active_run_ids and not api.coordinator_status
+
+
+def test_split_services_are_opt_in_and_restart_independently():
+    api=(DEPLOY/'msxp-api.service').read_text();capture=(DEPLOY/'msxp-tracker-capture-only.conf').read_text()
+    assert '-m exp_tracker.server' in api and '--port 8765' in api
+    assert '--publication-cache' in api and '--runtime-state' in api and '--public-only' in api
+    assert '--cors-origin https://msxp.pages.dev' in api
+    assert 'PartOf=' not in api and 'Requires=msxp-tracker' not in api
+    assert 'multi_alpha.py' not in api and '--retention-24h' not in api
+    for line in capture.replace('\\\n','').splitlines():
+        if line.startswith(('ExecStart=','ExecStartPre=')) and line.split('=',1)[1]:
+            assert '--capture-only' in line and '--runtime-state' in line
+            assert '--public-only' not in line and '--twitch-status' not in line
+    installer=(DEPLOY/'install-ubuntu.sh').read_text()
+    assert 'msxp-api.service' not in installer and 'msxp-tracker-capture-only.conf' not in installer

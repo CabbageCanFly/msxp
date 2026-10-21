@@ -97,6 +97,8 @@ class Publisher:
         self.stats = dict(steps=0, builds=0, build_seconds=0.0, max_build_seconds=0.0, failures=0,
             last_error=None, presentations=0, present_seconds=0.0, ready_at=None, started_at=None)
         self.stop = threading.Event(); self.wake = threading.Event(); self.thread = None
+        self.checkpoints_restored=set()
+        self.stats.update(restored=0,cache_error=getattr(server,'publication_cache_error',None))
 
     # Refresher ---------------------------------------------------------------
 
@@ -106,6 +108,15 @@ class Publisher:
             with Store(self.server.database, read_only=True) as store, store._transaction():
                 from .streamer_roster import visible
                 self.publish_heads(Diagnostics(store).heads(public_directory=True), self.statuses,visible(store))
+                cache=getattr(self.server,'publication_cache',None)
+                if cache:
+                    cache.prune(self.directory_logins)
+                    for head in self.heads:
+                        try:
+                            entry=cache.restore_entry(store,head,self.clock())
+                            if entry:
+                                self.entries[head['login']]=entry;self.stats['restored']+=1
+                        except (ValueError,TypeError,KeyError,sqlite3.Error):self.stats['cache_error']='restore_failed'
         except Exception as error:
             self.stats['last_error'] = type(error).__name__
         if self.background:
@@ -145,6 +156,9 @@ class Publisher:
         with self.work:
             self.stats['steps'] += 1
             now = self.clock()
+            runtime=getattr(self.server,'runtime_reader',None)
+            if runtime:
+                self.server.coordinator_status,self.server.active_run_ids=runtime.read(now)
             with Store(self.server.database, read_only=True) as store:
                 diagnostics = Diagnostics(store)
                 with store._transaction():
@@ -199,8 +213,8 @@ class Publisher:
                 del self.entries[login]; self.generation += 1
             for head in self.heads:
                 entry = self.entries.get(head['login'])
-                if entry and entry['key'][1:3] != tuple(head)[1:3]:
-                    # A failed refresh may retain old readings, never a different ownership scope.
+                if entry and (entry['key'][1:3] != tuple(head)[1:3] or entry['key'][7:]!=tuple(head)[7:]):
+                    # Ownership and operator/retention revisions invalidate old publications immediately.
                     del self.entries[head['login']]; self.generation += 1
                     self.failures.pop(head['login'], None)
             for cache in (self.cards, self.failures, self.presented, self.present_locks, self.views, self.viewed):
@@ -213,7 +227,7 @@ class Publisher:
         for head in heads:
             login = head['login']; entry = self.entries.get(login); failure = self.failures.get(login)
             if failure and now < failure[1]:continue
-            if entry is None:rank = (0 if login in self.wanted else 1, '')
+            if entry is None or entry.get('restored'):rank = (0 if login in self.wanted else 1, '')
             elif entry['key'] != tuple(head):rank = (2, entry['built_at'])
             elif (due(entry['card']['player'], entry['card']['recent_as_of'], now)
                     or not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=TRACKED_SECONDS)):
@@ -262,6 +276,11 @@ class Publisher:
             with store._transaction():
                 # Card and tracked packet share one database snapshot and clock.
                 head = diagnostics.heads(login)[0]
+                cache=getattr(self.server,'publication_cache',None)
+                if cache and not view and login not in self.checkpoints_restored:
+                    try:cache.restore_checkpoints(store,head,self.server.checkpoints,now)
+                    except (ValueError,TypeError,KeyError,sqlite3.Error):self.stats['cache_error']='checkpoint_restore_failed'
+                    self.checkpoints_restored.add(login)
                 character = view[0][2] if view else None
                 # A view keeps no card cache; due_views decides when it is rebuilt.
                 _, card, extras = diagnostics.card({} if view else self.cards, head, now=now,
@@ -281,6 +300,11 @@ class Publisher:
             public=shown, revisions=(revision(shown['history']), revision(shown['tracked'])))
         if roster is not None:
             entry['roster'] = public_roster(roster, (card['player'].get('display_level') or {}).get('value'))
+        cache=getattr(self.server,'publication_cache',None)
+        if cache and not view:
+            try:
+                with store._transaction():cache.save(store,diagnostics,head,entry,self.server.checkpoints)
+            except (ValueError,TypeError,KeyError,sqlite3.Error,OSError):self.stats['cache_error']='save_failed'
         with self.lock:
             if not view:
                 self.entries[login] = entry; self.wanted.discard(login)
@@ -302,6 +326,8 @@ class Publisher:
 
     def runtime(self, channel=None):
         """Coordinator activity is presentation input: it changes without a database revision."""
+        reader=getattr(self.server,'runtime_reader',None)
+        if reader:self.server.coordinator_status,self.server.active_run_ids=reader.read(self.clock())
         status = self.server.coordinator_status.copy()
         return json.dumps([status if channel is None else status.get(channel),
             sorted(self.server.active_run_ids.copy()) if channel is None else None], sort_keys=True, default=str)
@@ -332,6 +358,7 @@ class Publisher:
         value = refresh(entry['public']['player'], now=now, activity=operation(entry['extras']['lifecycle'], self.server.coordinator_status.get(card['channel']), now))
         value = tracked_statistics(value, entry['public']['tracked'], now=now, pace_as_of=datetime.fromisoformat(card['recent_as_of']))
         value['activity'] = public(value['activity'])  # The coordinator's runtime state joins at presentation.
+        if entry.get('restored'):value['publication']=dict(state='restored',computed_at=entry['built_at'],updating=True)
         return value
 
     def homepage(self):
@@ -348,6 +375,9 @@ class Publisher:
                 value = tracked_statistics(card['player'], entry['public']['tracked'], now=now,
                     pace_as_of=datetime.fromisoformat(entry['card']['recent_as_of']))
                 value['activity'] = public(value['activity'])
+                if entry.get('restored'):
+                    warming.append(head['login'])
+                    value['publication']=dict(state='restored',computed_at=entry['built_at'],updating=True)
                 for field in CHARACTER_ONLY:del value[field]
                 players.append(value)
             body = dict(players=broadcast(players, statuses, now), served_at=utc(now), truncated=truncated, experimental=True, poll_seconds=2)
@@ -361,7 +391,8 @@ class Publisher:
             with self.lock:
                 rows = [dict(row, channel=head['login']) for head in self.heads
                     if head['login'] in self.directory_logins and (entry := self.entries.get(head['login'])) for row in entry['roster']]
-                warming = [h['login'] for h in self.heads if h['login'] in self.directory_logins and h['login'] not in self.entries]
+                warming = [h['login'] for h in self.heads if h['login'] in self.directory_logins and (
+                    h['login'] not in self.entries or self.entries[h['login']].get('restored'))]
                 truncated = self.truncated
             return encode(dict(characters=rows, warming=warming, served_at=utc(now), truncated=truncated, poll_seconds=2, experimental=True))
         return self.present('home-characters', build)
@@ -396,6 +427,7 @@ class Publisher:
         except LookupError:return None
 
     def sections(self, body, entry, held, now):
+        if entry.get('restored'):body=dict(body,publication=dict(state='restored',computed_at=entry['built_at'],updating=True))
         if held[1] != entry['revisions'][1]:body['tracked_history'] = entry['public']['tracked']
         if held[0] != entry['revisions'][0]:body['history'] = entry['public']['history']
         return encode(dict(body, history_revision=entry['revisions'][0], tracked_revision=entry['revisions'][1],
@@ -427,6 +459,8 @@ class Publisher:
         def build(now):
             entry = self.entry(channel)
             if entry is None:raise LookupError(channel)
-            return encode(dict(entry['public']['tracked'], served_at=utc(now)))
+            body=dict(entry['public']['tracked'], served_at=utc(now))
+            if entry.get('restored'):body['publication']=dict(state='restored',computed_at=entry['built_at'],updating=True)
+            return encode(body)
         try:return self.present(('history', channel), build)
         except LookupError:return None

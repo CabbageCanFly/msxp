@@ -466,6 +466,9 @@ def main(argv=None):
     source_config.add_argument('--db-roster',type=Path,help='Use the explicitly bootstrapped database roster; no JSON or automatic-channel flags')
     cli.add_argument('--port',type=int,default=8766,help='Public localhost port for --db-roster; existing JSON mode uses its config port')
     cli.add_argument('--check', action='store_true', help='Validate capture configuration without connecting or writing')
+    cli.add_argument('--capture-only',action='store_true',help='Database-roster coordinator without HTTP or publisher; retains the exclusive writer lease')
+    cli.add_argument('--runtime-state',type=Path,help='Private heartbeat file for --capture-only and the separate read-only API')
+    cli.add_argument('--publication-cache',type=Path,help='Separate disposable publisher cache for bundled HTTP mode')
     cli.add_argument('--replay', action='append', default=[], metavar='CHANNEL=PRIVATE_LOG')
     cli.add_argument('--exit-after-capture', action='store_true')
     cli.add_argument('--continuous',action='store_true',help='Continue until Ctrl+C, rotating each channel at 60 attempts')
@@ -493,6 +496,14 @@ def main(argv=None):
     httpd = thread = None
     try:
         db_mode=args.db_roster is not None
+        if args.capture_only:
+            if not db_mode or not args.continuous or not args.runtime_state:
+                raise ValueError('--capture-only requires --db-roster, --continuous and --runtime-state')
+            if args.public_only or args.cors_origin or args.twitch_status or args.publication_cache:
+                raise ValueError('HTTP, CORS, Twitch status and publication cache belong to the separate API in capture-only mode')
+            args.exit_after_capture=True
+        elif args.runtime_state:
+            raise ValueError('--runtime-state requires --capture-only in the coordinator')
         existing=args.automatic_existing_channel
         existing_mode=args.existing_tracker or bool(existing)
         if (len(set(existing))!=len(existing) or any(not CHANNEL.fullmatch(c) or c!=c.lower() for c in existing)):
@@ -530,7 +541,10 @@ def main(argv=None):
             streams=[dict(row,source='twitch',character='PendingOCR',count=60) for row in desired if row['tracking_enabled']]
             trial=None
             with writer_lease(database.with_suffix(database.suffix+'.multi-alpha.json')):pass
-            available_port(port,existing=True)
+            if not args.capture_only:available_port(port,existing=True)
+            if args.runtime_state:
+                from exp_tracker.capture_runtime import validate_path
+                validate_path(args.runtime_state,database)
         else:
             database, port, streams = load_config(args.config,offline_fast_test=args.offline_fast_test,existing_tracker=existing_mode)
             trial = live_trial(args,database,port,streams)
@@ -601,13 +615,19 @@ def main(argv=None):
                 existing_preflight(database,streams,existing,required=existing_mode)
                 initialize(database, streams,automatic=args.automatic_characters,allow_migration=trial is None and not existing_mode)
             else:lanes=[]  # Reconciliation initializes only desired active lanes on the writer thread.
-            httpd = create_server(database, port=port, diagnostic_dashboard=not args.public_only,public_only=args.public_only,cors_origins=args.cors_origin,twitch_status=args.twitch_status,background=True)
-            httpd.quiet = True
-            httpd.active_run_ids = set()
-            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-            thread.start()
-            print(f'Directory: http://127.0.0.1:{httpd.server_port}/streams', flush=True)
-            if args.public_only: print('Public-only: developer diagnostics are disabled (404).', flush=True)
+            if args.capture_only:
+                from exp_tracker.capture_runtime import CaptureRuntime
+                httpd=CaptureRuntime(args.runtime_state,database)
+                print('Capture-only: no HTTP listener or publisher; exclusive writer lease held.',flush=True)
+            else:
+                httpd = create_server(database, port=port, diagnostic_dashboard=not args.public_only,public_only=args.public_only,cors_origins=args.cors_origin,twitch_status=args.twitch_status,background=True,
+                    **({'publication_cache':args.publication_cache} if args.publication_cache else {}))
+                httpd.quiet = True
+                httpd.active_run_ids = set()
+                thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+                thread.start()
+                print(f'Directory: http://127.0.0.1:{httpd.server_port}/streams', flush=True)
+                if args.public_only: print('Public-only: developer diagnostics are disabled (404).', flush=True)
             if args.replay:
                 with Store(database) as store:
                     for row in streams:

@@ -59,6 +59,8 @@ class TrackerHTTPServer(ThreadingHTTPServer):
         super().server_close()
         publisher=getattr(self,'publisher',None)
         if publisher:publisher.close()
+        cache=getattr(self,'publication_cache',None)
+        if cache and (not publisher or not publisher.thread or not publisher.thread.is_alive()):cache.close()
         availability=getattr(self,'twitch_availability',None)
         if availability:availability.auth.close()
 
@@ -259,7 +261,7 @@ class Handler(BaseHTTPRequestHandler):
     do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = reject_write
 
 
-def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False,background=False,public_only=False,cors_origins=()):
+def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False,background=False,public_only=False,cors_origins=(),publication_cache=None,runtime_state=None):
     """background=True runs the publisher thread; otherwise requests settle it inline.
     public_only serves only the homepage, character pages, OBS overlay and their APIs/assets.
     cors_origins: exact origins (e.g. https://msxp.pages.dev) whose browsers may read responses."""
@@ -268,8 +270,10 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     if public_only and (diagnostic_dashboard or shadow_log is not None):
         raise ValueError('public-only mode excludes developer diagnostics and the shadow viewer')
     database = Path(database).resolve()
-    with Store(database, read_only=True):
-        pass  # Validate without creating, migrating or changing journal mode.
+    if publication_cache and runtime_state and Path(publication_cache).resolve()==Path(runtime_state).resolve():
+        raise ValueError('publication cache and runtime state must be separate files')
+    with Store(database, read_only=True) as store:
+        schema=store.schema_version  # Validate without creating, migrating or changing journal mode.
     diagnostics = ShadowLog(shadow_log) if shadow_log is not None else None
     server = TrackerHTTPServer(("127.0.0.1", port), Handler)
     server.database = database
@@ -283,6 +287,17 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.directory_lock = threading.Lock()
     server.eta_cache={}
     server.checkpoints={}  # Exact resumable causal replay state; see rolling_history.replay().
+    server.publication_cache=None;server.runtime_reader=None;server.publication_cache_error=None
+    try:
+        if publication_cache:
+            from .publication_cache import PublicationCache
+            try:server.publication_cache=PublicationCache(publication_cache,database,schema)
+            except (sqlite3.DatabaseError,OSError):server.publication_cache_error='cache_unavailable'
+        if runtime_state:
+            from .capture_runtime import RuntimeReader
+            server.runtime_reader=RuntimeReader(runtime_state,database)
+    except Exception:
+        server.server_close();raise
     server.twitch_availability=StreamAvailability(enabled=twitch_status,auth=AppTokens(maintain=twitch_status))
     # Module-level datetime, so replay fixtures that pin this module's clock pin the publisher.
     server.publisher=Publisher(server,clock=lambda:datetime.now(timezone.utc),background=background)
@@ -299,15 +314,20 @@ def main(argv=None):
     parser.add_argument('--public-only', action='store_true', help='Serve only the public homepage, character pages and OBS overlay; developer routes return 404')
     parser.add_argument('--twitch-status',action='store_true',help='Opt in to cached Helix live status using server environment credentials')
     parser.add_argument('--cors-origin', action='append', default=[], metavar='ORIGIN', help='Exact frontend origin allowed to read responses, e.g. https://msxp.pages.dev; repeatable')
+    parser.add_argument('--publication-cache',type=Path,help='Separate disposable SQLite cache for published results and history checkpoints')
+    parser.add_argument('--runtime-state',type=Path,help='Read the capture-only coordinator heartbeat; never starts capture')
     args = parser.parse_args(argv)
     if not 0 <= args.port <= 65535:
         parser.error("port must be 0..65535")
     try:
         with create_server(args.db, port=args.port, shadow_log=args.shadow_log,
                            diagnostic_dashboard=args.diagnostic_dashboard,twitch_status=args.twitch_status,background=True,public_only=args.public_only,
-                           cors_origins=args.cors_origin) as server:
+                           cors_origins=args.cors_origin,publication_cache=args.publication_cache,runtime_state=args.runtime_state) as server:
             print(f'Database: {server.database}', flush=True)
             print('Read-only HTTP server; capture is NOT started by this command.', flush=True)
+            if args.publication_cache:
+                print(f"Publication cache: {args.publication_cache}; restored {server.publisher.stats['restored']} channel(s); "
+                    +('cold rebuild (cache unavailable)' if server.publication_cache_error else 'enabled'),flush=True)
             if not server.public_only:
                 print(f"Local read-only server: http://127.0.0.1:{server.server_port}/overlay/CHANNEL", flush=True)
             if server.shadow_log:

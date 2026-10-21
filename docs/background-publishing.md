@@ -10,6 +10,11 @@ cards, replay history or call Twitch. Every statistic keeps its meaning; only *w
 
 `src/exp_tracker/publisher.py`: one `Publisher` per server process.
 
+The optional [restart recovery integration](restart-recovery.md) restores dated
+publications and validated replay checkpoints from a separate disposable cache.
+Its capture-only service also lets this API/publisher keep running across capture
+restarts. Without those opt-in options, the cold-start behavior below is unchanged.
+
 **Refresher.** `python -m exp_tracker.server` runs a single daemon thread. Each step:
 
 1. reads channel heads (selection, open session, latest run and attempt) and the latest
