@@ -24,10 +24,14 @@ from .twitch_auth import AppTokens
 WEB = Path(__file__).with_name("web")
 ASSETS = {
     "/static/overlay.css": ("overlay.css", "text/css"),
+    "/static/live-overlay.css": ("live-overlay.css", "text/css"),
     "/static/overlay.js": ("overlay.js", "text/javascript"),
     "/static/leaderboard.css": ("leaderboard.css", "text/css"),
     "/static/leaderboard.js": ("leaderboard.js", "text/javascript"),
     "/static/leaderboard.svg": ("leaderboard.svg", "image/svg+xml"),
+    "/static/steely.png": ("steely.png", "image/png"),
+    "/static/fonts/fredoka-latin.woff2": ("fonts/fredoka-latin.woff2", "font/woff2"),
+    "/static/fonts/nunito-latin.woff2": ("fonts/nunito-latin.woff2", "font/woff2"),
 }
 SHADOW_ASSETS = {
     "/static/shadow.css": ("shadow.css", "text/css"),
@@ -36,7 +40,10 @@ SHADOW_ASSETS = {
 DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
 PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
 # Public-only mode also serves these shared assets; everything else outside the product is refused.
-PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css'}
+PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css', '/static/live-overlay.css', '/static/steely.png',
+                 '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'}
+# Unchanging binary assets may be cached briefly so page changes don't re-download them and re-flow text.
+CACHED_ASSETS = {'/static/steely.png', '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'}
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 # Exact browser origins allowed to read responses cross-origin (a separately hosted frontend).
 # https only; plain http only for a local development origin. Never a wildcard.
@@ -61,7 +68,7 @@ class Handler(BaseHTTPRequestHandler):
         if not getattr(self.server, 'quiet', False):
             super().log_message(format, *args)
 
-    def reply(self, status, body, content_type="application/json", headers=()):
+    def reply(self, status, body, content_type="application/json", headers=(), cache="no-store"):
         # Bytes are a body the publisher already serialized for every viewer.
         payload = json.dumps(body, allow_nan=False).encode() if content_type == "application/json" and not isinstance(body, bytes) else body
         self.send_response(status)
@@ -69,7 +76,7 @@ class Handler(BaseHTTPRequestHandler):
         for name, value in headers:
             self.send_header(name, value)
         self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         if status == 405:
             self.send_header("Allow", "GET")
         if self.server.cors_origins:
@@ -241,7 +248,7 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, (WEB / "leaderboard.html").read_bytes(), "text/html")
         elif path in ASSETS:
             name, content_type = ASSETS[path]
-            self.reply(200, (WEB / name).read_bytes(), content_type)
+            self.reply(200, (WEB / name).read_bytes(), content_type, cache="public, max-age=86400" if path in CACHED_ASSETS else "no-store")
         else:
             self.reply(404, {"error": "not_found"})
 
