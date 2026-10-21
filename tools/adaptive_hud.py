@@ -13,14 +13,17 @@ import math
 import os
 from pathlib import Path
 import re
+import tempfile
 import time
 
 from PIL import Image, ImageChops, ImageOps
+import pytesseract
+from pytesseract import Output
 
 from exp_tracker.glyphs import GlyphProfile, match_exp
 from exp_tracker.models import Reading, Recognition, Region, reading_errors
 from exp_tracker.parsing import parse_exp, parse_level
-from exp_tracker.recognition import _ocr, _read_field, configure_tesseract
+from exp_tracker.recognition import _ocr, _read_field, _tokens, configure_tesseract
 from exp_tracker.trust import guard_unverified_exp
 from exp_tracker.diagnostic_geometry import exp_vertical_origin
 
@@ -144,26 +147,56 @@ def merge_layouts(candidates,size):
     return result
 
 
-def locate(image, box=None):
-    """Search the whole frame so a small/offset game isn't tied to stream borders.
+def _ocr_pages(images, psm):
+    """One Tesseract process for several images: one process start and model load, faster PNG
+    encoding of identical pixels. Measured token-identical to one _ocr call per image."""
+    with tempfile.TemporaryDirectory(prefix='msxp-hud-') as directory:
+        paths=[Path(directory)/f'{index}.png' for index in range(len(images))]
+        for image,path in zip(images,paths):
+            image.save(path,format='PNG',compress_level=1)
+        listing=Path(directory)/'pages.txt'
+        # A non-image input file is read by Tesseract as a list of image paths.
+        listing.write_text(''.join(f'{path}\n' for path in paths),encoding='utf-8')
+        data=pytesseract.image_to_data(str(listing),lang='eng',config=f'--psm {psm}',
+                                       output_type=Output.DICT,timeout=10*len(images))
+    pages={n for n,level in zip(data.get('page_num',[]),data.get('level',[])) if level==1}
+    if pages!=set(range(1,len(images)+1)):
+        # A silently skipped page would hide a HUD; fail like a Tesseract error instead.
+        raise RuntimeError(f'Tesseract returned pages {sorted(pages)} for {len(images)} images')
+    return [_tokens(data,page) for page in range(1,len(images)+1)]
+
+
+def scan(image, box=None, *, batched=False):
+    """Sparse OCR tokens at each magnification (2x, 3x), in full-frame pixels.
 
     box (pixels) limits OCR to a crop at the full-frame magnification; it cannot see other HUDs.
+    batched=True is an opt-in experiment: same images, one Tesseract process.
     """
     if image.width * image.height > 4096 * 2160:
         return []
     configure_tesseract()
     left,top=box[:2] if box else (0,0)
     crop=image.crop(box) if box else image
-    candidates=[]
-    for magnification in (2.0,3.0):
-        scale = min(magnification, math.sqrt(1920 * 1080 * magnification**2 / (image.width * image.height)))
-        gray = crop.convert("L").resize((round(crop.width*scale),round(crop.height*scale)),
-                                        Image.Resampling.BICUBIC)
-        tokens = _ocr(gray.point(lambda p: 0 if p > 160 else 255), 11)
+    scales=[min(magnification, math.sqrt(1920 * 1080 * magnification**2 / (image.width * image.height)))
+            for magnification in (2.0,3.0)]
+    def binary(scale):
+        return crop.convert("L").resize((round(crop.width*scale),round(crop.height*scale)),
+                                        Image.Resampling.BICUBIC).point(lambda p: 0 if p > 160 else 255)
+    # The default path builds, reads and releases one scale at a time; only batching holds both.
+    pages=(_ocr_pages([binary(scale) for scale in scales],11) if batched
+           else [_ocr(binary(scale),11) for scale in scales])
+    for scale,tokens in zip(scales,pages):
         for token in tokens:
             for key in ("x","y","width","height"):
                 token[key] /= scale
             token["x"]+=left;token["y"]+=top
+    return pages
+
+
+def locate(image, box=None, *, batched=False):
+    """Search the whole frame so a small/offset game isn't tied to stream borders."""
+    candidates=[]
+    for tokens in scan(image, box, batched=batched):
         candidates.extend(layouts(tokens, image.size,deduplicate=False))
     # Both scales must contribute to uniqueness, including partly obscured HUDs.
     return merge_layouts(candidates,image.size)

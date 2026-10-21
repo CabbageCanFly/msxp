@@ -1,8 +1,10 @@
 """Synthetic safety checks for the isolated experiment; no game assets or profiles."""
 
+import gc
 import importlib.util
 import json
 from pathlib import Path
+import weakref
 
 from PIL import Image
 import pytest
@@ -274,3 +276,97 @@ def test_evaluation_ink_boxes_include_green_punctuation(evaluation):
     image.putpixel((8,4),(40,100,40))
     boxes=evaluation.field_truth(image,{'exp':(0,0,20,10)})
     assert boxes=={'exp':(3,4,9,5)}
+
+
+def tesseract_data(pages):
+    """pytesseract DICT output for a multi-image run: a level-1 page row, then each page's words."""
+    data={key:[] for key in ('level','page_num','text','conf','left','top','width','height')}
+    for number,tokens in enumerate(pages,1):
+        for level,token in [(1,dict(text='',confidence=-.01,x=0,y=0,width=0,height=0))]+[(5,t) for t in tokens]:
+            for key,value in dict(level=level,page_num=number,text=token['text'],conf=token['confidence']*100,
+                                  left=token['x'],top=token['y'],width=token['width'],height=token['height']).items():
+                data[key].append(value)
+    return data
+
+
+def crop_tokens(width,crop_width):
+    """Two HUDs (one EXP-only) as Tesseract would report them on an image of this width."""
+    scale=width/crop_width
+    return [{**t,**{k:t[k]*scale for k in ('x','y','width','height')}} for t in anchors()+anchors(100,200)[:3]]
+
+
+@pytest.mark.parametrize('box',[None,(20,10,480,390)])
+def test_batched_scan_returns_the_same_tokens_and_huds_as_separate_ocr(monkeypatch,box):
+    crop_width=box[2]-box[0] if box else 500
+    monkeypatch.setattr(hud,'configure_tesseract',lambda:None)
+    monkeypatch.setattr(hud,'_ocr',lambda image,psm:crop_tokens(image.width,crop_width))
+    def image_to_data(listing,**kwargs):
+        assert kwargs['config']=='--psm 11'
+        widths=[]
+        for path in Path(listing).read_text(encoding='utf-8').splitlines():
+            with Image.open(path) as page:widths.append(page.width)
+        return tesseract_data([crop_tokens(width,crop_width) for width in widths])
+    monkeypatch.setattr(hud.pytesseract,'image_to_data',image_to_data)
+    image=Image.new('RGB',(500,400))
+    pages=hud.scan(image,box)
+    assert len(pages)==2 and hud.scan(image,box,batched=True)==pages
+    found=hud.locate(image,box,batched=True)
+    assert found==hud.locate(image,box) and len(found)==2
+
+
+def test_default_scan_releases_each_scale_before_building_the_next(monkeypatch):
+    monkeypatch.setattr(hud,'configure_tesseract',lambda:None)
+    previous=[]
+    def ocr(image,psm):
+        gc.collect()
+        assert all(ref() is None for ref in previous)
+        previous.append(weakref.ref(image))
+        return []
+    monkeypatch.setattr(hud,'_ocr',ocr)
+    assert hud.scan(Image.new('RGB',(100,100)))==[[],[]] and len(previous)==2
+
+
+@pytest.mark.parametrize('data',[
+    tesseract_data([anchors()]),                                         # second page missing
+    {**tesseract_data([[],anchors()]),'page_num':[2]*6},            # first page missing
+    tesseract_data([anchors(),[],[]]),                                    # unexpected extra page
+    {},                                                                   # malformed output
+])
+def test_batched_scan_fails_instead_of_dropping_a_page(monkeypatch,data):
+    monkeypatch.setattr(hud,'configure_tesseract',lambda:None)
+    monkeypatch.setattr(hud.pytesseract,'image_to_data',lambda *a,**kw:data)
+    with pytest.raises(RuntimeError,match='pages'):
+        hud.scan(Image.new('RGB',(500,400)),batched=True)
+
+
+@pytest.mark.ocr
+def test_batched_scan_is_token_identical_with_real_tesseract():
+    from PIL import ImageDraw, ImageFont
+    try:
+        hud.configure_tesseract()
+    except RuntimeError:
+        pytest.skip('Tesseract is not installed')
+    image=Image.new('RGB',(960,540),(20,30,60))
+    draw=ImageDraw.Draw(image)
+    font=ImageFont.load_default(size=14)
+    for y in (60,470):
+        draw.text((80,y),'LV. 42',fill='white',font=font)
+        for x,text in ((300,'HP 120/120'),(450,'MP 80/80'),(600,'EXP 12,345[6.78%]')):
+            draw.text((x,y),text,fill='white',font=font)
+    pages=hud.scan(image)
+    assert any(hud.label(t) for t in pages[1])
+    assert hud.scan(image,batched=True)==pages
+
+
+def test_locate_benchmark_reports_any_token_difference(monkeypatch,tmp_path):
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[1]/'tools'))
+    spec=importlib.util.spec_from_file_location('benchmark_hud_locate',Path(__file__).parents[1]/'tools/benchmark_hud_locate.py')
+    tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool)
+    frame=tmp_path/'frame.png';Image.new('RGB',(500,400)).save(frame)
+    monkeypatch.setattr(tool,'scan',lambda image,batched:[anchors(),anchors()[:3 if batched else 4]])
+    output=tmp_path/'result.json'
+    assert tool.main([str(frame),'--output',str(output)])==1
+    result=json.loads(output.read_text())
+    assert result['summary']['mismatches']==[str(frame)] and result['rows'][0]['candidates']==1
+    with pytest.raises(FileExistsError):
+        tool.main([str(frame),'--output',str(output)])

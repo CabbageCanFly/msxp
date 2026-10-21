@@ -58,6 +58,8 @@ channels, fixes the listen backlog, and lists the reverse-proxy and trial prereq
 surface with CORS for the Cloudflare Pages frontend, systemd units, and an offline check.
 [Capture performance](docs/capture-performance.md) profiles HUD localization and adds opt-in
 bounded workers, a resident neural worker and a cached HUD search region for 15 channels at 60 s.
+[HUD localization performance](docs/hud-localization-performance.md) profiles both Tesseract passes
+and adds an opt-in, token-identical batched path (≈6 % CPU); both passes remain required.
 The [MVP level-evidence update](docs/mvp-level-evidence.md) displays unique arithmetic
 levels immediately and uses complete grammar-recovered EXP in public pace/history.
 The [Telfer level-up follow-up](docs/telfer-levelup-and-window-gaps.md) accepts prompt

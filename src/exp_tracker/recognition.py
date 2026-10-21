@@ -35,10 +35,15 @@ def _ocr(image: Image.Image, psm: int, whitelist: str = "") -> list[dict]:
         config += f" -c tessedit_char_whitelist={whitelist}"
     data = pytesseract.image_to_data(image, lang="eng", config=config,
                                      output_type=Output.DICT, timeout=10)
+    return _tokens(data)
+
+
+def _tokens(data: dict, page: int | None = None) -> list[dict]:
+    """Non-empty TSV words; page (1-based) selects one image of a multi-image run."""
     return [dict(text=t.strip(), confidence=max(0, float(data["conf"][i]) / 100),
                  x=data["left"][i], y=data["top"][i],
                  width=data["width"][i], height=data["height"][i])
-            for i, t in enumerate(data["text"]) if t.strip()]
+            for i, t in enumerate(data["text"]) if t.strip() and page in (None, data["page_num"][i])]
 
 
 def _label(token: dict) -> str:
