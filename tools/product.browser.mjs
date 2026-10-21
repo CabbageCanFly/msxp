@@ -68,7 +68,7 @@ try {
   assert.deepEqual(await board.evaluate('[...document.querySelectorAll(".entry")].map(r=>r.dataset.channel).sort()'),before.players.map(p=>p.channel).sort());
   for(const p of before.players)if(p.reading)assert.equal(await board.evaluate(`document.querySelector('.entry[data-channel="${p.channel}"] progress').value`),p.reading.bp/100);
   assert.equal(await board.evaluate('document.querySelectorAll("[data-window]").length'),4);
-  await board.evaluate('document.querySelector("[data-sort=movement]").click();document.querySelectorAll("[data-window]")[1].click()');
+  await board.evaluate('document.querySelector("[data-sort=exp_hour]").click();document.querySelectorAll("[data-window]")[1].click()');
   assert.match(await board.evaluate('document.getElementById("ranking-note").textContent'),/last 10 min/);
   await board.evaluate('document.querySelectorAll("[data-window]")[0].click()');
   await screenshot(board,'homepage-desktop',1440,1050);await screenshot(board,'homepage-mobile',390,1200);
@@ -87,6 +87,7 @@ try {
   if(recent.start)assert.equal(Date.parse(recent.end)-Date.parse(recent.start),86400000);  // default: 30 min bars over 24 hours
   const initialObserved=original.player.recent_windows?.['5']?.observed ?? original.player.windows['5'].observed;
   const savedWindow=initialObserved?.historical || original.player.stale && ['completed','interrupted'].includes(original.player.capture_lifecycle);
+  await detail.evaluate('document.querySelector("[data-window=\\"5\\"]").click()');  // The character page opens on 15 min.
   assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),`${savedWindow?'Saved':'Last'} 5 min`);
   if(!original.player.windows['5'].eligible)assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),initialObserved?.available?(original.player.stale || initialObserved.paused?'Paused':'Needs a full 5 min'):'Calculating…');
   await screenshot(detail,'character-desktop',1440,1050);
@@ -344,8 +345,10 @@ try {
         assert.match(await detail.evaluate('document.getElementById("movement").textContent'),/EXP$|%$/);
         assert.match(await detail.evaluate('document.getElementById("segment-note").textContent'),/^Based on .* tracked/);
         assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),`Needs a full ${minutes} min`);
-        await board.evaluate(`document.querySelector('[data-window="${minutes}"]').click();document.querySelector('[data-sort="movement"]').click()`);
-        assert.equal(await board.evaluate(`document.querySelector('.entry[data-channel="${channel}"]').dataset.rank`),'');
+        await board.evaluate(`document.querySelector('[data-window="${minutes}"]').click();document.querySelector('[data-sort="exp_hour"]').click()`);
+        // Ranked exactly when its live pace for this window is shown; a partial observed window alone never ranks.
+        assert.equal(await board.evaluate(`document.querySelector('.entry[data-channel="${channel}"]').dataset.rank!==''`),
+          await board.evaluate(`metricValue(data.players.find(p=>p.channel===${JSON.stringify(channel)}),"exp_hour")!=null`));
       }
       if(action==='advance')await screenshot(detail,'observed-after-rotation',1100,1050);
     }

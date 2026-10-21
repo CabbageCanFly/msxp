@@ -22,9 +22,9 @@ function zoneLabel() { return new Intl.DateTimeFormat('en-US',{timeZone,timeZone
 // Live updates wait while the visitor has text selected, so re-rendering doesn't clear the selection.
 let deferredRender=false;
 const selecting=()=>{const s=globalThis.getSelection?.();return !!s && s.rangeCount>0 && !s.isCollapsed;};
-const sorts={exp_hour:'Estimated from recent stream updates.',
-  level:'Latest known level for each character.',
-  movement:'Level % gained in the selected time.'};
+const sorts={exp_hour:'Estimated from recent stream updates. Only streams updating right now are ranked.',
+  level:'Latest known level, then EXP % within that level.',
+  day:'EXP gained in the last 24 hours while tracked.'};
 let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=view==='player'?15:5,chartMode='exp',bucketSeconds=1800,pollTimer=null,activeController=null;
 // The character page's charts keep their own time windows, separate from the stat cards above them.
 let chartWindow=60,lineWindow=15;
@@ -234,14 +234,19 @@ function etaText(value,compact=false) {
 function rateTitle(rate) { return rate?'Estimated from recent stream updates.':'Not enough recent updates yet.'; }
 function metricValue(p,key) {
   if(key==='level')return displayLevel(p)?.value ?? null;
+  // A saved 24h total, so it ranks whether or not the stream is live right now.
+  if(key==='day')return p.tracked_status==='ready' && p.tracked_windows?.['1440']?.available?p.tracked_windows['1440'].gain?.approximate ?? null:null;
   if(current(p).stale || failed)return null;
-  if(key==='exp_hour')return current(p).metrics?.exp_per_hour?.value.approximate ?? null;
-  return selectedWindow(p)?.eligible?Number(selectedWindow(p).difference_percentage_points):null;
+  // The same live pace the row and character page show; paused or saved paces are not ranked.
+  const pace=publicPace(p,windowMinutes);
+  return pace?.active?pace.estimates.exp_per_hour?.value.approximate ?? null:null;
 }
+// Level ties break on EXP % within the level (Lv. 65 at 75% ranks above Lv. 65 at 50%).
+function sortValue(p,key) { const value=metricValue(p,key);return key==='level' && value!=null?value+(p.reading?.bp ?? 0)/10000:value; }
 function ranked(players,key) {
-  const rows=players.map(player=>({player,value:metricValue(player,key)})).sort((a,b)=>(a.value==null)-(b.value==null)||(b.value??0)-(a.value??0)||a.player.channel.localeCompare(b.player.channel));
+  const rows=players.map(player=>({player,value:metricValue(player,key),order:sortValue(player,key)})).sort((a,b)=>(a.order==null)-(b.order==null)||(b.order??0)-(a.order??0)||a.player.channel.localeCompare(b.player.channel));
   let rank=null,previous=null;
-  return rows.map((entry,i)=>{if(entry.value!=null && entry.value!==previous)rank=i+1;previous=entry.value;return {...entry,rank:entry.value==null?null:rank};});
+  return rows.map(({player,value,order},i)=>{if(order!=null && order!==previous)rank=i+1;previous=order;return {player,value,rank:order==null?null:rank};});
 }
 function entry({player:p,value,rank}) {
   const r=p.reading,s=current(p),row=node('li','entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale);row.dataset.state=s.stale || failed?'stale':['running','waiting'].includes(p.activity?.state)?'tracking':'paused';
@@ -256,9 +261,9 @@ function entry({player:p,value,rank}) {
   bar.append(progress,label);
   const o=observedWindow(p),old=s.stale || failed || o?.paused;
   section.append(bar,node('div','exp-detail',`${o?`${movementText(o)} · last ${windowMinutes} min${old?' tracked':''}`:!selectedWindow(p)?.eligible && earlyText(p) || windowNote(p)} · ${r?'Updated '+ageText(s.age):'No reading yet'}`));
-  const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):sort==='movement'?`+${value.toFixed(2)}%`:`~${expText(value)}`),
-    node('small','score-label',sort==='level'?'level':sort==='movement'?'level progress':'EXP / hour'));
-  score.title=sort==='exp_hour'?rateTitle(s.metrics?.exp_per_hour):sort==='level'?levelTitle(p):sorts.movement;
+  const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):`~${expText(value)}`),
+    node('small','score-label',sort==='level'?'level':sort==='day'?'EXP · 24h':'EXP / hour'));
+  score.title=sort==='exp_hour'?rateTitle(value):sort==='level'?levelTitle(p):value==null?'No tracked EXP in the last 24 hours':`~${expText(value,true)} EXP in the last 24 hours while tracked`;
   row.append(badge,level,identity,section,score);return row;
 }
 function renderBoard() {
@@ -276,10 +281,11 @@ function renderBoard() {
   el('empty').textContent='No players are being tracked yet.';
   el('board-count').textContent=data?`${rows.length} player${rows.length===1?'':'s'}${data.warming?.length?` · ${data.warming.length} more loading`:''}`:failed?'Tracker unavailable':'Loading players…';
   el('ranking-count').textContent='';
-  el('ranking-note').textContent=sort==='level'?'Sorted by level':sort==='exp_hour'?`EXP per hour · last ${windowMinutes} min`:`Level % gained · last ${windowMinutes} min`;
-  el('ranking-note').title=sorts[sort]+(sort==='level'?'':` Players need ${windowMinutes} minutes of steady updates to be ranked.`);
+  el('ranking-note').textContent=sort==='level'?'Sorted by level':sort==='exp_hour'?`EXP per hour · last ${windowMinutes} min`:'EXP gained · last 24 hours';
+  el('ranking-note').title=sorts[sort];
   document.querySelectorAll('[data-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.sort===sort)));
-  document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
+  // The 24h ranking ignores the short time window.
+  document.querySelectorAll('[data-window]').forEach(button=>{button.setAttribute('aria-pressed',String(sort!=='day' && Number(button.dataset.window)===windowMinutes));button.disabled=sort==='day';});
 }
 function renderCharacters() {
   const search=el('character-filter').value.trim().toLowerCase(),order=el('character-sort').value || 'recent';

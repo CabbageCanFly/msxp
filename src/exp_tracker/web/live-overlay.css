@@ -8,7 +8,7 @@ html, body { margin: 0; background: transparent; }
 
 /* Themes; header, bar and accent can be overridden per overlay URL. */
 .live-overlay { --header: #705035; --bar: #a6ef2e; --accent: #ffc56b; --level: var(--accent);
-  --panel: #232c3e; --panel-edge: #4b3423; --text: #f4ebdc; --muted: #aab3c4; --line: #3a465d; --track: #19212f; --badge: #2b354a; --bar-text: #fff; --bar-shadow: 0 1px 2px #000c; }
+  --panel: #232c3e; --panel-edge: #4b3423; --text: #f4ebdc; --muted: #aab3c4; --line: #3a465d; --track: #19212f; --badge: #2b354a; --bar-text: #fff; --bar-shadow: 0 1px 0 #10180a, 1px 0 0 #10180a, -1px 0 0 #10180a, 0 -1px 0 #10180a, 0 2px 3px #000b; }
 .live-overlay[data-theme="day"] { --header: #8a6440; --bar: #7fcc12; --accent: #a8520a; --level: #ffb534;
   --panel: #fff9e9; --panel-edge: #725b43; --text: #493b30; --muted: #7a6855; --line: #d9ccb7; --track: #e8deca; --badge: #6e5139; --bar-text: #263310; --bar-shadow: 0 1px #f5ffc280; }
 

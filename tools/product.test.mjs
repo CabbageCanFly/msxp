@@ -174,9 +174,10 @@ test('official live/offline and unknown status stay separate from capture and ex
   p.run('data.served_at="2026-01-01T00:00:00Z"');p.context.performance.now=()=>61000;p.run('renderPlayer()');
   assert.equal(p.elements.status.textContent,"Can't read the stream");
 });
-test('unavailable rates are not ranked as zero and equal eligible values share rank',()=>{
-  const p=page('board'),eligible={eligible:true,estimates:player().estimates,difference_percentage_points:'0.20'};
-  p.context.fixtures=[player({channel:'b',windows:{5:eligible}}),player({channel:'a',windows:{5:eligible}}),player({channel:'c',estimates:{}})];
+const livePace=rate=>({pace:{active:true,age_seconds:0,estimates:{exp_per_hour:{value:{approximate:rate}},percentage_per_hour:null,eta:null}}});
+test('unavailable rates are not ranked as zero and equal live paces share rank',()=>{
+  const p=page('board');
+  p.context.fixtures=[player({channel:'b',recent_windows:{5:livePace(2000)}}),player({channel:'a',recent_windows:{5:livePace(2000)}}),player({channel:'c',recent_windows:{5:{}}})];
   const rows=JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>({channel:r.player.channel,value:r.value,rank:r.rank})))'));
   assert.deepEqual(rows.map(r=>r.rank),[1,1,null]);assert.deepEqual(rows.map(r=>r.channel),['a','b','c']);
   p.render(player({activity:{state:'coordinator_stopped'}}));assert.equal(p.elements.status.textContent,'Tracking paused');
@@ -255,12 +256,13 @@ test('endpoint pace discloses elapsed gaps and conditional recovery is never str
     assert.ok(!p.elements['segment-note'].title);
   assert.match(p.elements.exp.textContent,/^~/);
   assert.match(p.elements.exp.title,/partly unclear on stream/);
-  assert.equal(p.run('metricValue(data.player,"exp_hour")'),null);
+  // A live pace is ranked as shown, even with gaps; only the displayed estimate is used.
+  assert.equal(p.run('metricValue(data.player,"exp_hour")'),2000);
 });
 
 test('pace ranking changes with the selected window and never substitutes a short segment rate',()=>{
-  const p=page('board'),window=rate=>({eligible:true,estimates:{exp_per_hour:{value:{approximate:rate}}}});
-  p.context.fixtures=[player({channel:'a',windows:{5:window(100),30:window(300)}}),player({channel:'b',windows:{5:window(200)}})];
+  const p=page('board');
+  p.context.fixtures=[player({channel:'a',recent_windows:{5:livePace(100),30:livePace(300)}}),player({channel:'b',recent_windows:{5:livePace(200),30:{}}})];
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.player.channel))')),['b','a']);
   p.run('windowMinutes=30');
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>[r.player.channel,r.rank]))')),[['a',1],['b',null]]);
@@ -280,7 +282,7 @@ test('observed windows show real partial endpoints without ranking them or relab
     assert.equal(p.elements['window-rate'].textContent,`Needs a full ${p.buttons[i].dataset.window} min`);
     assert.equal(p.elements.rate.textContent,'~2,000');
   }
-  p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"movement").map(r=>r.rank))')),[null]);
+  p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"day").map(r=>r.rank))')),[null]);
   p.render({...base,stale:true});
   assert.equal(p.elements.movement.textContent,'+3.55%');assert.equal(p.elements.movement.dataset.paused,'true');
   assert.match(p.elements['segment-note'].textContent,/last updated/);
@@ -364,7 +366,8 @@ test('responsive pace has one current rate, retains an explicitly aged rate afte
   p.render({...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}});
   assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/As of 35s ago/);
   assert.equal(p.elements.rate.dataset.paused,'true');assert.equal(p.elements['eta-stat'].hidden,false);
-  p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[null]);
+  p.context.fixtures=[{...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}}];
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[null]);
 });
 
 test('selected SQLite window controls gain, rate and tentative ETA while four cards stay present',()=>{
@@ -1013,4 +1016,17 @@ test('overlay rates read each lookback window; the last-hour chart keeps untrack
   const bars=p.elements['overlay-chart'].children;
   assert.equal(bars.length,12);assert.equal(bars.filter(b=>b.attributes.class==='bar').length,1);
   assert.equal(p.elements['hour-total'].textContent,'~400 EXP');
+});
+
+test('level ranking breaks ties on EXP % within the level and still shows the level',()=>{
+  const p=page('board'),at=(channel,level,bp)=>player({channel,reading:{...player().reading,bp,level:{value:level,status:'agreement'}}});
+  p.context.fixtures=[at('a',65,5000),at('b',65,7500),at('c',66,100),at('d',65,7500)];
+  const rows=JSON.parse(p.run('JSON.stringify(ranked(fixtures,"level").map(r=>[r.player.channel,r.value,r.rank]))'));
+  assert.deepEqual(rows,[['c',66,1],['b',65,2],['d',65,2],['a',65,4]]);
+});
+
+test('24 hour ranking uses the saved total, including streams that are not live',()=>{
+  const p=page('board'),day=gain=>({tracked_status:'ready',tracked_windows:{1440:{available:true,gain:{approximate:gain}}}});
+  p.context.fixtures=[player({channel:'a',...day(500)}),player({channel:'b',stale:true,...day(9000)}),player({channel:'c'})];
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"day").map(r=>[r.player.channel,r.rank]))')),[['b',1],['a',2],['c',null]]);
 });
