@@ -6,7 +6,22 @@ const endpoint=channel?`/api/players/${encodeURIComponent(channel)}`:'/api/playe
 // The server lowercases logins; an empty path keeps the static HTML title.
 if(view==='player' && channel)document.title=`${channel.toLowerCase()} · EXP Tracker`;
 const numbers=new Intl.NumberFormat('en-US'),shortNumber=new Intl.NumberFormat('en-US',{maximumSignificantDigits:3});
-const wholeNumbers=new Intl.NumberFormat('en-US',{maximumFractionDigits:0}),localDates=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'long'});
+const wholeNumbers=new Intl.NumberFormat('en-US',{maximumFractionDigits:0});
+// Times use the visitor's zone, or one they picked (remembered in this browser only).
+let timeZone,localDates,clockMinutes,clockSeconds,monthDay;
+function setTimeZone(zone) {
+  try {new Intl.DateTimeFormat('en-US',{timeZone:zone || undefined});} catch {zone=null;}
+  timeZone=zone || undefined;
+  localDates=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'long',timeZone});
+  clockMinutes=new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit',timeZone});
+  clockSeconds=new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone});
+  monthDay=new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric',timeZone});
+}
+setTimeZone((()=>{try {return localStorage.getItem('timezone');} catch {return null;}})());
+function zoneLabel() { return new Intl.DateTimeFormat('en-US',{timeZone,timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value ?? 'local time'; }
+// Live updates wait while the visitor has text selected, so re-rendering doesn't clear the selection.
+let deferredRender=false;
+const selecting=()=>{const s=globalThis.getSelection?.();return !!s && s.rangeCount>0 && !s.isCollapsed;};
 const sorts={exp_hour:'Estimated from recent stream updates.',
   level:'Latest known level for each character.',
   movement:'Level % gained in the selected time.'};
@@ -300,7 +315,12 @@ function renderPlayer() {
   }
   const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (view==='player' && p.recent_windows?null:s.metrics);
   if(view==='overlay') { el('streamer').textContent=sourceText(p);el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
-  else { el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=sourceText(p); }
+  else {
+    el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=p.channel;
+    // Video and demo sources have no channel page, so they link to Twitch itself.
+    el('twitch-link').href=p.source_kind==='twitch'?`https://www.twitch.tv/${encodeURIComponent(p.channel)}`:'https://www.twitch.tv/';
+    el('twitch-link').title=p.source_kind==='twitch'?`Watch ${p.channel} on Twitch`:'Open Twitch';
+  }
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
   el('level').dataset.lastKnown=String(lastKnown(p));
   el('level').dataset.inferred=String(!!levelTransition(p) || !!LEVEL_SOURCES[displayLevel(p)?.status]);
@@ -310,7 +330,8 @@ function renderPlayer() {
   amount('exp',absolute==='—'?'—':absolute+' EXP',displayedExp(r));el('exp').title=expTitle(r);
   el('percentage').textContent=percentageText(r);el('percentage').title=r?.evidence==='manual_admin'?expTitle(r):'';
   el('status').textContent=statusText(p);
-  el('age').textContent=r?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp?localTime(r.timestamp):'';
+  // Skip "Updated …" when the status already says how long ago, e.g. "Last tracked 13m ago".
+  el('age').textContent=r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp?localTime(r.timestamp):'';
   const observed=view==='player'?observedWindow(p):null;
   const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):observed?.difference_percentage_points ?? (!p.recent_windows && selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null);
   const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);
@@ -411,19 +432,19 @@ function drawExpHistory() {
   for(const bin of chart.bins){
     const left=x(bin.start)+2,w=Math.max(2,x(bin.end)-x(bin.start)-4),height=bin.value==null?0:Math.max(2,Math.abs(yValue(bin.value)-yValue(0)));
     shape('rect',{x:left,y:bin.state==='missing'?205:Math.min(yValue(bin.value),yValue(0)),width:w,height:bin.state==='missing'?2:height,rx:2,
-      class:`exp-column ${bin.state}`});
+      class:bin.state==='missing'?'exp-column missing':'exp-column'});
     inspect(shape('rect',{x:left,y:25,width:w,height:183,fill:'transparent',class:'bar-hit'}),`bar:${bin.start}:${bin.end}`,
-      `${localTime(bin.start)}\n${bin.value==null?'No data (not zero EXP)':`~${expText(bin.value,true)} EXP\n${bin.state==='partial'?'Partly tracked':'Fully tracked'}`}`);
+      `${localTime(bin.start)}\n${bin.value==null?'No data (not zero EXP)':`~${expText(bin.value,true)} EXP`}`);
   }
   const ticks=width<600?3:5;
   for(let i=0;i<ticks;i++){
     const tick=new Date(chart.start+(chart.end-chart.start)*i/(ticks-1)).toISOString();
     const attrs={x:54+plotWidth*i/(ticks-1),'text-anchor':i===0?'start':i===ticks-1?'end':'middle'};
-    shape('text',{...attrs,y:232}).textContent=tick.slice(11,16);
-    if(chart.range===86400)shape('text',{...attrs,y:248}).textContent=tick.slice(5,10);
+    shape('text',{...attrs,y:232}).textContent=clockMinutes.format(new Date(tick));
+    if(chart.range===86400)shape('text',{...attrs,y:248}).textContent=monthDay.format(new Date(tick));
   }
   const count=chart.bins.filter(b=>b.value!=null).length;
-  el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?chart.range/60+' min':chart.range/3600+' hours'} · times in UTC${current(data.player).stale || rollingFailed && bucketSeconds===1800?' · saved history':''}${count?'':' · no data in this period'}`;
+  el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?chart.range/60+' min':chart.range/3600+' hours'} · times in ${zoneLabel()}${count?'':' · no data in this period'}`;
   el('history-note').title='The 24h view always includes all levels.';
 }
 function drawHistory() {
@@ -461,13 +482,13 @@ function drawPercentageHistory() {
   function shape(tag,attrs,title) { const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(title)n.append(node('title','',title));svg.append(n);return n; }
   if(!points.length)shape('text',{x:60,y:100}).textContent='Your next adventure starts here.';
   const x=t=>60+(t-first)/Math.max(1,last-first)*plotWidth,y=v=>175-(v-low)/Math.max(.01,high-low)*140;
-  let gaps=0;
-  points.forEach((p,i)=>{
-    const previous=points[i-1];
-    if(previous && p.time-previous.time>previous.interval_seconds*1500) { gaps++;shape('rect',{x:x(previous.time),y:20,width:x(p.time)-x(previous.time),height:160,class:'gap'}); }
-    if(previous && p.connect_previous && visible(p) && visible(previous) && p.level.value===previous.level.value)shape('line',{
-      x1:x(previous.time),y1:y(previous.reading.bp/100),x2:x(p.time),y2:y(p.reading.bp/100),class:'trend'});
-    if(visible(p))inspect(shape('circle',{cx:x(p.time),cy:y(p.reading.bp/100),r:4,class:p.reading.evidence==='grammar_recovered'?'recovered':'sample'}),
+  // Display only: each readable point joins the previous readable one; unreadable points stay hoverable off the line.
+  points.filter(visible).forEach((p,i,readable)=>{
+    const previous=readable[i-1];
+    if(previous)shape('line',{x1:x(previous.time),y1:y(previous.reading.bp/100),x2:x(p.time),y2:y(p.reading.bp/100),class:'trend'});
+  });
+  points.forEach(p=>{
+    if(visible(p))inspect(shape('circle',{cx:x(p.time),cy:y(p.reading.bp/100),r:4,class:'sample'}),
       `point:${p.event_id}`,`${localTime(p.timestamp)}\n${p.level.value!=null?'Lv. '+p.level.value+' · ':''}${p.reading.percentage}%\n${p.reading.exp!=null || p.reading.estimated_exp?displayedExp(p.reading,true)+' EXP':'EXP unavailable'}`);
     else inspect(shape('path',{d:`M${x(p.time)-3} 185l6 6m0-6-6 6`,class:'missing'}),`point:${p.event_id}`,`${localTime(p.timestamp)}\nCouldn't read EXP`);
   });
@@ -485,11 +506,11 @@ function drawPercentageHistory() {
   const ticks=width<600?3:5;
   for(let i=0;i<ticks;i++) {
     const time=first+(last-first)*i/(ticks-1);
-    shape('text',{x:60+plotWidth*i/(ticks-1),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=new Date(time).toISOString().slice(11,19);
+    shape('text',{x:60+plotWidth*i/(ticks-1),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=clockSeconds.format(new Date(time));
   }
   svg.dataset.start=new Date(first).toISOString();svg.dataset.end=new Date(last).toISOString();
   const readable=points.filter(visible).length,unavailable=points.length-readable;
-  el('history-note').textContent=`${currentLevelOnly && level!=null?'Lv. '+level+' · ':''}Last ${windowMinutes} min · times in UTC${readable?'':' · no data in this period'}${unavailable?' · ✕ couldn\'t read EXP':''}${current(data.player).stale?' · saved history':''}`;
+  el('history-note').textContent=`${currentLevelOnly && level!=null?'Lv. '+level+' · ':''}Last ${windowMinutes} min · times in ${zoneLabel()}${readable?'':' · no data in this period'}${unavailable?' · ✕ couldn\'t read EXP':''}`;
   el('history-note').title='';
 }
 async function poll() {
@@ -519,9 +540,10 @@ async function poll() {
     data=body;receivedAt=requested;failed=false;
     if(view==='player' && Array.isArray(data.roster))roster=data.roster;
     if(view==='player' && data.tracked_history){rollingData=data.tracked_history;rollingReceived=performance.now();rollingFailed=false;}
-    if(view==='board')renderBoard();else { renderPlayer();if(view==='player'){renderRoster();drawHistory();if(Array.isArray(data.history))pollRolling();} }
+    if(selecting())deferredRender=true;else render();
+    if(view==='player' && Array.isArray(data.history))pollRolling();
   } catch { if(!unchanged())return;failed=true;if(view==='board')renderBoard();else renderPlayer(); }
-  finally { clearTimeout(timeout);activeController=null;pollTimer=setTimeout(poll,unchanged()?2000:0); }
+  finally { clearTimeout(timeout);activeController=null;delete document.body.dataset.loading;pollTimer=setTimeout(poll,unchanged()?2000:0); }
 }
 
 function rosterLink(r,viewing,className) {
@@ -601,7 +623,7 @@ async function pollRolling(force=false) {
     if(result.character_id!==data?.player?.character?.id)return;
     rollingData=result;rollingReceived=performance.now();rollingRevision=revision;rollingFailed=false;
   } catch { rollingFailed=true; }
-  finally { clearTimeout(timeout);rollingController=null;renderPlayer();drawHistory();rollingTimer=setTimeout(()=>pollRolling(true),30000); }
+  finally { clearTimeout(timeout);rollingController=null;if(selecting())deferredRender=true;else {renderPlayer();drawHistory();}rollingTimer=setTimeout(()=>pollRolling(true),30000); }
 }
 document.addEventListener?.('visibilitychange',()=>{if(!document.hidden)poll();});
 globalThis.addEventListener?.('pageshow',poll);
@@ -678,4 +700,22 @@ if(view==='player') {
   globalThis.addEventListener?.('popstate',()=>selectCharacter(characterParam(),'none'));
   el('copy-overlay').addEventListener('click',async()=>{try {await navigator.clipboard.writeText(url);el('copy-status').textContent='Copied · use a 500 × 160 Browser Source';}catch{el('copy-status').textContent='Copy the Open OBS overlay link · 500 × 160';}});
 }
-poll();setInterval(()=>{if(view==='board')renderBoard();else renderPlayer();if(view==='player')rosterAges();},1000);
+function render() { if(view==='board')renderBoard();else {renderPlayer();if(view==='player'){renderRoster();drawHistory();}} }
+const zoneSelect=view==='overlay'?null:el('timezone');
+if(zoneSelect) {
+  const local=new Intl.DateTimeFormat().resolvedOptions().timeZone,zones=Intl.supportedValuesOf?.('timeZone') ?? [];
+  const option=(value,text)=>{const o=node('option','',text);o.value=value;return o;};
+  zoneSelect.append(option('',`${local.replaceAll('_',' ')} (local)`),...(zones.includes('UTC')?zones:['UTC',...zones]).map(z=>option(z,z.replaceAll('_',' '))));
+  zoneSelect.value=timeZone ?? '';
+  zoneSelect.addEventListener('change',()=>{
+    setTimeZone(zoneSelect.value);
+    try {if(zoneSelect.value)localStorage.setItem('timezone',zoneSelect.value);else localStorage.removeItem('timezone');} catch {}
+    if(data)render();
+  });
+}
+poll();setInterval(()=>{
+  if(selecting())return;
+  if(deferredRender){deferredRender=false;if(data)render();}
+  else if(view==='board')renderBoard();else renderPlayer();
+  if(view==='player')rosterAges();
+},1000);

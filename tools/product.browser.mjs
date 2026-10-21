@@ -264,8 +264,7 @@ try {
       assert.ok(await detail.evaluate('(()=>{const r=tip.getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'));
       return detail.evaluate('tip.textContent');
     }
-    assert.match(await tooltip('.bar-hit[data-tip-text*="Partly tracked"]'),/EXP\nPartly tracked$/);
-    assert.match(await tooltip('.bar-hit[data-tip-text*="Fully tracked"]'),/Fully tracked/);
+    assert.match(await tooltip('.bar-hit[data-tip-text$=" EXP"]'),/\n~[\d,]+ EXP$/);
     await screenshot(detail,'bar-tooltip-desktop',1440,1100);
     const key=await detail.evaluate('tipKey');await delay(2500);
     assert.equal(await detail.evaluate('tipKey'),key);assert.equal(await detail.evaluate('tip.hidden'),false);
@@ -282,7 +281,7 @@ try {
     assert.match(await tooltip('path[data-tip-key]'),/Couldn't read EXP/);
     await screenshot(detail,'historical-mobile',390,1200);
     await detail.evaluate('document.querySelector("[data-chart=exp]").click();document.querySelector("[data-bucket=\\"60\\"]").click()');
-    assert.match(await tooltip('.bar-hit[data-tip-text*="Partly tracked"]',true),/Partly tracked/);
+    assert.match(await tooltip('.bar-hit[data-tip-text$=" EXP"]',true),/ EXP$/);
     await screenshot(detail,'bar-tooltip-mobile',390,1200);
     const other=await tab('/stream/telfer1',1440,1100);await other.wait("typeof data!=='undefined' && data?.player?.capture_lifecycle==='completed'");
     assert.match(await other.evaluate('document.getElementById("exp").textContent'),/EXP|K/);

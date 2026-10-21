@@ -200,9 +200,9 @@ test('recent graph has a fixed selected time axis, all supported levels and reta
   p.context.points=[point('2026-01-01T00:00:00Z'),point('2026-01-01T00:06:00Z'),point('2026-01-01T00:06:15Z',101)];
   p.run('chartMode="percentage";data.history=points;drawHistory()');
   assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:01:15.000Z');
-  assert.match(p.elements['history-note'].textContent,/^Last 5 min · times in UTC/);
+  assert.match(p.elements['history-note'].textContent,/^Last 5 min · times in \S+/);
   p.buttons[1].listeners.click();assert.equal(p.elements['history-chart'].dataset.start,'2025-12-31T23:56:15.000Z');
-  assert.ok(p.elements['history-chart'].children.some(n=>n.attributes.class==='gap'));
+  assert.ok(!p.elements['history-chart'].children.some(n=>n.attributes.class==='gap'));
   assert.ok(!p.elements['history-chart'].children.some(n=>n.tag==='polyline'));
   p.elements['history-chart'].clientWidth=340;p.run('drawHistory()');
   assert.equal(p.elements['history-chart'].attributes.viewBox,'0 0 340 230');
@@ -234,7 +234,7 @@ test('percentage chart counts numerical points separately from missing and unkno
   const shapes=p.elements['history-chart'].children;
   assert.equal(shapes.filter(n=>n.tag==='circle').length,2);
   assert.equal(shapes.filter(n=>n.tag==='path').length,2);
-  assert.equal(shapes.filter(n=>n.tag==='line').length,0);
+  assert.equal(shapes.filter(n=>n.tag==='line').length,1);  // a joins d; b and c stay off the line
 });
 
 test('endpoint pace discloses elapsed gaps and conditional recovery is never strict OCR',()=>{
@@ -433,7 +433,7 @@ test('all-level chart marks resets and current-only filtering retains the fixed 
   p.context.points=[point(0,65,9997),point(15,66,1),point(30,66,3,true),point(45,66,null),point(60,66,8),point(75,66,12,true)];
   p.run('chartMode="percentage";data.history=points;drawHistory()');
   const shapes=p.elements['history-chart'].children;
-  assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,2);
+  assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,4);
   assert.ok(!shapes.some(n=>n.tag==='text' && n.textContent==='99.97%'));
   assert.equal(p.elements['level-event'].textContent,'Level 66 reached!');
   assert.equal(p.elements['history-chart'].dataset.start,'2025-12-31T23:56:15.000Z');
@@ -523,7 +523,7 @@ test('EXP history has fixed axes and the 24h view waits for aggregated history',
   p.context.rows=[{connect_previous:true,gain:{start:'2026-01-01T00:00:00Z',end:'2026-01-01T00:00:15Z',value:{approximate:100}}}];
   p.run('data.history=rows;data.player.latest_attempt_at="2026-01-01T00:00:15Z";drawHistory()');
   assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column missing').length,4);
-  assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column partial').length,1);
+  assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class==='exp-column').length,1);
   p.run('data.served_at="2026-01-01T00:00:15Z"');
   for(const [bucket,seconds] of [[60,300],[300,300],[1800,86400]]){
     p.run(`bucketSeconds=${bucket};drawHistory()`);
@@ -547,7 +547,7 @@ test('24h summary and bars use the server total, retain zero, and age cached fai
   p.run('rollingData.tracked_exp={approximate:0};renderPlayer()');assert.equal(p.elements['tracked-exp'].textContent,'~0');
   p.run('data.player.character.id=2;renderPlayer();drawHistory()');
   assert.equal(p.elements['tracked-exp'].textContent,'—');assert.equal(p.elements['tracked-exp'].title,'');
-  assert.ok(!p.elements['history-chart'].children.some(n=>n.attributes.class==='exp-column partial'));
+  assert.ok(!p.elements['history-chart'].children.some(n=>n.attributes.class==='exp-column'));
 });
 
 test('public progress uses EXP with percentage fallback and exact provenance in the tooltip',()=>{

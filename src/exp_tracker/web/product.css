@@ -19,7 +19,8 @@
 .live-overlay progress::-webkit-progress-value { background:linear-gradient(#d8f969,#98c720); }
 .live-overlay progress::-moz-progress-bar { background:#a9d633; }
 .poll-note { color:var(--text-muted); font-size:12px; font-weight:600; }
-.board-modes { display:flex; margin:18px 20px 0; }
+/* Streamers/Characters toggle sits in the board header beside the title. */
+.product .board-header .board-modes { margin-right:auto; }
 .character-controls { display:flex; flex-wrap:wrap; gap:12px; color:var(--text-soft); font-size:13px; font-weight:700; min-width:0; }
 .character-controls label { display:flex; align-items:center; gap:7px; min-width:0; }
 .character-controls input,.character-controls select { min-width:0; max-width:100%; box-sizing:border-box; padding:8px 11px; color:var(--text); background:var(--surface-sunken); border:1px solid var(--line-strong); border-radius:var(--radius-sm); font:inherit; font-weight:600; }
@@ -28,7 +29,8 @@
 .saved-seen { color:var(--text-muted); font-size:12px; font-weight:600; text-align:right; }
 .product .roster-live { color:var(--green); }
 @media(max-width:650px) {
-  .board-modes { margin-left:12px; margin-right:12px; }
+  .product .board-header:has(.board-modes) { flex-wrap:wrap; align-items:center; }
+  .product .board-header:has(.board-modes) > span { max-width:none; }
   .product .character-entry { grid-template-columns:48px minmax(0,1fr); }
   .character-entry .level { grid-column:1; grid-row:1; }
   .character-entry .identity { grid-column:2; grid-row:1; }
@@ -41,8 +43,10 @@
 .player-reading .exp-section { flex:1; min-width:0; }
 .player-reading .exp-bar { height:34px; border-radius:9px; }
 .player-reading .exp-label { font-size:16px; gap:8px; }
-.player-reading .status { margin:9px 0 0; font-size:13px; }
-.player-reading .exp-detail { margin:4px 0 0; }
+.player-reading .status-line { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; margin:9px 0 0; }
+.player-reading .status { font-size:13px; }
+.player-reading .status-line .exp-detail { margin:0; }
+.player-reading .status-line .exp-detail:not(:empty)::before { content:"· "; }
 .player-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:20px 25px; gap:12px; }
 .player-stats > div { border-left:1px solid var(--line); padding-left:14px; min-width:0; }
 .player-stats > div:first-child { border-left:0; padding-left:0; }
@@ -58,10 +62,8 @@
 .history-chart { padding:14px 12px 0; overflow-x:auto; }
 .history-chart svg { display:block; width:100%; height:230px; }
 .history-chart text { fill:#bcc4d3; font-family:var(--font-ui); font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; }
-.history-chart .gap { fill:var(--gold); opacity:.08; }
 .history-chart .boundary { stroke:#8d98ad; stroke-dasharray:3 4; }
 .history-chart .sample { fill:var(--green); }
-.history-chart .recovered { fill:none; stroke:var(--gold); stroke-width:2; }
 .history-chart .missing { stroke:#8d98ad; stroke-width:2; }
 .live-overlay #card { overflow:hidden; }
 .live-overlay .progress-section { min-height:30px; background:#e8deca; border-radius:7px; }
@@ -87,7 +89,7 @@
 .early-pace small { color:var(--text-muted); font-size:12px; }
 .reading-info { color:var(--text-muted); font-size:12px; font-weight:600; margin:0 0 14px; }
 .level-event { margin:16px 25px 0; color:var(--green); font-family:var(--font-display); font-size:18px; font-weight:600; }
-.history-chart .trend { stroke:var(--green); stroke-width:2; opacity:.6; }
+.history-chart .trend { stroke:var(--green); stroke-width:2; opacity:.7; }
 .player-stats { grid-template-columns:repeat(2,minmax(0,1fr)); padding-top:8px; padding-bottom:10px; }
 .player-stats strong { font-size:20px; }
 .player-stats [data-paused="true"] { opacity:.7; }
@@ -115,7 +117,6 @@
 .chart-legend { color:var(--text-muted); font-size:12px; font-weight:600; }
 .history-chart .chart-grid { stroke:#56637d; opacity:.45; }
 .history-chart .exp-column { fill:var(--orange); }
-.history-chart .exp-column.partial { opacity:.6; }
 .history-chart .exp-column.missing { fill:#8d98ad; opacity:.45; stroke:none; }
 .history-chart .exp-column:focus { outline:2px solid #fff0ba; opacity:1; }
 .product[data-view="player"] :is(#exp,#rate,#movement,#tracked-exp,#window-rate) { white-space:nowrap; overflow-wrap:normal; }
@@ -123,7 +124,7 @@
 .chart-tooltip { position:fixed; z-index:20; width:max-content; max-width:min(280px,calc(100vw - 16px)); box-sizing:border-box; padding:10px 13px; background:#1c2435; border:1px solid var(--gold-deep); border-radius:var(--radius-sm); color:var(--text); font:600 13px/1.55 var(--font-ui); font-variant-numeric:tabular-nums; white-space:pre-line; overflow-wrap:anywhere; pointer-events:none; box-shadow:0 8px 22px #000a; }
 .history-chart [data-tip-key] { cursor:crosshair; }
 .history-chart [data-tip-key]:focus-visible { outline:2px solid var(--gold); }
-.history-chart :is(.gap,.trend,.chart-grid) { pointer-events:none; }
+.history-chart :is(.trend,.chart-grid) { pointer-events:none; }
 .history-chart circle.sample { stroke:transparent; stroke-width:12px; }
 .recent-card [data-paused="true"] { opacity:.65; }
 @media(max-width:650px) { .companion-cards { margin:0 14px 12px; gap:8px; } .companion-cards > div { flex-basis:120px; padding:13px 12px; } .companion-cards > div > span:first-child { font-size:11px; letter-spacing:.3px; } .companion-cards .early-pace { flex-basis:100%; } .companion-cards strong,.companion-cards #eta { font-size:24px; } .comparison-details { margin-left:14px; margin-right:14px; } .chart-modes button { font-size:12px; padding:5px 11px; } }
@@ -163,3 +164,24 @@
 .roster-menu ul { list-style:none; margin:0; padding:0; max-height:min(260px,50vh); overflow-y:auto; display:grid; gap:4px; }
 .roster-option { padding:6px 10px; }
 @media(max-width:650px) { .roster { padding:12px 14px 0; } }
+
+/* Twitch channel link in the character header: a quiet pill like the header toggles. */
+.twitch-link { display:inline-flex; align-items:center; gap:7px; min-width:0; max-width:55%; padding:5px 13px 5px 10px; border:1px solid #c2986a; border-radius:20px; background:#00000026; color:#f6e3c4 !important; font-size:13px; font-weight:800; text-decoration:none; transition:background-color .15s,border-color .15s; }
+.twitch-link span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.twitch-link:hover { background:#0000004a; border-color:#bf94ff; }
+.twitch-link:focus-visible { outline:3px solid #bedbff; outline-offset:2px; }
+.twitch-glyph { flex:none; fill:#bf94ff; }
+
+/* Attribution and time zone, on every public page. */
+.site-footer { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px 16px; margin:18px 6px 0; color:var(--text-muted); font-size:12px; font-weight:600; }
+.site-footer a { color:var(--text-soft); text-decoration:none; border-bottom:1px solid var(--line-strong); }
+.site-footer a:hover { color:var(--gold); border-color:var(--gold-deep); }
+.site-footer label { display:flex; align-items:center; gap:6px; }
+.site-footer select { max-width:15em; padding:3px 6px; color:var(--text-soft); background:transparent; border:1px solid var(--line); border-radius:6px; font:inherit; cursor:pointer; }
+.site-footer select:hover { border-color:var(--line-strong); }
+.site-footer select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
+
+/* Live content fades in once the first update arrives instead of jumping as it fills; shown anyway after 2s. */
+.product :is(.board,.site-footer) { transition:opacity .18s ease; }
+.product[data-loading] :is(.board,.site-footer) { opacity:0; animation:reveal 0s 2s forwards; }
+@keyframes reveal { to { opacity:1; } }

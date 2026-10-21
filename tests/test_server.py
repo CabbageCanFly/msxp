@@ -304,10 +304,11 @@ def test_simulated_leaderboard_assets_keep_existing_http_security(database, http
     monkeypatch.setattr(server, "Store", forbidden)
     for path, mime in (("/demo/leaderboard", "text/html"), ("/static/leaderboard.css", "text/css"),
                        ("/static/leaderboard.js", "text/javascript"), ("/static/leaderboard.svg", "image/svg+xml"),
-                       ("/static/fonts/fredoka-latin.woff2", "font/woff2"), ("/static/fonts/nunito-latin.woff2", "font/woff2")):
+                       ("/static/fonts/fredoka-latin.woff2", "font/woff2"), ("/static/fonts/nunito-latin.woff2", "font/woff2"),
+                       ("/static/steely.png", "image/png")):
         code, headers, body = request(http_server, path)
         assert code == 200 and headers["Content-Type"].startswith(mime) and body
-        assert headers["Cache-Control"] == "no-store"
+        assert headers["Cache-Control"] == ("public, max-age=86400" if path in server.CACHED_ASSETS else "no-store")
         assert headers["X-Content-Type-Options"] == "nosniff"
         assert "default-src 'self'" in headers["Content-Security-Policy"]
         assert "Access-Control-Allow-Origin" not in headers
