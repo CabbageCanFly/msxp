@@ -258,25 +258,53 @@ def options(row, database, output):
 
 def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
              continuous=False, max_attempts=None, stop_after_seconds=None, rotate=None,
-             activity=None, active_runs=None, simulated=False, maintain=None, workers=1, reconcile=None):
+             activity=None, active_runs=None, simulated=False, maintain=None, workers=1, reconcile=None, stagger=False):
     """No queue: one due-time per lane, rotating ties, elapsed slots skipped.
 
     workers>1 runs that many lanes' attempts at once, never two for one lane. Rotation,
     emit (logs and the single SQLite writer), status and maintain (retention) stay on this thread.
+    stagger=True only moves first due times: a batch started with no other active lane puts
+    lane i at i/len(batch) of ITS OWN interval; a lane added beside active lanes (roster add,
+    resume or change) takes the middle of the widest gap in their upcoming due times, so
+    their cadence is untouched and new work does not cluster.
     """
     started, wall = clock(), datetime.now(timezone.utc)
     totals={}
     total_fields=('attempts','frames','commits','skipped','capture_failures','ocr_failures','last_started',
                   'elapsed_total','elapsed_count','duration_total','max_delay')
-    def initialize_lane(lane):
-        lane.update(due=clock(), attempts=0, run_attempts=0, frames=0, commits=0, stopped=False,_scheduled=True,
+    def initialize_lane(lane, due):
+        lane.update(due=due, attempts=0, run_attempts=0, frames=0, commits=0, stopped=False,_scheduled=True,
                     interrupted=False, skipped=0, capture_failures=0, ocr_failures=0, last_started=None,
                     elapsed_total=0,elapsed_count=0,duration_total=0,max_delay=0)
         if reconcile:lane.update(totals.get(lane['channel'],{}))
         if activity is not None:
             activity[lane['channel']]=dict(state='waiting',run_id=lane['run_id'],updated_at=utc(),
-                next_due_at=utc(wall),requested_interval_seconds=lane['args'].interval)
-    for lane in lanes:initialize_lane(lane)
+                next_due_at=utc(wall+timedelta(seconds=due-started)),requested_interval_seconds=lane['args'].interval)
+    def widest_gap(now, interval, others):
+        # Fold every other lane's slots over the longest interval onto the new lane's period,
+        # so each of its future slots, not only the first, avoids them.
+        horizon=now+max(interval,*(other['args'].interval for other in others))
+        points=[]
+        for other in others:
+            step=other['args'].interval;due=other['due']
+            due+=max(0,math.ceil((now-due)/step))*step  # Next slot on that lane's own grid.
+            # That next slot always counts, even exactly on (or rounded past) the horizon.
+            points.append((due-now)%interval);due+=step
+            while due<horizon:points.append((due-now)%interval);due+=step
+        points.sort()
+        gaps=[(b-a,(a+b)/2%interval) for a,b in zip(points,points[1:]+[points[0]+interval])]
+        return now+max(gaps,key=lambda gap:(gap[0],-gap[1]))[1]  # Widest; the soonest among equals.
+    def place(new):
+        now=clock()
+        others=[lane for lane in lanes if lane.get('_scheduled') and not lane['stopped'] and not lane.get('paused')]
+        for index,lane in enumerate(new):
+            interval=lane['args'].interval
+            if not stagger:due=now
+            elif not others:due=now+index*interval/len(new)
+            else:due=widest_gap(now,interval,others)
+            initialize_lane(lane,due)
+            if stagger and others:others.append(lane)
+    place(lanes)
     turn = 0
     running = {}
     results = queue.Queue()
@@ -384,8 +412,7 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
             if stop_after_seconds is not None and clock()-started>=stop_after_seconds:stopping=True
             if reconcile and not stopping:
                 reconcile(set(running),clock())
-                for lane in lanes:
-                    if not lane.get('_scheduled'):initialize_lane(lane)
+                place([lane for lane in lanes if not lane.get('_scheduled')])
             if maintain:maintain()
             pending = [] if stopping or len(running) >= workers else [
                 i for i,lane in enumerate(lanes) if not lane['stopped'] and not lane.get('paused') and lane['channel'] not in running and
@@ -450,8 +477,10 @@ def main(argv=None):
     cli.add_argument('--stop-after-seconds',type=float,help='Stop scheduling new work after real monotonic elapsed time')
     cli.add_argument('--offline-fast-test',action='store_true',help='Explicit local-video-only interval floor of 3 seconds')
     cli.add_argument('--workers',type=int,default=1,help='Concurrent capture/OCR attempts, 1..8 (one per channel at a time); SQLite stays single-writer. Above 4 is not yet validated on the VPS')
+    cli.add_argument('--stagger-capture',action='store_true',help='Spread first captures across each channel interval instead of starting all channels at once; roster additions take the widest free gap. Off by default')
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
+    cli.add_argument('--resident-tesseract',action='store_true',help='Reuse isolated native libtesseract worker processes (at most min(workers, 4)) instead of one tesseract CLI process per OCR call; off by default')
     cli.add_argument('--ocr-python',type=Path,help='Reuse the existing isolated OCR Python, including at its original checkout path')
     cli.add_argument('--log-root',type=Path,help='Private root for new per-process capture directories; required for isolated live name trials')
     cli.add_argument('--character-names',action='store_true',help='Opt in to own-name evidence/holds; Twitch requires isolated live trial settings; implies --resident-neural')
@@ -535,7 +564,7 @@ def main(argv=None):
         def make_lane(row):
             output=directory/row['channel']/uuid.uuid4().hex/'capture.jsonl' if db_mode else directory/row['channel']/'capture.jsonl'
             opts = options(row, database, output)
-            if args.ocr_python:opts.ocr_python=args.ocr_python.resolve()
+            if args.ocr_python:opts.ocr_python=args.ocr_python.absolute()  # Never follow a venv's interpreter symlink.
             if args.continuous: opts.count=60
             if not args.replay:
                 source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
@@ -545,8 +574,16 @@ def main(argv=None):
                 return {**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes}
         for row in streams:
             if not args.replay:lanes.append(make_lane(row))
+        native=None
         if not args.replay:
             configure_tesseract()
+            if args.resident_tesseract:
+                from resident_tesseract import TesseractPool, worker_command
+                preflight=TesseractPool(worker_command(),1)
+                try:engine=preflight.check()  # Fails clearly here; no system changes.
+                finally:preflight.close()
+                native=dict(version=engine['version'],model_sha256=engine['model_sha256'],workers=min(args.workers,4))
+                print(f"Resident Tesseract: libtesseract {native['version']}, model {native['model_sha256'][:12]}, up to {native['workers']} worker(s)",flush=True)
             if any(row['source']=='twitch' for row in streams) and importlib.util.find_spec('streamlink') is None:
                 raise ValueError('Existing capture extra (Streamlink) is missing')
             for lane in lanes:
@@ -590,6 +627,7 @@ def main(argv=None):
                         automation=AutonomousCharacters(store)
                     handles = {}
                     resident = shadow.ResidentNeural() if args.resident_neural or args.character_names or existing or db_mode else None
+                    tesseract = TesseractPool(worker_command(),native['workers']) if native else None
                     instance=uuid.uuid4().hex
                     try:
                         def open_run(lane, run_id, previous=None):
@@ -604,7 +642,9 @@ def main(argv=None):
                             header.update(coordinator=APP,coordinator_instance=instance,
                                 source_identity=hashlib.sha256(json.dumps(identity).encode()).hexdigest(),
                                 source_kind=source.kind,start_reason='scheduled_rotation' if previous else 'process_start',
-                                previous_run_id=previous,offline_fast_test=args.offline_fast_test,timing_mode='real')
+                                previous_run_id=previous,offline_fast_test=args.offline_fast_test,timing_mode='real',
+                                **({'stagger_capture':True} if args.stagger_capture else {}),
+                                **({'resident_tesseract':native} if native else {}))
                             if db_mode:header.update(database_roster=True,roster_revision=lane['roster_revision'])
                             lane['log'].write(json.dumps(header)+'\n'); lane['log'].flush()
                             return header
@@ -615,7 +655,8 @@ def main(argv=None):
                             if (binding['character_id'],binding['session_id']) != (lane['character_id'],lane['session_id']):
                                 raise ValueError('Startup assignment changed; no capture started')
                             httpd.active_run_ids.add(lane['run_id'])
-                        print(f'Capture RUNNING: at most {args.workers} active job(s), one per channel, bounded per-channel attempts, no queued frames.',flush=True)
+                        print(f'Capture RUNNING: at most {args.workers} active job(s), one per channel, bounded per-channel attempts, no queued frames'
+                              +(', first captures staggered across each interval.' if args.stagger_capture else '.'),flush=True)
                         with OperatorLog(directory) as operator:
                             maintenance_due=0
                             def maintain():
@@ -642,7 +683,7 @@ def main(argv=None):
                                     following=uuid.uuid4().hex
                                     header=shadow.configuration(lane['args'],lane['table_bytes'],lane['table'],following)
                                     old_header=json.loads(store.db.execute('SELECT configuration_json FROM diagnostic_runs WHERE run_id=?', (lane['run_id'],)).fetchone()[0])
-                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode','database_roster','roster_revision') if k in old_header})
+                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode','database_roster','roster_revision','stagger_capture','resident_tesseract') if k in old_header})
                                     pending={}
                                     def write(receipt, payload):
                                         handle=lane['log']
@@ -719,6 +760,7 @@ def main(argv=None):
                             scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate,maintain=maintain) if args.continuous else {}
                             def lane_options(lane):
                                 lane['options']={'resident':resident} if resident else {}
+                                if tesseract:lane['options']['tesseract']=tesseract  # Shared bounded pool; never shares a reply.
                                 if args.hud_cache_seconds:  # Per channel; survives rotation, not restarts.
                                     lane['options']['analyze_frame']=functools.partial(shadow.analyze,
                                         locator=shadow.CachedLocator(args.hud_cache_seconds))
@@ -753,7 +795,7 @@ def main(argv=None):
                                 scheduler_options['reconcile']=reconciler
                             def perform(lane,n,seek):
                                 return shadow.capture_attempt(lane['args'],lane['source'],lane['requirements'],n,seek=seek,**lane['options'])
-                            interrupted = schedule(lanes,perform,emit,workers=args.workers,
+                            interrupted = schedule(lanes,perform,emit,workers=args.workers,stagger=args.stagger_capture,
                                 activity=httpd.coordinator_status,active_runs=httpd.active_run_ids,**scheduler_options)
                             for lane in lanes:
                                 try:
@@ -780,6 +822,9 @@ def main(argv=None):
                         httpd.coordinator_status.clear()
                         for handle in handles.values(): handle.close()
                         if resident: resident.close()
+                        if tesseract:
+                            tesseract.close()
+                            print('Resident Tesseract: '+json.dumps(tesseract.snapshot()),flush=True)
             if not args.exit_after_capture and not interrupted:
                 print('Capture is NOT running; localhost viewer remains open. Ctrl+C closes it.',flush=True)
                 while thread.is_alive(): thread.join(.5)

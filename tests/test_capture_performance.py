@@ -278,6 +278,28 @@ def test_coordinator_flags_reach_each_attempt_and_are_bounded(multi, monkeypatch
         assert run_main(multi, *bad) == 1
 
 
+def test_ocr_python_keeps_the_supplied_virtualenv_path_instead_of_its_link_target(multi, monkeypatch, tmp_path):
+    # A Linux venv's bin/python links to the base interpreter, which lacks the venv's packages.
+    import os
+    module = multi[0]
+    real, venv = tmp_path/'base-python', tmp_path/'ocr-venv'
+    (real/'bin').mkdir(parents=True); (real/'bin/python').touch()
+    if os.name == 'nt':
+        import _winapi
+        _winapi.CreateJunction(str(real), str(venv))  # No symlink privilege needed.
+    else:
+        (venv/'bin').mkdir(parents=True); os.symlink(real/'bin/python', venv/'bin/python')
+    supplied = venv/'bin/python'
+    assert supplied.resolve() != supplied
+    seen = []
+    def capture(args, source, requirements, index, **kwargs):
+        seen.append(args.ocr_python)
+        return record(index)
+    monkeypatch.setattr(module.shadow, 'capture_attempt', capture)
+    assert run_main(multi, '--ocr-python', 'ocr-venv/bin/python') == 0
+    assert set(seen) == {supplied} and len(seen) == 4
+
+
 def test_worker_count_defaults_to_one_and_accepts_up_to_eight(multi, monkeypatch):
     module = multi[0]
     seen = []
@@ -473,3 +495,50 @@ def test_retention_maintenance_overlaps_in_flight_worker_and_restarts_cleanly(mu
         assert not store.db.execute('SELECT 1 FROM diagnostic_runs WHERE summary_json IS NULL').fetchone()
         assert all(Diagnostics(store).snapshot(c)['run_status'] == 'completed' for c in ('alpha', 'beta'))
     assert list((path.parent/'multi-alpha/runs').glob('*/.retention-owner.json'))
+
+
+def test_run_summary_reports_cadence_freshness_and_held_evidence(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path('tools').resolve()))
+    summarize = importlib.import_module('summarize_capture_run').summarize
+    rows = {'a/capture.jsonl': [dict(type='attempt', skipped_deadlines=0, scheduler_delay_seconds=1, local_age_seconds=4),
+                                dict(type='attempt', skipped_deadlines=2, scheduler_delay_seconds=3, actual_interval_seconds=60,
+                                     status='unavailable', identity_hold=dict(evidence=dict(status='stale_local_frame', local_age_seconds=16)))],
+            'a/run2/capture.jsonl': [dict(type='attempt', skipped_deadlines=3, actual_interval_seconds=30)],  # Rotated run, same lane.
+            'b/capture.jsonl': [dict(type='attempt', skipped_deadlines=1, local_age_seconds=5)]}
+    for name, records in rows.items():
+        (tmp_path/name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path/name).write_text('\n'.join(json.dumps(r) for r in records))
+    result = summarize(tmp_path)
+    assert result['skipped_deadlines'] == 4 and result['mean_scheduler_delay_seconds'] == 2
+    assert (result['max_local_age_seconds'], result['stale_local_frames'], result['identity_held_attempts']) == (16, 1, 1)
+    assert result['p95_actual_interval_seconds'] == 30
+
+
+def test_run_summary_takes_final_skips_from_the_end_of_run_summary_without_double_counting(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path('tools').resolve()))
+    summarize = importlib.import_module('summarize_capture_run').summarize
+    rotation = dict(type='summary', attempts=60, completion_reason='scheduled_rotation')  # No skip counter.
+    switch = dict(type='summary', attempts=2, completion_reason='automatic_character_switch')
+    rows = {'a/capture.jsonl': [dict(type='attempt', skipped_deadlines=1), rotation],
+            'a/r2/capture.jsonl': [dict(type='attempt', skipped_deadlines=2), switch],
+            # finish() skipped two more slots after the last attempt was written.
+            'a/r3/capture.jsonl': [dict(type='attempt', skipped_deadlines=2), dict(type='summary', skipped_deadlines=4)],
+            'b/capture.jsonl': [dict(type='attempt', skipped_deadlines=0), dict(type='summary', skipped_deadlines=0)]}
+    for name, records in rows.items():
+        (tmp_path/name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path/name).write_text('\n'.join(json.dumps(r) for r in records))
+    result = summarize(tmp_path)
+    assert result['skipped_deadlines'] == 4 and result['attempts'] == 4
+
+
+def test_final_summary_skip_count_can_exceed_the_last_attempt_record(schedule):
+    # The real scheduler: the last attempt finishes past two more slots, counted only afterwards.
+    now = [0.0]
+    def perform(lane, index, seek):
+        now[0] += 25
+        return attempt(index)
+    records = []
+    group = lanes('a', count=2, interval=10)
+    schedule(group, perform, lambda lane, record: records.append(record['skipped_deadlines']),
+             clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0]+max(0, s)))
+    assert records == [0, 2] and group[0]['skipped'] == 4

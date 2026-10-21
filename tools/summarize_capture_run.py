@@ -10,15 +10,31 @@ import statistics
 
 
 def summarize(directory):
-    attempts = [record for path in sorted(Path(directory).rglob('capture.jsonl'))
-                for line in path.read_text(encoding='utf-8').splitlines()
-                if (record := json.loads(line)).get('type') == 'attempt']
+    attempts, skipped = [], {}
+    for path in sorted(Path(directory).rglob('capture.jsonl')):
+        channel = path.relative_to(directory).parts[0]  # Rotated/switched runs nest under their channel.
+        for line in path.read_text(encoding='utf-8').splitlines():
+            record = json.loads(line)
+            if record.get('type') == 'attempt':
+                attempts.append(record)
+            # Cumulative per channel for the whole process. finish() can add skips after an attempt
+            # was written, so the final summary is authoritative; rotation/switch summaries omit it.
+            if record.get('type') in ('attempt', 'summary'):
+                skipped[channel] = max(skipped.get(channel, 0), record.get('skipped_deadlines') or 0)
     if not attempts:
         raise ValueError('No attempts under this run directory')
 
     def mean(values):
         values = [v for v in values if v is not None]
         return round(statistics.mean(values), 3) if values else None
+
+    def original(record):
+        # Identity holds nest the attempt's own status and frame age under identity_hold.evidence.
+        return (record.get('identity_hold') or {}).get('evidence') or record
+
+    def p95(values):
+        values = sorted(v for v in values if v is not None)
+        return round(values[int(.95 * (len(values) - 1))], 3) if values else None
 
     def stage(key, rows=attempts):
         return mean(r.get('timings', {}).get(key) for r in rows)
@@ -39,7 +55,14 @@ def summarize(directory):
         visual_level_seconds=stage('visual_level_seconds'),
         mean_actual_interval_seconds=mean(r.get('actual_interval_seconds') for r in attempts),
         max_actual_interval_seconds=max((r.get('actual_interval_seconds') or 0 for r in attempts), default=None),
+        p95_actual_interval_seconds=p95(r.get('actual_interval_seconds') for r in attempts),
+        skipped_deadlines=sum(skipped.values()),
+        mean_scheduler_delay_seconds=mean(r.get('scheduler_delay_seconds') for r in attempts),
         max_scheduler_delay_seconds=max((r.get('scheduler_delay_seconds') or 0 for r in attempts), default=None),
+        p95_local_age_seconds=p95(original(r).get('local_age_seconds') for r in attempts),
+        max_local_age_seconds=max((original(r).get('local_age_seconds') or 0 for r in attempts), default=None),
+        stale_local_frames=sum(original(r).get('status') == 'stale_local_frame' for r in attempts),
+        identity_held_attempts=sum('identity_hold' in r for r in attempts),
         last_resources=resources[-1] if resources else None)
 
 
