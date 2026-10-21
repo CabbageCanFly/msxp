@@ -17,6 +17,8 @@
   color-scheme: dark; font-family: var(--font-ui); color: var(--text); background: var(--bg);
 }
 * { box-sizing: border-box; }
+/* Reserve the scrollbar's space so short and long pages line up. */
+html { scrollbar-gutter: stable; }
 body { margin: 0; min-width: 280px; min-height: 100vh; background: radial-gradient(ellipse 90% 60% at 50% -10%, var(--bg-glow), transparent 70%), radial-gradient(ellipse at 80% 100%, #1b2a4b, var(--bg) 60%); background-attachment: fixed; }
 .sky { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
 .sky::before, .sky::after { content: ""; position: absolute; width: 300px; height: 100px; border-radius: 100px; background: #b7c8e40a; box-shadow: 50px -30px 0 #b7c8e40a; }

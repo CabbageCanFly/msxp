@@ -22,6 +22,8 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search=''){
       querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
+  // Most cases below were written against the original 5 minute card and chart windows with 1 minute bars.
+  if(view==='player' && !search.includes('defaults'))vm.runInContext('windowMinutes=5;lineWindow=5;chartWindow=5;bucketSeconds=60',context);
   return {context,elements,timers,buttons,modes,events,visits,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
 }
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
@@ -201,7 +203,9 @@ test('recent graph has a fixed selected time axis, all supported levels and reta
   p.run('chartMode="percentage";data.history=points;drawHistory()');
   assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:01:15.000Z');
   assert.match(p.elements['history-note'].textContent,/^Last 5 min · times in \S+/);
-  p.buttons[1].listeners.click();assert.equal(p.elements['history-chart'].dataset.start,'2025-12-31T23:56:15.000Z');
+  // The stat-card window no longer moves the chart; the chart's own window does.
+  p.buttons[1].listeners.click();assert.equal(p.elements['history-chart'].dataset.start,'2026-01-01T00:01:15.000Z');
+  p.run('lineWindow=10;drawHistory()');assert.equal(p.elements['history-chart'].dataset.start,'2025-12-31T23:56:15.000Z');
   assert.ok(!p.elements['history-chart'].children.some(n=>n.attributes.class==='gap'));
   assert.ok(!p.elements['history-chart'].children.some(n=>n.tag==='polyline'));
   p.elements['history-chart'].clientWidth=340;p.run('drawHistory()');
@@ -234,7 +238,8 @@ test('percentage chart counts numerical points separately from missing and unkno
   const shapes=p.elements['history-chart'].children;
   assert.equal(shapes.filter(n=>n.tag==='circle').length,2);
   assert.equal(shapes.filter(n=>n.tag==='path').length,2);
-  assert.equal(shapes.filter(n=>n.tag==='line').length,1);  // a joins d; b and c stay off the line
+  assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,1);  // a joins d; b and c stay off the line
+  assert.equal(shapes.filter(n=>n.attributes.class==='chart-grid').length,4);
 });
 
 test('endpoint pace discloses elapsed gaps and conditional recovery is never strict OCR',()=>{
@@ -981,4 +986,30 @@ test('a plain roster click navigates, a drag does not, and the next normal click
   assert.equal(p.run('viewCharacter'),'3');assert.match(p.visits.at(-1)[1],/\?character=3$/);
   assert.equal(p.elements['roster-list'].listeners?.wheel,undefined);
   assert.equal(p.elements['roster-search'].listeners?.pointerdown,undefined);
+});
+
+test('character page defaults: 15 min cards, 24h bar chart and a 15 min line chart',()=>{
+  const p=page('player',undefined,'?defaults');
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify([windowMinutes,bucketSeconds,chartWindow,lineWindow])')),[15,1800,60,15]);
+});
+
+test('overlay URL options fall back on unknown values and accept only six-digit hex colours',()=>{
+  const p=page('overlay');
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions("?layout=rates&name=nope&title=tracker&bar=ABCDEF&accent=red&header=%23123456"))')),
+    {layout:'rates',title:'tracker',name:'both',theme:'night',bar:'abcdef'});
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',name:'both',theme:'night'});
+});
+
+test('overlay rates read each lookback window; the last-hour chart keeps untracked bins unknown',()=>{
+  const p=page('overlay');
+  const pace=rate=>({active:true,age_seconds:0,estimates:{exp_per_hour:{value:{approximate:rate}},percentage_per_hour:null,eta:null}});
+  const base=player({recent_windows:{'15':{pace:pace(1500)},'60':{pace:pace(6000)}}});p.render(base);
+  assert.equal(p.run('publicPace(data.player,15).estimates.exp_per_hour.value.approximate'),1500);
+  assert.equal(p.run('publicPace(data.player,60).estimates.exp_per_hour.value.approximate'),6000);
+  assert.equal(p.run('publicPace(data.player,30)'),null);
+  p.context.tracked={as_of:'2026-01-01T01:00:00Z',chart_intervals:[{start:'2026-01-01T00:50:00Z',end:'2026-01-01T00:52:00Z',value:{approximate:400},policy:'public_endpoint_window_v2'}]};
+  p.run('data.tracked_history=tracked;drawHourChart()');
+  const bars=p.elements['overlay-chart'].children;
+  assert.equal(bars.length,12);assert.equal(bars.filter(b=>b.attributes.class==='bar').length,1);
+  assert.equal(p.elements['hour-total'].textContent,'~400 EXP');
 });

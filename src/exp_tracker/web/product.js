@@ -25,7 +25,25 @@ const selecting=()=>{const s=globalThis.getSelection?.();return !!s && s.rangeCo
 const sorts={exp_hour:'Estimated from recent stream updates.',
   level:'Latest known level for each character.',
   movement:'Level % gained in the selected time.'};
-let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=5,chartMode='exp',bucketSeconds=60,pollTimer=null,activeController=null;
+let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=view==='player'?15:5,chartMode='exp',bucketSeconds=1800,pollTimer=null,activeController=null;
+// The character page's charts keep their own time windows, separate from the stat cards above them.
+let chartWindow=60,lineWindow=15;
+// Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
+const OVERLAY_CHOICES={layout:['card','rates','chart'],title:['site','tracker'],name:['both','character','twitch','none'],theme:['night','day']};
+const OVERLAY_COLORS=['header','bar','accent'];
+function overlayOptions(search) {
+  const q=new URLSearchParams(search),options={};
+  for(const [key,allowed] of Object.entries(OVERLAY_CHOICES))options[key]=allowed.includes(q.get(key))?q.get(key):allowed[0];
+  for(const key of OVERLAY_COLORS)if(/^[0-9a-f]{6}$/i.test(q.get(key) ?? ''))options[key]=q.get(key).toLowerCase();
+  return options;
+}
+// Also called by the character page's live preview (same origin) as options change.
+function applyOverlay(o) {
+  Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name});
+  for(const key of OVERLAY_COLORS)if(/^[0-9a-f]{6}$/.test(o[key] ?? ''))document.body.style.setProperty('--'+key,'#'+o[key]);else document.body.style.removeProperty?.('--'+key);
+  el('overlay-brand').textContent=o.title==='site'?'msxp.pages.dev':'EXP TRACKER';
+  if(data?.player)renderPlayer();
+}
 let rollingData=null,rollingReceived=0,rollingRevision=null,rollingFailed=false,rollingController=null,rollingTimer=null;
 let tip=null,tipKey=null,tipPosition=null,tipDismissed=false,lastPointer=null;
 let currentLevelOnly=false,warming=false;
@@ -113,15 +131,16 @@ function earlyText(p) {
   const rate=e.exp_per_hour?`~${expText(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`~${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`:null;
   return rate?`${rate} · Early estimate`:null;
 }
-function publicPace(p) {
-  const recent=recentWindow(p);
-  if(view==='player' && recent?.status==='history_limit')return null;
+function publicPace(p,minutes=null) {
+  // minutes reads that lookback's saved pace (overlay rates); otherwise the page's own selection.
+  const windowed=view==='player' || minutes!=null,recent=minutes!=null?p.recent_windows?.[String(minutes)]:recentWindow(p);
+  if(windowed && recent?.status==='history_limit')return null;
   const compatible=p.responsive_pace?.level==null || p.responsive_pace.level===(p.reading?.level?.value ?? p.display_level?.value);
-  const pace=view==='player' && recent?(recent.pace ?? recent.last_observed_pace ?? (windowMinutes===5 && compatible?p.responsive_pace:null)):p.responsive_pace;
+  const pace=windowed && recent?(recent.pace ?? recent.last_observed_pace ?? ((minutes ?? windowMinutes)===5 && compatible?p.responsive_pace:null)):p.responsive_pace;
   if(!pace)return null;
   const age=pace.age_seconds+(performance.now()-receivedAt)/1000;
   const policy=pace.presentation;
-  const active=pace.active && !(view==='player' && recent && !recent.pace) && !current(p).stale && !failed && (!policy || policy.state==='observed');
+  const active=pace.active && !(windowed && recent && !recent.pace) && !current(p).stale && !failed && (!policy || policy.state==='observed');
   let estimates=active?pace.estimates:{...pace.estimates,eta:null};
   const expired=policy?.state==='paused' || policy?.running && age>=(policy.expire_after_seconds ?? policy.pause_after_seconds);
   if(expired)estimates={exp_per_hour:null,percentage_per_hour:null,eta:null};
@@ -314,7 +333,7 @@ function renderPlayer() {
     el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return;
   }
   const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (view==='player' && p.recent_windows?null:s.metrics);
-  if(view==='overlay') { el('streamer').textContent=sourceText(p);el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
+  if(view==='overlay') { el('streamer').textContent=p.channel;el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
   else {
     el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=p.channel;
     // Video and demo sources have no channel page, so they link to Twitch itself.
@@ -352,6 +371,11 @@ function renderPlayer() {
     if(el('eta').clientWidth>0 && el('eta').scrollWidth>el('eta').clientWidth+1)el('eta').textContent=etaText(eta,true);
     if(pace && !pace.active && !failed && !p.twitch && !levelTransition(p) && !p.percentage_state?.pending_since && !['capture_finished','capture_interrupted','historical_session','stopped','coordinator_stopped'].includes(p.activity?.state))el('status').textContent=`Last estimate ${ageText(pace.age)}`;
     el('rate-label').textContent=pace && !pace.active?'Last EXP / hour':'EXP / hour';
+    for(const n of document.querySelectorAll('[data-rate-window]')) {
+      const windowPace=publicPace(p,Number(n.dataset.rateWindow)),rate=windowPace?.estimates.exp_per_hour;
+      n.textContent=rate?`~${expText(rate.value.approximate)}`:'—';n.dataset.paused=String(!!windowPace && !windowPace.active);
+    }
+    if(document.body.dataset.layout==='chart')drawHourChart();
   }
   if(view==='player') {
     const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
@@ -415,8 +439,8 @@ function drawExpHistory() {
   const chart=bucketSeconds===1800 && rolling?{
     start:Date.parse(rolling.start),end:Date.parse(rolling.end),seconds:1800,range:86400,
     bins:rolling.buckets.map(b=>({...b,start:Date.parse(b.start),end:Date.parse(b.end),value:b.value?.approximate ?? null,covered:b.covered.approximate}))
-  }:bucketHistory(bucketSeconds===1800?[]:rows,bucketSeconds===1800?Date.parse(data?.served_at):anchor,bucketSeconds,bucketSeconds===1800?null:windowMinutes*60);
-  if(!chart){el('history-note').textContent='Your next adventure starts here.';return;}
+  }:bucketHistory(bucketSeconds===1800?[]:rows,bucketSeconds===1800?Date.parse(data?.served_at):anchor,bucketSeconds,bucketSeconds===1800?null:chartWindow*60);
+  if(!chart || !Number.isFinite(chart.start) || !Number.isFinite(chart.end)){el('history-note').textContent='Your next adventure starts here.';return;}
   const width=Math.max(300,Math.min(960,svg.clientWidth||960)),plotWidth=width-76;
   svg.setAttribute('viewBox',`0 0 ${width} 250`);svg.setAttribute('aria-label','EXP gained over time; dashes mean no data');
   svg.dataset.start=new Date(chart.start).toISOString();svg.dataset.end=new Date(chart.end).toISOString();
@@ -447,14 +471,31 @@ function drawExpHistory() {
   el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?chart.range/60+' min':chart.range/3600+' hours'} · times in ${zoneLabel()}${count?'':' · no data in this period'}`;
   el('history-note').title='The 24h view always includes all levels.';
 }
+// Overlay "last hour" layout: EXP per 5 minutes, dashes where nothing was tracked (never zero).
+function drawHourChart() {
+  const svg=el('overlay-chart'),tracked=data?.tracked_history;svg.replaceChildren();
+  const chart=bucketHistory((tracked?.chart_intervals ?? []).map(g=>({gain:g,connect_previous:true})),Date.parse(tracked?.as_of),300,3600);
+  if(!chart){el('hour-total').textContent='—';return;}
+  const top=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),step=462/chart.bins.length;
+  const rect=attrs=>{const n=document.createElementNS('http://www.w3.org/2000/svg','rect');for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);svg.append(n);};
+  chart.bins.forEach((b,i)=>{
+    const height=b.value==null?2:Math.max(2,Math.max(0,b.value)/top*70);
+    rect({x:i*step+3,y:74-height,width:step-6,height,rx:b.value==null?1:3,class:b.value==null?'none':'bar'});
+  });
+  const seen=chart.bins.filter(b=>b.value!=null);
+  el('hour-total').textContent=seen.length?`~${expText(seen.reduce((sum,b)=>sum+b.value,0))} EXP`:'—';
+}
 function drawHistory() {
   const focus=document.activeElement?.dataset?.tipKey,openKey=tipKey,position=tipPosition;
   document.querySelectorAll('[data-chart]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chart===chartMode)));
   document.querySelectorAll('[data-bucket]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.bucket)===bucketSeconds)));
-  el('bucket-controls').hidden=chartMode!=='exp';
+  // The 30 min interval always covers 24 hours, so its time window buttons don't apply.
+  document.querySelectorAll('[data-chart-window]').forEach(b=>{b.setAttribute('aria-pressed',String(bucketSeconds!==1800 && Number(b.dataset.chartWindow)===chartWindow));b.disabled=bucketSeconds===1800;});
+  document.querySelectorAll('[data-line-window]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.lineWindow)===lineWindow)));
+  el('bucket-controls').hidden=chartMode!=='exp';el('line-controls').hidden=chartMode==='exp';
   if(chartMode==='exp')drawExpHistory();else drawPercentageHistory();
   const all=data?.history ?? [],anchor=Date.parse(data?.tracked_history?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end ?? data?.player?.latest_attempt_at ?? all.at(-1)?.timestamp);
-  const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-windowMinutes*60000).at(-1);
+  const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-(chartMode!=='exp'?lineWindow:bucketSeconds===1800?1440:chartWindow)*60000).at(-1);
   const label=!event?'':event.inferred?`Level ${event.level} reached`:`Level ${event.level} reached!`;
   if(el('level-event').textContent!==label)el('level-event').textContent=label;
   el('level-event').hidden=!event;
@@ -471,7 +512,7 @@ function drawPercentageHistory() {
   svg.setAttribute('viewBox',`0 0 ${width} 230`);
   const all=(data?.history ?? []).map(r=>({...r,time:Date.parse(r.timestamp)})).filter(r=>Number.isFinite(r.time));
   const anchor=Date.parse(data?.tracked_history?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end) || (all.length?Math.max(...all.map(p=>p.time)):0);
-  const first=anchor-windowMinutes*60000,last=anchor;
+  const first=anchor-lineWindow*60000,last=anchor;
   const windowPoints=all.filter(p=>p.time>=first && p.time<=last);
   const level=displayLevel(data?.player ?? {})?.value;
   const points=currentLevelOnly?windowPoints.filter(p=>!p.reading || p.level.value===level):windowPoints;
@@ -481,7 +522,13 @@ function drawPercentageHistory() {
   const padding=Math.max(.01,(max-min)*.1),low=Math.max(0,min-padding),high=Math.min(100,max+padding);
   function shape(tag,attrs,title) { const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(title)n.append(node('title','',title));svg.append(n);return n; }
   if(!points.length)shape('text',{x:60,y:100}).textContent='Your next adventure starts here.';
-  const x=t=>60+(t-first)/Math.max(1,last-first)*plotWidth,y=v=>175-(v-low)/Math.max(.01,high-low)*140;
+  const x=t=>60+(t-first)/Math.max(1,last-first)*plotWidth,y=v=>190-(v-low)/Math.max(.01,high-low)*165;
+  for(let i=0;i<=4;i++) {
+    const value=low+(high-low)*i/4;
+    shape('line',{x1:60,x2:width-40,y1:y(value),y2:y(value),class:i?'chart-grid':'chart-axis'});
+    shape('text',{x:52,y:y(value)+4,'text-anchor':'end'}).textContent=value.toFixed(2)+'%';
+  }
+  shape('line',{x1:60,x2:60,y1:20,y2:190,class:'chart-axis'});
   // Display only: each readable point joins the previous readable one; unreadable points stay hoverable off the line.
   points.filter(visible).forEach((p,i,readable)=>{
     const previous=readable[i-1];
@@ -490,19 +537,18 @@ function drawPercentageHistory() {
   points.forEach(p=>{
     if(visible(p))inspect(shape('circle',{cx:x(p.time),cy:y(p.reading.bp/100),r:4,class:'sample'}),
       `point:${p.event_id}`,`${localTime(p.timestamp)}\n${p.level.value!=null?'Lv. '+p.level.value+' · ':''}${p.reading.percentage}%\n${p.reading.exp!=null || p.reading.estimated_exp?displayedExp(p.reading,true)+' EXP':'EXP unavailable'}`);
-    else inspect(shape('path',{d:`M${x(p.time)-3} 185l6 6m0-6-6 6`,class:'missing'}),`point:${p.event_id}`,`${localTime(p.timestamp)}\nCouldn't read EXP`);
+    else inspect(shape('path',{d:`M${x(p.time)-3} 194l6 6m0-6-6 6`,class:'missing'}),`point:${p.event_id}`,`${localTime(p.timestamp)}\nCouldn't read EXP`);
   });
   let previousLevel=null;
   for(const p of windowPoints.filter(p=>p.reading && p.level.value!=null)) {
     if(previousLevel!=null && p.level.value!==previousLevel) {
       const event=(data.player.level_events ?? []).find(e=>e.level===p.level.value && Date.parse(e.first_observed_at)<=p.time);
-      shape('line',{x1:x(p.time),x2:x(p.time),y1:20,y2:180,class:'level-transition'});
+      shape('line',{x1:x(p.time),x2:x(p.time),y1:20,y2:190,class:'level-transition'});
       shape('text',{x:Math.min(width-75,x(p.time)+4),y:16,class:'level-transition-label'}).textContent=
         !event?`Lv. ${p.level.value}`:event.inferred && event.status!=='corroborated'?`Lv. ${p.level.value}`:`Level ${p.level.value}!`;
     }
     previousLevel=p.level.value;
   }
-  shape('text',{x:10,y:32}).textContent=high.toFixed(2)+'%';shape('text',{x:10,y:180}).textContent=low.toFixed(2)+'%';
   const ticks=width<600?3:5;
   for(let i=0;i<ticks;i++) {
     const time=first+(last-first)*i/(ticks-1);
@@ -510,7 +556,7 @@ function drawPercentageHistory() {
   }
   svg.dataset.start=new Date(first).toISOString();svg.dataset.end=new Date(last).toISOString();
   const readable=points.filter(visible).length,unavailable=points.length-readable;
-  el('history-note').textContent=`${currentLevelOnly && level!=null?'Lv. '+level+' · ':''}Last ${windowMinutes} min · times in ${zoneLabel()}${readable?'':' · no data in this period'}${unavailable?' · ✕ couldn\'t read EXP':''}`;
+  el('history-note').textContent=`${currentLevelOnly && level!=null?'Lv. '+level+' · ':''}Last ${lineWindow} min · times in ${zoneLabel()}${readable?'':' · no data in this period'}${unavailable?' · ✕ couldn\'t read EXP':''}`;
   el('history-note').title='';
 }
 async function poll() {
@@ -646,9 +692,39 @@ if(view==='player') {
   globalThis.addEventListener?.('scroll',hideTip,true);
   document.querySelectorAll('[data-chart]').forEach(b=>b.addEventListener('click',()=>{if(!['exp','percentage'].includes(b.dataset.chart))return;chartMode=b.dataset.chart;drawHistory();}));
   document.querySelectorAll('[data-bucket]').forEach(b=>b.addEventListener('click',()=>{if(![60,300,1800].includes(Number(b.dataset.bucket)))return;bucketSeconds=Number(b.dataset.bucket);drawHistory();}));
-  globalThis.addEventListener?.('resize',()=>{renderPlayer();drawHistory();rosterEdges();});
-  const url=`${location.origin}/live/overlay/${encodeURIComponent(channel)}`;
-  el('overlay-link').href=url;el('diagnostics').href=`/dashboard/${channel}`;el('history-link').href=`/dashboard/${channel}`;
+  document.querySelectorAll('[data-chart-window]').forEach(b=>b.addEventListener('click',()=>{if(![15,30,60].includes(Number(b.dataset.chartWindow)))return;chartWindow=Number(b.dataset.chartWindow);drawHistory();}));
+  document.querySelectorAll('[data-line-window]').forEach(b=>b.addEventListener('click',()=>{if(![5,10,15,30,60].includes(Number(b.dataset.lineWindow)))return;lineWindow=Number(b.dataset.lineWindow);drawHistory();}));
+  globalThis.addEventListener?.('resize',()=>{renderPlayer();drawHistory();rosterEdges();scalePreview();});
+  const builder=overlayOptions(''),SIZES={card:[500,160],rates:[500,110],chart:[500,180]};
+  const THEME_COLORS={night:{header:'705035',bar:'b6e65b',accent:'ffc56b'},day:{header:'8a6440',bar:'a8d83c',accent:'c8690f'}};
+  const frame=el('overlay-preview');
+  const overlayURL=()=>{
+    const q=new URLSearchParams();
+    for(const [key,allowed] of Object.entries(OVERLAY_CHOICES))if(builder[key]!==allowed[0])q.set(key,builder[key]);
+    for(const key of OVERLAY_COLORS)if(builder[key])q.set(key,builder[key]);
+    return `${location.origin}/live/overlay/${encodeURIComponent(channel)}${String(q)?'?'+q:''}`;
+  };
+  function scalePreview() {
+    const scale=Math.min(1,((el('overlay-stage').clientWidth || 524)-26)/frame.width);
+    frame.style.transform=`scale(${scale})`;el('overlay-stage').style.height=`${Math.ceil(frame.height*scale)+26}px`;
+  }
+  function updateBuilder() {
+    const url=overlayURL(),[width,height]=SIZES[builder.layout];
+    el('overlay-url').value=url;el('overlay-link').href=url;el('overlay-size').textContent=`OBS size · ${width} × ${height}`;el('copy-status').textContent='';
+    document.querySelectorAll('[data-option] button').forEach(b=>b.setAttribute('aria-pressed',String(builder[b.closest('[data-option]').dataset.option]===b.dataset.value)));
+    document.querySelectorAll('[data-color]').forEach(input=>{input.value='#'+(builder[input.dataset.color] ?? THEME_COLORS[builder.theme][input.dataset.color]);});
+    frame.width=width;frame.height=height;scalePreview();
+    // The preview is this site's own overlay page, so options apply in place without reloading it.
+    if(frame.dataset.loaded)frame.contentWindow?.applyOverlay?.(builder);else if(!frame.src)frame.src=url;
+  }
+  frame.addEventListener('load',()=>{frame.dataset.loaded='true';frame.contentWindow?.applyOverlay?.(builder);});
+  document.querySelectorAll('[data-option] button').forEach(b=>b.addEventListener('click',()=>{
+    const key=b.closest('[data-option]').dataset.option;if(!OVERLAY_CHOICES[key]?.includes(b.dataset.value))return;builder[key]=b.dataset.value;updateBuilder();
+  }));
+  document.querySelectorAll('[data-color]').forEach(input=>input.addEventListener('input',()=>{builder[input.dataset.color]=input.value.slice(1).toLowerCase();updateBuilder();}));
+  el('overlay-reset').addEventListener('click',()=>{for(const key of OVERLAY_COLORS)delete builder[key];updateBuilder();});
+  updateBuilder();
+  el('diagnostics').href=`/dashboard/${channel}`;el('history-link').href=`/dashboard/${channel}`;
   const track=el('roster-track'),all=el('roster-all');
   const modified=e=>e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
   let drag=null,suppressClick=false;
@@ -698,7 +774,7 @@ if(view==='player') {
   all.addEventListener('keydown',e=>{if(e.key==='Escape' && all.open){e.stopPropagation();all.open=false;all.querySelector('summary').focus();}});
   document.addEventListener('pointerdown',e=>{if(all.open && !all.contains(e.target))all.open=false;});
   globalThis.addEventListener?.('popstate',()=>selectCharacter(characterParam(),'none'));
-  el('copy-overlay').addEventListener('click',async()=>{try {await navigator.clipboard.writeText(url);el('copy-status').textContent='Copied · use a 500 × 160 Browser Source';}catch{el('copy-status').textContent='Copy the Open OBS overlay link · 500 × 160';}});
+  el('copy-overlay').addEventListener('click',async()=>{const [width,height]=SIZES[builder.layout];try {await navigator.clipboard.writeText(overlayURL());el('copy-status').textContent=`Copied · use a ${width} × ${height} Browser Source`;}catch{el('copy-status').textContent='Select the URL above and copy it';}});
 }
 function render() { if(view==='board')renderBoard();else {renderPlayer();if(view==='player'){renderRoster();drawHistory();}} }
 const zoneSelect=view==='overlay'?null:el('timezone');
@@ -713,6 +789,7 @@ if(zoneSelect) {
     if(data)render();
   });
 }
+if(view==='overlay')applyOverlay(overlayOptions(location.search));
 poll();setInterval(()=>{
   if(selecting())return;
   if(deferredRender){deferredRender=false;if(data)render();}

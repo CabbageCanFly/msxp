@@ -1,0 +1,72 @@
+/* OBS overlay (/live/overlay/CHANNEL). Options arrive as URL parameters; see product.js overlayOptions. */
+@font-face { font-family: "Fredoka"; font-weight: 400 700; font-display: swap; src: url(fonts/fredoka-latin.woff2) format("woff2"); }
+@font-face { font-family: "Nunito"; font-weight: 400 900; font-display: swap; src: url(fonts/nunito-latin.woff2) format("woff2"); }
+:root { font-family: "Nunito", "Segoe UI", sans-serif; }
+html, body { margin: 0; background: transparent; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+/* Themes; header, bar and accent can be overridden per overlay URL. */
+.live-overlay { --header: #705035; --bar: #b6e65b; --accent: #ffc56b;
+  --panel: #232c3e; --panel-edge: #4b3423; --text: #f4ebdc; --muted: #aab3c4; --line: #3a465d; --track: #19212f; --badge: #2b354a; --bar-text: #fff; --bar-shadow: 0 1px 2px #000c; }
+.live-overlay[data-theme="day"] { --header: #8a6440; --bar: #a8d83c; --accent: #c8690f;
+  --panel: #fff9e9; --panel-edge: #725b43; --text: #493b30; --muted: #7a6855; --line: #d9ccb7; --track: #e8deca; --badge: #33302c; --bar-text: #263310; --bar-shadow: 0 1px #f5ffc280; }
+
+#card { width: 490px; margin: 5px; display: flex; flex-direction: column; overflow: hidden;
+  color: var(--text); background: var(--panel); border: 2px solid var(--panel-edge); border-radius: 14px; box-shadow: 0 3px 0 #0000004d; }
+[data-layout="card"] #card { height: 150px; }
+[data-layout="rates"] #card { height: 100px; }
+[data-layout="chart"] #card { height: 170px; }
+[data-layout="card"] :is(.rate-stats, .hour-chart),
+[data-layout="rates"] :is(.reading, .general-stats, .hour-chart),
+[data-layout="chart"] :is(.reading, .general-stats, .rate-stats) { display: none; }
+
+header { display: flex; align-items: center; gap: 7px; height: 28px; flex: none; padding: 0 12px 0 9px; color: #fff3dc;
+  background: linear-gradient(#ffffff26, #0000001f), var(--header); border-bottom: 2px solid #0000004d; }
+.charm { flex: none; filter: drop-shadow(0 1px 0 #0006); }
+.brand { flex: none; font: 600 13px/1 "Fredoka", sans-serif; letter-spacing: .3px; text-shadow: 0 1px 0 #0000004d; }
+.identity { display: flex; justify-content: flex-end; align-items: baseline; gap: 6px; flex: 1; min-width: 0; }
+#character { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15px/1 "Fredoka", sans-serif; text-shadow: 0 1px 0 #0000004d; }
+#streamer { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; opacity: .85; }
+.separator { opacity: .6; font-size: 11px; }
+[data-name="character"] :is(#streamer, .separator), [data-name="twitch"] :is(#character, .separator), [data-name="none"] .identity { display: none; }
+[data-name="twitch"] #streamer { max-width: 100%; font-size: 13px; }
+
+.reading { display: flex; align-items: center; gap: 8px; padding: 7px 10px 0; font-variant-numeric: tabular-nums; }
+#level { flex: none; min-width: 64px; padding: 0 8px; text-align: center; line-height: 30px; border-radius: 8px; background: var(--badge); color: var(--accent);
+  font: 600 16px/30px "Fredoka", sans-serif; box-shadow: inset 0 -2px #0000004d; }
+#level[data-last-known="true"] { outline: 1px dashed var(--accent); outline-offset: -3px; }
+.progress-section { position: relative; flex: 1; min-width: 0; }
+progress { display: block; width: 100%; height: 30px; margin: 0; border: 1px solid #0000004d; border-radius: 8px; overflow: hidden; background: var(--track); appearance: none; }
+progress::-webkit-progress-bar { background: var(--track); }
+progress::-webkit-progress-value { background: linear-gradient(#ffffff59, #ffffff00 60%), var(--bar); }
+progress::-moz-progress-bar { background: var(--bar); }
+#card[data-stale="true"] progress { opacity: .65; }
+.progress-label { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; gap: 5px; white-space: nowrap; pointer-events: none;
+  color: var(--bar-text); text-shadow: var(--bar-shadow); font-size: 13px; font-weight: 800; }
+.caption { font-size: 10px; font-style: italic; letter-spacing: .5px; }
+#exp { font-size: 15px; }
+#exp[data-size="long"] { font-size: 12px; }
+
+.statistics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 6px 12px 0; }
+.stat { min-width: 0; padding: 0 8px; border-left: 1px solid var(--line); }
+.stat:first-child { border-left: 0; padding-left: 0; }
+.stat-label { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; }
+.stat strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 600 20px/26px "Fredoka", sans-serif; font-variant-numeric: tabular-nums; }
+.stat strong[data-size="long"] { font-size: 14px; }
+.stat strong[data-paused="true"], #rate[data-paused="true"] { opacity: .6; }
+#rate, .rate-stats strong { color: var(--accent); }
+
+.hour-chart { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 6px 12px 0; }
+.hour-caption { display: flex; justify-content: space-between; align-items: baseline; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; }
+#hour-total { color: var(--accent); font: 600 15px/1 "Fredoka", sans-serif; letter-spacing: 0; text-transform: none; }
+#overlay-chart { display: block; width: 100%; flex: 1; min-height: 0; margin-top: 4px; }
+#overlay-chart .bar { fill: var(--bar); }
+#overlay-chart .none { fill: var(--muted); opacity: .45; }
+#overlay-chart .base { stroke: var(--line); stroke-width: 1; }
+
+footer { display: flex; align-items: center; gap: 10px; margin-top: auto; padding: 0 12px 5px; height: 21px; color: var(--muted); font-size: 10px; font-weight: 700; }
+#status { flex: 1.5; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#age { flex: 1; min-width: 0; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+#age:empty { display: none; }
+.estimate-mark { flex: none; font-size: 9px; opacity: .8; }

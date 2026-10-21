@@ -24,6 +24,7 @@ from .twitch_auth import AppTokens
 WEB = Path(__file__).with_name("web")
 ASSETS = {
     "/static/overlay.css": ("overlay.css", "text/css"),
+    "/static/live-overlay.css": ("live-overlay.css", "text/css"),
     "/static/overlay.js": ("overlay.js", "text/javascript"),
     "/static/leaderboard.css": ("leaderboard.css", "text/css"),
     "/static/leaderboard.js": ("leaderboard.js", "text/javascript"),
@@ -39,7 +40,7 @@ SHADOW_ASSETS = {
 DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
 PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
 # Public-only mode also serves these shared assets; everything else outside the product is refused.
-PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css', '/static/steely.png',
+PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css', '/static/live-overlay.css', '/static/steely.png',
                  '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'}
 # Unchanging binary assets may be cached briefly so page changes don't re-download them and re-flow text.
 CACHED_ASSETS = {'/static/steely.png', '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'}

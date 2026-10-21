@@ -84,7 +84,7 @@ try {
     assert.doesNotMatch(await detail.evaluate('document.getElementById("early-value").textContent'),/readings|sampled|sequence/);
   }
   const recent=await detail.evaluate('({start:document.getElementById("history-chart").dataset.start,end:document.getElementById("history-chart").dataset.end,note:document.getElementById("history-note").textContent})');
-  if(recent.start)assert.equal(Date.parse(recent.end)-Date.parse(recent.start),300000);
+  if(recent.start)assert.equal(Date.parse(recent.end)-Date.parse(recent.start),86400000);  // default: 30 min bars over 24 hours
   const initialObserved=original.player.recent_windows?.['5']?.observed ?? original.player.windows['5'].observed;
   const savedWindow=initialObserved?.historical || original.player.stale && ['completed','interrupted'].includes(original.player.capture_lifecycle);
   assert.equal(await detail.evaluate('document.getElementById("movement-label").textContent'),`${savedWindow?'Saved':'Last'} 5 min`);
@@ -324,7 +324,7 @@ try {
     for(const seconds of [60,300]){
       await detail.evaluate(`document.querySelector('[data-bucket="${seconds}"]').click()`);
       const span=await detail.evaluate('Date.parse(document.getElementById("history-chart").dataset.end)-Date.parse(document.getElementById("history-chart").dataset.start)');
-      assert.equal(span,await detail.evaluate('windowMinutes*60000'));
+      assert.equal(span,await detail.evaluate('chartWindow*60000'));
     }
     for(const page of [detail,board,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     writeFileSync(join(output,'rolling-stages.json'),JSON.stringify(stages,null,2));observed.push(...stages);
@@ -361,7 +361,7 @@ try {
     for(const seconds of [60,300,1800]){
       await detail.evaluate(`document.querySelector('[data-bucket="${seconds}"]').click()`);
       const bounds=await detail.evaluate('({a:document.getElementById("history-chart").dataset.start,b:document.getElementById("history-chart").dataset.end})');
-      assert.equal(Date.parse(bounds.b)-Date.parse(bounds.a),seconds===1800?86400000:await detail.evaluate('windowMinutes*60000'));
+      assert.equal(Date.parse(bounds.b)-Date.parse(bounds.a),seconds===1800?86400000:await detail.evaluate('chartWindow*60000'));
       assert.ok(await detail.evaluate('document.querySelectorAll(".exp-column:not(.missing)").length>0'));
       assert.ok(await detail.evaluate('document.querySelectorAll(".exp-column.missing").length>0'));
     }
@@ -394,7 +394,7 @@ try {
       assert.equal(await detail.evaluate('document.getElementById("movement").dataset.fullNumber'),`+${new Intl.NumberFormat('en-US').format(packet.windows[minutes].gain.approximate)} EXP`);
       assert.equal(await detail.evaluate('data.tracked_history.as_of'),packet.as_of);
       const gain=packet.windows[minutes].gain.approximate;
-      const bars=await detail.evaluate('bucketHistory(rollingData.chart_intervals.map(g=>({gain:g,connect_previous:true})),Date.parse(rollingData.as_of),60,windowMinutes*60).bins.reduce((s,b)=>s+(b.value??0),0)');
+      const bars=await detail.evaluate(`bucketHistory(rollingData.chart_intervals.map(g=>({gain:g,connect_previous:true})),Date.parse(rollingData.as_of),60,${minutes}*60).bins.reduce((s,b)=>s+(b.value??0),0)`);
       assert.ok(Math.abs(bars-gain)<.00001,'Bars and cards match net endpoint progress');
     }
     await detail.wait('rollingData?.tracked_exp?.approximate===42703');

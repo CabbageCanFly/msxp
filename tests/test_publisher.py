@@ -458,7 +458,7 @@ def test_public_only_publishes_in_background_and_refuses_developer_routes(tracki
         wait_for(lambda:server.publisher.entry('alpha'))
         for p in ('/','/streams','/stream/alpha','/live/overlay/alpha','/api/players','/api/players/alpha','/api/players/alpha/history',
                   '/static/product.js','/static/product.css','/static/leaderboard.css','/static/leaderboard.svg','/static/overlay.css',
-                  '/static/fonts/fredoka-latin.woff2','/static/fonts/nunito-latin.woff2','/static/steely.png'):
+                  '/static/fonts/fredoka-latin.woff2','/static/fonts/nunito-latin.woff2','/static/steely.png','/static/live-overlay.css'):
             assert get(p)[0]==200,p
         assert [p['channel'] for p in json.loads(get('/api/players')[2])['players']]==['alpha']
         assert all(b'data-site="public"' in get(p)[2] for p in ('/','/stream/alpha','/live/overlay/alpha'))

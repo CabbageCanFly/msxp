@@ -16,8 +16,6 @@
 .product .entry[data-stale="true"] progress { opacity:.6; }
 .product progress::-webkit-progress-value { background:linear-gradient(#d4f584,var(--green) 45%,var(--green-deep)); }
 .product progress::-moz-progress-bar { background:var(--green); }
-.live-overlay progress::-webkit-progress-value { background:linear-gradient(#d8f969,#98c720); }
-.live-overlay progress::-moz-progress-bar { background:#a9d633; }
 .poll-note { color:var(--text-muted); font-size:12px; font-weight:600; }
 /* Streamers/Characters toggle sits in the board header beside the title. */
 .product .board-header .board-modes { margin-right:auto; }
@@ -65,16 +63,6 @@
 .history-chart .boundary { stroke:#8d98ad; stroke-dasharray:3 4; }
 .history-chart .sample { fill:var(--green); }
 .history-chart .missing { stroke:#8d98ad; stroke-width:2; }
-.live-overlay #card { overflow:hidden; }
-.live-overlay .progress-section { min-height:30px; background:#e8deca; border-radius:7px; }
-.live-overlay #status { flex:1.5; font-size:10px; overflow:hidden; text-overflow:ellipsis; }
-.live-overlay #age { font-size:10px; }
-.live-overlay .estimate-mark { font-size:8px; color:#897254; white-space:nowrap; }
-.live-overlay .progress-label { color:#263310; text-shadow:0 1px #f5ffc280; }
-.live-overlay #card[data-stale="true"] progress { opacity:.65; }
-.live-overlay #card[data-recovered="true"] .progress-section { border-radius:7px; }
-.live-overlay .stat strong { font-size:18px; }
-.live-overlay .stat strong[data-size="long"] { font-size:13px; }
 @media(max-width:850px) { .product .entry { grid-template-columns:30px 58px minmax(110px,150px) minmax(125px,1fr) 90px; gap:9px; } .product .score strong { font-size:22px; } }
 @media(max-width:650px) { .product .entry { grid-template-columns:36px minmax(0,1fr) 87px; } .welcome { padding:10px 0 22px; } .welcome > p:last-child { font-size:15px; } .product .toolbar { align-items:flex-start; } .poll-note { width:100%; } .player-reading { padding:20px 14px 8px; gap:12px; } .player-reading .level { min-width:64px; font-size:17px; } .player-reading .exp-label { font-size:14px; } .player-stats { grid-template-columns:repeat(2,minmax(0,1fr)); padding:18px 14px; gap:20px; } .player-stats strong { font-size:24px; } .segment-note { padding-left:14px; padding-right:14px; } .overlay-actions { padding-left:14px; padding-right:14px; } }
 
@@ -85,7 +73,7 @@
 .early-pace #eta { display:inline; font-size:inherit; }
 .early-pace #eta-stat { margin-top:6px; }
 .early-pace [hidden] { display:none; }
-.early-pace #rate[data-paused="true"],.live-overlay #rate[data-paused="true"] { opacity:.7; }
+.early-pace #rate[data-paused="true"] { opacity:.7; }
 .early-pace small { color:var(--text-muted); font-size:12px; }
 .reading-info { color:var(--text-muted); font-size:12px; font-weight:600; margin:0 0 14px; }
 .level-event { margin:16px 25px 0; color:var(--green); font-family:var(--font-display); font-size:18px; font-weight:600; }
@@ -94,7 +82,6 @@
 .player-stats strong { font-size:20px; }
 .player-stats [data-paused="true"] { opacity:.7; }
 .product .level .level-note { display:block; margin:2px 0 0; font-size:9px; letter-spacing:0; }
-.live-overlay #level[data-last-known="true"] { border-style:dashed; }
 @media(max-width:650px) { .early-pace { margin-left:14px; margin-right:14px; } }
 .companion-cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:0 25px 16px; }
 .companion-cards > div { min-height:150px; }
@@ -124,7 +111,8 @@
 .chart-tooltip { position:fixed; z-index:20; width:max-content; max-width:min(280px,calc(100vw - 16px)); box-sizing:border-box; padding:10px 13px; background:#1c2435; border:1px solid var(--gold-deep); border-radius:var(--radius-sm); color:var(--text); font:600 13px/1.55 var(--font-ui); font-variant-numeric:tabular-nums; white-space:pre-line; overflow-wrap:anywhere; pointer-events:none; box-shadow:0 8px 22px #000a; }
 .history-chart [data-tip-key] { cursor:crosshair; }
 .history-chart [data-tip-key]:focus-visible { outline:2px solid var(--gold); }
-.history-chart :is(.trend,.chart-grid) { pointer-events:none; }
+.history-chart :is(.trend,.chart-grid,.chart-axis) { pointer-events:none; }
+.history-chart .chart-axis { stroke:var(--line-strong); stroke-width:1; }
 .history-chart circle.sample { stroke:transparent; stroke-width:12px; }
 .recent-card [data-paused="true"] { opacity:.65; }
 @media(max-width:650px) { .companion-cards { margin:0 14px 12px; gap:8px; } .companion-cards > div { flex-basis:120px; padding:13px 12px; } .companion-cards > div > span:first-child { font-size:11px; letter-spacing:.3px; } .companion-cards .early-pace { flex-basis:100%; } .companion-cards strong,.companion-cards #eta { font-size:24px; } .comparison-details { margin-left:14px; margin-right:14px; } .chart-modes button { font-size:12px; padding:5px 11px; } }
@@ -177,7 +165,7 @@
 .site-footer a { color:var(--text-soft); text-decoration:none; border-bottom:1px solid var(--line-strong); }
 .site-footer a:hover { color:var(--gold); border-color:var(--gold-deep); }
 .site-footer label { display:flex; align-items:center; gap:6px; }
-.site-footer select { max-width:15em; padding:3px 6px; color:var(--text-soft); background:transparent; border:1px solid var(--line); border-radius:6px; font:inherit; cursor:pointer; }
+.site-footer select { max-width:15em; padding:3px 6px; color:var(--text-soft); background:var(--surface-sunken); border:1px solid var(--line); border-radius:6px; font:inherit; cursor:pointer; }
 .site-footer select:hover { border-color:var(--line-strong); }
 .site-footer select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 
@@ -185,3 +173,30 @@
 .product :is(.board,.site-footer) { transition:opacity .18s ease; }
 .product[data-loading] :is(.board,.site-footer) { opacity:0; animation:reveal 0s 2s forwards; }
 @keyframes reveal { to { opacity:1; } }
+
+/* Native dropdown lists take the select's colours; keep them dark and readable. */
+.site-footer select option { color:var(--text); background:var(--surface); }
+button:disabled { opacity:.4; cursor:not-allowed; }
+
+/* EXP history: each chart has its own interval and time window controls. */
+.chart-controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; flex:1; }
+.chart-controls .chart-legend { margin-left:auto; }
+
+/* Stream overlay builder. */
+.overlay-board { margin-top:22px; }
+.overlay-builder { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,524px); gap:18px 24px; padding:20px 25px 24px; }
+.overlay-options { display:grid; gap:12px; align-content:start; }
+.option-row { display:grid; grid-template-columns:72px minmax(0,1fr); align-items:center; gap:10px; }
+.option-row > span { color:var(--gold); font-size:12px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; }
+.overlay-colors { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; color:var(--text-soft); font-size:13px; font-weight:700; }
+.overlay-colors label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+.overlay-colors input { width:30px; height:30px; padding:0; border:1px solid var(--line-strong); border-radius:8px; background:none; cursor:pointer; }
+.overlay-colors button { min-height:32px; padding:5px 13px; font-size:13px; }
+.overlay-stage { position:relative; overflow:hidden; padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:repeating-conic-gradient(#1a2233 0 25%,#151c2b 0 50%) 0 0/20px 20px; }
+/* Matching the overlay page's light scheme keeps the frame transparent instead of painting it white. */
+.overlay-stage iframe { display:block; border:0; transform-origin:0 0; background:transparent; color-scheme:light; }
+.overlay-builder .overlay-actions { grid-column:1 / -1; padding:0; }
+#overlay-url { flex:1 1 280px; min-width:0; padding:9px 12px; color:var(--text-soft); background:var(--surface-sunken); border:1px solid var(--line-strong); border-radius:var(--radius-sm); font:600 13px var(--font-ui); }
+#overlay-url:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
+@media(max-width:900px) { .overlay-builder { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:650px) { .overlay-builder { padding:16px 14px 18px; } .option-row { grid-template-columns:minmax(0,1fr); gap:6px; } }
