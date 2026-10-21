@@ -9,7 +9,7 @@ export function streamerUI({api, onSaved=()=>{}}) {
   function edit(row=null){
     cancel();form.reset();form.hidden=false;form.dataset.action=row?'roster_update':'roster_add';
     $('streamer-login').readOnly=!!row;$('streamer-login').value=row?.channel??'';
-    for(const key of flags)$('streamer-'+key).checked=row?.[key]??['public_visible','automatic_characters'].includes(key);
+    for(const key of flags)$('streamer-'+key).checked=row?.[key]??['public_visible','automatic_characters','experimental_neural_level'].includes(key);
     for(const key of numeric)$('streamer-'+key).value=row?.[key]??({interval:20,timeout:20,max_age:15,ocr_timeout:10}[key]);
     $('streamer-quality').value=row?.quality??'best';
     $('streamer-form-title').textContent=row?`Configure ${row.channel}`:'Add Twitch streamer';
