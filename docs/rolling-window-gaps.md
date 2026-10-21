@@ -93,6 +93,11 @@ Other rolling changes still refresh on the existing bounded cache cadence.
 
 ## Verification and limitations
 
+The recovery-tool follow-up also corrected remaining player-card help: EXP/hour uses
+eligible gain over the selected window duration, and verified same-character gaps
+may cross sessions. Complete-window comparison help retains its separate coverage
+requirement. These are tooltip-only changes; calculations/layout are unchanged.
+
 `tests/test_rolling_gap_windows.py` covers the requested example, all six duration
 boundaries, inclusive window edges, duplicates, missing evidence, monotonic timestamp
 handling, character/manual boundaries, losses, known/unknown level transitions,

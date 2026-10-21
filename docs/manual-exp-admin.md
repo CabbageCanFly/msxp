@@ -1,5 +1,9 @@
 # Manual Level / EXP administration (A1 / A2)
 
+An incorrectly established persistent level floor requires the exceptional
+[preview-first repair CLI](level-floor-repair.md), with stopped writers, a verified
+backup and atomic invalidation/correction audit. Ordinary corrections never lower it.
+
 With [schema-8 retention](24h-retention.md), audit records remain available but
 expired original readings cannot be corrected, invalidated or restored. Frozen
 corrections cannot be amended/undone. Ranges crossing the retained floor are

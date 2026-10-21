@@ -744,10 +744,11 @@ An active explicit manual level assertion can seed/advance the floor immediately
 Unvalidated historical diagnostic maxima are not imported. Current lower corrections,
 including historical baselines that would carry forward, are rejected for managed
 characters; earlier point corrections remain possible. Undoing a correction does not
-erase an established floor. Repairing an incorrectly established floor needs a future
-explicit audited repair workflow; automatic recognition never lowers it.
-The review now documents and tests a one-off offline-copy recovery procedure using
-the existing invalidation/correction audit; no new admin UI or automatic reset exists.
+erase an established floor. The exceptional [level-floor repair CLI](level-floor-repair.md)
+now supports read-only preview, explicit confirmation, exclusive writer access,
+verified backup and an atomic audited replacement. It refuses compacted/frozen
+character history. Automatic recognition never lowers the floor; no new admin UI or
+automatic reset exists.
 
 Same-level EXP loss is **not** level regression. It remains subject to existing
 numeric death/loss and identity-verification rules. An old same-level clip with lower

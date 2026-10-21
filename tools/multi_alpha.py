@@ -24,6 +24,7 @@ from exp_tracker.recognition import configure_tesseract
 from exp_tracker.server import CHANNEL, create_server
 from exp_tracker.store import Store, utc
 from exp_tracker.retention_files import OperatorLog
+from exp_tracker.writer_lock import writer_lease
 from local_alpha import report_attempt
 
 APP = 'multi_alpha_v1'
@@ -100,29 +101,13 @@ def ownership(database, *, automatic=False):
     if not marker.exists():
         with marker.open('x', encoding='utf-8') as f:
             json.dump(dict(application=APP,**({'automatic_characters':True} if automatic else {})), f)
-    with marker.open('r+b') as handle:
-        if os.name == 'nt':
-            import msvcrt
-            acquire = lambda: msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            release = lambda: msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            acquire = lambda: fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            release = lambda: fcntl.flock(handle, fcntl.LOCK_UN)
-        try:
-            acquire()
-        except OSError:
-            raise ValueError('Another coordinator owns this shared database') from None
-        try:
-            info = json.load(handle)
-            if not isinstance(info,dict) or info.get('application') != APP:
-                raise ValueError('Not a multi-alpha database marker')
-            if automatic and info.get('automatic_characters') is not True:
-                raise ValueError('Automatic testing requires a NEW disposable database or its own prior automatic-test database')
-            yield
-        finally:
-            handle.seek(0)
-            release()
+    with writer_lease(marker) as handle:
+        info = json.load(handle)
+        if not isinstance(info,dict) or info.get('application') != APP:
+            raise ValueError('Not a multi-alpha database marker')
+        if automatic and info.get('automatic_characters') is not True:
+            raise ValueError('Automatic testing requires a NEW disposable database or its own prior automatic-test database')
+        yield
 
 
 def check_assignments(database, streams):

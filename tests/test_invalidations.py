@@ -33,6 +33,16 @@ def apply(store,spec,cid=None,event_id=None):
     return service.commit('alpha',cid,event_id or uuid.uuid4().hex,spec,preview['fingerprint'],'Synthetic review')
 
 
+@pytest.mark.parametrize('only', [None, 'run:1', [['diagnostic','absent:1']],
+    [['diagnostic','run:1'],['diagnostic','run:1']], [['other','run:1']], [['diagnostic',1]]])
+def test_explicit_range_selection_rejects_ambiguous_sources(tracking, only):
+    _,store,d=tracking
+    save(d,'run',1,20,3310)
+    spec=dict(action='invalidate',start=at(0).isoformat(),end=at(40).isoformat(),only=only)
+    with pytest.raises(ValueError):Invalidations(store).selection('alpha',store.state('alpha')['selected_character_id'],spec)
+    assert store.db.execute('SELECT COUNT(*) FROM reading_batches').fetchone()[0]==0
+
+
 def test_single_exclusion_and_restore_preserve_source_restart_and_history(tracking):
     path,store,d=tracking
     for i,t in enumerate((0,20,40,60),1):save(d,'run',i,t,3300+i*10)

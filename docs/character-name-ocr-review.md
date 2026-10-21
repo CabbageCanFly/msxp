@@ -124,9 +124,11 @@ is an executable reference, including a failure injected halfway through recover
 
 The test proves rollback leaves the old floor/audits untouched, successful replacement
 keeps all source attempts/character IDs, the new valid capture resumes, and the repair
-receipt survives reopening. It is **not a shipped repair command** and was never run
-against a user database. Correcting expired/frozen bad history needs additional explicit
-review; do not promote a guard-only repair with contradictory checkpoints.
+receipt survives reopening. The procedure is now supported by the exceptional
+[preview/apply repair CLI](level-floor-repair.md), tested only on disposable databases.
+It preserves valid interleaved evidence and refuses any compacted/frozen character
+history. Expired/frozen bad history still needs additional review; do not promote a
+guard-only repair with contradictory checkpoints.
 
 ## Offline performance measurements
 

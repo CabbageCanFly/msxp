@@ -242,6 +242,9 @@ test('endpoint pace discloses elapsed gaps and conditional recovery is never str
   p.render(base);
   assert.match(p.elements['early-value'].textContent,/6 readings \/ 140s elapsed · 2 missing readings/);
   assert.match(p.elements['early-value'].title,/3 direct and 2 endpoint-supported intervals; gap time is included/);
+  assert.match(p.elements.rate.title,/EXP\/hour divides eligible gain by the selected window duration/);
+  assert.match(p.elements['segment-note'].title,/verified same-character gaps across sessions/);
+  assert.match(p.elements['segment-note'].title,/Complete comparisons still need ≥90% uninterrupted coverage/);
   assert.match(p.elements.exp.textContent,/^~/);
   assert.match(p.elements.exp.title,/conditional X-to-% recovery/);
   assert.equal(p.run('metricValue(data.player,"exp_hour")'),null);
