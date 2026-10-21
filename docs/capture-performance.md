@@ -22,7 +22,7 @@ are added to its `ExecStart`. **HUD caching stays disabled** until separately ap
 |---|---|---|
 | `--resident-neural` | One long-lived RapidOCR process (`shadow_rapidocr.py --serve`) replaces one process per attempt. Requests are serialized; a timeout, crash or oversized reply kills it and the next request starts a fresh one. | Identical: 22/22 crops gave the same text, raw scores and level fields as the one-shot worker. |
 | `--hud-cache-seconds N` | Per channel, search a small box around the last **unique full-frame** HUD for up to N seconds, then rescan the full frame. Any doubt (0 or ≥2 candidates, different anchor spacing, EXP/level box moved more than 5 % of the spacing, level present/absent changed, frame size changed) rescans the full frame at once. | A **policy change**, see below. Off by default. |
-| `--workers N` (1–4) | Up to N channels' attempts run at once, never two for one channel. Due-time selection, deadline skipping, rotation, log writes, the single SQLite writer and status updates stay on the coordinator thread. | No OCR change. |
+| `--workers N` (1–8) | Up to N channels' attempts run at once, never two for one channel. 5–8 are accepted for experiments but **not yet performance-validated on the VPS**; see below. Due-time selection, deadline skipping, rotation, log writes, the single SQLite writer and status updates stay on the coordinator thread. | No OCR change. |
 
 Records from the region search carry `localization.candidates[0].search =
 "cached_region"` and `full_frame_age_seconds`, so they can be separated in SQLite.
@@ -182,6 +182,27 @@ than the workstation, single-channel 308 MiB).
   the console Ctrl+C or with systemd's `KillMode=mixed` cleanup after the main process
   exits. The resident neural process is closed on exit.
 
+## Worker counts above 4 (opt-in, not validated)
+
+`--workers` accepts 1–8; the default stays 1. Counts 5–8 use the same scheduler, with
+no other change. They are **not yet performance-validated on the VPS**, and nothing
+here shows that 6 or 8 are faster, or safe for sustained real Twitch capture.
+
+Reported VPS offline runs (4 vCPU / 8 GB, 15 channels reading one local video, 5
+attempts each, `--workers 4`): the mean start-to-start was 59.8 s (max 60.5 s, 0 skips)
+at a requested 60 s. It was 49.6 s (max 55.8 s, some skips) at 45 s, and 42.9 s
+(max 50.0 s, 34 skips) at 30 s. All 75 attempts in the 30 s run succeeded at ≈1.9
+cores mean, so the four worker slots, not the CPU, looked like the limit.
+
+Expected costs at 6–8 workers, unmeasured:
+
+- Up to N concurrent FFmpeg/Streamlink sessions (N Twitch connections at once) and N
+  Tesseract processes.
+- More memory.
+- With `--resident-neural`, longer queues on the one serialized RapidOCR process. A
+  request's neural timeout starts only when it reaches the process, so time spent
+  waiting behind other workers is not counted.
+
 ## VPS benchmark commands
 
 Run as **root** (`sudo -i`), from a **separate benchmark checkout**, never the production
@@ -308,8 +329,8 @@ flags.
 
 ## Not done
 
-- No Linux, VPS or real Twitch measurement of these changes; the multi-worker CPU
-  contention on 4 vCPUs is projected, not measured.
+- No real Twitch measurement of these changes. The only VPS figures are the
+  offline 4-worker runs above; 5–8 workers are unmeasured.
 - The region search was evaluated on 78 frames from three recordings, not on live
   stream cuts, overlays or long sequences at 60 s spacing.
 - Twitch access-token and playlist request rates at 15 channels per minute are untested.

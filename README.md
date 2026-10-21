@@ -117,7 +117,7 @@ saving. **Invalidated readings** provides individual and batch **Restore** actio
 original OCR and audit history remain intact. See the guide for limits and conflicts.
 
 The **[multi-stream local alpha](docs/multi-alpha.md)** runs 1–25 explicit assignments
-sequentially by default (opt-in `--workers 2..4`, see [capture performance](docs/capture-performance.md))
+sequentially by default (opt-in `--workers 2..8`, see [capture performance](docs/capture-performance.md))
 with one shared database/server, a real `/streams` directory and
 separately gated experimental percentage progress. Start with the offline
 two-video example; neural/grammar values never contribute to trusted EXP totals.

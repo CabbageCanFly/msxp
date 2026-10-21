@@ -334,7 +334,7 @@ def main(argv=None):
     cli.add_argument('--max-attempts',type=int,help='Continuous-mode stop condition, per channel (not per run)')
     cli.add_argument('--stop-after-seconds',type=float,help='Stop scheduling new work after real monotonic elapsed time')
     cli.add_argument('--offline-fast-test',action='store_true',help='Explicit local-video-only interval floor of 3 seconds')
-    cli.add_argument('--workers',type=int,default=1,help='Concurrent capture/OCR attempts, 1..4 (one per channel at a time); SQLite stays single-writer')
+    cli.add_argument('--workers',type=int,default=1,help='Concurrent capture/OCR attempts, 1..8 (one per channel at a time); SQLite stays single-writer. Above 4 is not yet validated on the VPS')
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
     args = cli.parse_args(argv)
@@ -342,8 +342,8 @@ def main(argv=None):
     try:
         if args.retention_24h and (not args.continuous or args.replay):
             raise ValueError('--retention-24h requires continuous capture')
-        if not 1<=args.workers<=4:
-            raise ValueError('--workers must be 1..4')
+        if not 1<=args.workers<=8:
+            raise ValueError('--workers must be 1..8')
         if not math.isfinite(args.hud_cache_seconds) or not 0<=args.hud_cache_seconds<=3600:
             raise ValueError('--hud-cache-seconds must be 0..3600')
         if args.max_attempts is not None and (not args.continuous or not 1<=args.max_attempts<=1000000):

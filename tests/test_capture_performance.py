@@ -160,6 +160,68 @@ def test_parallel_unexpected_error_reaches_coordinator(schedule):
         schedule(lanes('a', 'b'), perform, lambda *_: None, workers=2)
 
 
+@pytest.mark.parametrize('workers', [6, 8])
+def test_six_and_eight_workers_fill_every_slot_and_never_more(schedule, workers):
+    # Two waves of 2N lanes: the barrier releases only when exactly N attempts are in flight.
+    barrier = threading.Barrier(workers, timeout=10); lock = threading.Lock(); active = set(); peak = [0]
+    main = threading.get_ident(); emitted = []
+    def perform(lane, index, seek):
+        with lock:
+            active.add(lane['channel']); peak[0] = max(peak[0], len(active))
+        barrier.wait()
+        with lock: active.discard(lane['channel'])
+        return attempt(index)
+    def emit(lane, record):
+        assert threading.get_ident() == main
+        emitted.append((lane['channel'], record['status']))
+    group = lanes(*map(str, range(2*workers)), count=1)
+    assert schedule(group, perform, emit, workers=workers) is False
+    assert peak[0] == workers and not barrier.broken
+    assert sorted(emitted) == sorted((lane['channel'], 'diagnostic_pair') for lane in group)
+
+
+@pytest.mark.parametrize('workers', [6, 8])
+def test_six_and_eight_workers_rotate_and_skip_on_coordinator_one_attempt_per_lane(schedule, workers):
+    lock = threading.Lock(); active = set(); peak = [0]; main = threading.get_ident(); rotated = []
+    def perform(lane, index, seek):
+        with lock:
+            assert lane['channel'] not in active
+            active.add(lane['channel']); peak[0] = max(peak[0], len(active))
+        time.sleep(.003)  # Longer than the interval, so every lane skips deadlines.
+        with lock: active.discard(lane['channel'])
+        return attempt(index)
+    def rotate(lane):
+        assert threading.get_ident() == main and lane['channel'] not in active
+        rotated.append(lane['channel'])
+    emitted = {}
+    def emit(lane, record):
+        assert threading.get_ident() == main
+        emitted.setdefault(lane['channel'], []).append(record['index'])
+    group = lanes(*map(str, range(workers+2)), interval=.001)
+    assert schedule(group, perform, emit, workers=workers, continuous=True, max_attempts=62, rotate=rotate) is False
+    assert 1 < peak[0] <= workers and sorted(rotated) == sorted(lane['channel'] for lane in group)
+    assert all(emitted[lane['channel']] == [*range(1, 61), 1, 2] for lane in group)
+    assert all(lane['skipped'] > 0 for lane in group)
+
+
+@pytest.mark.parametrize('workers', [6, 8])
+def test_six_and_eight_workers_interrupt_records_every_in_flight_attempt(schedule, workers):
+    release = threading.Event(); started = threading.Barrier(workers, timeout=10); emitted = []
+    def perform(lane, index, seek):
+        started.wait()
+        if lane['channel'] == '0':
+            raise KeyboardInterrupt
+        release.wait(10)
+        return attempt(index)
+    group = lanes(*map(str, range(workers+2)))
+    begun = time.monotonic()
+    assert schedule(group, perform, lambda lane, record: emitted.append((lane['channel'], record['reasons'])), workers=workers) is True
+    release.set()
+    assert time.monotonic()-begun < 5
+    assert sorted(emitted) == sorted((str(i), ['operator_interrupted']) for i in range(workers))
+    assert all(lane['interrupted'] for lane in group) and all(lane['attempts'] == 0 for lane in group[workers:])
+
+
 WORKER = r'''
 import json, os, struct, sys, time
 while header := sys.stdin.buffer.read(4):
@@ -212,8 +274,25 @@ def test_coordinator_flags_reach_each_attempt_and_are_bounded(multi, monkeypatch
     assert all(len(ids) == 1 for ids in locators.values()) and locators['alpha'] != locators['beta']
     seen.clear()
     assert run_main(multi) == 0 and all(set(kw) == {'seek'} for _, kw in seen)  # Defaults keep the serial, per-attempt path.
-    for bad in (['--workers', '5'], ['--hud-cache-seconds', '-1'], ['--hud-cache-seconds', 'nan']):
+    for bad in (['--workers', '0'], ['--workers', '9'], ['--hud-cache-seconds', '-1'], ['--hud-cache-seconds', 'nan']):
         assert run_main(multi, *bad) == 1
+
+
+def test_worker_count_defaults_to_one_and_accepts_up_to_eight(multi, monkeypatch):
+    module = multi[0]
+    seen = []
+    real = module.schedule
+    def schedule(*args, **kwargs):
+        seen.append(kwargs['workers'])
+        return real(*args, **kwargs)
+    monkeypatch.setattr(module, 'schedule', schedule)
+    assert run_main(multi) == 0
+    for workers in ('1', '4', '6', '8'):
+        assert run_main(multi, '--workers', workers) == 0
+    assert seen == [1, 1, 4, 6, 8]
+    for bad in ('0', '9', '-1'):
+        assert run_main(multi, '--workers', bad) == 1
+    assert len(seen) == 5                                    # Rejected before scheduling.
 
 
 def test_run_summary_reports_stage_means_and_region_reuse(tmp_path, monkeypatch):

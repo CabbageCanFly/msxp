@@ -13,7 +13,7 @@ accounting, schema, source evidence or historical observations were changed.
 | Neural worker hangs/exits/returns malformed JSON | Existing subprocess timeout/response checks reject it; retain visual evidence where available. No candidate is invented. |
 | Missing or competing HUDs | Abstain; no arbitrary target selection. No cached region unless `--hud-cache-seconds` is explicitly enabled ([capture performance](capture-performance.md)). |
 | Source returns | A new connection is made for the next scheduled attempt. No persistent failed connection needs resetting. |
-| Slow/failing stream | One sequential worker by default (opt-in `--workers 2..4`), fair due-time scheduling and missed-slot skipping; other lanes continue without a backlog. With one worker a slow job can still delay them; with more, it occupies only its own worker. |
+| Slow/failing stream | One sequential worker by default (opt-in `--workers 2..8`), fair due-time scheduling and missed-slot skipping; other lanes continue without a backlog. With one worker a slow job can still delay them; with more, it occupies only its own worker. |
 | Attempt persistence fails or selection changes | Stop that lane; preserve its log and committed history. Other lanes continue. Replay stays explicit/idempotent. |
 | Ctrl+C/restart | Close active capture resources, preserve committed attempts, release OS ownership lock; restart uses new run IDs without claiming continuity. |
 
