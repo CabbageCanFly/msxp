@@ -92,6 +92,13 @@ with official Helix if required later. An OCR failure preserves the previous
 accepted reading. Decreases/level changes remain ambiguous, never automatic
 level-ups. Long gaps get a new baseline using the existing validator.
 
+Pipe-buffer follow-up (2026-10-21): the relay forwards available video chunks
+without waiting to fill 16 KiB, and stderr readers expose short messages before
+the child exits. Synthetic live subprocess tests reproduce both former stalls.
+Saved `frame_timeout` records with zero relayed bytes alone cannot distinguish
+this buffering issue from an upstream Twitch/network stall; no live recovery
+rate is established by those tests. Raw stderr and signed URLs stay private.
+
 The scheduler avoids overlapping jobs and catch-up bursts. If a job overruns its
 interval, the next attempt is delayed instead. A failed persistent connection is
 closed and retried on a later scheduled tick. CLI exit codes: 1 setup error,

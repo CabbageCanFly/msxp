@@ -124,3 +124,36 @@ def test_real_decoder_exit_is_unavailable_not_a_fresh_frame(monkeypatch):
     finally:
         session.close()
     assert session.latest is None and session.decoder.poll()==2
+
+
+def test_live_small_producer_chunk_reaches_decoder_without_filling_relay_buffer(monkeypatch):
+    payload=png_bytes()
+    producer=[sys.executable,'-c',
+        f'import sys,time; sys.stdout.buffer.write({payload!r}); sys.stdout.buffer.flush(); time.sleep(60)']
+    decoder=[sys.executable,'-c',
+        f'import sys,time; data=sys.stdin.buffer.read({len(payload)}); '
+        'sys.stdout.buffer.write(data); sys.stdout.buffer.flush(); time.sleep(60)']
+    monkeypatch.setattr(Source,'streamlink_command',lambda _:producer)
+    monkeypatch.setattr('exp_tracker.video.ffmpeg_command',lambda *a,**kw:decoder)
+    session=VideoSession(Source('twitch','synthetic'))
+    try:
+        assert session.frame(timeout=2).png==payload
+        assert session.source_bytes==len(payload)<16384
+    finally:
+        session.close()
+    assert all(not thread.is_alive() for thread in session.threads)
+
+
+def test_live_short_stderr_is_available_for_safe_failure_classification(monkeypatch):
+    producer=[sys.executable,'-c',
+        'import sys,time; sys.stderr.write("403 access denied https://private.invalid/?token=secret\\n"); '
+        'sys.stderr.flush(); time.sleep(60)']
+    decoder=[sys.executable,'-c','import time; time.sleep(60)']
+    monkeypatch.setattr(Source,'streamlink_command',lambda _:producer)
+    monkeypatch.setattr('exp_tracker.video.ffmpeg_command',lambda *a,**kw:decoder)
+    session=VideoSession(Source('twitch','synthetic'))
+    try:
+        with pytest.raises(CaptureError,match='^access_denied$'):
+            session.frame(timeout=2)
+    finally:
+        session.close()

@@ -147,14 +147,15 @@ class VideoSession:
         thread.start()
 
     def _logs(self, pipe, name):
-        while chunk := pipe.read(1024):
+        while chunk := pipe.read1(1024):
             self.logs[name].extend(chunk)
             del self.logs[name][:-16384]
 
     def _relay(self):
         try:
             while not self.stopping:
-                chunk = self.producer.stdout.read(16384)
+                # Forward available bytes; filling the buffer can stall a live source.
+                chunk = self.producer.stdout.read1(16384)
                 if not chunk:
                     break
                 self.source_bytes += len(chunk)
