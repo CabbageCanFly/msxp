@@ -4,21 +4,25 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../src/exp_tracker/web/product.js',import.meta.url),'utf8');
 class Element {
-  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={};}
+  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={};this.value='';}
   append(...c){this.children.push(...c);}replaceChildren(...c){this.children=c;}
+  querySelector(){return null;}querySelectorAll(){return [];}contains(){return false;}focus(){}scrollIntoView(){}
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v){(this.listeners??={})[k]=v;}
   getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
 }
-function page(view='overlay',fetcher=()=>new Promise(()=>{})){
-  const elements={},timers=[],events={};
+function page(view='overlay',fetcher=()=>new Promise(()=>{}),search=''){
+  const elements={},timers=[],events={},visits=[];
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
-  const context=vm.createContext({Intl,Date,BigInt,AbortController,performance:{now:()=>0},
-    location:{pathname:view==='overlay'?'/live/overlay/alpha':'/stream/alpha',origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
+  const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
+  const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
+  const context=vm.createContext({Intl,Date,BigInt,AbortController,URL,URLSearchParams,performance:{now:()=>0},
+    location:{pathname,search,href:'http://127.0.0.1:8765'+pathname+search,origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
+    history:{pushState:(s,t,u)=>visits.push(['push',String(u)]),replaceState:(s,t,u)=>visits.push(['replace',String(u)])},
     navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
-      querySelectorAll:selector=>selector==='[data-window]'?buttons:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
+      querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
-  return {context,elements,timers,buttons,events,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
+  return {context,elements,timers,buttons,modes,events,visits,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
 }
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
@@ -756,4 +760,138 @@ test('homepage ranks and renders the same without character-only current-level w
     return results;
   };
   assert.deepEqual(board(shown),board(full));
+});
+
+// Saved-character roster (view-only selection).
+const ALPHA={id:2,label:'Alpha',level:67,last_seen_at:'2026-01-01T00:00:00Z',current:true};
+const BETA={id:3,label:'Beta',level:43,last_seen_at:'2025-12-31T22:00:00Z',current:false};
+function body(roster,changes={}){return {player:player({character:{id:2,label:'Alpha'}}),roster,view:{character_id:2,current:true},served_at:'2026-01-01T00:00:00Z',...changes};}
+function server(responses){
+  const urls=[];
+  return {urls,fetch:async url=>{urls.push(url);const next=responses.length>1?responses.shift():responses[0];return {ok:next.status==null,status:next.status ?? 200,json:async()=>next.body ?? next};}};
+}
+const settle=async()=>{for(let i=0;i<4;i++)await new Promise(resolve=>setImmediate(resolve));};
+
+test('one saved character shows exactly the existing profile: no roster at all',async()=>{
+  const api=server([body([ALPHA])]),p=page('player',api.fetch);await settle();
+  assert.equal(p.elements.roster.hidden,true);assert.equal(p.elements['roster-all'].hidden,true);
+  assert.equal(p.elements['player-name'].textContent,'Alpha');assert.equal(api.urls[0],'/api/players/alpha');
+});
+
+test('a second saved character reveals the roster on the next poll; tracked character first and marked',async()=>{
+  const api=server([body([ALPHA]),body([ALPHA,BETA])]),p=page('player',api.fetch);await settle();
+  assert.equal(p.elements.roster.hidden,true);
+  await p.run('poll()');
+  assert.equal(p.elements.roster.hidden,false);
+  const [alpha,beta]=p.elements['roster-track'].children;
+  assert.equal(alpha.attributes['aria-current'],'page');assert.equal(beta.attributes['aria-current'],undefined);
+  assert.equal(alpha.children[0].textContent,'Alpha');assert.equal(alpha.children[1].children[0].textContent,'Tracking');
+  assert.equal(beta.href,'/stream/alpha?character=3');assert.equal(alpha.href,'/stream/alpha');
+  assert.equal(p.elements['roster-all'].hidden,true);
+});
+
+test('choosing an inactive character is view-only, clears old numbers and discards a late response',async()=>{
+  let release;const api=server([body([ALPHA,BETA])]),p=page('player',api.fetch);await settle();
+  p.context.fetch=url=>{api.urls.push(url);return new Promise(resolve=>{release=resolve;});};
+  p.run('poll()');  // An Alpha poll is in flight when the visitor clicks Beta.
+  p.elements['roster-track'].children[1].listeners.click({button:0,preventDefault(){}});
+  assert.deepEqual(p.visits.at(-1),['push','http://127.0.0.1:8765/stream/alpha?character=3']);
+  assert.equal(p.run('data'),null);assert.equal(p.elements.exp.textContent,'—');
+  assert.equal(p.elements['roster-track'].children[1].attributes['aria-current'],'page');
+  release({ok:true,status:200,json:async()=>body([ALPHA,BETA])});await settle();
+  assert.equal(p.run('data'),null,'Late Alpha body must not render under the Beta selection');
+  assert.equal(p.timers.at(-1),0);
+  const inactive=body([ALPHA,BETA],{player:player({character:{id:3,label:'Beta'},age_seconds:7200,stale:true,activity:{state:'historical_session'}}),view:{character_id:3,current:false}});
+  p.context.fetch=async url=>{api.urls.push(url);return {ok:true,status:200,json:async()=>inactive};};
+  await p.run('poll()');
+  assert.match(api.urls.at(-1),/character=3/);
+  assert.equal(p.elements['player-name'].textContent,'Beta');
+  assert.match(p.elements.status.textContent,/^Not currently tracked · last reading 2h ago/);
+  assert.equal(p.elements['segment-note'].textContent,'Saved history · not currently tracked');
+  assert.equal(p.elements['roster-track'].children[1].attributes['aria-current'],'page');
+  assert.equal(p.elements['roster-track'].children[0].attributes['aria-current'],undefined);
+});
+
+test('a direct character URL is requested; an invalid one is ignored; an unknown one falls back to live',async()=>{
+  const direct=server([body([ALPHA,BETA],{view:{character_id:3,current:false}})]);
+  page('player',direct.fetch,'?character=3');await settle();assert.equal(direct.urls[0],'/api/players/alpha?character=3');
+  const invalid=server([body([ALPHA,BETA])]);page('player',invalid.fetch,'?character=3%20OR%201');await settle();
+  assert.equal(invalid.urls[0],'/api/players/alpha');
+  const unknown=server([{status:404,body:{error:'unknown_character'}},body([ALPHA,BETA])]),p=page('player',unknown.fetch,'?character=99');await settle();
+  assert.deepEqual(p.visits.at(-1),['replace','http://127.0.0.1:8765/stream/alpha']);
+  assert.equal(p.run('viewCharacter'),null);assert.equal(p.timers.at(-1),0);
+});
+
+test('large rosters stay one row and add a searchable list of every character',async()=>{
+  const many=Array.from({length:12},(_,i)=>({id:i+2,label:i?`Hero${i}`:'Alpha',level:30+i,last_seen_at:'2026-01-01T00:00:00Z',current:!i}));
+  const p=page('player',server([body(many)]).fetch);await settle();
+  assert.equal(p.elements['roster-track'].children.length,12);
+  assert.equal(p.elements['roster-all'].hidden,false);assert.equal(p.elements['roster-count'].textContent,'All 12');
+  p.elements['roster-search'].value='hero1';p.elements['roster-search'].listeners.input();
+  assert.deepEqual(p.elements['roster-list'].children.filter(item=>!item.hidden).map(item=>item.dataset.name),['hero1','hero10','hero11']);
+  const six=page('player',server([body(many.slice(0,6))]).fetch);await settle();assert.equal(six.elements['roster-all'].hidden,true);
+});
+
+for(const view of ['player','overlay'])test(`${view} renders a validated level floor as the display level`,()=>{
+  const p=page(view),evidence={value:67,status:'validated_level_floor',reason:'validated_level_floor',trusted:false};
+  p.render(player({display_level:{value:67,status:'validated_level_floor',evidence,timestamp:'2026-01-01T00:00:00Z',age_seconds:1}}));
+  assert.equal(p.elements.level.textContent,'Lv. 67');assert.match(p.elements.level.title,/Last validated level/);
+});
+
+test('homepage Characters uses compact records, scoped links and no stale pace rankings',async()=>{
+  const characters=[{...ALPHA,channel:'alpha'},{...BETA,channel:'alpha'},
+    {...BETA,id:9,channel:'other',label:'Alpha',level:99,last_seen_at:null}];
+  const api=server([{characters,served_at:'2026-01-01T00:00:00Z'}]);
+  const p=page('board',api.fetch,'?mode=characters');await settle();
+  assert.deepEqual(api.urls,['/api/players?mode=characters']);
+  assert.equal(p.elements['entries'].children.length,3);
+  assert.equal(p.elements['streamer-metrics'].hidden,true);assert.equal(p.elements['streamer-windows'].hidden,true);
+  assert.equal(p.elements['character-controls'].hidden,false);
+  const [alpha,beta,other]=p.elements.entries.children;
+  assert.equal(alpha.children[1].children[0].href,'/stream/alpha?character=2');
+  assert.equal(other.children[1].children[0].href,'/stream/other?character=9');
+  assert.equal(alpha.children[1].children[2].textContent,'Currently tracked');
+  assert.equal(beta.children[1].children[2].textContent,'Not currently tracked');
+  assert.equal(other.children[2].textContent,'No saved readings');
+  assert.match(p.elements['ranking-note'].textContent,/historical/);
+  p.elements['character-sort'].value='level';p.elements['character-sort'].listeners.change();
+  assert.equal(p.elements.entries.children[0].dataset.character,9);
+  p.elements['character-filter'].value='OTHER';p.elements['character-filter'].listeners.input();
+  assert.equal(p.elements.entries.children.length,1);assert.equal(p.elements.entries.children[0].dataset.channel,'other');
+  p.elements['character-filter'].value='missing';p.elements['character-filter'].listeners.input();assert.equal(p.elements.empty.hidden,false);
+});
+
+test('homepage toggle is view-only, preserves default cards and handles Back/Forward without reload',async()=>{
+  const streamers={players:[player()]},characters={characters:[{...ALPHA,channel:'alpha'}]};
+  const api=server([streamers,characters,streamers,characters]),p=page('board',api.fetch);await settle();
+  assert.equal(p.run('boardMode'),'streamers');assert.equal(p.elements.entries.children.length,1);
+  p.modes[1].listeners.click();await settle();
+  assert.equal(p.run('boardMode'),'characters');assert.match(p.visits[0][1],/\?mode=characters$/);
+  assert.equal(p.modes[1].attributes['aria-pressed'],'true');
+  p.context.location.search='';p.events.popstate();await settle();
+  assert.equal(p.run('boardMode'),'streamers');assert.equal(p.elements['streamer-metrics'].hidden,false);
+  p.context.location.search='?mode=characters';p.events.popstate();await settle();
+  assert.equal(p.run('boardMode'),'characters');assert.equal(p.visits.length,1);
+  assert.deepEqual(api.urls,['/api/players','/api/players?mode=characters','/api/players','/api/players?mode=characters']);
+});
+
+test('homepage discards a late Streamers response after changing to Characters',async()=>{
+  let finish;const p=page('board',()=>new Promise(resolve=>{finish=resolve;}));
+  p.modes[1].listeners.click();
+  finish({ok:true,json:async()=>({players:[player()]})});await settle();
+  assert.equal(p.run('boardMode'),'characters');assert.equal(p.run('data'),null);assert.equal(p.run('failed'),false);
+  assert.equal(p.timers.at(-1),0);
+});
+
+test('viewed roster chip is positioned after last-seen labels fill its final width',async()=>{
+  const p=page('player',server([body([ALPHA,BETA])]).fetch);await settle();
+  const query=p.context.document.querySelectorAll;
+  p.context.document.querySelectorAll=selector=>selector==='#roster [data-seen]'?
+    p.elements['roster-track'].children.map(link=>link.children[1].children[0]).filter(n=>n.dataset.seen):query(selector);
+  let positioned=false;
+  p.elements['roster-track'].querySelector=()=>({scrollIntoView(){
+    const beta=p.elements['roster-track'].children[1];
+    assert.equal(beta.children[1].children[0].textContent,'2h ago');positioned=true;
+  }});
+  p.run("viewCharacter='3';renderRoster()");assert(positioned);
 });

@@ -328,12 +328,17 @@ class Diagnostics:
         with self.store._transaction():
             return self._snapshot(channel, now=now, active_runs=active_runs,session_id=session_id,run_id=run_id,before=before,start=start,end=end,limit=limit)
 
-    def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS,_rows_only=False):
+    def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS,_rows_only=False,character=None):
         if type(limit) is not int or not 1<=limit<=PRODUCT_ROWS:raise ValueError('Invalid history limit')
         state = self.store._state(channel, as_of=now)
         selected = next((c for c in state['characters'] if c['id'] == state['selected_character_id']), None)
         session = state['session']
         historical=any(v is not None for v in (session_id,run_id,before,start,end))
+        if character is not None:
+            selected=next((c for c in state['characters'] if c['id']==character),None)
+            if selected is None:raise ValueError('unknown character')
+            session=self.character_session(channel,character)
+            historical=True
         if session_id is not None:
             if type(session_id) is not int or session_id<1: raise ValueError('Invalid session')
             found=self.db.execute('SELECT * FROM sessions WHERE id=? AND streamer_id=(SELECT id FROM streamers WHERE login=?)',(session_id,state['channel'])).fetchone()
@@ -367,8 +372,10 @@ class Diagnostics:
                 proof=json.loads(floor['proof_json'])
                 result['retention_display']=deepcopy(result['retention_display'])
                 if ((result['retention_display'].get('display_level') or {}).get('value') or 0)<floor['level']:
+                    # Same shape as every display level: the public page reads its evidence.
                     result['retention_display']['display_level']=dict(value=floor['level'],timestamp=proof['received_at'],
-                        event_id=f"level-floor:{selected['id']}",status='validated_level_floor',trusted=False)
+                        event_id=f"level-floor:{selected['id']}",status='validated_level_floor',trusted=False,
+                        evidence=dict(value=floor['level'],status='validated_level_floor',reason='validated_level_floor',trusted=False))
                 result['retention_display'].setdefault('latest_attempt_status','unavailable')
         from .invalidations import states,revision as invalidation_revision,mask,barriers
         result['invalidation_revision']=invalidation_revision(self.store,channel)
@@ -496,17 +503,46 @@ class Diagnostics:
             result['percentage_progress']['reason']='historical_window_not_current'
         return result
 
-    def rolling_history(self,channel,*,now=None,checkpoints=None):
+    def rolling_history(self,channel,*,now=None,checkpoints=None,character=None):
         from .rolling_history import aggregate
-        if self.db.in_transaction:return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints)
+        if self.db.in_transaction:return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints,character=character)
         with self.store._transaction():
-            return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints)
+            return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints,character=character)
 
-    def recent_snapshot(self,channel,*,now,eta_cache=None,checkpoints=None):
+    def recent_snapshot(self,channel,*,now,eta_cache=None,checkpoints=None,character=None):
         from .rolling_history import recent_snapshot
-        if self.db.in_transaction:return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints)
+        if self.db.in_transaction:return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints,character=character)
         with self.store._transaction():
-            return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints)
+            return recent_snapshot(self,channel,now=now,eta_cache=eta_cache,checkpoints=checkpoints,character=character)
+
+    def character_session(self,channel,character):
+        """Latest session (or None if unplayed) of this channel's character."""
+        found=self.db.execute('''SELECT * FROM sessions WHERE streamer_id=? AND character_id=? ORDER BY id DESC LIMIT 1''',
+            (self.store._channel(channel)['id'],character)).fetchone()
+        if not self.db.execute('SELECT 1 FROM characters WHERE id=? AND streamer_id=?',
+                (character,self.store._channel(channel)['id'])).fetchone():raise ValueError('unknown character')
+        return dict(found) if found else None
+
+    def roster(self,channel):
+        """Compact saved characters, including unplayed ones; no history replay or checkpoint unpacking."""
+        streamer=self.store._channel(channel)
+        owner='session_id=s.id' if self.store.schema_version>=4 else 'run_id IN (SELECT run_id FROM diagnostic_runs WHERE session_id=s.id)'
+        floor='(SELECT level FROM character_level_guard WHERE character_id=c.id)' if self.store.schema_version>=10 else 'NULL'
+        saved_level="(SELECT json_extract(checkpoint_json,'$.display.display_level.value') FROM retention_state WHERE character_id=c.id)" if self.store.schema_version>=8 else 'NULL'
+        saved_seen="(SELECT json_extract(checkpoint_json,'$.display.latest_attempt_at') FROM retention_state WHERE character_id=c.id)" if self.store.schema_version>=8 else 'NULL'
+        rows=[]
+        # Per-session subqueries walk the attempt indexes; a character has one session per switch.
+        # An identity-held frame (e.g. the next character's first frame) is not a sighting.
+        for row in self.db.execute(f'''SELECT c.id,c.label,{floor} AS floor,{saved_level} AS saved_level,{saved_seen} AS saved_seen,
+                MAX((SELECT attempted_at FROM diagnostic_attempts WHERE {owner}
+                     AND json_extract(payload_json,'$.identity_hold') IS NULL ORDER BY attempted_at DESC LIMIT 1)) AS seen,
+                MAX((SELECT MAX(id) FROM diagnostic_attempts WHERE {owner})) AS revision
+                FROM characters c LEFT JOIN sessions s ON s.character_id=c.id
+                WHERE c.streamer_id=? GROUP BY c.id ORDER BY c.id LIMIT 64''',(streamer['id'],)):
+            rows.append(dict(id=row['id'],label=row['label'],level=row['floor'] or row['saved_level'],
+                last_seen_at=row['seen'] or row['saved_seen'],revision=row['revision'],
+                current=row['id']==streamer['selected_character_id']))
+        return rows
 
     def heads(self,login=None):
         """Committed revision per channel: selection, open session, latest run and attempt."""
@@ -528,15 +564,16 @@ class Diagnostics:
             LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
             '''+('WHERE s.login=? ' if login else '')+'ORDER BY s.login LIMIT 26',(login,) if login else ()))
 
-    def card(self,cache,head,*,now,checkpoints=None,eta_cache=None):
+    def card(self,cache,head,*,now,checkpoints=None,eta_cache=None,character=None):
         """One shared computation per channel revision for the homepage and character API.
 
         Entry: (revision, card, extras); extras carry the character page's chart history.
+        character: an unselected character, presented from its latest session (pass its own cache).
         """
         key=tuple(head);cached=cache.get(head['login'])
         if cached is None or cached[0]!=key or due(cached[1]['player'],cached[1]['recent_as_of'],now):
-            snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS)
-            recent=self.recent_snapshot(head['login'],now=now,eta_cache=eta_cache,checkpoints=checkpoints)
+            snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS,character=character)
+            recent=self.recent_snapshot(head['login'],now=now,eta_cache=eta_cache,checkpoints=checkpoints,character=character)
             p = snap['percentage_progress']
             last = snap['observations'][-1] if snap['observations'] else {}
             full = None

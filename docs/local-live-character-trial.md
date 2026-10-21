@@ -3,7 +3,7 @@
 Run these commands **after review**. No live capture was performed for this milestone.
 Leave the existing main tracker running: never edit its config, use its DB/port,
 restart it or kill its processes. Start with **one authorized channel**, six captures
-at 60-second intervals, using a new private trial folder in this feature worktree.
+at a 15–60-second interval, using a new private trial folder in this feature worktree.
 
 ## Activation and isolation
 
@@ -30,8 +30,23 @@ Twitch name/automatic mode requires:
 - A **new** DB/marker or the exact prior live-trial DB/marker, with the same channels
   and automation mode. Unowned, nonautomatic and offline-auto DBs cannot be adopted.
   An existing trial must already have the current schema: restart never migrates it.
-- One or two authorized Twitch channels, 60-second intervals, one worker, no HUD cache,
-  and **no 24h retention**. Names reuse the EXP/level resident on every eligible frame.
+- One or two authorized Twitch channels, a **15–60-second** interval (any value,
+  including decimals; omitted means the normal 15-second default), one worker, no HUD
+  cache, and **no 24h retention**. Names reuse the EXP/level resident on every eligible frame.
+
+### Why 15–60 seconds
+
+Two-frame confirmation needs consecutive name frames at most `CONFIRM_GAP_SECONDS`
+(120 s) apart (`character_automation.independent`, `IdentitySuggestions.observe`).
+The ceiling is half that gap, `LIVE_TRIAL_INTERVAL` in `tools/multi_alpha.py`, so
+scheduler and capture jitter cannot make confirmation impossible. At exactly 60 s one
+missed attempt lands at the 120-second edge and may reset the streak; shorter
+intervals tolerate misses better. The floor is the normal 15-second default; the
+general 5..300 bound for non-trial tracking is unchanged. With two channels and one
+worker, attempts run serially: if one attempt takes longer than about half the
+interval, slots are skipped (never queued) and reported as skipped deadlines.
+15–30-second live cadence has been exercised only in the operator's local 30-second
+trial and in mocked tests, not measured for resources; start at 30–60 s.
 - A separate port; the normal default 8765 is refused. Preflight probes localhost
   availability before DB/marker initialization. This is not a reservation: a later
   bind race can initialize the disposable DB, but capture still never starts.
@@ -63,7 +78,7 @@ $logs = Join-Path $trial 'logs'
 $channels = @('AUTHORIZED_LOGIN') # Start with one; a NEW trial can configure up to two.
 $streams = @($channels | ForEach-Object {
   [ordered]@{ channel=$_; character='PendingOCR'; source='twitch'; authorized=$true
-    interval=60; count=6; timeout=20; ocr_timeout=10; max_age=15
+    interval=60; count=6; timeout=20; ocr_timeout=10; max_age=15  # interval: 15..60
     experimental_neural_level=$true; quality='best' }
 })
 [ordered]@{ database=$database; port=8879; streams=$streams } |
@@ -197,8 +212,8 @@ python -m pytest -q tests/test_live_character_trial.py tests/test_character_iden
 python -m pytest -q -n 8 -k 'not test_concurrent_viewers_share_one_projection_per_publication'
 ```
 
-At 60-second cadence, clean switching takes roughly **60–120 seconds plus capture/OCR**
-from an arbitrary switch time. Failures/unreadable HUDs can extend this indefinitely.
+At interval I, clean switching takes roughly **I–2I seconds plus capture/OCR**
+from an arbitrary switch time (60–120 s at I=60, 15–30 s at I=15). Failures/unreadable HUDs can extend this indefinitely.
 Freshness proves local decoder age, not broadcast age/PTS. A streamer watching another
 feed can associate its visible character with that streamer. Repeated confident OCR
 mistakes can create wrong records or poison a floor; ASCII/UI-layout limits remain.

@@ -13,7 +13,7 @@ import exp_tracker.server as server_module
 import exp_tracker.diagnostics as diagnostics_module
 from exp_tracker.diagnostics import Diagnostics,operation
 from exp_tracker.product import refresh,tracked_statistics
-from exp_tracker.publisher import PRIVATE_FIELDS,broadcast,encode,public,revision
+from exp_tracker.publisher import PRIVATE_FIELDS,broadcast,encode,public,public_character,public_roster,revision
 from exp_tracker.store import Store,utc
 from exp_tracker.twitch_probe import StreamAvailability
 from tests.test_product import tracking,NOW
@@ -50,6 +50,8 @@ def reference(store,server,channel,now):
         head=d.heads(channel)[0]
         _,card,extras=d.card({},head,now=card_at)
         tracked=d.rolling_history(channel,now=tracked_at)
+        roster=public_roster(d.roster(channel),(card['player'].get('display_level') or {}).get('value'))
+    card['player']['character']=public_character(card['player']['character'])
     value=tracked_statistics(refresh(card['player'],now=now,activity=operation(extras['lifecycle'],None,now)),tracked,now=now,pace_as_of=card_at)
     # The removed broadcasts(): Twitch status for channels whose latest run is a Twitch source.
     row=store.db.execute('''SELECT r.configuration_json AS config,(SELECT payload_json FROM diagnostic_attempts
@@ -57,7 +59,8 @@ def reference(store,server,channel,now):
         ON r.rowid=(SELECT rowid FROM diagnostic_runs WHERE streamer_id=s.id ORDER BY rowid DESC LIMIT 1) WHERE s.login=?''',(channel,)).fetchone()
     twitch=[channel] if row and (json.loads(row['config'] or '{}').get('source_kind') or json.loads(row['payload'] or '{}').get('source',{}).get('kind'))=='twitch' else []
     statuses=server.twitch_availability.snapshot(twitch,now=now)
-    body=dict(player=broadcast([value],statuses,now)[0],tracked_history=tracked,history=extras['history'],truncated=extras['truncated'])
+    body=dict(player=broadcast([value],statuses,now)[0],tracked_history=tracked,history=extras['history'],truncated=extras['truncated'],
+        roster=roster,view=dict(character_id=head['selected_character_id'],current=True))
     return public(json.loads(encode(body)))  # Public responses never carry PRIVATE_FIELDS.
 
 

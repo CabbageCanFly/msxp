@@ -13,6 +13,8 @@ from .shadow_view import observation
 from .store import utc
 
 MAX_AUTOMATIC_CHARACTERS = 16
+# The configured label before any name is recognized (docs/local-live-character-trial.md).
+PLACEHOLDER_CHARACTER = 'PendingOCR'
 
 
 def original(record):

@@ -17,6 +17,19 @@
 .product progress::-webkit-progress-value,.live-overlay progress::-webkit-progress-value { background:linear-gradient(#d8f969,#98c720); }
 .product progress::-moz-progress-bar,.live-overlay progress::-moz-progress-bar { background:#a9d633; }
 .poll-note { color:#c9b18e; font-size:11px; }
+.board-modes { display:flex; margin:16px 20px 0; }
+.character-controls { display:flex; flex-wrap:wrap; gap:12px; color:#c9b18e; font-size:12px; min-width:0; }
+.character-controls label { display:flex; align-items:center; gap:6px; min-width:0; }
+.character-controls input,.character-controls select { min-width:0; max-width:100%; box-sizing:border-box; padding:8px; color:#fff0d6; background:#30261d; border:1px solid #6e5638; border-radius:7px; font:inherit; }
+.product .character-entry { grid-template-columns:64px minmax(0,1fr) minmax(140px,auto); }
+.saved-seen { color:#c9b18e; font-size:11px; text-align:right; }
+@media(max-width:650px) {
+  .board-modes { margin-left:12px; margin-right:12px; }
+  .product .character-entry { grid-template-columns:48px minmax(0,1fr); }
+  .character-entry .level { grid-column:1; grid-row:1; }
+  .character-entry .identity { grid-column:2; grid-row:1; }
+  .character-entry .saved-seen { grid-column:2; text-align:left; }
+}
 .product .entry .exp-label { color:#fff; }
 .product .entry .exp-number { min-width:0; white-space:nowrap; }
 .player-reading { display:flex; align-items:center; gap:18px; padding:28px 25px 12px; }
@@ -108,3 +121,29 @@
 .level-filter { display:flex; align-items:center; gap:.4rem; color:#d8c9af; font-size:.85rem; }
 .level-transition { stroke:#e9bf69; stroke-dasharray:3 4; opacity:.7; }
 .level-transition-label { fill:#f0c86d; font-size:11px; }
+
+/* Saved-character roster: one scrollable row; only shown for two or more characters. */
+.roster { display:flex; align-items:center; gap:8px; padding:12px 25px 0; }
+.roster-track { display:flex; gap:6px; flex:1; min-width:0; overflow-x:auto; scroll-snap-type:x proximity; scrollbar-width:thin; scrollbar-color:#6e5638 transparent; padding-bottom:4px; }
+.roster-track[data-more="end"] { mask-image:linear-gradient(to right,#000 88%,transparent); }
+.roster-track[data-more="start"] { mask-image:linear-gradient(to left,#000 88%,transparent); }
+.roster-track[data-more="both"] { mask-image:linear-gradient(to right,transparent,#000 10%,#000 90%,transparent); }
+.roster-chip, .roster-option { display:flex; flex-direction:column; gap:1px; text-decoration:none; color:#efd8b4; border:1px solid #6e5638; border-radius:9px; background:#30261d; font-size:12px; line-height:1.3; }
+.roster-chip { flex:none; max-width:150px; padding:5px 11px; scroll-snap-align:start; }
+.roster-chip:hover, .roster-option:hover { border-color:#9b784d; }
+.roster-chip:focus-visible, .roster-option:focus-visible, .roster-all summary:focus-visible { outline:2px solid #f4c47c; outline-offset:1px; }
+.roster [aria-current="page"] { background:#72502c; border-color:#d4a457; color:#fff2da; }
+.roster-name { font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.roster-meta { color:#c9b18e; font-size:10px; white-space:nowrap; }
+.roster [aria-current="page"] .roster-meta { color:#ead3b4; }
+.roster-live { color:#d8f969; }
+.roster-live::before { content:""; display:inline-block; width:6px; height:6px; margin-right:4px; border-radius:50%; background:#bfdc59; vertical-align:1px; }
+.roster-all { position:relative; flex:none; }
+.roster-all summary { list-style:none; cursor:pointer; padding:8px 12px; border:1px solid #9b784d; border-radius:20px; color:#efd8b4; font-size:11px; white-space:nowrap; }
+.roster-all summary::-webkit-details-marker { display:none; }
+.roster-all[open] summary { background:#72502c; color:#fff2da; }
+.roster-menu { position:absolute; right:0; top:calc(100% + 6px); z-index:15; width:min(260px,calc(100vw - 40px)); box-sizing:border-box; padding:8px; background:#302519; border:1px solid #c29451; border-radius:10px; box-shadow:0 5px 18px #0008; }
+.roster-menu input { width:100%; box-sizing:border-box; margin-bottom:6px; padding:7px 10px; font:inherit; font-size:12px; color:#fff0d6; background:#241b14; border:1px solid #6e5638; border-radius:7px; }
+.roster-menu ul { list-style:none; margin:0; padding:0; max-height:min(260px,50vh); overflow-y:auto; display:grid; gap:4px; }
+.roster-option { padding:6px 10px; }
+@media(max-width:650px) { .roster { padding:10px 14px 0; } }

@@ -130,13 +130,12 @@ def test_overnight_level_jump_requires_two_named_levels_and_keeps_history(live):
         assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==4
 
 
-@pytest.mark.parametrize('case',['database','log-root','port','interval','authorization','workers','retention','cache','channels','mixed'])
+@pytest.mark.parametrize('case',['database','log-root','port','authorization','workers','retention','cache','channels','mixed'])
 def test_live_isolation_preflight_refuses_unsafe_settings_without_writes(live,case):
     extra=['--check']
     if case=='database':live.config['database']=str(live.db.parent.parent.parent/'main.sqlite3')
     if case=='log-root':extra+=['--log-root',str(live.path.parent.parent/'other-logs')]
     if case=='port':live.config['port']=8765
-    if case=='interval':live.config['streams'][0]['interval']=15
     if case=='authorization':live.config['streams'][0]['authorized']=False
     if case=='workers':extra+=['--workers','2']
     if case=='retention':extra+=['--continuous','--retention-24h']
@@ -145,6 +144,37 @@ def test_live_isolation_preflight_refuses_unsafe_settings_without_writes(live,ca
     if case=='mixed':live.config['streams'].append(dict(live.config['streams'][0],channel='bravo',source='file',file='unused.mp4'))
     assert run(live,*extra)==1
     assert not live.db.exists() and not live.logs.exists() and not live.steps
+
+
+@pytest.mark.parametrize('interval',[5,10,14.9,60.1,61,90,120,300])
+def test_live_trial_refuses_intervals_outside_confirmation_range_without_writes(live,capsys,interval):
+    live.config['streams'][0]['interval']=interval
+    assert run(live,'--check')==1 and run(live)==1
+    assert 'interval must be 15..60 seconds' in capsys.readouterr().err
+    assert not live.db.exists() and not live.logs.exists() and not live.steps
+
+
+@pytest.mark.parametrize('interval',[15,20,30,45.5,60])
+def test_live_trial_accepts_configurable_interval_and_confirms_switches(live,interval):
+    live.config['streams'][0]['interval']=interval
+    assert run(live,'--check')==0 and not live.db.exists() and not live.steps
+    live.config['streams'][0]['count']=4
+    live.scripts['alpha']=[('Alpha',67,4000),('Alpha',67,4010),('Beta',30,4000),('Beta',30,4010)]
+    assert run(live)==0
+    rows=payloads(live.db,'alpha')
+    assert [row['automatic_selection']['name'] for row in rows if 'automatic_selection' in row]==['Alpha','Beta']
+    with Store(live.db,read_only=True) as store:
+        assert {json.loads(r[0])['interval'] for r in store.db.execute('SELECT configuration_json FROM diagnostic_runs')}=={interval}
+
+
+def test_live_trial_interval_defaults_and_normal_tracking_bounds_are_unchanged(live):
+    live.config['streams'][0].pop('interval')
+    assert run(live,'--check')==0  # Normal default of 15 seconds is inside the trial range.
+    live.config.update(database=str(live.db.parent/'nonautomatic.sqlite3'))
+    live.config['streams'][0].update(character='Alpha',interval=300)
+    assert run(live,'--check',automatic=False)==0
+    live.config['streams'][0]['interval']=301
+    assert run(live,'--check',automatic=False)==1
 
 
 def test_check_is_read_only_and_port_collision_refuses_before_db_creation(live):

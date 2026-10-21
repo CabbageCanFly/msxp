@@ -5,6 +5,11 @@ read transaction, and publishes them as an immutable entry. Requests never build
 replay history or call Twitch. They time-present the latest entries and reuse the
 serialized body for at most PRESENT_SECONDS of as-of clock. A character poll that names the
 content revisions it already holds is sent the chart history and tracked packet only when changed.
+
+A visitor may also view one of the channel's unselected characters. Those views are
+built by the same refresher, on demand, at most MAX_VIEWS at once. Least recently
+polled views are replaced when full; idle views expire after VIEW_IDLE_SECONDS.
+Viewing never changes the selection.
 """
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -12,6 +17,7 @@ import json
 import threading
 import time
 
+from .character_automation import PLACEHOLDER_CHARACTER
 from .diagnostics import Diagnostics, due, operation, present_card
 from .product import refresh, tracked_statistics
 from .store import Store, utc
@@ -28,6 +34,8 @@ PRIVATE_FIELDS = frozenset({
     'excluded', 'holes', 'latest_endpoint', 'last_observed_eta', 'eligibility_checks',
     'evidence_counts', 'published_alternatives'})
 CHARACTER_ONLY = ('current_level_windows', 'tracked_current_level_windows')  # Only the character page's level toggle reads them.
+MAX_VIEWS = 8  # Unselected-character views across all channels.
+VIEW_IDLE_SECONDS = 60
 
 
 def broadcast(players, statuses, now):
@@ -52,6 +60,20 @@ def public(value):
     return value
 
 
+def public_character(character):
+    """Visitors never see the internal pre-recognition placeholder as a name."""
+    return dict(character, label='—') if character and character['label'] == PLACEHOLDER_CHARACTER else character
+
+
+def public_roster(rows, level):
+    """Selectable characters: the current one first, then most recently seen; no placeholder."""
+    rows = [dict(r, level=level if r['current'] and level is not None else r['level'])
+            for r in rows if r['label'] != PLACEHOLDER_CHARACTER]
+    rows.sort(key=lambda r: (not r['current'], r['last_seen_at'] is None,
+        -datetime.fromisoformat(r['last_seen_at']).timestamp() if r['last_seen_at'] else 0, r['id']))
+    return [{k: r[k] for k in ('id', 'label', 'level', 'last_seen_at', 'current')} for r in rows]
+
+
 def revision(value):
     """Content revision of a published section: equal content, equal revision."""
     return hashlib.sha256(encode(value)).hexdigest()[:16]
@@ -66,6 +88,7 @@ class Publisher:
         self.generation = 0; self.failures = {}; self.wanted = set()
         self.cards = {}  # Card cache owned by the refresher (see Diagnostics.card).
         self.presented = {}; self.present_locks = {}
+        self.views = {}; self.viewed = {}  # ('view', login, character) -> entry / last poll (monotonic).
         self.stats = dict(steps=0, builds=0, build_seconds=0.0, max_build_seconds=0.0, failures=0,
             last_error=None, presentations=0, present_seconds=0.0, ready_at=None, started_at=None)
         self.stop = threading.Event(); self.wake = threading.Event(); self.thread = None
@@ -126,10 +149,13 @@ class Publisher:
                 with self.lock:self.statuses = statuses
                 now = self.clock()  # Network time is not part of the subsequent database snapshot.
                 pending = self.due(heads[:25], now)
+                views = self.due_views(diagnostics, heads[:25], now)
+                # Browsing must not delay fresh tracked-channel publications.
                 if pending:self.build(diagnostics, store, pending[0], now)
+                elif views:self.build(diagnostics, store, views[0][1][1], now, view=views[0][1:])
                 if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in heads[:25]):
                     self.stats['ready_at'] = time.monotonic()
-                return len(pending) > 1
+                return len(pending) + len(views) > 1
 
     def publish_heads(self, heads, statuses):
         """Channel list and Twitch status; removed channels lose every cached state."""
@@ -145,8 +171,8 @@ class Publisher:
                     # A failed refresh may retain old readings, never a different ownership scope.
                     del self.entries[head['login']]; self.generation += 1
                     self.failures.pop(head['login'], None)
-            for cache in (self.cards, self.failures, self.presented, self.present_locks):
-                for key in [k for k in cache if (k[1] if isinstance(k, tuple) else k) not in logins | {'home'}]:del cache[key]
+            for cache in (self.cards, self.failures, self.presented, self.present_locks, self.views, self.viewed):
+                for key in [k for k in cache if (k[1] if isinstance(k, tuple) else k) not in logins | {'home', 'home-characters'}]:del cache[key]
             self.wanted &= logins
 
     def due(self, heads, now):
@@ -164,32 +190,83 @@ class Publisher:
             ranked.append((rank, login))
         return [login for _, login in sorted(ranked)]
 
-    def build(self, diagnostics, store, login, now):
-        tick = time.perf_counter()
+    def due_views(self, diagnostics, heads, now):
+        """Polled views of unselected characters: cold first, then due, oldest first.
+
+        A view whose character became selected, or whose saved data changed, is dropped
+        at once: it is never served in place of the channel entry or a fresh build.
+        """
+        heads = {h['login']: h for h in heads}; idle = time.monotonic() - VIEW_IDLE_SECONDS
+        with self.lock:
+            for key in [k for k, seen in self.viewed.items() if seen < idle or k[1] not in heads
+                        or heads[k[1]]['selected_character_id'] == k[2]]:
+                self.drop_view(key)
+            wanted = list(self.viewed)
+        rosters = {}; ranked = []
+        for key in wanted:
+            failure = self.failures.get(key)
+            if failure and now < failure[1]:continue
+            if key[1] not in rosters:rosters[key[1]] = {r['id']: r for r in diagnostics.roster(key[1])}
+            head = heads[key[1]]; row = rosters[key[1]].get(key[2])
+            current = (head['manual_revision'], head['rename_revision'], head['invalidation_revision'],
+                       head['retention_revision'], row and row['revision'])
+            entry = self.views.get(key)
+            if entry is not None and entry['key'] != current:
+                with self.lock:
+                    if self.views.pop(key, None):self.generation += 1
+                entry = None
+            if entry is None:rank = (0, '')
+            elif (due(entry['card']['player'], entry['card']['recent_as_of'], now)
+                    or not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=TRACKED_SECONDS)):
+                rank = (1, entry['built_at'])
+            else:continue
+            ranked.append((rank, key, current))
+        return [(rank[0], key, current) for rank, key, current in sorted(ranked)]
+
+    def build(self, diagnostics, store, login, now, *, view=None):
+        """view: (('view', login, character), revision) builds that unselected character instead."""
+        tick = time.perf_counter(); name = view[0] if view else login
         try:
             with store._transaction():
                 # Card and tracked packet share one database snapshot and clock.
                 head = diagnostics.heads(login)[0]
-                _, card, extras = diagnostics.card(self.cards, head, now=now,
-                    checkpoints=self.server.checkpoints, eta_cache=self.server.eta_cache)
-                tracked = diagnostics.rolling_history(login, now=now, checkpoints=self.server.checkpoints)
+                character = view[0][2] if view else None
+                # A view keeps no card cache; due_views decides when it is rebuilt.
+                _, card, extras = diagnostics.card({} if view else self.cards, head, now=now,
+                    checkpoints=self.server.checkpoints, eta_cache=self.server.eta_cache, character=character)
+                tracked = diagnostics.rolling_history(login, now=now, checkpoints=self.server.checkpoints, character=character)
+                roster = None if view else diagnostics.roster(login)
         except Exception as error:
-            attempts = self.failures.get(login, (0, None))[0] + 1
-            self.failures[login] = (attempts, now + timedelta(seconds=min(RETRY_SECONDS[1], RETRY_SECONDS[0] * 2 ** (attempts - 1))))
+            attempts = self.failures.get(name, (0, None))[0] + 1
+            self.failures[name] = (attempts, now + timedelta(seconds=min(RETRY_SECONDS[1], RETRY_SECONDS[0] * 2 ** (attempts - 1))))
             self.stats['failures'] += 1; self.stats['last_error'] = type(error).__name__
             return
         seconds = time.perf_counter() - tick
         # Projected once per publication; requests present only these public copies.
         shown = dict(player=public(card['player']), history=public(extras['history']), tracked=public(tracked))
-        entry = dict(key=tuple(head), built_at=now.isoformat(), card=card, extras=extras, tracked=tracked, build_seconds=seconds,
+        shown['player']['character'] = public_character(shown['player']['character'])
+        entry = dict(key=view[1] if view else tuple(head), built_at=now.isoformat(), card=card, extras=extras, tracked=tracked, build_seconds=seconds,
             public=shown, revisions=(revision(shown['history']), revision(shown['tracked'])))
+        if roster is not None:
+            entry['roster'] = public_roster(roster, (card['player'].get('display_level') or {}).get('value'))
         with self.lock:
-            self.entries[login] = entry; self.generation += 1; self.wanted.discard(login)
-        self.failures.pop(login, None)
+            if not view:
+                self.entries[login] = entry; self.wanted.discard(login)
+            elif name in self.viewed:  # Never resurrected after its viewers left.
+                self.views[name] = entry
+            self.generation += 1
+        self.failures.pop(name, None)
         self.stats['builds'] += 1; self.stats['build_seconds'] += seconds
         self.stats['max_build_seconds'] = max(self.stats['max_build_seconds'], seconds)
 
     # Presentation ------------------------------------------------------------
+
+    def drop_view(self, key):
+        """Called under lock: evict a view and all its presentation variants."""
+        self.viewed.pop(key, None);self.views.pop(key, None);self.failures.pop(key, None)
+        for cache in (self.presented, self.present_locks):
+            for variant in [k for k in cache if isinstance(k, tuple) and k[:3] == key]:del cache[variant]
+        self.generation += 1
 
     def runtime(self, channel=None):
         """Coordinator activity is presentation input: it changes without a database revision."""
@@ -199,7 +276,9 @@ class Publisher:
 
     def present(self, key, build, runtime=''):
         """Serialized body for this publication and runtime, reused for PRESENT_SECONDS; one builder per key."""
-        with self.lock:lock = self.present_locks.setdefault(key, threading.Lock())
+        with self.lock:
+            if isinstance(key, tuple) and key[0] == 'view' and key[:3] not in self.viewed:raise LookupError('evicted_view')
+            lock = self.present_locks.setdefault(key, threading.Lock())
         with lock:
             now = self.clock()
             with self.lock:
@@ -242,29 +321,69 @@ class Publisher:
             return encode(body)
         return self.present('home', build, self.runtime())
 
+    def characters(self):
+        """Compact published rosters only: no inactive card, chart or window builds."""
+        def build(now):
+            with self.lock:
+                rows = [dict(row, channel=head['login']) for head in self.heads
+                    if (entry := self.entries.get(head['login'])) for row in entry['roster']]
+                warming = [h['login'] for h in self.heads if h['login'] not in self.entries]
+                truncated = self.truncated
+            return encode(dict(characters=rows, warming=warming, served_at=utc(now), truncated=truncated, poll_seconds=2, experimental=True))
+        return self.present('home-characters', build)
+
     def entry(self, channel):
         with self.lock:return self.entries.get(channel)
 
-    def character(self, channel, known=(None, None)):
+    def character(self, channel, known=(None, None), view=None):
         """Serialized character body, or None while the channel has no published entry.
 
         known: the viewer's (history, tracked) revisions. A section is omitted only when the
         presented entry still has that revision, so the viewer's copy is the published one.
+        view: a character ID from this channel's roster; the selected one, or None, is the
+        channel entry. Raises LookupError('unknown_character').
         """
         entry = self.entry(channel)
         if entry is None:return None
+        if view is not None and view not in {r['id'] for r in entry['roster']}:raise LookupError('unknown_character')
+        if view is not None and view != entry['key'][1]:return self.view(channel, view, known, entry)
         held = tuple(k if k == r else None for k, r in zip(known, entry['revisions']))
         def build(now):
             entry = self.entry(channel)
             if entry is None:raise LookupError(channel)
-            body = dict(player=broadcast([self.player(entry, now)], self.statuses, now)[0])
-            if held[1] != entry['revisions'][1]:body['tracked_history'] = entry['public']['tracked']
-            if held[0] != entry['revisions'][0]:body['history'] = entry['public']['history']
-            return encode(dict(body, history_revision=entry['revisions'][0], tracked_revision=entry['revisions'][1],
-                truncated=entry['extras']['truncated'], served_at=utc(now), experimental=True, poll_seconds=2))
+            body = dict(player=broadcast([self.player(entry, now)], self.statuses, now)[0],
+                roster=entry['roster'], view=dict(character_id=entry['key'][1], current=True))
+            return self.sections(body, entry, held, now)
         # Bounded keys; the held revisions are runtime, so a cached body is only reused for the same ones.
         key = ('character', channel, held[0] is not None, held[1] is not None)
         try:return self.present(key, build, self.runtime(channel) + json.dumps(held))
+        except LookupError:return None
+
+    def sections(self, body, entry, held, now):
+        if held[1] != entry['revisions'][1]:body['tracked_history'] = entry['public']['tracked']
+        if held[0] != entry['revisions'][0]:body['history'] = entry['public']['history']
+        return encode(dict(body, history_revision=entry['revisions'][0], tracked_revision=entry['revisions'][1],
+            truncated=entry['extras']['truncated'], served_at=utc(now), experimental=True, poll_seconds=2))
+
+    def view(self, channel, character, known, entry):
+        """An unselected character's own saved state: no coordinator activity or Twitch status."""
+        if character not in {r['id'] for r in entry['roster']}:raise LookupError('unknown_character')
+        key = ('view', channel, character)
+        with self.lock:
+            if key not in self.viewed and len(self.viewed) >= MAX_VIEWS:
+                self.drop_view(min(self.viewed, key=self.viewed.get))
+            self.viewed[key] = time.monotonic(); found = self.views.get(key)
+        if found is None:
+            self.wake.set();return None
+        held = tuple(k if k == r else None for k, r in zip(known, found['revisions']))
+        def build(now):
+            with self.lock:found = self.views.get(key); entry = self.entries.get(channel)
+            if found is None or entry is None:raise LookupError(channel)
+            value = refresh(found['public']['player'], now=now, activity=dict(state='historical_session'))
+            value = tracked_statistics(value, found['public']['tracked'], now=now, pace_as_of=datetime.fromisoformat(found['card']['recent_as_of']))
+            value.update(activity=public(value['activity']), twitch=dict(status='not_applicable', reason='inactive_character'))
+            return self.sections(dict(player=value, roster=entry['roster'], view=dict(character_id=character, current=False)), found, held, now)
+        try:return self.present((*key, held[0] is not None, held[1] is not None), build, json.dumps(held))
         except LookupError:return None
 
     def history(self, channel):

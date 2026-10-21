@@ -19,6 +19,7 @@ import time
 import uuid
 
 import shadow_capture as shadow
+from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS
 from exp_tracker.diagnostics import Diagnostics, identity_held
 from exp_tracker.metrics import ResourceMonitor
 from exp_tracker.recognition import configure_tesseract
@@ -29,6 +30,8 @@ from exp_tracker.writer_lock import writer_lease
 from local_alpha import report_attempt
 
 APP = 'multi_alpha_v1'
+# Ceiling is half the two-frame gap so jittered consecutive frames confirm with margin.
+LIVE_TRIAL_INTERVAL = (15, CONFIRM_GAP_SECONDS/2)
 
 
 def private(path):
@@ -126,9 +129,13 @@ def live_trial(args, database, port, streams):
     if database.exists() and database.stat().st_nlink>1:
         raise ValueError('Hard-linked databases cannot isolate WAL and ownership markers')
     if port==8765:raise ValueError('Live trial cannot use the default main port 8765; choose a separate port (e.g. 8879)')
-    if (len(streams)>2 or any(row['source']!='twitch' or not row.get('authorized') or row.get('interval',15)!=60 for row in streams)
+    if (len(streams)>2 or any(row['source']!='twitch' or not row.get('authorized') for row in streams)
             or args.workers!=1 or args.retention_24h or args.hud_cache_seconds):
-        raise ValueError('Initial live name trial requires 1..2 authorized Twitch channels, 60-second intervals, one worker, no retention and no HUD cache')
+        raise ValueError('Initial live name trial requires 1..2 authorized Twitch channels, one worker, no retention and no HUD cache')
+    low, high = LIVE_TRIAL_INTERVAL
+    if any(not low<=row.get('interval',15)<=high for row in streams):
+        raise ValueError(f'Live name trial interval must be {low:g}..{high:g} seconds: two-frame confirmation '
+                         f'needs consecutive name frames at most {CONFIRM_GAP_SECONDS:g} seconds apart')
     return dict(live_twitch_trial=True,database=str(database),channels=sorted(row['channel'] for row in streams))
 
 

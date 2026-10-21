@@ -161,6 +161,9 @@ local-video diagnostic capture reuses its resident EXP worker for periodic and
 numeric-event checks. The opt-in [autonomous offline MVP](docs/character-name-ocr.md#autonomous-offline-mvp)
 creates/selects per-stream characters in a disposable database after two strong,
 independent name frames, with separate sessions and persistent validated level floors.
+Public [multi-character profiles](docs/multi-character-profiles.md) let visitors browse
+each saved character view-only, with Streamers/Characters homepage modes. A synthetic
+local demo supports one, two or twelve characters without any Twitch connection.
 
 The separate [native level-digit experiment](docs/level-digits.md) trades coverage
 for safer rejection: 57 correct levels, zero incorrect accepts and 60 unavailable
