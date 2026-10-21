@@ -29,7 +29,7 @@ let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=view==='playe
 // The character page's charts keep their own time windows, separate from the stat cards above them.
 let chartWindow=60,lineWindow=15;
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
-const OVERLAY_CHOICES={layout:['card','rates','chart'],title:['site','tracker'],name:['both','character','twitch','none'],theme:['night','day']};
+const OVERLAY_CHOICES={layout:['card','rates','chart'],title:['site','tracker'],icon:['off','on'],name:['both','character','twitch','none'],theme:['night','day']};
 const OVERLAY_COLORS=['header','bar','accent'];
 function overlayOptions(search) {
   const q=new URLSearchParams(search),options={};
@@ -39,7 +39,7 @@ function overlayOptions(search) {
 }
 // Also called by the character page's live preview (same origin) as options change.
 function applyOverlay(o) {
-  Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name});
+  Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon});
   for(const key of OVERLAY_COLORS)if(/^[0-9a-f]{6}$/.test(o[key] ?? ''))document.body.style.setProperty('--'+key,'#'+o[key]);else document.body.style.removeProperty?.('--'+key);
   el('overlay-brand').textContent=o.title==='site'?'msxp.pages.dev':'EXP TRACKER';
   if(data?.player)renderPlayer();
@@ -696,7 +696,7 @@ if(view==='player') {
   document.querySelectorAll('[data-line-window]').forEach(b=>b.addEventListener('click',()=>{if(![5,10,15,30,60].includes(Number(b.dataset.lineWindow)))return;lineWindow=Number(b.dataset.lineWindow);drawHistory();}));
   globalThis.addEventListener?.('resize',()=>{renderPlayer();drawHistory();rosterEdges();scalePreview();});
   const builder=overlayOptions(''),SIZES={card:[500,160],rates:[500,110],chart:[500,180]};
-  const THEME_COLORS={night:{header:'705035',bar:'b6e65b',accent:'ffc56b'},day:{header:'8a6440',bar:'a8d83c',accent:'c8690f'}};
+  const THEME_COLORS={night:{header:'705035',bar:'a6ef2e',accent:'ffc56b'},day:{header:'8a6440',bar:'7fcc12',accent:'a8520a'}};
   const frame=el('overlay-preview');
   const overlayURL=()=>{
     const q=new URLSearchParams();

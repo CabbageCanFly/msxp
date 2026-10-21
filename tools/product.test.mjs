@@ -996,8 +996,9 @@ test('character page defaults: 15 min cards, 24h bar chart and a 15 min line cha
 test('overlay URL options fall back on unknown values and accept only six-digit hex colours',()=>{
   const p=page('overlay');
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions("?layout=rates&name=nope&title=tracker&bar=ABCDEF&accent=red&header=%23123456"))')),
-    {layout:'rates',title:'tracker',name:'both',theme:'night',bar:'abcdef'});
-  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',name:'both',theme:'night'});
+    {layout:'rates',title:'tracker',icon:'off',name:'both',theme:'night',bar:'abcdef'});
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',icon:'off',name:'both',theme:'night'});
+  assert.equal(p.run('overlayOptions("?icon=on").icon'),'on');
 });
 
 test('overlay rates read each lookback window; the last-hour chart keeps untracked bins unknown',()=>{
