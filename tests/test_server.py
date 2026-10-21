@@ -303,7 +303,8 @@ def test_simulated_leaderboard_assets_keep_existing_http_security(database, http
         pytest.fail("The simulated leaderboard must not read or write tracking state")
     monkeypatch.setattr(server, "Store", forbidden)
     for path, mime in (("/demo/leaderboard", "text/html"), ("/static/leaderboard.css", "text/css"),
-                       ("/static/leaderboard.js", "text/javascript"), ("/static/leaderboard.svg", "image/svg+xml")):
+                       ("/static/leaderboard.js", "text/javascript"), ("/static/leaderboard.svg", "image/svg+xml"),
+                       ("/static/fonts/fredoka-latin.woff2", "font/woff2"), ("/static/fonts/nunito-latin.woff2", "font/woff2")):
         code, headers, body = request(http_server, path)
         assert code == 200 and headers["Content-Type"].startswith(mime) and body
         assert headers["Cache-Control"] == "no-store"
