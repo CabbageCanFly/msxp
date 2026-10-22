@@ -380,6 +380,13 @@ def test_stream_directory_frontend_logic():
     subprocess.run([node,'--test','tools/streams.test.mjs'],check=True,timeout=20)
 
 
+@pytest.mark.parametrize('script', ['product', 'admin-invalidations', 'admin-streamers', 'admin-time', 'obs-client'])
+def test_site_and_admin_frontend_logic(script):
+    node = shutil.which('node')
+    if not node: pytest.skip('Optional Node.js frontend tests')
+    subprocess.run([node,'--test',f'tools/{script}.test.mjs'],check=True,timeout=20)
+
+
 def test_directory_opt_in_cache_freshness_and_assignment_isolation(database,monkeypatch):
     with server.create_server(database,port=0) as httpd:
         for path in ('/streams','/dev/api/streams','/static/streams.js'):

@@ -317,7 +317,8 @@ def test_background_publisher_detects_external_cli_style_write(tracking):
         wait(lambda:server.publisher.entry('alpha') is not None)
         with Store(path) as writer:event=correct(writer,level=72,percentage_bp=1234)
         # No wake() from capture or a browser request.
-        wait(lambda:server.publisher.entry('alpha')['card']['player'].get('manual_correction',{}).get('id')==event['id'])
+        # The correction drops the old publication at once, so the entry is briefly None until the rebuild.
+        wait(lambda:(e:=server.publisher.entry('alpha')) is not None and e['card']['player'].get('manual_correction',{}).get('id')==event['id'])
         assert json.loads(server.publisher.character('alpha'))['player']['reading']['percentage']=='12.34'
 
 
