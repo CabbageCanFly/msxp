@@ -9,6 +9,10 @@ import sqlite3
 
 from .store import Store, utc
 
+# Each pruned run costs ~0.1 s of checkpoint replay inside the writer transaction, which also pauses the
+# coordinator's capture loop; 25 keeps a chunk to a few seconds (200 took 15-25 s and could skip a 20 s slot).
+BATCH_RUNS = 25
+
 
 def pack(value):
     if isinstance(value, datetime):return {'$datetime':value.isoformat()}
@@ -71,7 +75,7 @@ def plan(store, now, active_runs=None):
             FROM diagnostic_runs r LEFT JOIN diagnostic_attempts a ON a.run_id=r.run_id
             GROUP BY r.rowid ORDER BY r.rowid'''):
         groups.setdefault(row['character_id'],[]).append(dict(row))
-    prefixes={};remaining=200
+    prefixes={};remaining=BATCH_RUNS
     for cid,runs in groups.items():
         if not remaining:break
         floor=checkpoint(store,cid).get('through_run',0);chosen=[]
@@ -99,7 +103,7 @@ def prune(store, *, now=None, dry_run=True, active_runs=None):
         report=dict(dry_run=dry_run,cutoff=utc(cutoff),runs=sum(map(len,prefixes.values())),
             attempts=sum(r['attempts'] for runs in prefixes.values() for r in runs),
             observation_candidates=store.db.execute('SELECT COUNT(*) FROM observations WHERE observed_at<?',(utc(cutoff),)).fetchone()[0])
-        report['batch_limit_reached']=report['runs']==200
+        report['batch_limit_reached']=report['runs']==BATCH_RUNS
         if dry_run:return report
         if store.schema_version<9:raise ValueError('writer migration to schema 9 required')
         store.db.execute('''UPDATE retention_meta SET revision=revision+1,
