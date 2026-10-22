@@ -7,7 +7,7 @@ import sqlite3
 import zlib
 
 from .retention import dumps, loads
-from .rolling_history import MAX_BYTES, MAX_EVENTS, MAX_RUNS, MAX_CHECKPOINTS, select_runs
+from .rolling_history import LOCK, MAX_BYTES, MAX_EVENTS, MAX_RUNS, MAX_CHECKPOINTS, select_runs
 from .writer_lock import writer_lease
 
 APPLICATION_ID = 0x4D535850
@@ -79,19 +79,23 @@ class PublicationCache:
         for run in runs:
             head=store.db.execute('SELECT configuration_json,summary_json FROM diagnostic_runs WHERE run_id=?',(run,)).fetchone()
             if head is None:raise ValueError('cached run no longer exists')
-            mark=store.db.execute('SELECT COUNT(*),MAX(id),COALESCE(SUM(LENGTH(CAST(payload_json AS BLOB))),0) FROM diagnostic_attempts WHERE run_id=? AND id<=?',(run,through)).fetchone()
-            count+=mark[0];size+=mark[2]
-            if mark[0]>60 or count>MAX_EVENTS or size>MAX_BYTES:raise ValueError('cache source limit')
-            # Closed runs are immutable during an API lifetime; rehash everything after restart.
-            key=(run,*head,mark[0],mark[1])
-            token=self.digests.get(key) if head[1] is not None else None
-            if token is None:
+            # Closed runs are immutable during an API lifetime, so skip rescanning their payloads on every save;
+            # a restart starts with an empty memo and verifies every byte again.
+            # An old publication may cover only part of a run that has since closed.
+            last=store.db.execute('SELECT COALESCE(MAX(id),0) FROM diagnostic_attempts WHERE run_id=?',(run,)).fetchone()[0]
+            key=(run,*head,min(through,last))
+            saved=self.digests.get(key) if head[1] is not None else None
+            if saved is None:
+                mark=store.db.execute('SELECT COUNT(*),COALESCE(SUM(LENGTH(CAST(payload_json AS BLOB))),0) FROM diagnostic_attempts WHERE run_id=? AND id<=?',(run,through)).fetchone()
+                if mark[0]>60 or count+mark[0]>MAX_EVENTS or size+mark[1]>MAX_BYTES:raise ValueError('cache source limit')
                 rows=store.db.execute('SELECT id,payload_json FROM diagnostic_attempts WHERE run_id=? AND id<=? ORDER BY id',(run,through)).fetchall()
-                token=hashlib.sha256(json.dumps([run,list(head),[list(r) for r in rows]],ensure_ascii=True).encode()).hexdigest()
+                saved=(hashlib.sha256(json.dumps([run,list(head),[list(r) for r in rows]],ensure_ascii=True).encode()).hexdigest(),*mark)
                 if head[1] is not None:
                     if len(self.digests)>=MAX_RUNS*2:self.digests.pop(next(iter(self.digests)))
-                    self.digests[key]=token
-            digest.update(token.encode())
+                    self.digests[key]=saved
+            count+=saved[1];size+=saved[2]
+            if count>MAX_EVENTS or size>MAX_BYTES:raise ValueError('cache source limit')
+            digest.update(saved[0].encode())
         return digest.hexdigest()
 
     def wrap(self,store,value,runs):
@@ -123,15 +127,16 @@ class PublicationCache:
     def restore_checkpoints(self,store,head,checkpoints,now):
         saved=self.read('checkpoints',store,head['login'])
         if not saved or not self.compatible(saved['head'],head):return
-        for key,value in saved['items']:
-            if value['now']<=now:
-                if key not in checkpoints and len(checkpoints)>=MAX_CHECKPOINTS:checkpoints.pop(next(iter(checkpoints)))
-                checkpoints[key]=value
+        with LOCK:
+            for key,value in saved['items']:
+                if value['now']<=now:
+                    if key not in checkpoints and len(checkpoints)>=MAX_CHECKPOINTS:checkpoints.pop(next(iter(checkpoints)))
+                    checkpoints[key]=value
 
     def save(self,store,diagnostics,head,entry,checkpoints):
         channel=head['login'];now=datetime.fromisoformat(entry['built_at'])
         runs=[r['run_id'] for r in select_runs(diagnostics,channel,start=now-timedelta(hours=48,minutes=5),now=now)]
-        items=[(k,v) for k,v in checkpoints.items() if k[1:3]==(channel,head['selected_character_id'])]
+        with LOCK:items=[(k,v) for k,v in checkpoints.items() if k[1:3]==(channel,head['selected_character_id'])]
         prefix=hashlib.sha256(dumps([(k,v['runs']) for k,v in items]).encode()).hexdigest()
         old=self.db.execute('SELECT prefix FROM checkpoints WHERE channel=?',(channel,)).fetchone()
         # Encode before the transaction so failure cannot persist half of a publication.

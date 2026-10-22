@@ -88,6 +88,23 @@ def test_new_attempt_rebuilds_from_restored_prefix_without_reusing_old_totals(tr
         assert published(server,'alpha')==reference(store,server,'alpha',clock.at)
 
 
+def test_run_closed_while_api_stopped_rebuilds_a_restorable_cache(tracking,clock,tmp_path):
+    path,store,d=tracking;cache=tmp_path/'warm.sqlite3'
+    for i in range(1,4):save(d,'run',i,(i-1)*20,3300+i*5)
+    clock.at=NOW+timedelta(seconds=40)
+    with create_server(path,port=0,public_only=True,publication_cache=cache) as server:server.publisher.settle()
+    save(d,'run',4,60,3320)
+    d.append('run',dict(type='summary',trusted=False,attempts=4,interrupted=False))
+    clock.at=NOW+timedelta(seconds=60)
+    with create_server(path,port=0,public_only=True,publication_cache=cache) as server:
+        assert server.publisher.stats['restored']==0
+        server.publisher.settle()
+        assert published(server,'alpha')==reference(store,server,'alpha',clock.at)
+        assert not server.publisher.stats['cache_error']
+    with create_server(path,port=0,public_only=True,publication_cache=cache) as server:
+        assert server.publisher.stats['restored']==1
+
+
 def test_cache_cannot_overwrite_history_or_another_database_and_has_single_owner(tracking,tmp_path):
     path,store,_=tracking;before=path.read_bytes()
     with pytest.raises(ValueError,match='separate'):PublicationCache(path,path,store.schema_version)
@@ -123,3 +140,18 @@ def test_heartbeat_expiry_is_presented_even_without_another_history_build(tracki
         clock.at+=timedelta(seconds=16)
         assert json.loads(server.publisher.runtime('alpha'))[0] is None
         assert not server.active_run_ids
+
+
+def test_closed_run_signature_skips_rescanning_payloads_within_one_api_lifetime(tracking,tmp_path):
+    path,store,d=tracking;prepare(d)
+    cache=PublicationCache(tmp_path/'warm.sqlite3',path,store.schema_version)
+    try:
+        with Store(path,read_only=True) as reader:
+            (run,summary),=reader.db.execute('SELECT run_id,summary_json FROM diagnostic_runs')
+            assert summary is not None
+            through=reader.db.execute('SELECT MAX(id) FROM diagnostic_attempts').fetchone()[0]
+            scans=[];reader.db.set_trace_callback(lambda sql:scans.append(sql) if 'payload_json' in sql else None)
+            first=cache.signature(reader,[run],through)
+            assert scans and cache.signature(reader,[run],through)==first and len(scans)==2
+            assert cache.signature(reader,[run],through+1)==first and len(scans)==2
+    finally:cache.close()

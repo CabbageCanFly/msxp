@@ -71,13 +71,19 @@ class RuntimeReader:
             if body.get('format')!=1 or body['database']!=self.database or not 0<=age<=HEARTBEAT_SECONDS:return {},set()
             states=body['states'];runs=body['active_runs']
             if not isinstance(states,dict) or not isinstance(runs,list) or not all(isinstance(r,str) for r in runs):return {},set()
-            if not all(isinstance(k,str) and isinstance(v,dict) and v.get('state') in (
-                    'running','waiting','stopped','capture_failing','capture_delayed') for k,v in states.items()):return {},set()
-            for state in states.values():
-                if state['state'] in ('running','waiting'):
-                    field='updated_at' if state['state']=='running' else 'next_due_at'
-                    if datetime.fromisoformat(state[field]).utcoffset() is None:return {},set()
-                    number=state['expected_completion_seconds'] if state['state']=='running' else state['requested_interval_seconds']
-                    if type(number) not in (int,float) or not math.isfinite(number) or number<=0:return {},set()
-            return states,set(runs)
+            # One malformed channel must not hide every other channel's capture activity.
+            return {k:v for k,v in states.items() if valid_state(k,v)},set(runs)
         except (OSError,ValueError,KeyError,TypeError,OverflowError):return {},set()
+
+
+def valid_state(channel,state):
+    try:
+        if not isinstance(channel,str) or not isinstance(state,dict) or state.get('state') not in (
+                'running','waiting','stopped','capture_failing','capture_delayed'):return False
+        if state['state'] in ('running','waiting'):
+            field='updated_at' if state['state']=='running' else 'next_due_at'
+            if datetime.fromisoformat(state[field]).utcoffset() is None:return False
+            number=state['expected_completion_seconds'] if state['state']=='running' else state['requested_interval_seconds']
+            if type(number) not in (int,float) or not math.isfinite(number) or number<=0:return False
+        return True
+    except (ValueError,KeyError,TypeError,OverflowError):return False

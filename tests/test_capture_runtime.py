@@ -48,3 +48,13 @@ def test_runtime_writer_refuses_history_marker_and_unrelated_files(tmp_path):
         before=target.read_bytes()
         with pytest.raises(ValueError):CaptureRuntime(target,database)
         assert target.read_bytes()==before
+
+
+def test_one_malformed_channel_does_not_hide_other_capture_activity(tmp_path):
+    database=tmp_path/'history.sqlite3'
+    with Store(database):pass
+    path=tmp_path/'runtime.json';reader=RuntimeReader(path,database);now=datetime.now(timezone.utc)
+    good=dict(state='running',updated_at=now.isoformat(),expected_completion_seconds=45)
+    path.write_text(json.dumps(dict(format=1,database=reader.database,written_at=now.isoformat(),
+        states=dict(alpha=good,beta=dict(state='future_state'),gamma=dict(state='running')),active_runs=['a'])))
+    assert reader.read(now)==(dict(alpha=good),{'a'})

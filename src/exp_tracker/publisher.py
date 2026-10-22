@@ -219,7 +219,7 @@ class Publisher:
                     self.failures.pop(head['login'], None)
             for cache in (self.cards, self.failures, self.presented, self.present_locks, self.views, self.viewed):
                 for key in [k for k in cache if (k[1] if isinstance(k, tuple) else k) not in logins | {'home', 'home-characters'}]:del cache[key]
-            self.wanted &= logins
+            self.wanted &= logins; self.checkpoints_restored &= logins
 
     def due(self, heads, now):
         """Cold (wanted first), then all due publications oldest first."""
