@@ -211,6 +211,8 @@ class AutonomousCharacters:
                 count = self.db.execute('SELECT COUNT(*) FROM characters WHERE streamer_id=?', (streamer['id'],)).fetchone()[0]
                 if not found and count >= MAX_AUTOMATIC_CHARACTERS:
                     switch = False  # Keep the existing mismatch hold; this exceptional case needs an operator.
+                elif found and found[0] in self.store.invalidated_characters(streamer['id']):
+                    switch = False  # An operator ruled this name out (e.g. another player's video): its frames stay held.
                 else:
                     count = self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE run_id=?', (run_id,)).fetchone()[0]
                     if record['index'] != count + 1: raise ValueError('Automatic switch attempt order changed')

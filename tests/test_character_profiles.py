@@ -494,3 +494,24 @@ def test_demo_offline_streams_report_offline_without_asking_twitch():
     demo.offline_twitch(server, {'synthetic_quiet'})
     statuses = server.twitch_availability.snapshot(['synthetic_ember'], now=NOW)
     assert statuses['synthetic_ember'] == dict(status='unknown') and statuses['synthetic_quiet']['status'] == 'offline'
+
+
+def test_invalidated_name_is_never_switched_to_until_restored(db):
+    with Store(db) as store:
+        store.invalidate_character(CHANNEL, BETA, reason="Watched another player's video")
+        latest = datetime.fromisoformat(store.db.execute('SELECT MAX(attempted_at) FROM diagnostic_attempts').fetchone()[0])
+        frame = lambda i, bp: ('Beta', 43, bp, latest + timedelta(seconds=demo.INTERVAL * i))
+        # Two confirming frames would normally switch; these stay with Alpha's capture, held as a name mismatch.
+        assert demo.append(store, [frame(1, 6000), frame(2, 6020)]) == []
+        assert store.state(CHANNEL)['selected_character_id'] == ALPHA
+        assert [s['name'] for s in Diagnostics(store).roster(CHANNEL) if s['id'] == BETA] == []
+        store.invalidate_character(CHANNEL, BETA, reason='It was theirs after all', restore=True)
+        assert [s['character_id'] for s in demo.append(store, [frame(3, 6040), frame(4, 6060)])] == [BETA]
+
+
+def test_a_database_without_the_invalidation_table_reads_as_none_invalidated(db):
+    with sqlite3.connect(db) as con:con.execute('DROP TABLE character_invalidations')
+    with Store(db, read_only=True) as store:
+        assert store.invalidated_characters(1) == set() and len(Diagnostics(store).roster(CHANNEL)) == 3
+    with Store(db) as store:assert store.invalidated_characters(1) == set()  # Any writer creates it again.
+    with sqlite3.connect(db) as con:assert con.execute("SELECT 1 FROM sqlite_master WHERE name='character_invalidations'").fetchone()

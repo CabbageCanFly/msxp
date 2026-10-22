@@ -227,6 +227,15 @@ MIGRATION_10 = (
         BEGIN SELECT RAISE(ABORT,'validated character level cannot regress'); END""",
 )
 
+# Operator decisions that a detected character is not the streamer's own (e.g. another player's video), and restores.
+# Additive and independent of the versioned capture tables: writable stores create it at schema 10 and later.
+CHARACTER_INVALIDATIONS = '''CREATE TABLE IF NOT EXISTS character_invalidations (
+    id INTEGER PRIMARY KEY, streamer_id INTEGER NOT NULL, character_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK(action IN ('invalidate','restore')), label TEXT NOT NULL,
+    reason TEXT NOT NULL, recorded_at TEXT NOT NULL,
+    FOREIGN KEY(character_id, streamer_id) REFERENCES characters(id, streamer_id)
+)'''
+
 # Desired settings are separate from immutable capture ownership and operational status.
 MIGRATION_11 = (
     '''CREATE TABLE streamer_capture (

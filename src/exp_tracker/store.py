@@ -12,7 +12,7 @@ import sqlite3
 
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition, PLACEHOLDER_CHARACTER
-from .schema import MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, MIGRATION_8, MIGRATION_9, MIGRATION_10, MIGRATION_11, STATEMENTS, VERSION
+from .schema import CHARACTER_INVALIDATIONS, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, MIGRATION_8, MIGRATION_9, MIGRATION_10, MIGRATION_11, STATEMENTS, VERSION
 from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
@@ -96,6 +96,7 @@ class Store:
                     version = 11
                 if version not in (10,VERSION):
                     raise ValueError(f"unsupported schema version {version}")
+                self.db.execute(CHARACTER_INVALIDATIONS)
                 self.db.execute(f"PRAGMA user_version={version}")
                 self.schema_version=version
             self.db.execute("PRAGMA journal_mode=WAL")
@@ -395,6 +396,37 @@ class Store:
             row_id=self.db.execute('''INSERT INTO character_renames(streamer_id,character_id,previous_label,label,recorded_at,reason)
                 VALUES(?,?,?,?,?,?)''',(streamer['id'],character_id,character['label'],label,utc(),reason)).lastrowid
             return dict(self.db.execute('SELECT * FROM character_renames WHERE id=?',(row_id,)).fetchone())
+
+    def invalidated_characters(self, streamer_id):
+        """Characters an operator marked as not this streamer's own: each character's latest decision."""
+        # Read-only stores of a database no writer has opened since this feature have no table yet.
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='character_invalidations'").fetchone():return set()
+        return {r[0] for r in self.db.execute('''SELECT character_id FROM character_invalidations c WHERE streamer_id=? AND action='invalidate'
+            AND id=(SELECT MAX(id) FROM character_invalidations WHERE character_id=c.character_id)''',(streamer_id,))}
+
+    def invalidate_character(self, login, character_id, *, reason, restore=False):
+        """Mark a detected character as not the streamer's own (restore=True undoes it); its readings are kept."""
+        if type(character_id) is not int or character_id<1:raise ValueError('invalid character ID')
+        if not isinstance(reason,str) or not reason.strip() or len(reason)>1000 or any(ord(c)<32 for c in reason):
+            raise ValueError('a reason of 1..1000 characters without controls is required')
+        with self._transaction():
+            streamer=self._channel(login)
+            character=self.db.execute('SELECT * FROM characters WHERE id=? AND streamer_id=?',(character_id,streamer['id'])).fetchone()
+            if character is None:raise ValueError('character does not belong to channel')
+            if character['label']==PLACEHOLDER_CHARACTER:raise ValueError('PendingOCR is internal and cannot be invalidated')
+            invalid=character_id in self.invalidated_characters(streamer['id'])
+            if restore and not invalid:raise ValueError('character is not invalidated')
+            if not restore and invalid:raise ValueError('character is already invalidated')
+            # Changing the selection under a running capture is unsafe; tracking switches back once the streamer's own name returns.
+            if not restore and streamer['selected_character_id']==character_id:
+                raise ValueError("character is currently selected; invalidate it after tracking switches back to the streamer's own character")
+            row_id=self.db.execute('''INSERT INTO character_invalidations(streamer_id,character_id,action,label,reason,recorded_at)
+                VALUES(?,?,?,?,?,?)''',(streamer['id'],character_id,'restore' if restore else 'invalidate',character['label'],reason,utc())).lastrowid
+            return dict(self.db.execute('SELECT * FROM character_invalidations WHERE id=?',(row_id,)).fetchone())
+
+    def character_invalidation_history(self, character_id):
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='character_invalidations'").fetchone():return []
+        return [dict(r) for r in self.db.execute('SELECT * FROM character_invalidations WHERE character_id=? ORDER BY id DESC',(character_id,))]
 
     def ingest(self, login, event_id, observed_at, result: Recognition, *, profile=None,
                session_id=None, source="local"):
