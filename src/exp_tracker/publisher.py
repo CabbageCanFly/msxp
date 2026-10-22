@@ -188,10 +188,13 @@ class Publisher:
                 pending = self.due(directory, now)
                 requested = self.due(extra, now)
                 views = self.due_views(diagnostics, heads, now)
-                # Browsing must not delay fresh tracked-channel publications.
-                if pending:self.build(diagnostics, store, pending[0], now)
+                # Browsing must not delay a channel's first publication, but routine refreshes alternate with
+                # views: with many channels something is always due, which starved views forever.
+                cold = pending and (self.entries.get(pending[0]) is None or self.entries[pending[0]].get('restored'))
+                if cold:self.build(diagnostics, store, pending[0], now)
                 elif requested:self.build(diagnostics, store, requested[0], now)
-                elif views:self.build(diagnostics, store, views[0][1][1], now, view=views[0][1:])
+                elif views and (not pending or self.stats['steps'] % 2):self.build(diagnostics, store, views[0][1][1], now, view=views[0][1:])
+                elif pending:self.build(diagnostics, store, pending[0], now)
                 if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in directory):
                     self.stats['ready_at'] = time.monotonic()
                 return len(pending) + len(requested) + len(views) > 1
