@@ -93,3 +93,22 @@ not lose the durable summary. Measure cold/warm latency, replay counts and CPU o
 representative offline profiles before claiming a VPS capacity improvement.
 
 No new service or external cache is justified by the evidence gathered so far.
+
+## First implementation (2026-10-22)
+
+The homepage Characters list now shows each character's EXP bar and 24 h chart from an
+in-memory summary that the publisher records whenever it builds a character: the
+selected character on every channel refresh, and inactive characters as views or as
+summary-only builds. A summary keeps the projected reading and 30 min buckets and is
+withheld once the channel's manual-correction or invalidation revision changes. When
+served, its chart slides forward by whole 30 min buckets since the build (nothing was
+tracked meanwhile); the list's "today" total is the sum of the remaining buckets.
+
+Inactive characters without a usable summary, or seen after it was built, are built in
+the background only when nothing else is due, at most one per `SUMMARY_SECONDS` (5 s),
+never by requests or in inline mode. Summary-only builds are neither kept as views nor
+written to the publication cache.
+
+Measured: synthetic demo and focused tests only. Not yet done or measured: persisting
+summaries across API restarts (they are rebuilt after a restart), a retention-display
+seed, and the CPU cost of these builds alongside capture on the VPS.

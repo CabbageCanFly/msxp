@@ -27,9 +27,7 @@ function zoneLabel() { return new Intl.DateTimeFormat('en-US',{timeZone,timeZone
 // Live updates wait while the visitor has text selected, so re-rendering doesn't clear the selection.
 let deferredRender=false;
 const selecting=()=>{const s=globalThis.getSelection?.();return !!s && s.rangeCount>0 && !s.isCollapsed;};
-const sorts={exp_hour:'Estimated from recent stream updates. Only streams updating right now are ranked.',
-  level:'Latest known level, then EXP % within that level.',
-  day:'EXP gained in the last 24 hours while tracked.'};
+const sorts=new Set(['exp_hour','level','day']);
 let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=view==='player'?15:5,chartMode='exp',bucketSeconds=1800,pollTimer=null,activeController=null;
 // The character page's charts keep their own time windows, separate from the stat cards above them.
 let chartWindow=60,lineWindow=15;
@@ -60,7 +58,7 @@ let currentLevelOnly=false,warming=false;
 const characterParam=()=>{const id=new URLSearchParams(location.search).get('character');return view==='player' && /^[1-9][0-9]{0,17}$/.test(id ?? '')?id:null;};
 let viewCharacter=characterParam(),roster=[],rosterKey='',rosterViewing=null;
 const boardParam=()=>new URLSearchParams(location.search).get('mode')==='characters'?'characters':'streamers';
-let boardMode=boardParam();
+let boardMode=boardParam(),shownMode=boardMode;  // shownMode: the list on screen, which switches only once its data has arrived.
 const inactiveView=()=>view==='player' && data?.view?.current===false;
 const el=id=>document.getElementById(id);
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
@@ -158,7 +156,7 @@ function publicPace(p,minutes=null) {
     estimates,source:pace};
 }
 function publicETA(p) {
-  if(view!=='player')return null;
+  if(view==='overlay')return null;
   const saved=recentWindow(p)?.eta;
   if(!saved)return null;
   const age=saved.age_seconds+(performance.now()-receivedAt)/1000;
@@ -190,11 +188,7 @@ function windowNote(p) {
   if(limitation)return limitation;
   const w=selectedWindow(p);
   const o=observedWindow(p);
-  if(o) {
-    const age=o.age_seconds+(performance.now()-receivedAt)/1000;
-    const old=current(p).stale || failed || o.paused;
-    return `${o.span_seconds.approximate>=windowMinutes*60?`Based on the full ${windowMinutes} min`:`Based on ${spanText((o.coverage_seconds ?? o.span_seconds).approximate)} tracked`}${old?` · last updated ${ageText(age)}`:''}`;
-  }
+  if(o)return o.span_seconds.approximate>=windowMinutes*60?`Based on the full ${windowMinutes} min`:`Based on ${spanText((o.coverage_seconds ?? o.span_seconds).approximate)} tracked`;
   if(inactiveView())return 'Saved history';
   if(current(p).stale || failed)return 'Waiting for an update';
   if(w?.eligible)return `Based on the full ${windowMinutes} min`;
@@ -202,9 +196,9 @@ function windowNote(p) {
 }
 function statusText(p) {
   // Another character's saved state: never the tracked character's capture or Twitch status.
-  if(inactiveView())return `Not currently tracked · ${p.reading?'last seen '+ageText(current(p).age):'nothing saved yet'}`;
-  // Public status is deliberately two-state; delays and capture issues still read as Tracking.
-  return p.twitch?.status==='offline'?'Offline':'Tracking';
+  if(inactiveView())return `Not currently tracked · ${p.reading?'last tracked '+ageText(current(p).age):'nothing saved yet'}`;
+  // Public status is deliberately two-state; delays and capture issues still read as Online.
+  return p.twitch?.status==='offline'?'Offline':'Online';
 }
 function etaText(value,compact=false) {
   const seconds=value?.seconds?.approximate;
@@ -233,69 +227,120 @@ function ranked(players,key) {
   let rank=null,previous=null;
   return rows.map(({player,value,order},i)=>{if(order!=null && order!==previous)rank=i+1;previous=order;return {player,value,rank:order==null?null:rank};});
 }
-function entry({player:p,value,rank}) {
-  const r=p.reading,s=current(p),row=node('li','entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));row.dataset.state=statusText(p)==='Tracking'?'tracking':'paused';
-  const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
-  const level=node('span','level');level.append(node('small','','LV.'),node('strong','',levelText(p)));level.title=levelTitle(p);
-  const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
-  identity.append(name,node('span','channel',sourceText(p)),node('span','status',statusText(p)));
-  const section=node('div','exp-section'),bar=node('div','exp-bar'),progress=node('progress');progress.max=100;progress.value=r?.bp!=null?r.bp/100:0;progress.hidden=r?.bp==null;progress.setAttribute('aria-label',`${p.character?.label ?? p.channel} EXP progress`);
+// A row's 24 h at a glance: tracked EXP per 30 min, a dash where nothing was tracked (never zero).
+function dayChart(values) {
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),top=Math.max(1,...values.map(v=>v ?? 0));
+  for(const [k,v] of Object.entries({class:'day-chart',viewBox:`0 0 ${values.length*3} 16`,preserveAspectRatio:'none','aria-hidden':'true'}))svg.setAttribute(k,v);
+  const title=document.createElementNS('http://www.w3.org/2000/svg','title');title.textContent='Tracked EXP per 30 min over the last 24 hours. Dashes mean no data.';svg.append(title);
+  values.forEach((v,i)=>{
+    const bar=document.createElementNS('http://www.w3.org/2000/svg','rect'),height=v==null?1:Math.max(1.5,Math.max(0,v)/top*16);
+    for(const [k,a] of Object.entries({x:i*3,y:16-height,width:2,height}))bar.setAttribute(k,a);
+    if(v==null)bar.setAttribute('class','missing');
+    svg.append(bar);
+  });
+  return svg;
+}
+// The EXP bar and beneath it the 24 h chart, today's total, the next-level ETA and the reading's age.
+// The homepage keeps these short: no ~ marks, since nearly every number here is an estimate.
+function expSection(r,{label,buckets,day,eta,age,ageTitle,empty='Waiting for EXP'}) {
+  const section=node('div','exp-section'),bar=node('div','exp-bar'),progress=node('progress');progress.max=100;progress.value=r?.bp!=null?r.bp/100:0;progress.hidden=r?.bp==null;progress.setAttribute('aria-label',`${label} EXP progress`);
   bar.dataset.missing=String(!r);bar.dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence));
-  const label=node('span','exp-label'),integer=node('span','exp-number',displayedExp(r,true));
-  integer.dataset.compactNumber=displayedExp(r);label.title=expTitle(r);label.append(node('small','','EXP'),integer,node('span','percentage',r?.percentage!=null?`[${percentageText(r)}]`:'Waiting for EXP'));
-  bar.append(progress,label);
-  section.append(bar,node('div','exp-detail',r?'Updated '+ageText(s.age):'No reading yet'));
-  const score=node('div','score');score.append(node('strong','score-value',value==null?'—':sort==='level'?String(value):`~${expText(value)}`),
-    node('small','score-label',sort==='level'?'level':sort==='day'?'EXP · 24h':'EXP / hour'));
-  score.title=sort==='exp_hour'?rateTitle(value):sort==='level'?levelTitle(p):value==null?'No tracked EXP in the last 24 hours':`~${expText(value,true)} EXP in the last 24 hours while tracked`;
-  row.append(badge,level,identity,section,score);return row;
+  const text=node('span','exp-label'),integer=node('span','exp-number',displayedExp(r,true));
+  integer.dataset.compactNumber=displayedExp(r);text.title=expTitle(r);text.append(node('small','','EXP'),integer,node('span','percentage',r?.percentage!=null?`[${percentageText(r)}]`:empty));
+  bar.append(progress,text);
+  const meta=node('div','exp-meta');
+  if(buckets?.length)meta.append(dayChart(buckets));
+  if(day!=null){const total=node('span','fact',`${expText(day)} today`);total.title=`${expText(day,true)} EXP tracked in the last 24 hours`;meta.append(total);}
+  if(eta){const soon=node('span','fact',`Next level in ${eta.text}`);soon.title=`At the ${eta.minutes} min pace. Not a live countdown.`;meta.append(soon);}
+  const updated=node('span','updated',age);if(ageTitle)updated.title=ageTitle;
+  meta.append(updated);section.append(bar,meta);return section;
+}
+// The level badge with an indicator light in its corner: lit while online, dark otherwise.
+function levelPill(text,online,label) {
+  const level=node('span','level'),led=node('span','led');led.dataset.on=String(online);led.setAttribute('role','img');led.setAttribute('aria-label',label);led.title=label;
+  level.append(node('small','','LV.'),node('strong','',text),led);return level;
+}
+// Online/offline filter, shared by Streamers and Characters until the page reloads: All, then Online only, then Offline only.
+const PRESENCE={all:{label:'All',next:'online',title:'Showing everyone · click for online only'},
+  online:{label:'Online',next:'offline',title:'Showing online only · click for offline only'},
+  offline:{label:'Offline',next:'all',title:'Showing offline only · click to show everyone'}};
+let presence='all';
+const shown=online=>presence==='all' || online===(presence==='online');
+function showPresence() {
+  const toggle=el('presence'),{label,title}=PRESENCE[presence];toggle.dataset.presence=presence;toggle.title=title;toggle.setAttribute('aria-label',title);
+  if(toggle.textContent!==label)toggle.textContent=label;
+}
+function entry({player:p,value,rank}) {
+  const r=p.reading,s=current(p),row=node('li',`entry streamer-entry${sort==='level'?' unscored':''}`);row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));
+  const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
+  const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
+  const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
+  identity.append(name,node('span','channel',sourceText(p)));
+  // Only a current estimate: an offline or stale stream's saved ETA isn't counting down.
+  const saved=publicETA(p),eta=saved && !saved.historical && etaText(saved.estimate)!=='—'?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes}:null;
+  const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta,age:r?'Updated '+ageText(s.age):'No reading yet'});
+  row.append(badge,level,identity,section);
+  if(sort==='level')return row;  // The level badge already shows it.
+  const score=node('div','score');score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label',sort==='day'?'EXP · 24h':'EXP / hour'));
+  score.title=sort==='exp_hour'?rateTitle(value):value==null?'No tracked EXP in the last 24 hours':`${expText(value,true)} EXP in the last 24 hours while tracked`;
+  row.append(score);return row;
+}
+// Rows update in place instead of being replaced, so hover, open tooltips and selections survive the 1 s refresh.
+function patch(live,fresh) {
+  if(live.nodeName!==fresh.nodeName){live.replaceWith(fresh);return;}
+  if(live.nodeType!==1){if(live.nodeValue!==fresh.nodeValue)live.nodeValue=fresh.nodeValue;return;}
+  for(const {name} of [...live.attributes])if(!fresh.hasAttribute(name))live.removeAttribute(name);
+  for(const {name,value} of fresh.attributes)if(live.getAttribute(name)!==value)live.setAttribute(name,value);
+  patchChildren(live,[...fresh.childNodes]);
+}
+function patchChildren(parent,nodes) {
+  if(!parent.childNodes){parent.replaceChildren(...nodes);return;}  // The Node tests' stand-in DOM.
+  nodes.forEach((n,i)=>{const live=parent.childNodes[i];if(live)patch(live,n);else parent.append(n);});
+  while(parent.childNodes.length>nodes.length)parent.lastChild.remove();
 }
 function renderBoard() {
-  const characters=boardMode==='characters';
+  const characters=shownMode==='characters';
   document.querySelectorAll('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===boardMode)));
+  el('entries').setAttribute('aria-busy',String(boardMode!==shownMode));  // The other list is on its way.
   el('streamer-metrics').hidden=characters;el('streamer-windows').hidden=characters;el('character-controls').hidden=!characters;
-  el('connection').textContent=failed?'Reconnecting · showing last known numbers':'Updates automatically';
+  el('connection').textContent=failed?'Reconnecting · showing last known numbers':'';
+  showPresence();
   if(characters){renderCharacters();return;}
-  const rows=ranked(data?.players ?? [],sort);
+  const all=data?.players ?? [],rows=ranked(all.filter(p=>shown(statusText(p)==='Online')),sort);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
-  el('entries').replaceChildren(...rows.map(entry));
+  patchChildren(el('entries'),rows.map(entry));
   [...el('entries').querySelectorAll('.exp-number')].filter(n=>n.clientWidth>0 && n.scrollWidth>n.clientWidth+1).forEach(n=>{n.textContent=n.dataset.compactNumber;});
   if(focus) [...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
-  el('empty').textContent='No players are being tracked yet.';
-  el('board-count').textContent=data?`${rows.length} player${rows.length===1?'':'s'}${data.warming?.length?` · ${data.warming.length} more loading`:''}`:failed?'Tracker unavailable':'Loading players…';
-  el('ranking-count').textContent='';
-  el('ranking-note').textContent=sort==='level'?'Sorted by level':sort==='exp_hour'?`EXP per hour · last ${windowMinutes} min`:'EXP gained · last 24 hours';
-  el('ranking-note').title=sorts[sort];
+  el('empty').textContent=all.length?`No ${presence} players right now.`:'No players are being tracked yet.';
+  el('board-count').textContent=data?`${rows.length<all.length?`${rows.length} of `:''}${all.length} player${all.length===1?'':'s'}${data.warming?.length?` · ${data.warming.length} more loading`:''}`:failed?'Tracker unavailable':'Loading players…';
+  el('ranking-count').textContent='';el('ranking-note').textContent='';
   document.querySelectorAll('[data-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.sort===sort)));
-  // The 24h ranking ignores the short time window.
-  document.querySelectorAll('[data-window]').forEach(button=>{button.setAttribute('aria-pressed',String(sort!=='day' && Number(button.dataset.window)===windowMinutes));button.disabled=sort==='day';});
+  // Only EXP / hour ranks by the short time window.
+  document.querySelectorAll('[data-window]').forEach(button=>{button.setAttribute('aria-pressed',String(sort==='exp_hour' && Number(button.dataset.window)===windowMinutes));button.disabled=sort!=='exp_hour';});
 }
 function renderCharacters() {
-  const search=el('character-filter').value.trim().toLowerCase(),order=el('character-sort').value || 'recent';
-  const all=data?.characters ?? [],rows=all.filter(r=>`${r.label} ${r.channel}`.toLowerCase().includes(search));
+  const search=el('character-filter').value.trim().toLowerCase(),order=el('character-sort').value || 'level';
+  const all=data?.characters ?? [],rows=all.filter(r=>shown(!!r.online) && `${r.label} ${r.channel}`.toLowerCase().includes(search));
   rows.sort((a,b)=>(order==='level'?(b.level ?? -1)-(a.level ?? -1):order==='name'?a.label.localeCompare(b.label):
     (Date.parse(b.last_seen_at) || 0)-(Date.parse(a.last_seen_at) || 0)) || a.channel.localeCompare(b.channel) || a.id-b.id);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
   const now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
-  el('entries').replaceChildren(...rows.map(r=>{
+  patchChildren(el('entries'),rows.map(r=>{
     const row=node('li','entry character-entry');row.dataset.channel=r.channel;row.dataset.character=r.id;
-    const level=node('span','level');level.append(node('small','','LV.'),node('strong','',r.level ?? '—'));
+    const level=levelPill(r.level ?? '—',!!r.online,r.online?'Online':r.current?'Offline':'Not currently tracked');
     const identity=node('div','identity'),link=node('a','character',r.label);link.href=`/stream/${encodeURIComponent(r.channel)}?character=${r.id}`;
-    const status=node('span','status',r.current?'Currently tracked':'Not currently tracked');
-    status.className+=r.current?' roster-live':'';
-    identity.append(link,node('span','channel',r.channel),status);
-    const seen=node('span','saved-seen',r.last_seen_at?`Last seen ${ageText(Math.max(0,(now-Date.parse(r.last_seen_at))/1000))}`:'Not seen yet');
-    if(r.last_seen_at)seen.title=localTime(r.last_seen_at);
-    row.append(level,identity,seen);return row;
+    identity.append(link,node('span','channel',r.channel));
+    // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
+    const section=expSection(r.reading ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
+      age:r.last_seen_at?`Last seen ${ageText(Math.max(0,(now-Date.parse(r.last_seen_at))/1000))}`:'Not seen yet',ageTitle:r.last_seen_at?localTime(r.last_seen_at):''});
+    row.append(level,identity,section);return row;
   }));
   if(focus)[...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
-  el('empty').textContent=search?'No characters match your search.':'No saved characters yet.';
-  el('board-count').textContent=data?`${all.length} character${all.length===1?'':'s'}${data.warming?.length?` · ${data.warming.length} more loading`:''}`:failed?'Tracker unavailable':'Loading characters…';
-  el('ranking-note').textContent='Each character\'s last known level';
-  el('ranking-note').title='Open a character to see its EXP history. Tracked doesn\'t mean the stream is live.';
-  el('ranking-count').textContent=`${search?`${rows.length} found · `:''}${all.filter(r=>r.current).length} currently tracked`;
+  el('empty').textContent=search?'No characters match your search.':all.length?`No ${presence} characters right now.`:'No saved characters yet.';
+  el('board-count').textContent=data?`${rows.length<all.length?`${rows.length} of `:''}${all.length} character${all.length===1?'':'s'}${data.warming?.length?` · ${data.warming.length} more loading`:''}`:failed?'Tracker unavailable':'Loading characters…';
+  el('ranking-note').textContent='';el('ranking-count').textContent='';  // The header count covers search and filter results.
 }
 function selectBoard(mode,historyMode='push') {
   if(!['streamers','characters'].includes(mode) || mode===boardMode)return;
@@ -304,7 +349,7 @@ function selectBoard(mode,historyMode='push') {
     const url=new URL(location.href);if(mode==='characters')url.searchParams.set('mode',mode);else url.searchParams.delete('mode');
     history.pushState(null,'',url);
   }
-  data=null;renderBoard();
+  renderBoard();  // Only the pressed button changes; the current list stays until the other arrives (see poll).
   if(activeController)activeController.abort();else poll();
 }
 function renderPlayer() {
@@ -321,7 +366,7 @@ function renderPlayer() {
       // A chosen saved character keeps its roster name, level and last sighting while its history loads.
       const chosen=viewCharacter && roster.find(r=>String(r.id)===viewCharacter);
       if(chosen){el('player-name').textContent=chosen.label;el('level').textContent=`Lv. ${chosen.level ?? '—'}`;
-        if(chosen.last_seen_at)el('age').textContent=`Last seen ${ageText(Math.max(0,(Date.now()-Date.parse(chosen.last_seen_at))/1000))}`;}
+        if(chosen.last_seen_at)el('age').textContent=`Last tracked ${ageText(Math.max(0,(Date.now()-Date.parse(chosen.last_seen_at))/1000))}`;}
       hideTip();
     }
     el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return;
@@ -344,10 +389,10 @@ function renderPlayer() {
   const absolute=displayedExp(shown,true);
   amount('exp',absolute==='—'?'—':absolute+' EXP',displayedExp(shown));el('exp').title=expTitle(shown);
   el('percentage').textContent=percentageText(shown);el('percentage').title=shown?.evidence==='manual_admin'?expTitle(shown):'';
-  el('status').textContent=statusText(p);
+  el('status').textContent=statusText(p);el('status').dataset.online=String(statusText(p)==='Online');
   // Skip "Updated …" when the status already says how long ago, e.g. "Last tracked 13m ago".
   const lastAge=p.last_seen?.age_seconds==null?s.age:p.last_seen.age_seconds+(performance.now()-receivedAt)/1000;
-  el('age').textContent=shown && s.stale?`Last seen ${ageText(lastAge)}`:r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=shown?.timestamp?localTime(shown.timestamp):'';
+  el('age').textContent=shown && s.stale?`Last tracked ${ageText(lastAge)}`:r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=shown?.timestamp?localTime(shown.timestamp):'';
   const observed=view==='player'?observedWindow(p):null;
   const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):observed?.difference_percentage_points ?? (!p.recent_windows && selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null);
   const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);
@@ -437,7 +482,7 @@ function drawExpHistory() {
     start:Date.parse(rolling.start),end:Date.parse(rolling.end),seconds:1800,range:86400,
     bins:rolling.buckets.map(b=>({...b,start:Date.parse(b.start),end:Date.parse(b.end),value:b.value?.approximate ?? null,covered:b.covered.approximate}))
   }:bucketHistory(bucketSeconds===1800?[]:rows,bucketSeconds===1800?Date.parse(data?.served_at):anchor,bucketSeconds,bucketSeconds===1800?null:chartWindow*60);
-  if(!chart || !Number.isFinite(chart.start) || !Number.isFinite(chart.end)){el('history-note').textContent='Your next adventure starts here.';return;}
+  if(!chart || !Number.isFinite(chart.start) || !Number.isFinite(chart.end)){el('history-note').textContent='';return;}
   const width=Math.max(300,Math.min(960,svg.clientWidth||960)),plotWidth=width-76;
   svg.setAttribute('viewBox',`0 0 ${width} 250`);svg.setAttribute('aria-label','EXP gained over time; dashes mean no data');
   svg.dataset.start=new Date(chart.start).toISOString();svg.dataset.end=new Date(chart.end).toISOString();
@@ -581,9 +626,10 @@ async function poll() {
     if(held && body.history===undefined && body.history_revision===data.history_revision)body.history=data.history;
     if(held && body.tracked_history===undefined && body.tracked_revision===data.tracked_revision)body.tracked_history=data.tracked_history;
     data=body;receivedAt=requested;failed=false;
+    const swap=view==='board' && shownMode!==requestedMode;shownMode=requestedMode;
     if(view==='player' && Array.isArray(data.roster))roster=data.roster;
     if(view==='player' && data.tracked_history){rollingData=data.tracked_history;rollingReceived=performance.now();rollingFailed=false;}
-    if(selecting())deferredRender=true;else render();
+    if(selecting())deferredRender=true;else if(swap)crossFade(render);else render();
     if(view==='player' && Array.isArray(data.history))pollRolling();
   } catch { if(!unchanged())return;failed=true;if(view==='board')renderBoard();else renderPlayer(); }
   finally { clearTimeout(timeout);activeController=null;delete document.body.dataset.loading;pollTimer=setTimeout(poll,unchanged()?2000:0); }
@@ -597,7 +643,7 @@ function rosterLink(r,viewing,className) {
   if(!r.current && r.last_seen_at)seen.dataset.seen=r.last_seen_at;
   const meta=node('span','roster-meta',`Lv. ${r.level ?? '—'} · `);meta.append(seen);
   link.append(node('span','roster-name',r.label),meta);
-  link.title=`${r.label} · ${r.current?'currently tracked':r.last_seen_at?'last seen '+localTime(r.last_seen_at):'not seen yet'}`;
+  link.title=`${r.label} · ${r.current?'currently tracked':r.last_seen_at?'last tracked '+localTime(r.last_seen_at):'not seen yet'}`;
   link.addEventListener('click',e=>{
     if(e.button!==0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)return;
     e.preventDefault();el('roster-all').open=false;selectCharacter(r.current?null:String(r.id));
@@ -676,7 +722,8 @@ if(view==='board') {
   el('character-filter').addEventListener('input',renderBoard);el('character-sort').addEventListener('change',renderBoard);
   globalThis.addEventListener?.('popstate',()=>selectBoard(boardParam(),'none'));
 }
-if(view==='board') document.querySelectorAll('[data-sort]').forEach(button=>button.addEventListener('click',()=>{sort=button.dataset.sort;if(sort in sorts)renderBoard();}));
+if(view==='board')el('presence').addEventListener('click',()=>{presence=PRESENCE[presence].next;renderBoard();});
+if(view==='board') document.querySelectorAll('[data-sort]').forEach(button=>button.addEventListener('click',()=>{sort=button.dataset.sort;if(sorts.has(sort))renderBoard();}));
 document.querySelectorAll('[data-window]').forEach(button=>button.addEventListener('click',()=>{
   const minutes=Number(button.dataset.window);if(![5,10,15,30,60].includes(minutes))return;windowMinutes=minutes;
   if(view==='board')renderBoard();else if(data?.player){renderPlayer();drawHistory();}
@@ -774,6 +821,11 @@ if(view==='player') {
   el('copy-overlay').addEventListener('click',async()=>{const [width,height]=SIZES[builder.layout];try {await navigator.clipboard.writeText(overlayURL());el('copy-status').textContent=`Copied · use a ${width} × ${height} Browser Source`;}catch{el('copy-status').textContent='Select the URL above and copy it';}});
 }
 function render() { if(view==='board')renderBoard();else {renderPlayer();if(view==='player'){renderRoster();drawHistory();}} }
+// A Streamers/Characters switch lands all at once with a short cross-fade, never seen half rebuilt.
+function crossFade(update) {
+  if(document.startViewTransition && globalThis.matchMedia?.('(prefers-reduced-motion: no-preference)').matches)document.startViewTransition(update);
+  else update();
+}
 const zoneSelect=view==='overlay'?null:el('timezone');
 if(zoneSelect) {
   const local=new Intl.DateTimeFormat().resolvedOptions().timeZone,zones=Intl.supportedValuesOf?.('timeZone') ?? [];
