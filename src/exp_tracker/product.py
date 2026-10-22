@@ -539,6 +539,17 @@ def player(snapshot,*,now=None,recent_snapshot=None):
     saved=snapshot.get('retention_display',{})
     for key in ('reading','display_level','latest_attempt_at'):
         if result.get(key) is None:result[key]=deepcopy(saved.get(key))
+    full=saved.get('full_exp')
+    if full is None and (result.get('reading') or {}).get('exp') is not None:
+        reading_value=result['reading']
+        full=dict(exp=reading_value['exp'],percentage=reading_value.get('percentage'),
+                  evidence=reading_value.get('evidence'),event_id=reading_value.get('event_id'),
+                  timestamp=reading_value.get('timestamp'))
+    level=result.get('display_level')
+    stamps=[v.get('timestamp') for v in (full,level,result.get('reading')) if v and v.get('timestamp')]
+    if full or level:
+        result['last_seen']=dict(timestamp=full.get('timestamp') if full and full.get('timestamp') else max(stamps) if stamps else None,full_exp=deepcopy(full),
+                                 display_level=deepcopy(level))
     if not rows and saved:
         result['latest_attempt_status']=saved['latest_attempt_status'];result['level_context']=deepcopy(saved.get('level_context'))
     from .manual import present
@@ -576,6 +587,8 @@ def refresh(value,*,now=None,activity=None):
     latest=value['reading'];age=(now-datetime.fromisoformat(latest['timestamp'])).total_seconds() if latest else None
     value['age_seconds']=max(0,age) if age is not None else None
     value['latest_attempt_age_seconds']=(now-datetime.fromisoformat(value['latest_attempt_at'])).total_seconds() if value.get('latest_attempt_at') else None
+    if value.get('last_seen',{}).get('timestamp'):
+        value['last_seen']['age_seconds']=max(0,(now-datetime.fromisoformat(value['last_seen']['timestamp'])).total_seconds())
     value['stale']=age is None or age<0 or age>value['stale_after_seconds'] or not latest['fresh_at_capture']
     value['activity']=activity or dict(state='coordinator_stopped')
     window_metrics=list(value.get('recent_windows',{}).values())+list(value.get('current_level_windows',{}).values())

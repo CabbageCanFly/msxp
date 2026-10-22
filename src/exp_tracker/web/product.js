@@ -108,6 +108,7 @@ function expTitle(r) {
 }
 function percentageText(r) { return r?.percentage!=null?`${r.estimated_percentage?'~':''}${r.percentage}%`:'—'; }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
+function lastSeenReading(p) { return p.last_seen?.full_exp ?? null; }
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
 function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l.age_seconds+(performance.now()-receivedAt)/1000>p.stale_after_seconds); }
 // Public labels follow accepted display evidence; possible wraps stay in the status and hover text.
@@ -325,7 +326,7 @@ function renderPlayer() {
     }
     el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return;
   }
-  const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (view==='player' && p.recent_windows?null:s.metrics);
+  const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (view==='player' && p.recent_windows?null:s.metrics),last=lastSeenReading(p);
   if(view==='overlay') { el('streamer').textContent=p.channel;el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String((s.stale||failed) && faded(s.age));el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
   else {
     el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=p.channel;
@@ -338,12 +339,13 @@ function renderPlayer() {
   el('level').dataset.inferred=String(!!levelTransition(p) || !!LEVEL_SOURCES[displayLevel(p)?.status]);
   el('progress').value=r?.bp!=null?r.bp/100:0;
   el('progress').hidden=r?.bp==null;
-  const absolute=displayedExp(r,true);
-  amount('exp',absolute==='—'?'—':absolute+' EXP',displayedExp(r));el('exp').title=expTitle(r);
-  el('percentage').textContent=percentageText(r);el('percentage').title=r?.evidence==='manual_admin'?expTitle(r):'';
+  const shown=last && s.stale && r?.exp==null?last:r;
+  const absolute=shown?.exp!=null?expText(shown.exp,true):displayedExp(shown,true);
+  amount('exp',absolute==='—'?'—':absolute+' EXP',displayedExp(shown));el('exp').title=last && s.stale && r?.exp==null?`Last exact EXP reading from ${localTime(last.timestamp)}.`:expTitle(r);
+  el('percentage').textContent=percentageText(shown);el('percentage').title=shown?.evidence==='manual_admin'?expTitle(shown):'';
   el('status').textContent=statusText(p);
   // Skip "Updated …" when the status already says how long ago, e.g. "Last tracked 13m ago".
-  el('age').textContent=r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=r?.timestamp?localTime(r.timestamp):'';
+  el('age').textContent=last && s.stale?`Last seen ${ageText(last.age_seconds)}`:r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=last?.timestamp?localTime(last.timestamp):r?.timestamp?localTime(r.timestamp):'';
   const observed=view==='player'?observedWindow(p):null;
   const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):observed?.difference_percentage_points ?? (!p.recent_windows && selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null);
   const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);

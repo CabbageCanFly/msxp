@@ -86,6 +86,16 @@ def test_failed_stale_conflicting_and_insufficient_readings_keep_values_without_
     assert conflict['estimates']['percentage_per_hour'] is None
 
 
+def test_stale_player_exposes_retained_full_exp_as_last_seen(tracking):
+    _,_,d=tracking
+    append(d,1,'[33.10%]')
+    snapshot=d.snapshot('alpha',now=NOW)
+    snapshot['retention_display']={'full_exp':dict(exp='123456',percentage='33.10',evidence='strict_full',event_id='old',timestamp=NOW.isoformat()),
+        'display_level':dict(value=64,timestamp=NOW.isoformat(),event_id='old-level')}
+    result=player(snapshot,now=NOW+timedelta(days=60))
+    assert result['stale'] and result['last_seen']['full_exp']['exp']=='123456'
+
+
 def test_zero_display_change_has_pace_bounds_but_no_eta(tracking):
     _,_,d=tracking
     for i in range(1,4):append(d,i,'[33.00%]')
