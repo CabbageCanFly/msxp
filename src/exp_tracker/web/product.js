@@ -499,7 +499,7 @@ function bucketHistory(history,anchor,seconds,rangeSeconds=null) {
   for(const row of history) {
     const g=row.gain,a=Date.parse(g?.start),b=Date.parse(g?.end),amount=g?.value?.approximate;
     const rolling=g?.policy==='public_endpoint_window_v2';
-    if(!row.connect_previous || !Number.isFinite(a) || !Number.isFinite(b) || b<=a || a<previousEnd || (rolling?b<start || b-a>range*1000:a<start) || b>anchor || !Number.isFinite(amount) || amount<0 && g.policy!=='public_endpoint_window_v1')continue;
+    if(!row.connect_previous || !Number.isFinite(a) || !Number.isFinite(b) || b<=a || b-a>3600000 || a<previousEnd || (rolling?b<start || b-a>range*1000:a<start) || b>anchor || !Number.isFinite(amount) || amount<0 && g.policy!=='public_endpoint_window_v1')continue;
     previousEnd=b;
     if(rolling || g.policy==='public_endpoint_window_v1') {
       const bin=bins[Math.min(bins.length-1,Math.floor((b-start)/step))];
@@ -519,6 +519,7 @@ function bucketHistory(history,anchor,seconds,rangeSeconds=null) {
   for(const bin of bins)bin.state=bin.value==null?'missing':bin.covered<seconds-.01 || bin.gap?'partial':'covered';
   return {start,end,bins,range,seconds};
 }
+function chartBucketValue(bucket) { return (bucket.chart_value===undefined?bucket.value:bucket.chart_value)?.approximate ?? null; }
 function drawExpHistory() {
   const svg=el('history-chart');svg.replaceChildren();
   delete svg.dataset.start;delete svg.dataset.end;
@@ -533,7 +534,7 @@ function drawExpHistory() {
     bins:saved.day_buckets.map((value,i)=>({start:savedEnd-(48-i)*1800000,end:savedEnd-(47-i)*1800000,value,state:value==null?'missing':'saved'}))
   }:bucketSeconds===1800 && rolling?{
     start:Date.parse(rolling.start),end:Date.parse(rolling.end),seconds:1800,range:86400,
-    bins:rolling.buckets.map(b=>({...b,start:Date.parse(b.start),end:Date.parse(b.end),value:b.value?.approximate ?? null,covered:b.covered.approximate}))
+    bins:rolling.buckets.map(b=>({...b,start:Date.parse(b.start),end:Date.parse(b.end),value:chartBucketValue(b),state:chartBucketValue(b)==null?'missing':b.state,covered:b.covered.approximate}))
   }:bucketHistory(bucketSeconds===1800?[]:rows,bucketSeconds===1800?Date.parse(data?.served_at):anchor,bucketSeconds,bucketSeconds===1800?null:chartWindow*60);
   if(!chart || !Number.isFinite(chart.start) || !Number.isFinite(chart.end)){el('history-note').textContent='';return;}
   const width=Math.max(300,Math.min(960,svg.clientWidth||960)),plotWidth=width-76;
@@ -569,7 +570,7 @@ function drawExpHistory() {
 // Overlay history uses the same minute intervals and 24h buckets as the player chart.
 function drawHourChart(svg=el('overlay-chart'),seconds=300,range=3600) {
   const tracked=data?.tracked_history;svg.replaceChildren();
-  const chart=seconds===1800?(tracked?.buckets?.length===48?{bins:tracked.buckets.map(b=>({value:b.value?.approximate ?? null}))}:null)
+  const chart=seconds===1800?(tracked?.buckets?.length===48?{bins:tracked.buckets.map(b=>({value:chartBucketValue(b)}))}:null)
     :bucketHistory((tracked?.chart_intervals ?? []).map(g=>({gain:g,connect_previous:true})),Date.parse(tracked?.as_of),seconds,range);
   if(!chart){el('hour-total').textContent='—';return;}
   const top=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),step=462/chart.bins.length,gap=Math.min(6,step/4);

@@ -1406,6 +1406,29 @@ test('General history respects saved chart intervals and uses the same 24h aggre
   assert.equal(p.elements['hour-total'].textContent,'~700 EXP');
 });
 
+test('profile and linked overlay use chart-only bucket values while preserving the tracked total',()=>{
+  const p=page('player');p.render(player());
+  p.context.tracked={character_id:2,as_of:'2026-01-01T03:00:00Z',start:'2025-12-31T03:00:00Z',end:'2026-01-01T03:00:00Z',
+    buckets:Array.from({length:48},(_,i)=>({start:new Date(Date.parse('2025-12-31T03:00:00Z')+i*1800000).toISOString(),
+      end:new Date(Date.parse('2025-12-31T03:00:00Z')+(i+1)*1800000).toISOString(),value:i>=46?{approximate:100000}:null,
+      chart_value:i===47?{approximate:150}:null,covered:{approximate:15},state:i>=46?'partial':'missing'})),tracked_exp:{approximate:200000}};
+  p.run('data.player.character.id=2;data.tracked_history=rollingData=tracked;bucketSeconds=1800;drawExpHistory()');
+  const bars=p.elements['history-chart'].children.filter(b=>b.tag==='rect' && b.attributes.class?.startsWith('exp-column'));
+  assert.equal(bars.filter(b=>b.attributes.class==='exp-column').length,1);
+  assert.equal(bars.filter(b=>b.attributes.class==='exp-column missing').length,47);
+  p.run("drawHourChart(el('general-chart'),1800,86400)");
+  assert.equal(p.elements['general-chart'].children.filter(b=>b.attributes.class==='bar').length,1);
+  assert.equal(p.elements['hour-total'].textContent,'~150 EXP');
+  assert.equal(p.run('data.tracked_history.tracked_exp.approximate'),200000);
+});
+
+test('minute bucket rendering rejects observation gaps over an hour without removing the next short interval',()=>{
+  const p=page('player');p.context.rows=[
+    {connect_previous:true,gain:{start:'2026-01-01T00:00:00Z',end:'2026-01-01T02:00:00Z',value:{approximate:100000},policy:'public_endpoint_window_v2'}},
+    {connect_previous:true,gain:{start:'2026-01-01T02:00:00Z',end:'2026-01-01T02:01:00Z',value:{approximate:150},policy:'public_endpoint_window_v2'}}];
+  assert.equal(p.run("bucketHistory(rows,Date.parse('2026-01-01T02:01:00Z'),300,86400).bins.reduce((sum,b)=>sum+(b.value??0),0)"),150);
+});
+
 test('overlay rates read each lookback window; the last-hour chart keeps untracked bins unknown',()=>{
   const p=page('overlay');
   const pace=rate=>({active:true,age_seconds:0,estimates:{exp_per_hour:{value:{approximate:rate}},percentage_per_hour:null,eta:null}});

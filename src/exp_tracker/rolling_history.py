@@ -288,7 +288,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
     manual_events=store.manual_history(channel,character_id=character,as_of=now) if character else []
     manual_revision=(revision(manual_events),invalidation_revision(store,channel))
     bins=[dict(start=(start+timedelta(minutes=30*i)).isoformat(),end=(start+timedelta(minutes=30*(i+1))).isoformat(),
-               amount=None,coverage=Fraction(0),intervals=0,gap=False) for i in range(48)]
+               amount=None,chart_amount=None,coverage=Fraction(0),intervals=0,gap=False) for i in range(48)]
     result=dict(policy=TRACKED_POLICY,channel=channel,character_id=character,as_of=now.isoformat(),
         start=start.isoformat(),end=now.isoformat(),seconds=1800,range_seconds=86400,trusted=False,
         identity_verified=False,status='ready',tracked_exp=None,intervals=0,coverage_seconds=rational(Fraction(0)),
@@ -369,12 +369,14 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
             # Recognized at the later endpoint; no invented distribution through gaps.
             bucket=bins[min(47,(b-start)//timedelta(minutes=30))]
             bucket['amount']=(bucket['amount'] or Fraction(0))+amount
+            # Chart bars cannot place gains across long unobserved gaps; totals still retain them.
+            if b-a<=timedelta(minutes=60):bucket['chart_amount']=(bucket['chart_amount'] or Fraction(0))+amount
             bucket['coverage']=min(Fraction(1800),bucket['coverage']+duration)
             bucket['intervals']+=1;bucket['gap']=True
     if limited:
         # Incomplete causal replay must not masquerade as a complete query or zero.
         result.update(status='history_limit',tracked_exp=None,basis_counts={});versions.clear()
-        bins=[dict(b,amount=None,coverage=Fraction(0),intervals=0) for b in bins]
+        bins=[dict(b,amount=None,chart_amount=None,coverage=Fraction(0),intervals=0) for b in bins]
         coverage=Fraction(0);result['intervals']=0
     else:
         _,daily,_=window_endpoints(state['rows'],start=start,end=now)
@@ -406,6 +408,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
         if result['chart_status']=='history_limit':result['chart_intervals']=[];result['current_level_chart_intervals']=[]
     result.update(coverage_seconds=rational(coverage),unknown_seconds=rational(max(Fraction(0),Fraction(86400)-coverage)),requirement_versions=sorted(versions),
         buckets=[dict(start=b['start'],end=b['end'],value=rational(b['amount']) if b['amount'] is not None else None,
+            chart_value=rational(b['chart_amount']) if b['chart_amount'] is not None else None,
             covered=rational(b['coverage']),intervals=b['intervals'],
             state='missing' if b['amount'] is None else 'covered' if b['coverage']==1800 and not b['gap'] else 'partial') for b in bins])
     return result

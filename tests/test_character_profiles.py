@@ -474,6 +474,9 @@ def test_saved_summary_slides_its_chart_and_is_withheld_after_a_correction():
     assert p.summary(head, BETA, NOW + timedelta(hours=24))['day'] is None
     assert p.summary(dict(head, manual_revision=3), BETA, NOW) == {} and p.summary(head, ALPHA, NOW) == {}
     assert p.summary(dict(head, retention_revision=4), BETA, NOW) == {} and p.summary(head, BETA, NOW-timedelta(seconds=1)) == {}
+    p.summaries[(CHANNEL, BETA)]['chart_buckets'] = [None] * 46 + [None, 2]
+    shown = p.summary(head, BETA, NOW)
+    assert shown['day'] == 30 and shown['day_buckets'][-2:] == [None, 2]
 
 
 def test_character_summary_ages_existing_five_minute_pace_without_mutating_cached_values():
@@ -503,9 +506,9 @@ def test_inactive_character_summaries_are_built_in_the_background_not_by_request
         row = poll(httpd, '/api/players?mode=characters', lambda b: next((r for r in b['characters'] if r['id'] == BETA and 'reading' in r), None))
         assert not httpd.publisher.views  # Built for the list only, never kept or cached as a view.
         view = poll(httpd, f'/api/players/{CHANNEL}?character={BETA}', lambda b: b)
-        buckets = [None if b['value'] is None else round(b['value']['approximate']) for b in view['tracked_history']['buckets']]
+        buckets = [None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in view['tracked_history']['buckets']]
         assert row['reading'] == view['player']['reading'] and row['reading']['bp'] and row['day_buckets'] == buckets
-        assert row['day'] == sum(v for v in buckets if v is not None) > 0
+        assert row['day'] == sum(round(b['value']['approximate']) for b in view['tracked_history']['buckets'] if b['value'] is not None) > 0
     assert snapshot(db) == before
 
 

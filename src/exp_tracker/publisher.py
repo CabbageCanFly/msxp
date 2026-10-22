@@ -339,6 +339,7 @@ class Publisher:
             reading=shown['player']['reading'] or (shown['player'].get('last_seen') or {}).get('reading'),
             display_level=shown['player'].get('display_level'),
             five_minute_pace=recent.get('pace') or recent.get('last_observed_pace'),
+            chart_buckets=[None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in shown['tracked']['buckets']],
             buckets=[None if b['value'] is None else round(b['value']['approximate']) for b in shown['tracked']['buckets']])
         entry['summary'] = summary
         cache=getattr(self.server,'publication_cache',None)
@@ -454,6 +455,7 @@ class Publisher:
         # Nothing was tracked since the build, so earlier buckets slide left and the new ones are empty.
         n = len(found['buckets']); shift = max(0, int((now - datetime.fromisoformat(found['as_of'])).total_seconds() // 1800))
         buckets = (found['buckets'][shift:] + [None] * n)[:n]; seen = [v for v in buckets if v is not None]
+        chart_buckets = (found.get('chart_buckets', found['buckets'])[shift:] + [None] * n)[:n]
         pace = deepcopy(found.get('five_minute_pace'))
         if pace:
             pace['age_seconds'] = max(0, (now - datetime.fromisoformat(pace['end'])).total_seconds())
@@ -461,7 +463,7 @@ class Publisher:
         return dict(reading=found['reading'], display_level=found['display_level'],
             recent_windows={'5': dict(last_observed_pace=pace)},
             as_of=(datetime.fromisoformat(found['as_of'])+timedelta(minutes=30*shift)).isoformat(),
-            day_buckets=buckets, day=sum(seen) if seen else None)
+            day_buckets=chart_buckets, day=sum(seen) if seen else None)
 
     def preview(self, channel, character=None):
         """Dated display while a report warms; memory only, never replays source history."""

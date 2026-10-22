@@ -51,6 +51,23 @@ def test_totals_include_supported_gap_endpoints_but_percentage_lines_keep_the_ga
         assert Diagnostics(restarted).rolling_history('alpha',now=now)==result
 
 
+@pytest.mark.parametrize('gap', [3600, 3601, 7200])
+def test_chart_buckets_exclude_only_gains_over_one_hour_without_changing_totals(tracking, gap):
+    _,_,d=tracking
+    append(d,1,'[33.00%]')
+    for index,seconds,pct in ((2,gap,'34.00'),(3,gap+15,'34.01')):
+        stamp=(NOW+timedelta(seconds=seconds)).isoformat()
+        append(d,index,f'[{pct}%]',attempted_at=stamp,received_at=stamp)
+        if index==2 and gap>3600:
+            resumed=d.rolling_history('alpha',now=NOW+timedelta(seconds=seconds))
+            assert any(b['value'] is not None and b['chart_value'] is None for b in resumed['buckets'])
+    result=d.rolling_history('alpha',now=NOW+timedelta(seconds=gap+15))
+    total=sum((fraction(b['value']) for b in result['buckets'] if b['value'] is not None),Fraction(0))
+    plotted=sum((fraction(b['chart_value']) for b in result['buckets'] if b['chart_value'] is not None),Fraction(0))
+    assert total==fraction(result['tracked_exp']) and total>10000
+    assert plotted==(total if gap==3600 else 150)
+
+
 def test_rolling_edges_do_not_prorate_unknown_gain_or_freeze_to_old_capture(tracking):
     _,_,d=tracking
     for i in range(1,5):append(d,i,f'[33.{i:02}%]')
