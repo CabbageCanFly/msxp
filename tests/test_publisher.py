@@ -183,6 +183,8 @@ def test_background_publication_matches_reference_through_rotation_restart_loss_
         assert len(rebuilt)>=3  # Aging windows rebuilt the card; an expired one was reused.
         home=json.loads(server.publisher.homepage())
         assert home['players'][0]['tracked_as_of']==clock.at.isoformat() and 'warming' not in home
+        buckets=server.publisher.entry('alpha')['public']['tracked']['buckets']
+        assert len(buckets)==48 and home['players'][0]['day_buckets']==[None if b['value'] is None else round(b['value']['approximate']) for b in buckets]
     assert compared>20
 
 
@@ -559,8 +561,9 @@ def test_public_responses_omit_private_fields_while_internal_state_keeps_them(tr
         assert not keys([home,character,packet],set())&PRIVATE_FIELDS
         player=home['players'][0]
         assert player['activity']==character['player']['activity']=={'state':'waiting'}
-        # The homepage drops only the current-level maps; every other public value equals the character page's.
+        # The homepage drops only the current-level maps and adds only its mini chart; every other public value equals the character page's.
         assert not set(CHARACTER_ONLY)&set(player) and all(character['player'][f] for f in CHARACTER_ONLY)
+        assert 'day_buckets' not in character['player'] and len(player.pop('day_buckets'))==48
         assert player=={k:v for k,v in character['player'].items() if k not in CHARACTER_ONLY}
         assert packet=={**character['tracked_history'],'served_at':packet['served_at']}
         # Calculations, publisher state and developer diagnostics keep the full data.

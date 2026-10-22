@@ -1,4 +1,7 @@
 .product .brand { text-decoration:none; color:inherit; }
+/* A fixed line height and an SVG arrow (not a fallback-font glyph) keep the masthead identical on every page. */
+.product .brand span { line-height:18px; }
+.back-arrow { margin-right:5px; vertical-align:-1px; }
 .product a { color:var(--gold); }
 .advanced { color:var(--gold); font-size:13px; font-weight:700; white-space:nowrap; }
 [data-site=public] .dev-link { display:none; }
@@ -18,21 +21,22 @@
 .product progress::-moz-progress-bar { background:var(--green); }
 .poll-note { color:var(--text-muted); font-size:12px; font-weight:600; }
 /* Streamers/Characters toggle sits in the board header beside the title. */
-.product .board-header .board-modes { margin-right:auto; }
+/* The count and the online filter stay together at the right, also when the header wraps on a phone. */
+.board-tools { display:flex; align-items:center; gap:10px; margin-left:auto; }
+.board-tools #board-count { font-size:12px; font-weight:600; color:#f0dcc0; }
 .character-controls { display:flex; flex-wrap:wrap; gap:12px; color:var(--text-soft); font-size:13px; font-weight:700; min-width:0; }
 .character-controls label { display:flex; align-items:center; gap:7px; min-width:0; }
 .character-controls input,.character-controls select { min-width:0; max-width:100%; box-sizing:border-box; padding:8px 11px; color:var(--text); background:var(--surface-sunken); border:1px solid var(--line-strong); border-radius:var(--radius-sm); font:inherit; font-weight:600; }
 .character-controls input:focus-visible,.character-controls select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
-.product .character-entry { grid-template-columns:64px minmax(0,1fr) minmax(140px,auto); }
-.saved-seen { color:var(--text-muted); font-size:12px; font-weight:600; text-align:right; }
+.product .character-entry { grid-template-columns:70px minmax(135px,190px) minmax(0,1fr); }  /* Lines up with the level-sorted streamer rows. */
 .product .roster-live { color:var(--green); }
 @media(max-width:650px) {
   .product .board-header:has(.board-modes) { flex-wrap:wrap; align-items:center; }
-  .product .board-header:has(.board-modes) > span { max-width:none; }
-  .product .character-entry { grid-template-columns:48px minmax(0,1fr); }
+  .board-tools #board-count { font-size:11px; }
+  .product .character-entry { grid-template-columns:40px minmax(0,1fr); }
   .character-entry .level { grid-column:1; grid-row:1; }
   .character-entry .identity { grid-column:2; grid-row:1; }
-  .character-entry .saved-seen { grid-column:2; text-align:left; }
+  .character-entry .exp-section { grid-column:1 / -1; grid-row:2; }
 }
 .product .entry .exp-label { color:#fff; }
 .product .entry .exp-number { min-width:0; white-space:nowrap; }
@@ -76,6 +80,7 @@
 .early-pace #rate[data-paused="true"] { opacity:.7; }
 .early-pace small { color:var(--text-muted); font-size:12px; }
 .reading-info { color:var(--text-muted); font-size:12px; font-weight:600; margin:0 0 14px; }
+.reading-info a { color:var(--text-muted); }
 .level-event { margin:16px 25px 0; color:var(--green); font-family:var(--font-display); font-size:18px; font-weight:600; }
 .history-chart .trend { stroke:var(--green); stroke-width:2; opacity:.7; }
 .player-stats { grid-template-columns:repeat(2,minmax(0,1fr)); padding-top:8px; padding-bottom:10px; }
@@ -172,6 +177,10 @@
 /* Live content fades in once the first update arrives instead of jumping as it fills; shown anyway after 2s. */
 .product :is(.board,.site-footer) { transition:opacity .18s ease; }
 .product[data-loading] :is(.board,.site-footer) { opacity:0; animation:reveal 0s 2s forwards; }
+/* Once its first data arrives the board fades in rather than popping in. */
+.product :is(.board,.site-footer) { transition:opacity .2s ease-out; }
+/* Switching lists keeps the current one (dimmed only if the other takes a moment) until the other can swap in whole. */
+.product #entries[aria-busy="true"] { opacity:.6; transition:opacity .2s .15s; }
 @keyframes reveal { to { opacity:1; } }
 
 /* Native dropdown lists take the select's colours; keep them dark and readable. */
@@ -209,3 +218,54 @@ html, body.product { overflow-x:clip; }
 .mob-hit { position:absolute; translate:-50% 0; color:#ffb340; font:700 22px var(--font-display); text-shadow:0 2px 0 #7a2e00, 0 0 3px #000; animation:mob-hit 1s ease-out forwards; }
 @keyframes mob-hit { to { transform:translateY(-34px); opacity:0; } }
 .boss { position:fixed; top:0; left:0; opacity:.18; pointer-events:none; }
+/* Streamer rows: an indicator light in the level badge's corner; under the EXP bar a 24 h mini chart, today's total
+   and the next-level ETA, with the reading's age on the right. Sorted by level there is no score column: the badge shows it. */
+.product .streamer-entry { grid-template-columns:36px 70px minmax(135px,190px) minmax(0,1fr) 70px; grid-template-areas:"rank level identity exp score"; }
+.product .streamer-entry.unscored { grid-template-columns:36px 70px minmax(135px,190px) minmax(0,1fr); grid-template-areas:"rank level identity exp"; }
+.streamer-entry .rank { grid-area:rank; }
+.streamer-entry .level { grid-area:level; }
+.product .entry .level { position:relative; padding:8px 7px 6px 11px; }
+.streamer-entry .identity { grid-area:identity; }
+.streamer-entry .exp-section { grid-area:exp; }
+.streamer-entry .score { grid-area:score; }
+.level .led { position:absolute; top:4px; left:4px; width:6px; height:6px; border-radius:50%; background:#262d3d; box-shadow:inset 0 1px 1px #000c, 0 0 0 1px #4f5a70; }
+.level .led[data-on="true"] { background:radial-gradient(circle at 35% 35%, #f1ffc8, var(--green) 55%, var(--green-deep)); box-shadow:0 0 5px 1px #b6e65b8c; }
+/* The player page's status dot lights the same way. */
+.status-line .status[data-online="true"]::before { background:var(--green); box-shadow:0 0 6px #b6e65b99; }
+/* Online/offline filter beside the header count: a filter icon while showing everyone, then the online or offline light. */
+.presence { display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:4px 11px; color:#f6e3c4; background:#00000026; border:1px solid #c2986a; border-radius:20px; font-size:12px; font-weight:800; transition:background-color .15s, border-color .15s, transform .08s; }
+.presence:hover:not(:disabled) { color:#fff3dc; background:#0000004a; border-color:#ffd68c; }
+.presence:active { transform:scale(.95); }
+.presence::before { content:""; width:10px; height:8px; background:linear-gradient(currentColor,currentColor) 0 0/10px 2px, linear-gradient(currentColor,currentColor) 2px 3px/6px 2px, linear-gradient(currentColor,currentColor) 4px 6px/2px 2px; background-repeat:no-repeat; }
+.presence:not([data-presence="all"])::before { width:7px; height:7px; border-radius:50%; background:#262d3d; box-shadow:0 0 0 1px #4f5a70; }
+.presence[data-presence="online"]::before { background:var(--green); box-shadow:0 0 5px 1px #b6e65b8c; }
+/* A new reading grows the bar instead of jumping, e.g. after returning to the tab. */
+@media (prefers-reduced-motion:no-preference) {
+  .product progress::-webkit-progress-value { transition:width .6s ease; }
+  .product progress::-moz-progress-bar { transition:width .6s ease; }
+}
+.exp-meta { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin-top:7px; color:var(--text-muted); font-size:12px; font-weight:600; line-height:1.5; font-variant-numeric:tabular-nums; }
+.exp-meta .fact { white-space:nowrap; }
+.exp-meta .fact + .fact::before { content:"•"; margin-right:10px; color:var(--line-strong); }
+.exp-meta .updated { margin-left:auto; white-space:nowrap; color:#7f889a; }
+.day-chart { flex:0 0 96px; height:16px; }
+.day-chart rect { fill:var(--orange); }
+.day-chart rect.missing { fill:#8d98ad; opacity:.45; }
+/* The sort and list notes were removed; an empty strip would only add space. */
+.ranking-context:has(> p:empty):has(> span:empty) { min-height:0; padding-bottom:6px; }
+@media(max-width:850px) {
+  .product .streamer-entry { grid-template-columns:30px 66px minmax(105px,145px) minmax(0,1fr) 70px; }
+  .product .streamer-entry.unscored { grid-template-columns:30px 66px minmax(105px,145px) minmax(0,1fr); }
+}
+@media(max-width:650px) {
+  .product .streamer-entry { grid-template-columns:40px minmax(0,1fr) 72px; grid-template-areas:"rank identity score" "level exp exp"; }
+  .product .streamer-entry.unscored { grid-template-columns:40px minmax(0,1fr); grid-template-areas:"rank identity" "level exp"; }
+  .product .entry .level { padding:10px 1px 5px; }
+  .level .led { top:3px; left:3px; }
+  .exp-meta .fact + .fact::before { content:none; }  /* Items wrap onto their own lines here. */
+}
+/* The character's name is the player page's headline. */
+.player-board #player-name { min-width:0; font-size:28px; font-weight:700; line-height:1.15; overflow-wrap:anywhere; text-shadow:0 2px 0 #4b3423; }
+@media(max-width:650px) { .player-board #player-name { font-size:23px; } }
+
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .1s; }

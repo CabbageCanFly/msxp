@@ -28,6 +28,7 @@ from .store import Store, utc
 
 PRESENT_SECONDS = 1  # A presented body is reused for at most this long.
 TRACKED_SECONDS = 30  # Tracked windows age even without a new capture, as before.
+SUMMARY_SECONDS = 5  # Idle refresher: at most one inactive character's Characters-list summary per this many seconds.
 RETRY_SECONDS = (5, 60)  # Failed channel refresh: exponential backoff bounds.
 # Never in public responses, at any depth: internal identities, capture scheduling, and
 # diagnostics no public page reads. Calculations, publisher state and /dev keep them.
@@ -97,6 +98,8 @@ class Publisher:
         self.cards = {}  # Card cache owned by the refresher (see Diagnostics.card).
         self.presented = {}; self.present_locks = {}
         self.views = {}; self.viewed = {}  # ('view', login, character) -> entry / last poll (monotonic).
+        # (login, character) -> the last build's reading and 24 h buckets, kept after the character becomes inactive.
+        self.summaries = {}; self.summary_due = 0.0
         self.stats = dict(steps=0, builds=0, build_seconds=0.0, max_build_seconds=0.0, failures=0,
             last_error=None, presentations=0, present_seconds=0.0, ready_at=None, started_at=None)
         self.stop = threading.Event(); self.wake = threading.Event(); self.thread = None
@@ -198,6 +201,10 @@ class Publisher:
                 elif requested:self.build(diagnostics, store, requested[0], now)
                 elif views and (not pending or self.stats['steps'] % 2):self.build(diagnostics, store, views[0][1][1], now, view=views[0][1:])
                 elif pending:self.build(diagnostics, store, pending[0], now)
+                elif self.background and time.monotonic() >= self.summary_due and (missing := self.missing_summaries(now)):
+                    # Lowest priority and rate-limited: requests never build, and capture keeps the CPU.
+                    self.summary_due = time.monotonic() + SUMMARY_SECONDS
+                    self.build(diagnostics, store, missing[0][0], now, view=(('view', *missing[0]), None))
                 if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in directory):
                     self.stats['ready_at'] = time.monotonic()
                 return len(pending) + len(requested) + len(views) > 1
@@ -225,6 +232,7 @@ class Publisher:
                     self.failures.pop(head['login'], None)
             for cache in (self.cards, self.failures, self.presented, self.present_locks, self.views, self.viewed):
                 for key in [k for k in cache if (k[1] if isinstance(k, tuple) else k) not in logins | {'home', 'home-characters'}]:del cache[key]
+            self.summaries = {k: v for k, v in self.summaries.items() if k[0] in logins}
             self.wanted &= logins; self.checkpoints_restored &= logins
 
     def due(self, heads, now):
@@ -315,8 +323,13 @@ class Publisher:
             public=shown, revisions=(revision(shown['history']), revision(shown['tracked'])))
         if roster is not None:
             entry['roster'] = public_roster(roster, (card['player'].get('display_level') or {}).get('value'))
+        # The Characters list's copy, valid until a correction or invalidation on the channel.
+        character = view[0][2] if view else head['selected_character_id']
+        summary = dict(revision=(head['manual_revision'], head['invalidation_revision']), as_of=tracked['as_of'], reading=shown['player']['reading'],
+            buckets=[None if b['value'] is None else round(b['value']['approximate']) for b in shown['tracked']['buckets']])
+        with self.lock:kept = not view or name in self.viewed  # A summary-only build is not a view to persist.
         cache=getattr(self.server,'publication_cache',None)
-        if cache:
+        if cache and kept:
             try:
                 with store._transaction():
                     if view:cache.save_view(store,diagnostics,login,view[0][2],entry)
@@ -327,6 +340,7 @@ class Publisher:
                 self.entries[login] = entry; self.wanted.discard(login)
             elif name in self.viewed:  # Never resurrected after its viewers left.
                 self.views[name] = entry
+            if character is not None:self.summaries[(login, character)] = summary
             self.generation += 1
         self.failures.pop(name, None)
         self.stats['builds'] += 1; self.stats['build_seconds'] += seconds
@@ -392,6 +406,8 @@ class Publisher:
                 value = tracked_statistics(card['player'], entry['public']['tracked'], now=now,
                     pace_as_of=datetime.fromisoformat(entry['card']['recent_as_of']))
                 value['activity'] = public(value['activity'])
+                # The row's mini chart: tracked EXP per 30 min over 24 h, None where nothing was tracked (not zero).
+                value['day_buckets'] = [None if b['value'] is None else round(b['value']['approximate']) for b in entry['public']['tracked']['buckets']]
                 if entry.get('restored'):
                     warming.append(head['login'])
                     value['publication']=dict(state='restored',computed_at=entry['built_at'],updating=True)
@@ -403,16 +419,41 @@ class Publisher:
         return self.present('home', build, self.runtime())
 
     def characters(self):
-        """Compact published rosters only: no inactive card, chart or window builds."""
+        """Published rosters with each character's saved summary, if any; requests never build cards, charts or windows."""
         def build(now):
             with self.lock:
-                rows = [dict(row, channel=head['login']) for head in self.heads
+                # online as on the Streamers list: the tracked character, unless Twitch says the stream is offline.
+                rows = [dict(row, channel=head['login'], online=row['current'] and self.statuses.get(head['login'], {}).get('status') != 'offline',
+                    **self.summary(head, row['id'], now)) for head in self.heads
                     if head['login'] in self.directory_logins and (entry := self.entries.get(head['login'])) for row in entry['roster']]
                 warming = [h['login'] for h in self.heads if h['login'] in self.directory_logins and (
                     h['login'] not in self.entries or self.entries[h['login']].get('restored'))]
                 truncated = self.truncated
             return encode(dict(characters=rows, warming=warming, served_at=utc(now), truncated=truncated, poll_seconds=2, experimental=True))
         return self.present('home-characters', build)
+
+    def summary(self, head, character, now):
+        """Called under lock: the character's saved reading and 24 h chart moved on to now; nothing if unknown or outdated."""
+        found = self.summaries.get((head['login'], character))
+        if not found or found['revision'] != (head['manual_revision'], head['invalidation_revision']):return {}
+        # Nothing was tracked since the build, so earlier buckets slide left and the new ones are empty.
+        n = len(found['buckets']); shift = max(0, int((now - datetime.fromisoformat(found['as_of'])).total_seconds() // 1800))
+        buckets = (found['buckets'][shift:] + [None] * n)[:n]; seen = [v for v in buckets if v is not None]
+        return dict(reading=found['reading'], day_buckets=buckets, day=sum(seen) if seen else None)
+
+    def missing_summaries(self, now):
+        """Inactive directory characters without a usable summary, or seen after it was built; each roster's most recent first."""
+        missing = []
+        with self.lock:
+            for head in self.heads:
+                if head['login'] not in self.directory_logins or not (entry := self.entries.get(head['login'])):continue
+                for row in entry['roster']:
+                    key = (head['login'], row['id']); found = self.summaries.get(key); failure = self.failures.get(('view', *key))
+                    if row['current'] or failure and now < failure[1]:continue
+                    if (found and found['revision'] == (head['manual_revision'], head['invalidation_revision'])
+                            and not (row['last_seen_at'] and datetime.fromisoformat(row['last_seen_at']) > datetime.fromisoformat(found['as_of']))):continue
+                    missing.append(key)
+        return missing
 
     def entry(self, channel):
         with self.lock:

@@ -36,9 +36,9 @@ test('offline last-seen EXP fills the bar and ages its original timestamp',()=>{
     last_seen:{reading,age_seconds:7200}}));
   assert.equal(p.elements.progress.hidden,false);assert.equal(p.elements.progress.value,5.9);
   assert.equal(p.elements.exp.textContent,'71,441 EXP');assert.equal(p.elements.percentage.textContent,'5.90%');
-  assert.equal(p.elements.age.textContent,'Last seen 2h ago');
+  assert.equal(p.elements.age.textContent,'Last tracked 2h ago');
   p.context.performance.now=()=>3600000;p.run('renderPlayer()');
-  assert.equal(p.elements.age.textContent,'Last seen 3h ago');
+  assert.equal(p.elements.age.textContent,'Last tracked 3h ago');
   // Newer percentage-only evidence must not be replaced with an older exact pair.
   p.render(player({stale:true,reading:{...reading,exp:null,bp:600,percentage:'6.00'},
     last_seen:{full_exp:reading,age_seconds:7200}}));
@@ -93,7 +93,7 @@ test('a warming server is described as preparing history, not as unavailable',as
   // A chosen saved character keeps its roster identity while its own history warms.
   p.run(`roster=[{id:7,label:'Saved alt',level:42,last_seen_at:new Date(Date.now()-7200000).toISOString(),current:false}];viewCharacter='7';warming=true;data=null;renderPlayer()`);
   assert.equal(p.elements['player-name'].textContent,'Saved alt');assert.equal(p.elements.level.textContent,'Lv. 42');
-  assert.equal(p.elements.age.textContent,'Last seen 2h ago');assert.equal(p.elements.exp.textContent,'—');
+  assert.equal(p.elements.age.textContent,'Last tracked 2h ago');assert.equal(p.elements.exp.textContent,'—');
   const board=page('board',()=>new Promise(()=>{}));board.context.fixture={players:[],warming:['beta']};
   board.run("el('entries').querySelectorAll=()=>[];data=fixture;renderBoard()");assert.match(board.elements['board-count'].textContent,/1 more loading/);
 });
@@ -151,7 +151,7 @@ test('overlay updates percentage-only without borrowing absolute EXP; recovered 
 });
 test('cached failures and advancing ages preserve values but suppress rates and ETA',()=>{
   const p=page();p.render(player());assert.equal(p.elements.rate.textContent,'~2K');assert.equal(p.elements.eta.textContent,'~15m');
-  p.context.performance.now=()=>50000;p.run('renderPlayer()');assert.equal(p.elements.rate.textContent,'—');assert.equal(p.elements.exp.textContent,'71.4K');assert.equal(p.elements.status.textContent,'Tracking');
+  p.context.performance.now=()=>50000;p.run('renderPlayer()');assert.equal(p.elements.rate.textContent,'—');assert.equal(p.elements.exp.textContent,'71.4K');assert.equal(p.elements.status.textContent,'Online');
   p.context.performance.now=()=>0;p.run('failed=true;renderPlayer()');assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements.card.dataset.stale,'true');
 });
 
@@ -174,22 +174,22 @@ test('unreadable HUD retains dated rate without assuming zero gain, expires, and
   assert.equal(p.elements.rate.textContent,'—');assert.match(p.run('earlyText(data.player)'),/^Paused$/);
   p.context.performance.now=()=>0;base.responsive_pace.presentation={state:'historical',can_age:false};
   base.activity={state:'capture_finished'};p.render(base);
-  assert.equal(p.elements.rate.textContent,'~2K');assert.equal(p.elements.status.textContent,'Tracking');
+  assert.equal(p.elements.rate.textContent,'~2K');assert.equal(p.elements.status.textContent,'Online');
 });
 
-test('public status is Offline only when Twitch says offline; capture problems still read Tracking',()=>{
+test('public status is Offline only when Twitch says offline; capture problems still read Online',()=>{
   const p=page();
   p.render(player({reading:null,latest_attempt_status:'capture_failed',twitch:{status:'live'}}));
-  assert.equal(p.elements.status.textContent,'Tracking');
+  assert.equal(p.elements.status.textContent,'Online');
   p.render(player({reading:null,latest_attempt_status:'capture_failed',twitch:{status:'offline'}}));
   assert.equal(p.elements.status.textContent,'Offline');
   p.render(player({reading:null,latest_attempt_status:'capture_failed',twitch:{status:'unknown'}}));
-  assert.equal(p.elements.status.textContent,'Tracking');
+  assert.equal(p.elements.status.textContent,'Online');
   p.render(player({twitch:{status:'offline',capture_disagreement:true}}));
   assert.equal(p.elements.status.textContent,'Offline');
   p.render(player({twitch:{status:'live'},stale:true,age_seconds:60,latest_attempt_status:'malformed_or_unavailable',
     latest_attempt_at:'2026-01-01T00:01:00Z',latest_attempt_age_seconds:1}));
-  assert.equal(p.elements.status.textContent,'Tracking');
+  assert.equal(p.elements.status.textContent,'Online');
 });
 const livePace=rate=>({pace:{active:true,age_seconds:0,estimates:{exp_per_hour:{value:{approximate:rate}},percentage_per_hour:null,eta:null}}});
 test('unavailable rates are not ranked as zero and equal live paces share rank',()=>{
@@ -197,7 +197,7 @@ test('unavailable rates are not ranked as zero and equal live paces share rank',
   p.context.fixtures=[player({channel:'b',recent_windows:{5:livePace(2000)}}),player({channel:'a',recent_windows:{5:livePace(2000)}}),player({channel:'c',recent_windows:{5:{}}})];
   const rows=JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>({channel:r.player.channel,value:r.value,rank:r.rank})))'));
   assert.deepEqual(rows.map(r=>r.rank),[1,1,null]);assert.deepEqual(rows.map(r=>r.channel),['a','b','c']);
-  p.render(player({activity:{state:'coordinator_stopped'}}));assert.equal(p.elements.status.textContent,'Tracking');
+  p.render(player({activity:{state:'coordinator_stopped'}}));assert.equal(p.elements.status.textContent,'Online');
   assert.ok(!source.includes('innerHTML'));
 });
 
@@ -303,10 +303,9 @@ test('observed windows show real partial endpoints without ranking them or relab
   p.render({...base,stale:true});assert.equal(p.elements.movement.dataset.paused,'false');
   p.render({...base,stale:true,age_seconds:301});
   assert.equal(p.elements.movement.textContent,'+3.55%');assert.equal(p.elements.movement.dataset.paused,'true');
-  assert.match(p.elements['segment-note'].textContent,/last updated/);
-  assert.match(p.elements['segment-note'].textContent,/^Based on 3m 28s tracked/);
+  assert.equal(p.elements['segment-note'].textContent,'Based on 3m 28s tracked');  // The age is beside the status, not repeated here.
   assert.equal(p.elements['window-rate'].textContent,'Paused');
-  p.run('failed=true;renderPlayer()');assert.match(p.elements['segment-note'].textContent,/last updated/);
+  p.run('failed=true;renderPlayer()');assert.equal(p.elements['segment-note'].textContent,'Based on 3m 28s tracked');
 });
 
 test('withheld full EXP retains percentage and provisional level across product views',()=>{
@@ -333,25 +332,25 @@ test('polling continues in background, refreshes on return, and never overlaps a
   p.context.document.hidden=true;await p.run('poll()');assert.equal(calls,2);
   hang=true;const pending=p.run('poll()');assert.equal(calls,3);
   p.context.document.hidden=false;p.events.visibilitychange();p.events.pageshow();assert.equal(calls,3);
-  release({ok:false});await pending;assert.equal(p.elements.status.textContent,'Tracking');
+  release({ok:false});await pending;assert.equal(p.elements.status.textContent,'Online');
   hang=false;p.events.pageshow();await new Promise(setImmediate);assert.equal(calls,4);
-  assert.equal(p.elements.status.textContent,'Tracking');assert.equal(p.timers.at(-1),2000);
+  assert.equal(p.elements.status.textContent,'Online');assert.equal(p.timers.at(-1),2000);
 });
 
-test('capture activity, completion and staleness all present as Tracking',()=>{
+test('capture activity, completion and staleness all present as Online',()=>{
   const p=page();
   for(const activity of [{state:'running'},{state:'waiting'},{state:'stopped',completion:'completed'},{state:'stopped',completion:'interrupted'}]){
-    p.render(player({activity}));assert.equal(p.elements.status.textContent,'Tracking');
+    p.render(player({activity}));assert.equal(p.elements.status.textContent,'Online');
   }
-  p.render(player({activity:{state:'running'},stale:true}));assert.equal(p.elements.status.textContent,'Tracking');
+  p.render(player({activity:{state:'running'},stale:true}));assert.equal(p.elements.status.textContent,'Online');
 });
 
 test('pending percentage holds prior values, removes pace, and expires despite a slow configured cadence',()=>{
   const p=page(),base=player({stale_after_seconds:900,estimates:{},segment:null,
     percentage_state:{status:'pending_exp_decrease',public_eligible:false,pending_since:'2026-01-01T00:00:30Z',confirmation_deadline:'2026-01-01T00:01:30Z'}});
-  p.render(base);assert.equal(p.elements.percentage.textContent,'5.90%');assert.equal(p.elements.status.textContent,'Tracking');
+  p.render(base);assert.equal(p.elements.percentage.textContent,'5.90%');assert.equal(p.elements.status.textContent,'Online');
   assert.equal(p.elements.rate.textContent,'—');p.context.performance.now=()=>91000;p.run('renderPlayer()');
-  assert.equal(p.elements.status.textContent,'Tracking');assert.equal(p.elements.percentage.textContent,'5.90%');
+  assert.equal(p.elements.status.textContent,'Online');assert.equal(p.elements.percentage.textContent,'5.90%');
 });
 
 test('last-known level is labeled separately and never supplies missing EXP or pace',()=>{
@@ -612,11 +611,11 @@ test('wide values retain whole numbers; measured overflow uses compact text and 
   assert.equal(p.run('expText(12345.678,true)'),'12,346');
 });
 
-test('completed/stopped capture and API failures still present as Tracking',()=>{
+test('completed/stopped capture and API failures still present as Online',()=>{
   const p=page('player');
-  p.render(player({stale:true,activity:{state:'capture_finished'}}));assert.equal(p.elements.status.textContent,'Tracking');
-  p.render(player({stale:true,age_seconds:480,activity:{state:'coordinator_stopped'}}));assert.equal(p.elements.status.textContent,'Tracking');
-  p.run('failed=true;renderPlayer()');assert.equal(p.elements.status.textContent,'Tracking');
+  p.render(player({stale:true,activity:{state:'capture_finished'}}));assert.equal(p.elements.status.textContent,'Online');
+  p.render(player({stale:true,age_seconds:480,activity:{state:'coordinator_stopped'}}));assert.equal(p.elements.status.textContent,'Online');
+  p.run('failed=true;renderPlayer()');assert.equal(p.elements.status.textContent,'Online');
 });
 
 test('chart inspection supports focus, touch, Escape and viewport bounds without HTML injection',()=>{
@@ -678,11 +677,11 @@ test('suspected wrap and unreadable HUD keep level 43 with its 99.97 percent bar
     if(view==='board'){
       assert.equal(p.run('metricValue(sample,"level")'),43);
       assert.equal(p.run('entry({player:sample,value:43,rank:1}).children[1].children[1].textContent'),'43');
-      assert.equal(p.run('statusText(sample)'),'Tracking');
+      assert.equal(p.run('statusText(sample)'),'Online');
     }else{
       p.render(pending);assert.equal(p.elements.level.textContent,'Lv. 43');
       assert.equal(p.elements.progress.value,99.97);assert.equal(p.elements.percentage.textContent,'99.97%');
-      assert.equal(p.elements.status.textContent,'Tracking');
+      assert.equal(p.elements.status.textContent,'Online');
       assert.match(p.elements.level.title,/^Possible level-up to Lv\. 44; waiting for confirmation\.$/);
       if(view==='player'){
         p.context.points=[{event_id:'old',timestamp:stamp,level:old.level,reading:old,interval_seconds:15},
@@ -833,7 +832,7 @@ test('choosing an inactive character is view-only, clears old numbers and discar
   await p.run('poll()');
   assert.match(api.urls.at(-1),/character=3/);
   assert.equal(p.elements['player-name'].textContent,'Beta');
-  assert.match(p.elements.status.textContent,/^Not currently tracked · last seen 2h ago/);
+  assert.match(p.elements.status.textContent,/^Not currently tracked · last tracked 2h ago/);
   assert.equal(p.elements['segment-note'].textContent,'Saved history');
   assert.equal(p.elements['roster-track'].children[1].attributes['aria-current'],'page');
   assert.equal(p.elements['roster-track'].children[0].attributes['aria-current'],undefined);
@@ -866,7 +865,7 @@ for(const view of ['player','overlay'])test(`${view} renders a validated level f
 });
 
 test('homepage Characters uses compact records, scoped links and no stale pace rankings',async()=>{
-  const characters=[{...ALPHA,channel:'alpha'},{...BETA,channel:'alpha'},
+  const characters=[{...ALPHA,channel:'alpha',online:true},{...BETA,channel:'alpha',online:false},
     {...BETA,id:9,channel:'other',label:'Alpha',level:99,last_seen_at:null}];
   const api=server([{characters,served_at:'2026-01-01T00:00:00Z'}]);
   const p=page('board',api.fetch,'?mode=characters');await settle();
@@ -874,15 +873,16 @@ test('homepage Characters uses compact records, scoped links and no stale pace r
   assert.equal(p.elements['entries'].children.length,3);
   assert.equal(p.elements['streamer-metrics'].hidden,true);assert.equal(p.elements['streamer-windows'].hidden,true);
   assert.equal(p.elements['character-controls'].hidden,false);
-  const [alpha,beta,other]=p.elements.entries.children;
+  // Highest level first by default.
+  const [other,alpha,beta]=p.elements.entries.children;assert.equal(other.dataset.character,9);
   assert.equal(alpha.children[1].children[0].href,'/stream/alpha?character=2');
   assert.equal(other.children[1].children[0].href,'/stream/other?character=9');
-  assert.equal(alpha.children[1].children[2].textContent,'Currently tracked');
-  assert.equal(beta.children[1].children[2].textContent,'Not currently tracked');
-  assert.equal(other.children[2].textContent,'Not seen yet');
-  assert.match(p.elements['ranking-note'].textContent,/last known level$/);
-  p.elements['character-sort'].value='level';p.elements['character-sort'].listeners.change();
-  assert.equal(p.elements.entries.children[0].dataset.character,9);
+  assert.deepEqual([alpha,beta].map(r=>[r.children[0].children[2].dataset.on,r.children[0].children[2].title,r.children[1].children.length]),
+    [['true','Online',2],['false','Not currently tracked',2]]);
+  assert.equal(other.children[2].children[1].children.at(-1).textContent,'Not seen yet');  // Under its EXP bar.
+  assert.equal(p.elements['ranking-note'].textContent,'');
+  p.elements['character-sort'].value='recent';p.elements['character-sort'].listeners.change();
+  assert.equal(p.elements.entries.children[0].dataset.character,2);
   p.elements['character-filter'].value='OTHER';p.elements['character-filter'].listeners.input();
   assert.equal(p.elements.entries.children.length,1);assert.equal(p.elements.entries.children[0].dataset.channel,'other');
   p.elements['character-filter'].value='missing';p.elements['character-filter'].listeners.input();assert.equal(p.elements.empty.hidden,false);
@@ -900,6 +900,18 @@ test('homepage toggle is view-only, preserves default cards and handles Back/For
   p.context.location.search='?mode=characters';p.events.popstate();await settle();
   assert.equal(p.run('boardMode'),'characters');assert.equal(p.visits.length,1);
   assert.deepEqual(api.urls,['/api/players','/api/players?mode=characters','/api/players','/api/players?mode=characters']);
+});
+
+test('switching lists keeps the current one until the other arrives, then swaps everything at once',async()=>{
+  let release;const characters={characters:[{...ALPHA,channel:'alpha',online:true}]};
+  const p=page('board',url=>url.includes('mode=characters')?new Promise(resolve=>{release=()=>resolve({ok:true,status:200,json:async()=>characters});})
+    :Promise.resolve({ok:true,status:200,json:async()=>({players:[player(),player({channel:'b'})]})}));await settle();
+  p.modes[1].listeners.click();p.run('renderBoard()');  // Also through the 1 s refresh.
+  assert.equal(p.modes[1].attributes['aria-pressed'],'true');assert.equal(p.elements.entries.attributes['aria-busy'],'true');
+  assert.equal(p.elements.entries.children.length,2);assert.equal(p.elements['streamer-metrics'].hidden,false);
+  release();await settle();
+  assert.equal(p.elements.entries.children.length,1);assert.equal(p.elements['character-controls'].hidden,false);
+  assert.equal(p.elements['streamer-metrics'].hidden,true);assert.equal(p.elements.entries.attributes['aria-busy'],'false');
 });
 
 test('homepage discards a late Streamers response after changing to Characters',async()=>{
@@ -1039,6 +1051,19 @@ test('overlay rates read each lookback window; the last-hour chart keeps untrack
   const bars=p.elements['overlay-chart'].children;
   assert.equal(bars.length,12);assert.equal(bars.filter(b=>b.attributes.class==='bar').length,1);
   assert.equal(p.elements['hour-total'].textContent,'~400 EXP');
+});
+
+test('the online filter cycles all, online, offline, ranks what it shows and carries over to Characters',()=>{
+  const p=page('board');p.context.fixtures=[player({channel:'a'}),player({channel:'b',twitch:{status:'offline'}}),player({channel:'c'})];
+  p.run('data={players:fixtures};renderBoard()');
+  const shown=()=>[p.elements.entries.children.map(r=>[r.dataset.channel,r.dataset.rank]),p.elements['board-count'].textContent,p.elements.presence.textContent];
+  assert.deepEqual(shown(),[[['a',1],['b',1],['c',1]],'3 players','All']);
+  p.elements.presence.listeners.click();assert.deepEqual(shown(),[[['a',1],['c',1]],'2 of 3 players','Online']);
+  p.elements.presence.listeners.click();assert.deepEqual(shown(),[[['b',1]],'1 of 3 players','Offline']);
+  p.elements.presence.listeners.click();p.elements.presence.listeners.click();  // All, then Online again.
+  p.run(`boardMode=shownMode='characters';data={characters:[{id:1,label:'A',level:5,last_seen_at:null,current:true,channel:'a',online:true},
+    {id:2,label:'B',level:4,last_seen_at:null,current:false,channel:'a',online:false}]};renderBoard()`);
+  assert.deepEqual([p.elements.entries.children.map(r=>r.dataset.character),p.elements['board-count'].textContent],[[1],'1 of 2 characters']);
 });
 
 test('level ranking breaks ties on EXP % within the level and still shows the level',()=>{

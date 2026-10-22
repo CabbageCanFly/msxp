@@ -4,6 +4,7 @@ import json
 import shutil
 import sqlite3
 import threading
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
@@ -308,7 +309,9 @@ def test_optional_demo_rosters_and_lightweight_home_projection(tmp_path, clock, 
         code, home = get(httpd, '/api/players?mode=characters')
         assert code == 200 and len(home['characters']) == characters and 'players' not in home
         assert sum(r['current'] for r in home['characters']) == 1
-        assert all(set(r) == {'id', 'label', 'level', 'last_seen_at', 'current', 'channel'} for r in home['characters'])
+        # The tracked character carries its own build's summary; inline requests never build the others'.
+        base = {'id', 'label', 'level', 'last_seen_at', 'current', 'channel', 'online'}
+        assert all(set(r) == (base | {'reading', 'day_buckets', 'day'} if r['current'] else base) for r in home['characters'])
         assert {r['id'] for r in home['characters']} == {r['id'] for r in current['roster']}
         assert 'PendingOCR' not in json.dumps(home) and not httpd.publisher.views
         assert len(get(httpd, '/api/players')[1]['players']) == 1
@@ -339,7 +342,7 @@ def test_saved_character_without_a_session_has_an_empty_profile_and_no_mixed_sta
     with server_module.create_server(db, port=0, public_only=True) as httpd:
         rows = get(httpd, '/api/players?mode=characters')[1]['characters']
         assert next(r for r in rows if r['id'] == character) == dict(id=character, label='Unplayed', level=None,
-            last_seen_at=None, current=False, channel=CHANNEL)
+            last_seen_at=None, current=False, channel=CHANNEL, online=False)
         code, body = get(httpd, f'/api/players/{CHANNEL}?character={character}')
         assert code == 200 and body['player']['character'] == dict(id=character, label='Unplayed')
         assert body['player']['reading'] is None and body['history'] == []
@@ -438,4 +441,56 @@ def test_demo_extra_streamers_and_live_ticks_only_touch_recent_streams(tmp_path)
     # The stream that ended hours ago stays ended; every other stream gains exactly one frame.
     assert set(live) == {CHANNEL, 'synthetic_ember', 'synthetic_frost', 'synthetic_sprout'}
     assert {login: after[login] - before[login] for login in after} == {**dict.fromkeys(live, 1), 'synthetic_quiet': 0}
+    with Store(path) as store:  # `serve --offline` streams get no live frames either.
+        assert set(demo.tick(store, now=NOW + timedelta(seconds=2 * demo.INTERVAL), offline={'synthetic_frost'})) == {CHANNEL, 'synthetic_ember', 'synthetic_sprout'}
     with pytest.raises(ValueError):demo.create(now=NOW, path=tmp_path / 'too-many.sqlite3', streamers=6)
+
+
+def test_demo_day_history_fills_the_24_hour_charts(tmp_path):
+    path = tmp_path / 'day.sqlite3'
+    switches = demo.create(now=NOW, path=path, streamers=5, history=True)
+    assert [s['name'] for s in switches] == ['Alpha', 'Beta', 'Alpha', 'Ember', 'Frost', 'Sprout', 'Quiet']
+    with Store(path, read_only=True) as store:
+        d = Diagnostics(store)
+        filled = {login: sum(b['value'] is not None for b in d.rolling_history(login, now=NOW)['buckets']) for login in demo.DAY}
+    assert min(filled.values()) >= 4 and sum(filled.values()) >= 40, filled  # Sprout plays least, in three short sessions.
+
+
+def test_saved_summary_slides_its_chart_and_is_withheld_after_a_correction():
+    p = publisher_module.Publisher(object(), clock=lambda: NOW, background=False)
+    p.summaries[(CHANNEL, BETA)] = dict(revision=(1, 2), as_of=NOW.isoformat(), reading={'bp': 5000}, buckets=[None] * 46 + [10, 20])
+    head = dict(login=CHANNEL, manual_revision=1, invalidation_revision=2)
+    assert p.summary(head, BETA, NOW + timedelta(minutes=29)) == dict(reading={'bp': 5000}, day_buckets=[None] * 46 + [10, 20], day=30)
+    # Half an hour on, both bars move left and the newest bucket is empty: nothing was tracked meanwhile.
+    assert p.summary(head, BETA, NOW + timedelta(minutes=31))['day_buckets'] == [None] * 45 + [10, 20, None]
+    assert p.summary(head, BETA, NOW + timedelta(hours=24))['day'] is None
+    assert p.summary(dict(head, manual_revision=3), BETA, NOW) == {} and p.summary(head, ALPHA, NOW) == {}
+
+
+def test_inactive_character_summaries_are_built_in_the_background_not_by_requests(db, clock, monkeypatch):
+    monkeypatch.setattr(publisher_module, 'SUMMARY_SECONDS', 0)
+    before = snapshot(db)
+    def poll(httpd, path, found):
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            code, _, body = request((httpd, None), path)
+            if code == 200 and (value := found(json.loads(body))):return value
+            time.sleep(.05)
+        raise AssertionError(f'Timed out waiting for {path}')
+    with server_module.create_server(db, port=0, public_only=True, background=True) as httpd:
+        row = poll(httpd, '/api/players?mode=characters', lambda b: next((r for r in b['characters'] if r['id'] == BETA and 'reading' in r), None))
+        assert not httpd.publisher.views  # Built for the list only, never kept or cached as a view.
+        view = poll(httpd, f'/api/players/{CHANNEL}?character={BETA}', lambda b: b)
+        buckets = [None if b['value'] is None else round(b['value']['approximate']) for b in view['tracked_history']['buckets']]
+        assert row['reading'] == view['player']['reading'] and row['reading']['bp'] and row['day_buckets'] == buckets
+        assert row['day'] == sum(v for v in buckets if v is not None) > 0
+    assert snapshot(db) == before
+
+
+def test_demo_offline_streams_report_offline_without_asking_twitch():
+    class Availability:
+        def snapshot(self, logins, *, now=None):return {c: dict(status='unknown') for c in logins}
+    server = type('Server', (), {})();server.twitch_availability = Availability()
+    demo.offline_twitch(server, {'synthetic_quiet'})
+    statuses = server.twitch_availability.snapshot(['synthetic_ember'], now=NOW)
+    assert statuses['synthetic_ember'] == dict(status='unknown') and statuses['synthetic_quiet']['status'] == 'offline'
