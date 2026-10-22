@@ -366,7 +366,10 @@ test('responsive pace has one current rate, retains an explicitly aged rate afte
   p.render({...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}});
   assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/As of 35s ago/);
   assert.equal(p.elements.rate.dataset.paused,'true');assert.equal(p.elements['eta-stat'].hidden,false);
+  // The homepage ranks a pace up to RANK_PACE_SECONDS (180s) old, then drops it.
   p.context.fixtures=[{...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}}];
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[1]);
+  p.context.fixtures=[{...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:200}}];
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[null]);
 });
 
