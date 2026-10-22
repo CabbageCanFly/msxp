@@ -172,8 +172,10 @@ def test_sqlite_restores_dated_eta_across_restart_and_beyond_recent_query(tracki
     assert raw==[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     assert not store.db.execute('select 1 from observations').fetchone()
     store.end_session('alpha',at=now);store.start_session('alpha',at=now+timedelta(seconds=1))
-    assert not any(w['eta'] for w in player(d.snapshot('alpha',now=now),now=now,
-        recent_snapshot=d.recent_snapshot('alpha',now=now))['recent_windows'].values())
+    # A new session keeps showing the last saved ETA rather than nothing, but only as a dated, historical one.
+    etas=[w['eta'] for w in player(d.snapshot('alpha',now=now),now=now,
+        recent_snapshot=d.recent_snapshot('alpha',now=now))['recent_windows'].values() if w['eta']]
+    assert etas and all(e['historical'] and e['estimated_at'] for e in etas)
 
 
 @pytest.mark.parametrize('kind',['level_conflict','unsupported','disputed','stationary','one_reading'])
