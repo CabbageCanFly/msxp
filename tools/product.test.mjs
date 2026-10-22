@@ -220,7 +220,7 @@ test('unreadable HUD retains dated rate without assuming zero gain, expires, and
   p.run('failed=true;renderPlayer()');assert.equal(p.elements.rate.textContent,'~2K');
   p.run('failed=false');
   const board=page('board');board.context.sample=base;
-  assert.equal(board.run('metricValue(sample,"exp_hour")'),2000);  // 60s old: within RANK_PACE_SECONDS.
+  assert.equal(board.run('metricValue(sample,"exp_hour")'),2000);  // 60s old: within the selected 5 min.
   p.context.performance.now=()=>240000;p.run('renderPlayer()');
   assert.equal(p.elements.rate.textContent,'~2K');assert.match(p.run('earlyText(data.player)'),/As of 5m ago/);
   assert.equal(p.elements.eta.textContent,'—');
@@ -339,6 +339,21 @@ test('pace ranking changes with the selected window and never substitutes a shor
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>[r.player.channel,r.rank]))')),[['a',1],['b',null]]);
 });
 
+test('homepage pace ranking allows saved estimates only within the selected freshness window',()=>{
+  const p=page('board');
+  p.context.sample=player({stale:true,recent_windows:Object.fromEntries([5,10,15,30].map(minutes=>[minutes,{
+    last_observed_pace:{...livePace(2000).pace,active:false,age_seconds:minutes*60-1,
+      presentation:{state:'historical',running:true,expire_after_seconds:1800}}
+  }]))});
+  for(const button of p.buttons.slice(0,4)){
+    p.context.performance.now=()=>0;button.listeners.click();
+    assert.equal(p.run('metricValue(sample,"exp_hour")'),2000);
+    p.context.performance.now=()=>2000;
+    p.context.fixtures=[p.context.sample,player({channel:'fresh',recent_windows:{[button.dataset.window]:livePace(0)}})];
+    assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>[r.player.channel,r.rank]))')),[['fresh',1],['alpha',null]]);
+  }
+});
+
 test('observed windows show real partial endpoints without ranking them or relabeling recent pace',()=>{
   const p=page('player'),base=player();
   const observed={available:true,difference_percentage_points:'0.55',span_seconds:{approximate:208},
@@ -428,7 +443,7 @@ test('early segment pace is visible before a complete window and becomes paused 
   p.context.performance.now=()=>0;p.run('failed=true;renderPlayer()');assert.equal(p.elements['early-value'].textContent,'Paused');
 });
 
-test('responsive pace has one current rate, retains an explicitly aged rate after gaps, and never ranks it',()=>{
+test('responsive pace has one current rate and retains an explicitly aged rate after gaps',()=>{
   const p=page('player'),base=player();
   base.responsive_pace={active:true,tentative:true,age_seconds:0,readings:2,span_seconds:{approximate:15},estimates:{...base.estimates,eta:null}};
   p.render(base);assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/^Early estimate$/);
@@ -437,10 +452,12 @@ test('responsive pace has one current rate, retains an explicitly aged rate afte
   assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/As of 35s ago/);
   assert.equal(p.elements.rate.dataset.paused,'false');assert.equal(p.elements['eta-stat'].hidden,false);
   p.render({...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:301}});assert.equal(p.elements.rate.dataset.paused,'true');
-  // The homepage ranks a pace up to RANK_PACE_SECONDS (180s) old, then drops it.
+  // Ranking retains the saved pace within the selected 5 min, then drops it.
   p.context.fixtures=[{...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}}];
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[1]);
   p.context.fixtures=[{...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:200}}];
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[1]);
+  p.context.fixtures=[{...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:301}}];
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[null]);
 });
 

@@ -34,7 +34,6 @@ let chartWindow=60,lineWindow=15;
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
 const OVERLAY_CHOICES={layout:['card','rates','chart'],title:['site','tracker'],icon:['off','on'],name:['both','character','twitch','none'],theme:['night','day']};
 const OVERLAY_COLORS=['header','bar','accent'];
-const RANK_PACE_SECONDS=180;
 // Colors dim only once values are this old; the ~1 min stale flag is too twitchy for a cosmetic cue.
 const FADE_AFTER_SECONDS=300;
 function faded(age) { return failed || age==null || age>FADE_AFTER_SECONDS; }
@@ -218,9 +217,9 @@ function metricValue(p,key) {
   // A saved 24h total, so it ranks whether or not the stream is live right now.
   if(key==='day')return p.tracked_status==='ready' && p.tracked_windows?.['1440']?.available?p.tracked_windows['1440'].gain?.approximate ?? null:null;
   if(failed)return null;
-  // Ranks a pace up to RANK_PACE_SECONDS old, looser than the ~1 min stale flag; trades accuracy for coverage.
+  // The selected lookback also limits how old a ranked pace can be.
   const pace=publicPace(p,windowMinutes);
-  return pace && pace.age<=RANK_PACE_SECONDS?pace.estimates.exp_per_hour?.value.approximate ?? null:null;
+  return pace && pace.age<=windowMinutes*60?pace.estimates.exp_per_hour?.value.approximate ?? null:null;
 }
 // Level ties break on EXP % within the level (Lv. 65 at 75% ranks above Lv. 65 at 50%).
 function sortValue(p,key) { const value=metricValue(p,key);return key==='level' && value!=null?value+(p.reading?.bp ?? 0)/10000:value; }

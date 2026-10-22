@@ -123,6 +123,8 @@ immediate request on returning and no overlapping requests.
 
 Ranking compares only eligible configured characters for the selected metric,
 with unavailable values after eligible ones and equal values sharing ranks.
+On the homepage, the EXP/hour selection also sets the maximum age of a saved
+pace: 5, 10, 15 or 30 minutes. Older estimates have no rank and sort last.
 Level sorting explicitly uses **last observed** levels, which may be old. Recent
 progress on the website compares eligible selected windows with actual coverage.
 The overlay retains shorter segment estimates. No unsupported window,
