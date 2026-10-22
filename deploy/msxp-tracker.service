@@ -11,7 +11,7 @@ WorkingDirectory=/opt/msxp/app
 # MSXP_FRONTEND_ORIGIN and the TWITCH_* credentials; root:msxp 0640.
 EnvironmentFile=/etc/msxp/msxp.env
 Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/opt/msxp
-ExecStart=/opt/msxp/app/.venv/bin/python tools/multi_alpha.py --config private/vps/config.json --continuous --retention-24h --public-only --twitch-status --cors-origin ${MSXP_FRONTEND_ORIGIN}
+ExecStart=/opt/msxp/app/.venv/bin/python tools/multi_alpha.py --config private/vps/config.json --continuous --public-only --twitch-status --cors-origin ${MSXP_FRONTEND_ORIGIN}
 # The coordinator finalizes runs on KeyboardInterrupt; SIGTERM would skip that.
 KillSignal=SIGINT
 KillMode=mixed

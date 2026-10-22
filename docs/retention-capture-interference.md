@@ -3,7 +3,27 @@
 Investigation, 2026-10-22. Retention is **off** again on the local tracker; nothing here is
 deployed. Companion to [24h-retention.md](24h-retention.md).
 
-## Summary
+## Outcome (implemented)
+
+Retention now runs as a separate worker (`python -m exp_tracker.retention --apply`; on the VPS the
+opt-in `msxp-retention.timer`). The coordinator refuses `--retention-24h`. Moving to a separate
+process alone was **not** enough. Measured on fresh copies of the local live DB, with a second
+process making one tiny write every 50–100 ms under the same 5 s busy timeout as capture saves:
+
+| Write lock held per batch | 1 run | 5 runs | 10 runs | 25 runs |
+|---|---|---|---|---|
+| Old: everything inside `BEGIN IMMEDIATE` | 0.7–1.6 s | 1.0–2.2 s | 1.5–3.5 s | 4.1–7.0 s, **3 writer failures** |
+| New: snapshot compute, checked short write | — | max 126 ms | max 115 ms | max 132 ms, 0 failures |
+| Writer's longest wait (new) | — | 42 ms | 90 ms | 179 ms |
+
+A writer failure matters more than a delay: a capture save that raises `sqlite3.Error` stops that
+lane until restart (`tools/multi_alpha.py`, `persistence_failed`). Inside the old lock, a 5-run batch
+spent 0.2–0.5 s planning, 0.6–1.2 s replaying, 0.2–0.5 s on a full `foreign_key_check`, and ~0.01 s on
+the writes themselves. The new design moves all but the writes into a read snapshot. The checkpoint
+computation is unchanged code; the daily snapshots it produces are buffered and written in the same
+short transaction as the deletions. Details: [24h-retention.md](24h-retention.md#operation-and-reporting).
+
+## Summary (investigation)
 
 - Turning on `--retention-24h` on the local live tracker (12 streamers, 20 s cadence) made every
   streamer miss about one reading per minute during the one-time catch-up. Each cleanup round froze
@@ -59,16 +79,20 @@ worst delay per streamer, plus kept-data age).
 | 6. Postgres | Replace SQLite | Large (weeks) | VPS self-host $0 but ~100–300 MB RAM plus backups/upgrades/auth; managed roughly $15–30/month (rough, not quoted) | Concurrent inserts during deletes, but an inline cleanup would still freeze the loop, so option 1 is needed anyway |
 | 7. Other engines | libSQL/Turso concurrent writes, DuckDB, per-day SQLite files | Medium–large | varies | Same inline-CPU problem; per-day files make deletion cheap but complicate every cross-day query |
 
-### Notes on option 1
+### Notes on option 1 (as implemented)
 
-- **Entry point:** extend the existing `python -m exp_tracker.retention --db … --apply` (it already
-  runs without the coordinator's writer lease) with a repeat mode, or have the coordinator spawn it as
-  a subprocess. On the VPS it could be its own systemd unit.
-- **Unfinished runs:** standalone mode already protects all of them. Expiring abandoned ones needs the
-  coordinator's active run IDs. The `--runtime-state` heartbeat already publishes them
-  (`src/exp_tracker/capture_runtime.py:40`), or a rare inline pass can keep doing it.
-- **Files:** cleanup already refuses to delete logs whose attempts are still in SQLite, so active logs
-  stay protected without the coordinator's list.
+- **Entry point:** the existing `python -m exp_tracker.retention` (it never took the coordinator's
+  writer lease), now with bounded `--apply` passes, `--log-root`, `--every-minutes`, its own
+  `<db>.retention.lock`, and no schema migration. On the VPS: a systemd oneshot + hourly timer.
+- **Unfinished runs:** the `--runtime-state` heartbeat was rejected. Only capture-only mode writes it,
+  and its reader returns an empty active set when the file is missing or stale, which is
+  indistinguishable from "nothing running". Instead, `live_runs()` protects each streamer's newest
+  unfinished run, from the database alone. The local DB had one superseded unfinished run (12 h old,
+  from a killed process). Protecting every unfinished run, the old standalone default, would have
+  stalled that character's retention forever.
+- **Files:** besides "no attempts left in SQLite", the worker skips protected runs' logs (a paused
+  lane's header-only log has no attempts) and the newest operator log of the newest coordinator
+  directory (it may be open after a quiet day). Delete errors are counted, not raised.
 - **Verify live:** use `tools/tracker_health.py` for 10-minute windows during catch-up. Target: missed
   0, worst delay a few seconds.
 
@@ -83,10 +107,67 @@ worst delay per streamer, plus kept-data age).
 - **When it would pay off:** many independent writer processes, multiple machines, or write rates far
   above today's few writes per second. Not this problem.
 
-## Open questions
+## Remaining risks
 
-- Confirm the GIL explanation by profiling the live process (e.g. py-spy), or by timing a
-  separate-process chunk against the live database while the tracker runs.
-- VPS: 4 vCPU; a separate process gets its own interpreter but competes with OCR subprocesses. Measure there.
+- **Measured locally only** (24-core PC). The VPS has 4 vCPUs shared with OCR/FFmpeg: compute will be
+  slower, and the write lock may be somewhat longer. Nothing guarantees zero missed captures there
+  until the validation below passes.
+- **Each revision bump makes the publisher rebuild every page** (existing behaviour). Now once per pass
+  with changes, hourly on the VPS; before, every inline call, even with nothing pruned.
+- **Trusted-tracking anchors** (`_trusted`, the `observations` table) still replay inside a write
+  transaction. The roster coordinator writes no observations (local DB: 0). Check the VPS count in
+  the inventory below before enabling.
+- **Never VACUUM** these databases (implicit `diagnostic_runs.rowid`; see 24h-retention.md).
 - **Local state:** catch-up stopped part-way (oldest data 71.3 h); retention off. Pre-retention backup:
   `private/manual-backups/live-telfer-shiphtur-pre-retention-20261022.sqlite3` (410 MB).
+
+## VPS validation plan (nothing here has been run)
+
+**1. Read-only inventory** (no writes, no restarts). Paste the output back:
+
+```sh
+cd /opt/msxp/app && git log --oneline -1
+systemctl cat msxp-tracker msxp-api 2>/dev/null | grep -nE 'ExecStart|EnvironmentFile|retention|RETENTION|capture-only|runtime-state'
+systemctl list-timers --all --no-pager | grep -i msxp
+sudo grep -hE '^MSXP_(DATABASE|RETENTION|CAPTURE_LIMITS|RUNTIME_STATE)=' /etc/msxp/roster.env /etc/msxp/split.env 2>/dev/null
+DB=$(sudo grep -h '^MSXP_DATABASE=' /etc/msxp/roster.env | cut -d= -f2-); echo "$DB"
+sudo -u msxp sqlite3 -readonly "$DB" "SELECT (SELECT COUNT(*) FROM diagnostic_attempts),(SELECT MIN(attempted_at) FROM diagnostic_attempts),(SELECT COUNT(*) FROM observations),(SELECT COUNT(*) FROM diagnostic_runs WHERE summary_json IS NULL);"
+ls -la "$DB"* ; du -sh /opt/msxp/app/private/multi-alpha/runs 2>/dev/null
+nproc; free -m; uptime; df -h /opt/msxp
+```
+
+**Hard gate before deploying this code:** no live unit may still pass `--retention-24h` (the new
+coordinator refuses it and would not start). `MSXP_RETENTION` in an env file is now ignored.
+
+**2. Rehearsal on a copy, beside the running tracker** (after deploying the code; destructive only to the copy):
+
+```sh
+cd /opt/msxp/app; R=private/retention-rehearsal; sudo -u msxp mkdir -p "$R"
+sudo -u msxp .venv/bin/python tools/backup_database.py "$DB" "$R/tracker.sqlite3"
+sudo -u msxp .venv/bin/python -m exp_tracker.retention --db "$R/tracker.sqlite3"                      # report
+sudo -u msxp nice -n 10 .venv/bin/python -m exp_tracker.retention --db "$R/tracker.sqlite3" --apply --max-seconds 3600 | tee "$R/pass.jsonl"
+sudo -u msxp sqlite3 -readonly "$R/tracker.sqlite3" 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
+```
+
+Accept if: the summary shows `complete: true`, `busy_errors: 0` and `max_lock_ms` under ~500, and the
+integrity check prints `ok` with no FK rows. Note `elapsed_s`: that's the expected catch-up time.
+
+**3. Live trial, one manual pass** (after approval; the tracker keeps running):
+
+```sh
+sudo -u msxp .venv/bin/python tools/tracker_health.py --db "$DB" --minutes 60 | tee ~/health-before.txt
+sudo -u msxp .venv/bin/python tools/backup_database.py "$DB" "private/backups/tracker-pre-retention-$(date -u +%Y%m%dT%H%M%SZ).sqlite3"
+sudo install -m 0644 deploy/msxp-retention.service deploy/msxp-retention.timer /etc/systemd/system/ && sudo systemctl daemon-reload
+sudo systemctl start --no-block msxp-retention.service; journalctl -u msxp-retention -f   # chunk + summary lines
+# During and after (every ~10 min): compare with the baseline.
+sudo -u msxp .venv/bin/python tools/tracker_health.py --db "$DB" --minutes 10
+journalctl -u msxp-tracker --since -30min | grep -iE 'locked|persistence|Traceback' || echo 'no capture errors'
+```
+
+Accept if, in 10-minute windows during the pass: missed readings match the baseline (0 when streams
+are steady), worst delay stays within ~1 s of the baseline, no lane stops, and no `database is
+locked` appears in the tracker journal. After the pass, `oldest_attempt_hours` should be about
+24–25. Then: `sudo systemctl enable --now msxp-retention.timer`.
+
+**Rollback:** `sudo systemctl disable --now msxp-retention.timer` (retention off). Data already
+expired stays expired; restore the pre-retention backup only with capture stopped, per 24h-retention.md.

@@ -5,6 +5,9 @@ from .store import utc
 
 
 def save(store, character_id, observed_at, level, exp, bp, source, level_basis, exp_basis, percentage_basis):
+    # Retention replays from a read snapshot; it saves these later, in the transaction that deletes the source.
+    if (deferred:=getattr(store,'deferred_daily',None)) is not None:
+        deferred.append((character_id,observed_at,level,exp,bp,source,level_basis,exp_basis,percentage_basis));return
     if exp is None and bp is None:return
     if store._pending_character(character_id):return
     stamp=utc(datetime.fromisoformat(observed_at))

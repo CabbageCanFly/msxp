@@ -155,47 +155,75 @@ their accounting is preserved in checkpoint totals.
 
 ## Operation and reporting
 
+Retention runs as its own process beside the coordinator, never inside the capture loop.
 Measured 2026-10-22: inline maintenance froze the live coordinator 19–41 s per round and skipped
-captures. Keep it off until it runs outside the capture loop; see
-[retention-capture-interference.md](retention-capture-interference.md).
+captures, so the coordinator now refuses `--retention-24h` and points to this worker. Measurements
+and design: [retention-capture-interference.md](retention-capture-interference.md).
 
-The legacy JSON `msxp-tracker.service` includes `--retention-24h` with `--continuous`.
-The opt-in [schema-11 VPS roster service](vps-roster-rollout.md) starts with retention
-disabled and requires separate copy rehearsal and operator approval to enable it.
-Nothing has been installed, started or enabled here. Maintenance runs before
-scheduled captures, including startup and repeated capture failures. SQLite
-failures roll back the transaction, print `Retention postponed`, and retry after
-60 seconds while capture continues. Reports include cutoff, raw attempt/run
-candidates and artifact file/byte counts.
+How a pass works (`python -m exp_tracker.retention --apply`):
 
-Read-only report, without creating/migrating a database:
+- **Snapshot, then a short write.** Planning, the checkpoint replay and the foreign-key check read
+  one WAL snapshot with `PRAGMA query_only=ON`, so they hold no write lock. Each character prefix is
+  then written in its own `BEGIN IMMEDIATE` transaction that first re-reads everything the replay
+  depended on (retention revision, that character's checkpoint, audit maxima, open session,
+  `tracking_state`, the prefix runs' attempt counts). If anything changed, nothing is written and
+  the prefix is recomputed. The write covers only daily snapshots, the checkpoint, id high-water
+  marks and deletions: about 0.1 s regardless of batch size.
+- **Which unfinished runs are protected, without a heartbeat.** Each streamer's newest run while it
+  has no summary. A coordinator has one lane per streamer, so an older unfinished run was
+  superseded (e.g. a killed process) and expires like a finished one. With capture stopped this
+  keeps at most one extra run per streamer.
+- **Bounded and repeatable.** Batches of `--batch-runs` (default 10) until no backlog or
+  `--max-seconds` (default 600; the unit uses 900), pausing `--pause-seconds` between batches. The
+  remainder continues on the next pass. Re-running is idempotent; a killed pass loses only its open
+  batch (SQLite rolls it back).
+- **One revision bump per pass, only when something changed.** The publisher rebuilds every page
+  when the retention revision changes; per-batch bumps would keep the site rebuilding during catch-up.
+- **Files after SQLite, outside any transaction** (only with `--log-root`). A capture log goes only
+  when it is older than the cutoff, its folder is owned by this database, it isn't a protected run's
+  log, and none of its attempts remain in SQLite. The newest operator log of the newest coordinator
+  directory is kept, since it may still be open. A file that can't be removed (e.g. open on Windows)
+  is counted in `file_errors` and left for a later pass. Then a passive WAL checkpoint.
+- **No overlap, no migration.** `<db>.retention.lock` admits one worker per database (another exits
+  75). The worker refuses databases that would need a schema migration.
+
+Output: one JSON line per batch (`runs`, `attempts`, `compute_s`, `lock_ms`, `stale`) and a summary
+(`chunks`, `max_lock_ms`, `busy_errors`, `stale_snapshots`, `complete`, `revision_bumped`, `files`,
+`bytes`, `file_errors`, `oldest_attempt_hours`, `attempts_kept`, `unfinished_runs`, `protected_runs`,
+`db_mb`, `wal_mb`). Exit 0 also when backlog remains (`complete: false`); 75 = busy or locked, try later.
 
 ```sh
-PYTHONPATH=src .venv/bin/python -m exp_tracker.retention --db private/disposable/tracker.sqlite3
+# Read-only report (default), safe beside a running coordinator:
+.venv/bin/python -m exp_tracker.retention --db private/vps/tracker.sqlite3
+# One pass, SQLite and owned log files:
+.venv/bin/python -m exp_tracker.retention --db private/vps/tracker.sqlite3 --apply --log-root private/multi-alpha/runs
+# Windows: repeat hourly in a separate terminal (Ctrl+C stops between statements):
+.\.venv\Scripts\python -m exp_tracker.retention --db private\multi-alpha\live-telfer-shiphtur.sqlite3 --apply --log-root private\multi-alpha\runs --every-minutes 60
 ```
 
-Deliberate rehearsal on a **disposable synthetic/copy database** after updating all
-code that opens it:
+On the VPS: `deploy/msxp-retention.service` (oneshot, low CPU/IO priority) and
+`deploy/msxp-retention.timer` (hourly, counted from the end of the previous pass). Neither is
+installed by `install-ubuntu.sh`. Not enabling the timer disables retention completely. The
+coordinator units no longer pass any retention option, and `MSXP_RETENTION` is unused.
 
-```sh
-PYTHONPATH=src .venv/bin/python -m exp_tracker.retention --db private/disposable/tracker.sqlite3 --apply
-```
-
-`--apply` migrates that explicitly selected database if needed. Standalone
-maintenance handles SQLite only and protects unfinished runs. The coordinator
-also handles files after successful DB retention, then issues a passive WAL
-checkpoint. No automatic `VACUUM` or backup runs. SQLite reuses freed pages; its
-existing high-water file size may remain. Shrinking an already large file is a
-separate stopped-service operation requiring free disk space.
-
-Coordinator directories record their database owner. Legacy directories are
-adopted only while all capture headers identify runs in that DB. Cleanup never
-follows symlinks/junctions, crosses the owned root, deletes active handles or
-unrelated files, or removes logs whose raw attempts remain in SQLite. Known
-`exp.png` / `level.png` crops expire with their log. Operator output rotates hourly.
-Malformed/unowned legacy evidence stays untouched and may require operator review.
+Coordinator directories always record their database owner. Legacy directories are adopted only
+while all capture headers identify runs in that DB. Cleanup never follows symlinks/junctions,
+crosses the owned root or touches unrelated files. Known `exp.png` / `level.png` crops expire with
+their log. Operator output rotates hourly. Malformed/unowned legacy evidence stays untouched.
+No automatic `VACUUM` or backup runs; SQLite reuses freed pages, so the file stops growing rather
+than shrinking (see the rowid note below before considering any shrink).
 
 ## Snapshots and remaining limits
+
+**Never `VACUUM` (or `VACUUM INTO`, or dump/reload) a tracking database.** `diagnostic_runs` has a
+TEXT primary key, so its `rowid` is implicit, and SQLite may renumber implicit rowids when it
+rebuilds a table. Checkpoints store `through_run` as a rowid, run order uses `rowid`, and
+`retention_meta.run_id` is a rowid high-water mark. Renumbering would make replays skip or repeat
+runs. Normal inserts are safe: `next_id` assigns rowids above the high-water mark, so deletions
+never recycle them. `tools/backup_database.py` uses SQLite's page-copy backup API, which preserves
+rowids. Shrinking a file safely first needs an explicit `INTEGER PRIMARY KEY` column on
+`diagnostic_runs`, a schema migration that hasn't been done.
+
 
 Use the provider's existing **seven-day automatic snapshots** for MVP. Do not
 enable `msxp-backup.timer`; no off-site infrastructure or new backup timer is added.

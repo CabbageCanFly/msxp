@@ -494,7 +494,7 @@ def main(argv=None):
     cli.add_argument('--replay', action='append', default=[], metavar='CHANNEL=PRIVATE_LOG')
     cli.add_argument('--exit-after-capture', action='store_true')
     cli.add_argument('--continuous',action='store_true',help='Continue until Ctrl+C, rotating each channel at 60 attempts')
-    cli.add_argument('--retention-24h',action='store_true',help='Hourly evidence/log retention during continuous capture')
+    cli.add_argument('--retention-24h',action='store_true',help='Removed: retention runs separately (python -m exp_tracker.retention --apply)')
     cli.add_argument('--public-only',action='store_true',help='Serve only the public homepage, character pages and OBS overlay; developer routes return 404')
     cli.add_argument('--cors-origin',action='append',default=[],metavar='ORIGIN',help='Exact frontend origin allowed to read the API, e.g. https://msxp.pages.dev; repeatable')
     cli.add_argument('--twitch-status',action='store_true',help='Opt in to cached official live status; requires local Twitch API environment credentials')
@@ -540,8 +540,10 @@ def main(argv=None):
         if db_mode and (not args.continuous or existing_mode or args.character_names or args.automatic_characters
                         or args.replay or args.offline_fast_test or args.hud_cache_seconds):
             raise ValueError('Database roster requires --continuous and fresh full-frame capture; no JSON/trial/automatic-channel/cache flags')
-        if args.retention_24h and (not args.continuous or args.replay):
-            raise ValueError('--retention-24h requires continuous capture')
+        if args.retention_24h:
+            # Inline cleanup froze capture for 19-41 s per round (docs/retention-capture-interference.md).
+            raise ValueError('--retention-24h no longer runs inside the coordinator; run '
+                             'python -m exp_tracker.retention --db <database> --apply --log-root <log root> separately')
         if not 1<=args.workers<=8:
             raise ValueError('--workers must be 1..8')
         if not math.isfinite(args.hud_cache_seconds) or not 0<=args.hud_cache_seconds<=3600:
@@ -660,9 +662,8 @@ def main(argv=None):
             else:
                 os.environ['OMP_THREAD_LIMIT'] = '1'
                 directory.mkdir(parents=True, exist_ok=False)
-                if args.retention_24h:
-                    from exp_tracker.retention_files import own
-                    own(directory,database)
+                from exp_tracker.retention_files import own
+                own(directory,database)  # Lets a separate retention worker expire this directory's files later.
                 with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database,allow_migration=trial is None and not existing_mode and not db_mode) as store:
                     diagnostic = Diagnostics(store)
                     if args.automatic_characters or existing or db_mode:
@@ -701,25 +702,6 @@ def main(argv=None):
                         print(f'Capture RUNNING: at most {args.workers} active job(s), one per channel, bounded per-channel attempts, no queued frames'
                               +(', first captures staggered across each interval.' if args.stagger_capture else '.'),flush=True)
                         with OperatorLog(directory) as operator:
-                            maintenance_due=0
-                            def maintain():
-                                nonlocal maintenance_due
-                                if not args.retention_24h or time.monotonic()<maintenance_due:return
-                                from exp_tracker.retention import prune
-                                from exp_tracker.retention_files import register,cleanup
-                                try:
-                                    root=directory.parent
-                                    register(root,database,store)
-                                    result=prune(store,dry_run=False,active_runs=httpd.active_run_ids)
-                                    print('Retention SQLite: '+json.dumps(result),flush=True)
-                                    files=cleanup(root,database,store,dry_run=False,
-                                        active_logs=[lane['args'].output for lane in lanes]+([operator.path] if operator.path else []))
-                                    store.db.execute('PRAGMA wal_checkpoint(PASSIVE)')
-                                    print('Retention files: '+json.dumps(files),flush=True)
-                                    maintenance_due=time.monotonic()+(60 if result['batch_limit_reached'] else 3600)
-                                except (OSError,ValueError,sqlite3.Error) as error:
-                                    maintenance_due=time.monotonic()+60
-                                    print(f'Retention postponed: {type(error).__name__}: {error}',file=sys.stderr,flush=True)
                             def emit(lane, record):
                                 if lane['args'].automatic_characters and record['type']=='attempt':
                                     record['resources']=monitor.snapshot()
@@ -800,7 +782,7 @@ def main(argv=None):
                                     old.close()
                                 httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(following)
                                 print(f"{lane['channel']}: scheduled rotation after 60 committed attempts; session {lane['session_id']} retained",flush=True)
-                            scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate,maintain=maintain) if args.continuous else {}
+                            scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate) if args.continuous else {}
                             # Continuous Twitch capture always pauses outside MapleStory; without credentials nothing pauses.
                             if args.continuous and not args.any_category and (db_mode or any(row['source']=='twitch' for row in streams)):
                                 scheduler_options['gate']=category_gate(lanes)

@@ -332,7 +332,7 @@ def test_thirteen_channels_mixed_workers_restart_expand_and_disable(existing_cap
     _,_,config,db,mappings=legacy
     enabled=[m['channel'] for m in mappings[:3]]
     with Store(db,read_only=True) as store:before={m['channel']:store._channel(m['channel'])['selected_character_id'] for m in mappings}
-    assert run_existing(legacy,enabled,'--workers','3','--continuous','--retention-24h','--max-attempts','7')==0
+    assert run_existing(legacy,enabled,'--workers','3','--continuous','--max-attempts','7')==0
     assert parallel[0]>1 and len({r[3] for r in seen})==1
     assert all(a==b==(login in enabled) for login,a,b,_ in seen)
     with Store(db,read_only=True) as store:

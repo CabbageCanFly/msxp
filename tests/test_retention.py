@@ -59,13 +59,24 @@ def test_retention_parity_rotation_levelup_restart_and_inactivity(tracking):
 
 
 def test_checkpoint_is_atomic_on_failure(tracking,monkeypatch):
+    from exp_tracker import retention
     _,store,d=tracking;now=chain(d)
     before=store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]
-    monkeypatch.setattr('exp_tracker.retention._trusted',lambda *args:(_ for _ in ()).throw(ValueError('injected')))
+    apply=retention._apply
+    def fail(*args):
+        apply(*args);raise ValueError('injected')  # After every write of the prefix, before its commit.
+    monkeypatch.setattr(retention,'_apply',fail)
     with pytest.raises(ValueError,match='injected'):prune(store,now=now,dry_run=False)
     assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==before
     assert not checkpoint(store,1)
     assert store._channel('alpha')['selected_character_id']==1
+    monkeypatch.undo()
+    # A later failure (trusted anchors) leaves committed prefixes whole: checkpoint and deletion together.
+    monkeypatch.setattr(retention,'_trusted',lambda *args:(_ for _ in ()).throw(ValueError('trusted')))
+    with pytest.raises(ValueError,match='trusted'):prune(store,now=now,dry_run=False)
+    pruned=before-store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]
+    assert pruned>0 and checkpoint(store,1)['through_run']
+    assert not store.db.execute('PRAGMA foreign_key_check').fetchall()
 
 
 def test_trusted_checkpoint_keeps_totals_anchor_and_monotonic_ids(tmp_path):

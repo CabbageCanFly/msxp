@@ -135,10 +135,13 @@ def test_trusted_replay_excludes_invalidated_latest_and_keeps_manual_fix_of_reje
 def test_snapshots_are_atomic_with_deletion(tracking,monkeypatch):
     _,store,d=tracking
     observed(d,'run',1,NOW);close(d,'run',1)
+    from exp_tracker import retention
+    apply=retention._apply
     def fail(*args):
+        apply(*args)  # Snapshots, checkpoint and deletion are written in the one prefix transaction...
         assert daily(store) and store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==0
-        raise ValueError('after deletion')
-    monkeypatch.setattr('exp_tracker.retention._trusted',fail)
+        raise ValueError('after deletion')  # ...so a failure before its commit discards all of them.
+    monkeypatch.setattr(retention,'_apply',fail)
     with pytest.raises(ValueError,match='after deletion'):prune(store,now=NOW+timedelta(days=3),dry_run=False)
     assert daily(store)==[] and not checkpoint(store,1)
     assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==1

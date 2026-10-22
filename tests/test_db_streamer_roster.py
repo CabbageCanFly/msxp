@@ -515,7 +515,7 @@ def test_database_roster_rotation_and_retention_keep_identity_and_daily_history(
     legacy,_,_,scripts,_,_=running_roster;path=legacy[3]
     for m in legacy[4]:change(path,m['channel'],tracking_enabled=False)
     change(path,'newcaster',authorized=True,tracking_enabled=True);scripts['newcaster']=['Alpha']
-    assert run_db(running_roster,'--retention-24h','--max-attempts','63')==0
+    assert run_db(running_roster,'--max-attempts','63')==0
     with Store(path) as store:
         s=store._channel('newcaster');cid=s['selected_character_id']
         runs=store.db.execute('SELECT * FROM diagnostic_runs WHERE character_id=? ORDER BY rowid',(cid,)).fetchall()

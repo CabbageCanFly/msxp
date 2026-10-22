@@ -252,7 +252,7 @@ procedure above only for a real recovery.
 ## Operations
 
 - `journalctl -u msxp-tracker -f`
-- The proposed unit includes `--retention-24h`; see [reporting, boundary allowances and expired admin targets](24h-retention.md).
+- Retention is the separate, opt-in `msxp-retention.timer`, never a tracker option; see [24h-retention.md](24h-retention.md).
 - `systemctl stop msxp-tracker`: SIGINT finalizes runs; allow up to 60 s.
 - The manual-EXP admin server is started by hand only when needed, then reached by
   tunnel: `ssh -L 8766:127.0.0.1:8766 vps`, then `sudo -u msxp .venv/bin/python -m

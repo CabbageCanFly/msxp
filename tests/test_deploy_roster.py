@@ -24,7 +24,7 @@ def commands():
 
 def arguments(command,path,*,twitch=''):
     env=dict(MSXP_DATABASE=str(path),MSXP_TWITCH_STATUS=twitch,
-        MSXP_CAPTURE_LIMITS='--stop-after-seconds 600 --exit-after-capture',MSXP_RETENTION='')
+        MSXP_CAPTURE_LIMITS='--stop-after-seconds 600 --exit-after-capture')
     args=[]
     for token in command:
         if token.startswith('${'):args.append(env[token[2:-1]])
@@ -69,7 +69,20 @@ def test_service_is_opt_in_bounded_and_retention_free():
     assert 'msxp-tracker-roster.conf' not in (DEPLOY/'install-ubuntu.sh').read_text()
     env=(DEPLOY/'msxp-roster.env.example').read_text()
     assert 'MSXP_CAPTURE_LIMITS=--stop-after-seconds 600 --exit-after-capture' in env
-    assert '\nMSXP_RETENTION=\n' in env
+    # No coordinator unit can run retention inline, whatever an old env file still sets.
+    for unit in ('msxp-tracker.service','msxp-tracker-roster.conf','msxp-tracker-capture-only.conf'):
+        text=(DEPLOY/unit).read_text()
+        assert '--retention-24h' not in text and 'MSXP_RETENTION' not in text
+
+
+def test_retention_is_a_separate_opt_in_bounded_pass():
+    service=(DEPLOY/'msxp-retention.service').read_text();timer=(DEPLOY/'msxp-retention.timer').read_text()
+    start=shlex.split(next(l for l in service.splitlines() if l.startswith('ExecStart=')).split('=',1)[1])
+    assert start[1:4]==['-m','exp_tracker.retention','--db'] and '--apply' in start
+    assert start[start.index('--log-root')+1]=='${MSXP_LOG_ROOT}' and float(start[start.index('--max-seconds')+1])<=900
+    assert 'Type=oneshot' in service and 'User=msxp' in service and 'ProtectSystem=strict' in service
+    assert 'OnUnitInactiveSec=1h' in timer  # Counted from the end of a pass: passes never overlap.
+    assert 'msxp-retention' not in (DEPLOY/'install-ubuntu.sh').read_text()  # Enabling stays a deliberate step.
 
 
 @pytest.mark.parametrize('twitch',['','--twitch-status'])

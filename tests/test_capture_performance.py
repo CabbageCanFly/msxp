@@ -451,52 +451,6 @@ def test_interrupt_during_maintenance_records_in_flight_attempts(schedule):
     assert sorted(emitted) == [('a', ['operator_interrupted']), ('b', ['operator_interrupted'])]
 
 
-def test_retention_maintenance_overlaps_in_flight_worker_and_restarts_cleanly(multi, monkeypatch):
-    from exp_tracker import retention
-    from exp_tracker.diagnostics import Diagnostics
-    from exp_tracker.store import Store
-    module, path = multi[0], multi[1]
-    real = time.monotonic; shift = [0.0]
-    # Only collect() and maintain() read this clock: jumping it makes retention due mid-run.
-    monkeypatch.setattr(module, 'time', SimpleNamespace(monotonic=lambda: real()+shift[0], sleep=time.sleep))
-    coordinator = threading.get_ident(); flying = set(); lock = threading.Lock()
-    pruned = threading.Event(); seen = []; original = retention.prune
-    def prune(store, **kwargs):
-        with lock: seen.append((threading.get_ident(), set(kwargs['active_runs']), frozenset(flying)))
-        result = original(store, **kwargs)
-        pruned.set()
-        return result
-    monkeypatch.setattr(retention, 'prune', prune)
-    def capture(args, source, requirements, index, **kwargs):
-        channel = args.tracking_channel
-        with lock: flying.add(channel)
-        if channel == 'alpha' and index == 1:
-            pruned.clear(); shift[0] += 7200                    # Maintenance falls due while alpha is in flight.
-            assert pruned.wait(10)                              # Unblocked only by a prune on the coordinator.
-        with lock: flying.discard(channel)
-        return record(index)
-    monkeypatch.setattr(module.shadow, 'capture_attempt', capture)
-    flags = ('--continuous', '--retention-24h', '--max-attempts', '2', '--workers', '2', '--resident-neural')
-    monkeypatch.setattr(module.shadow.ResidentNeural, 'close', lambda self: None)
-    assert run_main(multi, *flags) == 0
-    assert all(ident == coordinator for ident, _, _ in seen) and len(seen) >= 2
-    overlapped = [(active, busy) for _, active, busy in seen if 'alpha' in busy]
-    assert overlapped and all(len(active) == 2 for active, _ in overlapped)   # Both in-flight runs protected.
-    db = path.parent/'shared.sqlite3'
-    with Store(db, read_only=True) as store:
-        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0] == 4
-        assert not store.db.execute('SELECT 1 FROM diagnostic_runs WHERE summary_json IS NULL').fetchone()
-    seen.clear()
-    assert run_main(multi, *flags) == 0                         # Restart: new runs, same DB, retention again.
-    assert seen and all(ident == coordinator for ident, _, _ in seen)
-    with Store(db, read_only=True) as store:
-        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_runs').fetchone()[0] == 4
-        assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0] == 8
-        assert not store.db.execute('SELECT 1 FROM diagnostic_runs WHERE summary_json IS NULL').fetchone()
-        assert all(Diagnostics(store).snapshot(c)['run_status'] == 'completed' for c in ('alpha', 'beta'))
-    assert list((path.parent/'multi-alpha/runs').glob('*/.retention-owner.json'))
-
-
 def test_run_summary_reports_cadence_freshness_and_held_evidence(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(Path('tools').resolve()))
     summarize = importlib.import_module('summarize_capture_run').summarize

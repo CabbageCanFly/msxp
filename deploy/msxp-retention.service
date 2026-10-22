@@ -1,0 +1,30 @@
+# OPT-IN: install and start only after the copy rehearsal in docs/24h-retention.md; not installed by
+# install-ubuntu.sh. One bounded pass beside the running coordinator; msxp-retention.timer repeats it.
+[Unit]
+Description=MS XP 24-hour retention pass (separate from capture)
+After=msxp-tracker.service
+
+[Service]
+Type=oneshot
+User=msxp
+Group=msxp
+WorkingDirectory=/opt/msxp/app
+# MSXP_DATABASE: the same reviewed database the coordinator uses.
+EnvironmentFile=/etc/msxp/roster.env
+# The coordinator's default --db-roster log root under this WorkingDirectory; override in retention.env.
+Environment=MSXP_LOG_ROOT=/opt/msxp/app/private/multi-alpha/runs PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/msxp/retention.env
+# A first catch-up can exceed one pass; the remainder continues on the next timer run.
+ExecStart=/opt/msxp/app/.venv/bin/python -m exp_tracker.retention --db ${MSXP_DATABASE} --apply --log-root ${MSXP_LOG_ROOT} --max-seconds 900
+# Capture and OCR keep priority; the write lock itself is held ~0.1 s per batch.
+Nice=10
+CPUWeight=20
+IOSchedulingClass=idle
+TimeoutStartSec=20min
+# Exit 75: another pass holds the lock or SQLite stayed busy; the timer simply tries again.
+SuccessExitStatus=75
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/msxp/app/private
+PrivateTmp=yes
+UMask=0027

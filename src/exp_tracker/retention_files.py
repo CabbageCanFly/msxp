@@ -45,21 +45,40 @@ def register(root, database, store):
             continue  # Unrecognized legacy evidence must not block database retention.
 
 
-def cleanup(root, database, store, *, now=None, dry_run=True, active_logs=()):
+def owned(root, database):
+    """This database's coordinator directories under root, oldest first (names begin with a UTC stamp)."""
+    root=Path(root).absolute()
+    if not root.is_dir() or root.is_symlink() or getattr(root,'is_junction',lambda:False)():return []
+    found=[]
+    for directory in sorted(root.iterdir()):
+        marker=directory/'.retention-owner.json'
+        if marker.exists() and regular(marker,root) and json.loads(marker.read_text(encoding='utf-8'))==str(Path(database).resolve()):
+            found.append(directory)
+    return found
+
+
+def current_operator_log(root, database):
+    """A separate worker can't ask the coordinator which operator log is open; the newest one of the newest
+    directory may be, even after a quiet day, so it is kept until a later coordinator directory replaces it."""
+    directories=owned(root,database)
+    logs=sorted(directories[-1].glob('operator*.jsonl'),key=lambda p:p.stat().st_mtime) if directories else []
+    return logs[-1:]
+
+
+def cleanup(root, database, store, *, now=None, dry_run=True, active_logs=(), protected_runs=()):
+    """protected_runs: run IDs that may still be capturing; their logs and crops are never removed."""
     root=Path(root).absolute();now=now or datetime.now(timezone.utc)
     cutoff=(now-timedelta(hours=24,minutes=5)).timestamp();active={Path(p).absolute() for p in active_logs}
-    report=dict(files=0,bytes=0,dry_run=dry_run)
-    if not root.is_dir() or root.is_symlink() or getattr(root,'is_junction',lambda:False)():return report
-    for directory in root.iterdir():
-        marker=directory/'.retention-owner.json'
-        if not marker.exists() or not regular(marker,root):continue
-        if json.loads(marker.read_text(encoding='utf-8'))!=str(Path(database).resolve()):continue
+    report=dict(files=0,bytes=0,dry_run=dry_run,errors=0)
+    for directory in owned(root,database):
         logs=list(directory.glob('*/capture.jsonl'))+list(directory.glob('*/*/capture.jsonl'))
         candidates=[]
         for path in logs:
             if path in active or not regular(path,root) or path.stat().st_mtime>=cutoff:continue
+            run_id=header(path).get('run_id')
+            if run_id in protected_runs:continue
             run=store.db.execute('''SELECT r.rowid,r.character_id,a.id FROM diagnostic_runs r
-                LEFT JOIN diagnostic_attempts a ON a.run_id=r.run_id WHERE r.run_id=? LIMIT 1''',(header(path).get('run_id'),)).fetchone()
+                LEFT JOIN diagnostic_attempts a ON a.run_id=r.run_id WHERE r.run_id=? LIMIT 1''',(run_id,)).fetchone()
             if run and run['id'] is not None:continue
             crops=path.with_suffix('')
             images=[p for name in ('exp.png','level.png') for p in crops.glob(f'[0-9][0-9][0-9][0-9]/{name}')]
@@ -68,15 +87,20 @@ def cleanup(root, database, store, *, now=None, dry_run=True, active_logs=()):
         candidates.extend(p for p in directory.glob('operator*.jsonl') if re.fullmatch(r'operator(?:-[0-9]{8}T[0-9]{2}(?:-[0-9]+)?)?\.jsonl',p.name))
         for path in candidates:
             if path in active or not regular(path,root) or path.stat().st_mtime>=cutoff:continue
-            report['files']+=1;report['bytes']+=path.stat().st_size
+            size=path.stat().st_size
             if not dry_run:
-                path.unlink()
+                try:path.unlink()
+                except OSError:  # E.g. still open on Windows: left for a later pass, never forced.
+                    report['errors']+=1;continue
+            report['files']+=1;report['bytes']+=size
+            if not dry_run:
                 parent=path.parent
                 while parent!=directory:
                     try:parent.rmdir()
                     except OSError:break
                     parent=parent.parent
         # Remove the ownership marker only when its directory is otherwise empty.
+        marker=directory/'.retention-owner.json'
         if not dry_run and list(directory.iterdir())==[marker]:
             marker.unlink();directory.rmdir()
     return report
