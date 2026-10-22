@@ -36,6 +36,7 @@ main { position: relative; max-width: 1160px; padding: 36px 24px 32px; margin: a
 .demo-notice strong { color: var(--gold); font-size: 11px; letter-spacing: 1px; white-space: nowrap; }
 .board { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow), inset 0 1px #ffffff0a; overflow: hidden; }
 .board-header { justify-content: space-between; gap: 12px; padding: 14px 20px; background: linear-gradient(var(--wood-light), var(--wood)); border-bottom: 2px solid #4b3423; box-shadow: inset 0 1px #ffffff1f; }
+.board.player-board header.board-header { justify-content: flex-start }
 h1 { margin: 0; font-family: var(--font-display); font-size: 18px; font-weight: 600; letter-spacing: .2px; }
 h1 span { color: var(--gold); margin-right: 7px; }
 .board-header > span { font-size: 12px; font-weight: 600; color: #f0dcc0; }

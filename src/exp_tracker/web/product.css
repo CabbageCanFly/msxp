@@ -9,6 +9,7 @@
 .eyebrow { color:var(--gold); letter-spacing:2px; font-size:12px; font-weight:800; margin:0; }
 .welcome h1 { font-size:clamp(34px,5vw,54px); font-weight:600; line-height:1.05; text-transform:none; letter-spacing:-.5px; margin:10px 0 14px; color:var(--text); text-shadow:0 3px 0 #0a1124; }
 .welcome > p:last-child { font-size:16px; line-height:1.6; color:var(--text-soft); margin:0; }
+.product .board-header { min-height:66px; align-items:center; }
 .product .board-header h2 { margin:0; font-family:var(--font-display); font-size:18px; font-weight:600; letter-spacing:.2px; }
 .product .entry { grid-template-columns:36px 64px minmax(135px,190px) minmax(160px,1fr) 120px; }
 .product .character { text-decoration:none; color:var(--text); }
