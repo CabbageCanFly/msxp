@@ -12,7 +12,7 @@ from exp_tracker.store import Store
 from tests.test_product import tracking,NOW
 from tests.test_diagnostic_history import config,rotate
 from tests.test_tracked_exp_totals import save
-from tests.test_cross_level_product import SAVED
+from tests.test_cross_level_product import SAVED,REPLAY_LOGS
 
 
 def same(d,channel,now,checkpoints):
@@ -168,7 +168,7 @@ def test_saved_logs_match_full_replay_while_streamed(tmp_path,channel):
     Bounded for the suite: resume every 6 records, compare every 150 and at the end.
     private/incremental-work/sweep.py compares far more often (see docs).
     """
-    logs=saved_logs(SAVED,channel)  # One consistent snapshot: rotations during the replay do not change it.
+    logs=saved_logs(SAVED,channel)[:REPLAY_LOGS]
     if not logs:pytest.skip('private saved capture unavailable')
     checkpoints={};steps=0;now=None
     with Store(tmp_path/'saved.sqlite3') as store:

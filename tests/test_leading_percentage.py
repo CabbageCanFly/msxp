@@ -229,7 +229,7 @@ def test_missing_hud_gap_after_both_supports_still_checks_capture_safety(change)
 def test_saved_interrupted_run_read_only_projection_and_causal_prefixes():
     from exp_tracker.shadow_view import observation
 
-    path=Path('private/multi-alpha/runs/20261020T214039Z-1781b4bb/telfer1/01f9f3a2328e42128e182408ffae84ff/capture.jsonl')
+    path=Path('private/test-fixtures/runs/20261020T214039Z-1781b4bb/telfer1/01f9f3a2328e42128e182408ffae84ff/capture.jsonl')
     if not path.exists():pytest.skip('Private saved source unavailable')
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
     records=[json.loads(line) for line in path.read_text().splitlines()];config=records[0]
@@ -262,7 +262,7 @@ def test_saved_interrupted_run_read_only_projection_and_causal_prefixes():
 
 
 def test_saved_run_public_availability_and_causal_prefixes(tmp_path):
-    path=Path('private/multi-alpha/runs/20261019T000710Z-bda4f628/telfer1/capture.jsonl')
+    path=Path('private/test-fixtures/runs/20261019T000710Z-bda4f628/telfer1/capture.jsonl')
     if not path.exists():pytest.skip('Private saved source unavailable')
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
     with Store(tmp_path/'review.sqlite3') as store:

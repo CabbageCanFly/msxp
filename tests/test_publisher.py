@@ -20,7 +20,7 @@ from tests.test_product import tracking,NOW
 from tests.test_diagnostic_history import config
 from tests.test_tracked_exp_totals import save,nested
 from tests.test_incremental_history import scenario
-from tests.test_cross_level_product import SAVED,replay
+from tests.test_cross_level_product import SAVED,REPLAY_LOGS,replay
 
 
 @pytest.fixture
@@ -190,7 +190,7 @@ def test_background_publication_matches_reference_through_rotation_restart_loss_
 def test_saved_publications_match_reference(tmp_path,clock,channel):
     # Read each file once: active rotation tails must not change this invocation's inputs.
     captures=sorted(((p,p.read_text()) for p in Path(SAVED).glob(f'*/{channel}/**/capture.jsonl')),
-        key=lambda item:json.loads(item[1].splitlines()[1])['attempted_at'])
+        key=lambda item:json.loads(item[1].splitlines()[1])['attempted_at'])[:REPLAY_LOGS]
     if not captures:pytest.skip('private saved capture unavailable')
     db=tmp_path/'saved.sqlite3';steps=0
     with Store(db) as store:

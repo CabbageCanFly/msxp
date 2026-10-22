@@ -140,7 +140,8 @@ def test_acquisition_and_process_boundaries_do_not_exclude_level_up_gain(boundar
     assert not w['complete_window']
 
 
-SAVED=Path('private/multi-alpha/runs')
+SAVED=Path('private/test-fixtures/runs')
+REPLAY_LOGS=25  # Full-replay checks cost more than linearly per log; the oldest 25 per channel keep each under ~90 s.
 
 
 def replay(store,channel,folders,stop=None,as_of=None):

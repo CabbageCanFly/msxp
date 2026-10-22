@@ -12,7 +12,7 @@ from exp_tracker.product import refresh
 from exp_tracker.store import Store
 from tests.test_product import tracking,NOW
 from tests.test_incremental_history import build
-from tests.test_cross_level_product import SAVED
+from tests.test_cross_level_product import SAVED,REPLAY_LOGS
 
 
 @contextmanager
@@ -62,7 +62,7 @@ def test_cards_match_reference_after_every_append_and_as_windows_expire(tracking
 @pytest.mark.parametrize('channel',['emmies','niru','telfer1'])
 def test_saved_cards_match_reference(tmp_path,monkeypatch,channel):
     """Missing/malformed OCR, level-ups, quarantine, rotation, restarts and inactivity."""
-    paths=sorted(Path(SAVED).glob(f'*/{channel}/**/capture.jsonl'),key=lambda p:json.loads(p.read_text().splitlines()[1])['attempted_at'])
+    paths=sorted(Path(SAVED).glob(f'*/{channel}/**/capture.jsonl'),key=lambda p:json.loads(p.read_text().splitlines()[1])['attempted_at'])[:REPLAY_LOGS]
     if not paths:pytest.skip('private saved capture unavailable')
     checkpoints={};steps=0;now=None;levels=set()
     with Store(tmp_path/'saved.sqlite3') as store:

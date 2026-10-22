@@ -290,8 +290,8 @@ def test_historical_eta_replay_prunes_only_after_supported_intervals(tracking,mo
 
 @pytest.mark.parametrize('channel',['telfer1','niru'])
 def test_saved_followup_checkpoints(tmp_path,channel):
-    path=(Path('private/multi-alpha/runs/20261018T195958Z-eee70469/telfer1/93dddb3313a5445e86d7d12dd3fb9917/capture.jsonl')
-        if channel=='telfer1' else Path('private/multi-alpha/runs/20261018T211439Z-794bf39d/niru/capture.jsonl'))
+    path=(Path('private/test-fixtures/runs/20261018T195958Z-eee70469/telfer1/93dddb3313a5445e86d7d12dd3fb9917/capture.jsonl')
+        if channel=='telfer1' else Path('private/test-fixtures/runs/20261018T211439Z-794bf39d/niru/capture.jsonl'))
     if not path.exists():pytest.skip('Private source unavailable')
     with Store(tmp_path/'saved.sqlite3') as store:
         store.add_channel(channel);cid=store.add_character(channel,'Saved review');store.select_character(channel,cid);store.start_session(channel)

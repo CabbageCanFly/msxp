@@ -259,8 +259,8 @@ def test_recent_window_replays_old_rotation_quarantine_before_retaining_one_hour
 
 @pytest.mark.parametrize('channel',['telfer1','shiphtur'])
 def test_saved_live_failure_checkpoints_are_causal_read_only_regressions(tmp_path,channel):
-    source=(Path('private/multi-alpha/runs/20261018T185429Z-fdb644c0/telfer1/096543bcaabb45f18f07f30eebc4111e/capture.jsonl')
-        if channel=='telfer1' else Path('private/multi-alpha/runs/20261018T195958Z-eee70469/shiphtur/capture.jsonl'))
+    source=(Path('private/test-fixtures/runs/20261018T185429Z-fdb644c0/telfer1/096543bcaabb45f18f07f30eebc4111e/capture.jsonl')
+        if channel=='telfer1' else Path('private/test-fixtures/runs/20261018T195958Z-eee70469/shiphtur/capture.jsonl'))
     if not source.exists():pytest.skip('Private live-capture fixture unavailable')
     db=tmp_path/'saved.sqlite3'
     with Store(db) as s:

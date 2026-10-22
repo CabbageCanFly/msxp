@@ -298,6 +298,19 @@ Private screenshots in `samples/` are excluded from Git; see
 [samples/README.md](samples/README.md). Sample tests skip when absent; a missing
 OCR engine is a test failure when samples are present. No test downloads data.
 
+Local data that matters, all ignored by Git: `private/multi-alpha/` (the local
+tracker's database and capture logs), `private/rapidocr/` (OCR environment),
+`private/manual-backups/`, and the test fixtures: `private/test-fixtures/runs/`
+(a frozen ~43 MB copy of the capture logs tests read), `private/ocr-evaluation/`,
+`adaptive-ocr/`, `exp-digits/`, `level-digits/`, `numeric-classifier/`,
+`levelup-evaluation/`, `samples/maplestory-classic-stream1.png` and `-stream2.png`,
+and in `artifacts/`: `accounting-bridge.sqlite3`, `green-test-20261015-215403/` and
+its `.jsonl`, `live-benchmark/`, `live-validation-20261015-203121/` (some fixture
+manifests point at these by relative path). Everything else under
+`private/`, `samples/` and `artifacts/` is experiment output and safe to archive.
+Tests never read the live `private/multi-alpha/runs/`, so its growth or retention
+doesn't change test results; real-log replays use each channel's oldest 25 logs.
+
 A public checkout needs no private profile, annotations or screenshots for its
 public tests. After installing Python dependencies, the core subset also needs
 no Tesseract executable:

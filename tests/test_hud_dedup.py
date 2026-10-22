@@ -138,7 +138,7 @@ def test_competing_or_stale_geometry_never_runs_field_ocr(modules,stale):
     ('20261019T092547Z-0e1bd0f9','b84401fd96444d2582dc724ee8310584',11,9,11),
     ('20261019T095936Z-ef8a3750','',36,23,35)])
 def test_private_saved_candidate_replay_keeps_exp_disagreements_rejected(folder,suffix,count,before,after):
-    path=Path('private/multi-alpha/runs')/folder/'telfer1'/suffix/'capture.jsonl'
+    path=Path('private/test-fixtures/runs')/folder/'telfer1'/suffix/'capture.jsonl'
     if not path.is_file():pytest.skip('private Telfer capture unavailable')
     rows=[json.loads(s) for s in path.read_text().splitlines() if json.loads(s).get('type')=='attempt'][:count]
     original_counts=[];merged_counts=[]
