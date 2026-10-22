@@ -3,6 +3,14 @@
 This is a presentation update using the existing read-only diagnostics. No OCR,
 requirements, schema, capture evidence or trusted accounting changed.
 
+The public last-seen EXP bar can outlive the card's 640-attempt history. When
+failed captures displace its last reading, the existing bounded historical replay
+restores a compact dated display from that character's saved sessions. Percentage-only
+readings keep their percentage and labeled estimate; older numerical EXP is never
+paired with a newer percentage. Retention checkpoints preserve this display after
+raw attempts expire. Missing source data or a replay safety limit cannot be bypassed
+to reconstruct an unavailable reading.
+
 ## Why Shiphtur showed dashes
 
 The 90-attempt two-stream capture under

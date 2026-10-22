@@ -96,6 +96,79 @@ def test_stale_player_exposes_retained_full_exp_as_last_seen(tracking):
     assert result['stale'] and result['last_seen']['full_exp']['exp']=='123456'
 
 
+@pytest.mark.parametrize('full',[True,False])
+def test_published_last_seen_survives_failed_history_restart_and_retention(tracking,full):
+    from tests.test_tracked_exp_totals import save
+    from tests.test_diagnostic_history import config
+    from exp_tracker.retention import prune
+    from exp_tracker.product import PRODUCT_ROWS
+    path,store,d=tracking
+    for i in range(1,4):save(d,'run',i,(i-1)*20,3300+i*5,full=full)
+    original=get(d,40)['reading']
+    d.append('run',dict(type='summary',trusted=False,attempts=3,interrupted=True))
+    store.end_session('alpha',at=NOW+timedelta(seconds=60))
+    store.start_session('alpha',at=NOW+timedelta(seconds=61))
+    # The current session contains only failures; all usable evidence is in the previous one.
+    for n in range(PRODUCT_ROWS+1):
+        run=f'failed-{n//60}'
+        if n%60==0:
+            if n:d.append(f'failed-{n//60-1}',dict(type='summary',trusted=False,attempts=60,interrupted=True))
+            d.begin(run,'alpha',config(run))
+        save(d,run,n%60+1,80+n*20,0,missing=True)
+    d.append(run,dict(type='summary',trusted=False,attempts=(n%60)+1,interrupted=True))
+    later=NOW+timedelta(days=60)
+    def published():
+        with Store(path,read_only=True) as cold:
+            diagnostics=Diagnostics(cold);cache={};etas={}
+            head=diagnostics.heads()[0]
+            value=diagnostics.card(cache,head,now=later,eta_cache=etas)[1]['player']
+            # Exercise both the cached historical display and a cold database reopening.
+            cache.clear()
+            assert diagnostics.card(cache,head,now=later,eta_cache=etas)[1]['player']==value
+            assert value['reading']['timestamp']==original['timestamp']
+            assert value['reading']['exp']==original['exp']
+            assert value['reading']['bp']==original['bp']
+            assert value['stale'] and value['last_seen']['age_seconds']>59*86400
+            assert value['estimates']['eta'] is None
+            assert value['recent_windows']['5']['available'] is False
+            return value
+    value=published()
+    assert value['last_seen']['reading']['percentage']==original['percentage']
+    with create_server(path,port=0,public_only=True) as server:
+        status,_,body=request((server,None),'/api/players/alpha')
+        assert status==200
+        assert json.loads(body)['player']['reading']['bp']==original['bp']
+    # The permanent checkpoint must work after original attempts have actually expired.
+    prune(store,now=later,dry_run=False)
+    assert not store.db.execute('SELECT 1 FROM diagnostic_attempts').fetchone()
+    assert published()['reading']['percentage']==original['percentage']
+
+
+def test_last_seen_can_use_recent_history_without_restoring_historical_eta(tracking):
+    _,_,d=tracking
+    append(d,1,'[33.10%]')
+    recent=d.snapshot('alpha',now=NOW+timedelta(seconds=30))
+    append(d,2,None,status='capture_failed',received_at=None,current=False)
+    snap=d.snapshot('alpha',now=NOW+timedelta(seconds=30),limit=1)
+    value=player(snap,now=NOW+timedelta(seconds=300),recent_snapshot=recent)
+    assert value['stale'] and value['reading']['bp']==3310
+    assert value['reading']['timestamp']==NOW.isoformat()
+
+
+@pytest.mark.parametrize('action',['invalidate','clear'])
+def test_historical_display_does_not_resurrect_invalidated_or_cleared_readings(tracking,action):
+    from tests.test_invalidations import apply,single
+    _,store,d=tracking
+    append(d,1,'[33.10%]')
+    if action=='invalidate':apply(store,single(store,'run:1'))
+    else:store.correct_manual('alpha','clear-last-seen',1,clear=True,effective_at=NOW+timedelta(seconds=1))
+    append(d,2,None,status='capture_failed',received_at=None,current=False)
+    now=NOW+timedelta(days=2)
+    snap=d.snapshot('alpha',now=now,limit=1)
+    value=player(snap,now=now,recent_snapshot=d.recent_snapshot('alpha',now=now))
+    assert value['reading'] is None and not (value.get('last_seen') or {}).get('full_exp')
+
+
 def test_zero_display_change_has_pace_bounds_but_no_eta(tracking):
     _,_,d=tracking
     for i in range(1,4):append(d,i,'[33.00%]')

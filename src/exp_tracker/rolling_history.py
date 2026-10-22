@@ -170,8 +170,9 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     start=now-timedelta(minutes=125);session=(base['session'] or {}).get('id')
     owner='session_id=?' if diagnostic.store.schema_version>=4 else 'run_id IN (SELECT run_id FROM diagnostic_runs WHERE session_id=?)'
     if _historical:
-        earliest=diagnostic.db.execute('SELECT MIN(attempted_at) FROM diagnostic_attempts WHERE '+owner,
-            (session,)).fetchone()[0]
+        earliest=diagnostic.db.execute('''SELECT MIN(a.attempted_at) FROM diagnostic_attempts a
+            JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.character_id=?''',
+            ((base['selected_character'] or {}).get('id'),)).fetchone()[0]
         if earliest:start=datetime.fromisoformat(earliest)
         if getattr(diagnostic,'_retention_prefix',None) is not None:
             start=datetime.min.replace(tzinfo=timezone.utc)
@@ -186,6 +187,13 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
             state['previous_time']=max(state['previous_time'],when) if state['previous_time'] else when
         batch=project(batch,state=state['level_state'])
         reviewed=review(batch,[percentage_point(r) for r in batch],now=now,state=state['percentage_state'])
+        if _historical:
+            from .product import observed_display
+            for row,decision in zip(batch,reviewed):row['percentage_review']=decision
+            display=observed_display(dict(observations=batch),now=now)
+            saved=state.setdefault('historical_display',{})
+            for key,value in display.items():
+                if value and (not saved.get(key) or value['timestamp']>saved[key]['timestamp']):saved[key]=value
         # Retained rows passed an earlier, never later, cutoff; reapply this request's.
         kept=[(r,d) for r,d in zip(state['rows'],state['decisions']) if stamp(r)>=start]
         rows=state['rows']=[r for r,_ in kept];decisions=state['decisions']=[d for _,d in kept]
@@ -237,6 +245,7 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     rows=[r for r,_ in kept];decisions=[d for _,d in kept]
     data=dict(percentage_reviews=decisions,reason=decisions[-1]['reason'] if decisions else 'no_observations')
     result=dict(base,observations=rows,percentage_progress=data,recent_history_status='ready',recent_history_receipt=receipt)
+    if _historical:result['historical_display']=state.get('historical_display',{})
     from .retention import checkpoint
     frozen=checkpoint(diagnostic.store,(base['selected_character'] or {}).get('id'))
     result['historical_etas']=dict(frozen.get('etas',{}),**state.get('retained_etas',{}))
@@ -256,12 +265,12 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
                 historical=recent_snapshot(diagnostic,channel,now=now,_historical=True,character=character)
                 old=recent_windows(historical,None,now=now)
                 saved={m:w['eta'] for m,w in old.items()}
-                cached=(key,saved,historical['recent_history_status'],historical['recent_history_receipt'])
+                cached=(key,saved,historical['recent_history_status'],historical['recent_history_receipt'],historical.get('historical_display',{}))
                 if eta_cache is not None:
                     # Bounded ETA acceleration cache, independent of roster membership.
                     if name not in eta_cache and len(eta_cache)>=MAX_ETA_CACHE:eta_cache.pop(next(iter(eta_cache)))
                     eta_cache[name]=cached
-            result.update(historical_etas=cached[1],eta_history_status=cached[2],eta_history_receipt=cached[3])
+            result.update(historical_etas=cached[1],eta_history_status=cached[2],eta_history_receipt=cached[3],historical_display=cached[4])
     return result
 
 

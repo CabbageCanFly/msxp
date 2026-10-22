@@ -108,7 +108,7 @@ function expTitle(r) {
 }
 function percentageText(r) { return r?.percentage!=null?`${r.estimated_percentage?'~':''}${r.percentage}%`:'—'; }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
-function lastSeenReading(p) { return p.last_seen?.full_exp ?? null; }
+function lastSeenReading(p) { return p.last_seen?.reading ?? p.last_seen?.full_exp ?? null; }
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
 function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l.age_seconds+(performance.now()-receivedAt)/1000>p.stale_after_seconds); }
 // Public labels follow accepted display evidence; possible wraps stay in the status and hover text.
@@ -337,16 +337,17 @@ function renderPlayer() {
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
   el('level').dataset.lastKnown=String(lastKnown(p));
   el('level').dataset.inferred=String(!!levelTransition(p) || !!LEVEL_SOURCES[displayLevel(p)?.status]);
-  const shown=last && s.stale && r?.exp==null?last:r;
+  const shown=r ?? (s.stale?last:null);
   const shownBp=shown?.bp ?? (shown?.percentage!=null?Math.round(Number(shown.percentage)*100):null);
   el('progress').value=shownBp!=null?shownBp/100:0;
   el('progress').hidden=shownBp==null;
-  const absolute=shown?.exp!=null?expText(shown.exp,true):displayedExp(shown,true);
-  amount('exp',absolute==='—'?'—':absolute+' EXP',displayedExp(shown));el('exp').title=last && s.stale && r?.exp==null?`Last exact EXP reading from ${localTime(last.timestamp)}.`:expTitle(r);
+  const absolute=displayedExp(shown,true);
+  amount('exp',absolute==='—'?'—':absolute+' EXP',displayedExp(shown));el('exp').title=expTitle(shown);
   el('percentage').textContent=percentageText(shown);el('percentage').title=shown?.evidence==='manual_admin'?expTitle(shown):'';
   el('status').textContent=statusText(p);
   // Skip "Updated …" when the status already says how long ago, e.g. "Last tracked 13m ago".
-  el('age').textContent=last && s.stale?`Last seen ${ageText(last.age_seconds)}`:r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=last?.timestamp?localTime(last.timestamp):r?.timestamp?localTime(r.timestamp):'';
+  const lastAge=p.last_seen?.age_seconds==null?s.age:p.last_seen.age_seconds+(performance.now()-receivedAt)/1000;
+  el('age').textContent=shown && s.stale?`Last seen ${ageText(lastAge)}`:r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=shown?.timestamp?localTime(shown.timestamp):'';
   const observed=view==='player'?observedWindow(p):null;
   const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):observed?.difference_percentage_points ?? (!p.recent_windows && selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null);
   const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);

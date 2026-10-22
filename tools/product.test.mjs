@@ -30,6 +30,22 @@ function player(changes={}){return {channel:'alpha',character:{label:'Main'},sou
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
 
+test('offline last-seen EXP fills the bar and ages its original timestamp',()=>{
+  const p=page('player'),reading=player().reading;
+  p.render(player({reading:null,stale:true,age_seconds:null,twitch:{status:'offline'},
+    last_seen:{reading,age_seconds:7200}}));
+  assert.equal(p.elements.progress.hidden,false);assert.equal(p.elements.progress.value,5.9);
+  assert.equal(p.elements.exp.textContent,'71,441 EXP');assert.equal(p.elements.percentage.textContent,'5.90%');
+  assert.equal(p.elements.age.textContent,'Last seen 2h ago');
+  p.context.performance.now=()=>3600000;p.run('renderPlayer()');
+  assert.equal(p.elements.age.textContent,'Last seen 3h ago');
+  // Newer percentage-only evidence must not be replaced with an older exact pair.
+  p.render(player({stale:true,reading:{...reading,exp:null,bp:600,percentage:'6.00'},
+    last_seen:{full_exp:reading,age_seconds:7200}}));
+  assert.equal(p.elements.progress.value,6);assert.equal(p.elements.percentage.textContent,'6.00%');
+  assert.equal(p.elements.exp.textContent,'—');
+});
+
 for(const view of ['player','overlay'])test(`${view} shows manual partial values with provenance and no invented percentage`,()=>{
   const p=page(view),level={value:64,status:'manual_admin',correction_id:7};
   const reading={exp:'0',percentage:null,bp:null,evidence:'manual_admin',timestamp:'2026-01-01T00:00:00Z',level,

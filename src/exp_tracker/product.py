@@ -495,14 +495,16 @@ def window_comparisons(snapshot, *, now):
     return result
 
 
-def player(snapshot,*,now=None,recent_snapshot=None):
-    now=now or datetime.now(timezone.utc)
-    rows=snapshot['observations'];latest=None
+def observed_display(snapshot, *, now):
+    """Compact dated display only; never a replacement for accounting observations."""
+    rows=snapshot['observations'];latest=None;full=None
     for row in rows:
         value=reading(row)
         if value and row.get('timestamp_ordered') is not False and value['timestamp']:
             when=datetime.fromisoformat(value['timestamp'])
-            if when<=now and (latest is None or when>datetime.fromisoformat(latest['timestamp'])): latest=value
+            if when<=now:
+                if latest is None or when>datetime.fromisoformat(latest['timestamp']):latest=value
+                if value['exp'] is not None and (full is None or when>datetime.fromisoformat(full['timestamp'])):full=value
     for point in snapshot.get('manual_observations',[]):
         if datetime.fromisoformat(point['timestamp'])<=now and (latest is None or point['timestamp']>=latest['timestamp']):latest=point
     # Display context never enters reading(), numerical checks or progress inputs.
@@ -519,6 +521,14 @@ def player(snapshot,*,now=None,recent_snapshot=None):
         display_level=dict(value=latest['level']['value'],timestamp=latest['timestamp'],event_id=latest['event_id'],
             evidence=latest['level'],display_only=True,trusted=False,manual_epoch=latest['manual_epoch'],
             manual_baseline_id=latest.get('manual_baseline_id'))
+    full={k:full[k] for k in ('exp','percentage','evidence','event_id','timestamp')} if full else None
+    return dict(reading=latest,display_level=display_level,full_exp=full)
+
+
+def player(snapshot,*,now=None,recent_snapshot=None):
+    now=now or datetime.now(timezone.utc)
+    rows=snapshot['observations'];display=observed_display(snapshot,now=now)
+    latest=display['reading'];display_level=display['display_level']
     progress=snapshot['percentage_progress'];segment=progress['current_segment']
     usable=bool(latest and segment and segment['last_event_id']==latest['event_id'] and rows and rows[-1]['event_id']==latest['event_id'])
     movement=progress.get('latest_movement') if usable else None
@@ -536,22 +546,18 @@ def player(snapshot,*,now=None,recent_snapshot=None):
         estimates=estimates(segment,progress['current_pace'],latest['bp']) if usable else estimates(None,None,0),
         windows=window_comparisons(snapshot,now=now),trusted=False,experimental=True)
     # A compact dated display is never fed back into OCR validation or window gains.
-    saved=snapshot.get('retention_display',{})
+    saved=dict(snapshot.get('retention_display',{}))
+    fallbacks=[(recent_snapshot or {}).get('historical_display',{})]
+    if recent_snapshot is not None and latest is None:fallbacks.append(observed_display(recent_snapshot,now=now))
+    for fallback in fallbacks:
+        for key,value in fallback.items():
+            if value and (not saved.get(key) or value['timestamp']>saved[key]['timestamp']):saved[key]=value
     for key in ('reading','display_level','latest_attempt_at'):
         if result.get(key) is None:result[key]=deepcopy(saved.get(key))
-    full=saved.get('full_exp')
-    if full is None and (result.get('reading') or {}).get('exp') is not None:
-        reading_value=result['reading']
-        full=dict(exp=reading_value['exp'],percentage=reading_value.get('percentage'),
-                  evidence=reading_value.get('evidence'),event_id=reading_value.get('event_id'),
-                  timestamp=reading_value.get('timestamp'))
-    level=result.get('display_level')
-    stamps=[v.get('timestamp') for v in (full,level,result.get('reading')) if v and v.get('timestamp')]
-    if full or level:
-        result['last_seen']=dict(timestamp=full.get('timestamp') if full and full.get('timestamp') else max(stamps) if stamps else None,full_exp=deepcopy(full),
-                                 display_level=deepcopy(level))
+    full=display['full_exp']
+    if saved.get('full_exp') and (full is None or saved['full_exp']['timestamp']>full['timestamp']):full=saved['full_exp']
     if not rows and saved:
-        result['latest_attempt_status']=saved['latest_attempt_status'];result['level_context']=deepcopy(saved.get('level_context'))
+        result['latest_attempt_status']=saved.get('latest_attempt_status',result['latest_attempt_status']);result['level_context']=deepcopy(saved.get('level_context'))
     from .manual import present
     present(result,snapshot)
     display_level=result['display_level']
@@ -579,7 +585,12 @@ def player(snapshot,*,now=None,recent_snapshot=None):
         result.update(reading=endpoint,original_percentage_state=decision,
             percentage_state=dict(policy='conditional_percent_v1',status='accepted_experimental_recovery',
                 public_eligible=True,progress_eligible=False,reason='responsive_endpoint_only',trusted=False))
-    return refresh(present(result,snapshot),now=now)
+    result=present(result,snapshot)
+    last=result['reading'];level=result['display_level']
+    if last or level:
+        result['last_seen']=dict(timestamp=(last or level)['timestamp'],reading=deepcopy(last),
+            full_exp=deepcopy(full),display_level=deepcopy(level))
+    return refresh(result,now=now)
 
 
 def refresh(value,*,now=None,activity=None):
