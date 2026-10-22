@@ -317,6 +317,10 @@ function renderPlayer() {
       el('level').textContent='Lv. —';el('progress').hidden=true;el('progress').value=0;
       for(const id of ['player-name','player-source','streamer','character'])if(el(id)){el(id).textContent=channel;el(id).title='';}
       el('history-chart')?.replaceChildren();if(el('level-event'))el('level-event').hidden=true;
+      // A chosen saved character keeps its roster name, level and last sighting while its history loads.
+      const chosen=viewCharacter && roster.find(r=>String(r.id)===viewCharacter);
+      if(chosen){el('player-name').textContent=chosen.label;el('level').textContent=`Lv. ${chosen.level ?? '—'}`;
+        if(chosen.last_seen_at)el('age').textContent=`Last seen ${ageText(Math.max(0,(Date.now()-Date.parse(chosen.last_seen_at))/1000))}`;}
       hideTip();
     }
     el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return;

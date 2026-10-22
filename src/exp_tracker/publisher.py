@@ -8,7 +8,8 @@ content revisions it already holds is sent the chart history and tracked packet 
 
 A visitor may also view one of the channel's unselected characters. Those views are
 built by the same refresher, on demand, at most MAX_VIEWS at once. Least recently
-polled views are replaced when full; idle views expire after VIEW_IDLE_SECONDS.
+polled views are replaced when full. A view is rebuilt only while polled, but kept for
+VIEW_KEEP_SECONDS (and in the publication cache) so returning to it is immediate.
 Database-managed directories also allow MAX_CHANNEL_VIEWS hidden/historical channels
 on demand, with the same idle expiry. Directory refreshes have priority. Viewing
 never changes the selection.
@@ -16,6 +17,7 @@ never changes the selection.
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import sqlite3
 import threading
 import time
 
@@ -38,6 +40,7 @@ PRIVATE_FIELDS = frozenset({
 CHARACTER_ONLY = ('current_level_windows', 'tracked_current_level_windows')  # Only the character page's level toggle reads them.
 MAX_VIEWS = 8  # Unselected-character views across all channels.
 VIEW_IDLE_SECONDS = 60
+VIEW_KEEP_SECONDS = 1800  # A first view replays the character's saved runs (seconds); keep it for a return visit.
 MAX_CHANNEL_VIEWS = 8  # Hidden/historical channels requested directly, separate from directory slots.
 
 
@@ -246,13 +249,14 @@ class Publisher:
         at once: it is never served in place of the channel entry or a fresh build.
         """
         heads = {h['login']: h for h in heads}; idle = time.monotonic() - VIEW_IDLE_SECONDS
+        kept = time.monotonic() - VIEW_KEEP_SECONDS; cache = getattr(self.server, 'publication_cache', None)
         with self.lock:
-            for key in [k for k, seen in self.viewed.items() if seen < idle or k[1] not in heads
+            for key in [k for k, seen in self.viewed.items() if seen < kept or k[1] not in heads
                         or heads[k[1]]['selected_character_id'] == k[2]]:
                 self.drop_view(key)
-            wanted = list(self.viewed)
+            wanted = list(self.viewed.items())
         rosters = {}; ranked = []
-        for key in wanted:
+        for key, seen in wanted:
             failure = self.failures.get(key)
             if failure and now < failure[1]:continue
             if key[1] not in rosters:rosters[key[1]] = {r['id']: r for r in diagnostics.roster(key[1])}
@@ -264,8 +268,16 @@ class Publisher:
                 with self.lock:
                     if self.views.pop(key, None):self.generation += 1
                 entry = None
+            if seen < idle:continue  # Nobody is polling it: kept as is, rebuilt on return.
+            if entry is None and cache:
+                try:
+                    with diagnostics.store._transaction():entry = cache.restore_view(diagnostics.store, key[1], key[2], current, now)
+                except (ValueError, TypeError, KeyError, sqlite3.Error):self.stats['cache_error'] = 'view_restore_failed'
+                if entry:
+                    with self.lock:
+                        if key in self.viewed:self.views[key] = entry; self.generation += 1
             if entry is None:rank = (0, '')
-            elif (due(entry['card']['player'], entry['card']['recent_as_of'], now)
+            elif (entry.get('restored') or due(entry['card']['player'], entry['card']['recent_as_of'], now)
                     or not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=TRACKED_SECONDS)):
                 rank = (1, entry['built_at'])
             else:continue
@@ -304,9 +316,11 @@ class Publisher:
         if roster is not None:
             entry['roster'] = public_roster(roster, (card['player'].get('display_level') or {}).get('value'))
         cache=getattr(self.server,'publication_cache',None)
-        if cache and not view:
+        if cache:
             try:
-                with store._transaction():cache.save(store,diagnostics,head,entry,self.server.checkpoints)
+                with store._transaction():
+                    if view:cache.save_view(store,diagnostics,login,view[0][2],entry)
+                    else:cache.save(store,diagnostics,head,entry,self.server.checkpoints)
             except (ValueError,TypeError,KeyError,sqlite3.Error,OSError):self.stats['cache_error']='save_failed'
         with self.lock:
             if not view:

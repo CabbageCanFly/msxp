@@ -74,6 +74,10 @@ test('a warming server is described as preparing history, not as unavailable',as
   const p=page('player',()=>Promise.resolve({ok:false,status:503,json:()=>Promise.resolve({error:'warming_up'})}));
   await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setImmediate(resolve));
   assert.equal(p.elements.status.textContent,'Preparing saved history…');
+  // A chosen saved character keeps its roster identity while its own history warms.
+  p.run(`roster=[{id:7,label:'Saved alt',level:42,last_seen_at:new Date(Date.now()-7200000).toISOString(),current:false}];viewCharacter='7';warming=true;data=null;renderPlayer()`);
+  assert.equal(p.elements['player-name'].textContent,'Saved alt');assert.equal(p.elements.level.textContent,'Lv. 42');
+  assert.equal(p.elements.age.textContent,'Last seen 2h ago');assert.equal(p.elements.exp.textContent,'—');
   const board=page('board',()=>new Promise(()=>{}));board.context.fixture={players:[],warming:['beta']};
   board.run("el('entries').querySelectorAll=()=>[];data=fixture;renderBoard()");assert.match(board.elements['board-count'].textContent,/1 more loading/);
 });

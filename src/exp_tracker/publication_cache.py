@@ -124,6 +124,19 @@ class PublicationCache:
             entry['restored']=True
             return entry
 
+    def restore_view(self,store,channel,character,key,now):
+        """An unselected character's saved view, only while its revisions are unchanged."""
+        entry=self.read('entries',store,f'{channel}#{character}')
+        if entry and entry['key']==key and timedelta(0)<=now-datetime.fromisoformat(entry['built_at'])<=timedelta(hours=24):
+            entry['restored']=True
+            return entry
+
+    def save_view(self,store,diagnostics,channel,character,entry):
+        now=datetime.fromisoformat(entry['built_at'])
+        runs=[r['run_id'] for r in select_runs(diagnostics,channel,start=now-timedelta(hours=48,minutes=5),now=now,character=character)]
+        payload=encoded(self.wrap(store,entry,runs))
+        with self.db:self.db.execute('INSERT OR REPLACE INTO entries VALUES(?,?)',(f'{channel}#{character}',payload))
+
     def restore_checkpoints(self,store,head,checkpoints,now):
         saved=self.read('checkpoints',store,head['login'])
         if not saved or not self.compatible(saved['head'],head):return
@@ -152,5 +165,5 @@ class PublicationCache:
     def prune(self,channels):
         for table in ('entries','checkpoints'):
             for row in self.db.execute('SELECT channel FROM '+table).fetchall():
-                if row[0] not in channels:self.db.execute('DELETE FROM '+table+' WHERE channel=?',row)
+                if row[0].split('#')[0] not in channels:self.db.execute('DELETE FROM '+table+' WHERE channel=?',row)
         self.db.commit()

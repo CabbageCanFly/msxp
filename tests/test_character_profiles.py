@@ -240,11 +240,31 @@ def test_views_are_bounded_reused_and_dropped_when_unviewed(db, clock, monkeypat
         assert not any(isinstance(k, tuple) and k[:3] == ('view', CHANNEL, BETA) for k in httpd.publisher.presented)
         assert get(httpd, f'/api/players/{CHANNEL}?character={BETA}')[0] == 200  # Returning rebuilds, never locks out browsing.
         monkeypatch.setattr(publisher_module, 'VIEW_IDLE_SECONDS', -1)
+        clock.at += timedelta(seconds=31); calls.clear(); httpd.publisher.settle()
+        assert BETA not in calls and list(httpd.publisher.views) == [('view', CHANNEL, BETA)]  # Unpolled: kept, not rebuilt.
+        monkeypatch.setattr(publisher_module, 'VIEW_KEEP_SECONDS', -1)
         httpd.publisher.settle()
         assert not httpd.publisher.views and not httpd.publisher.viewed
+        monkeypatch.setattr(publisher_module, 'VIEW_KEEP_SECONDS', 1800)
         monkeypatch.setattr(publisher_module, 'VIEW_IDLE_SECONDS', 60)
         code, body = get(httpd, f'/api/players/{CHANNEL}?character={gamma}')
         assert code == 200 and body['player']['character']['label'] == 'Gamma' and body['player']['reading'] is None
+
+
+def test_restart_serves_a_cached_view_before_rebuilding_it(db, clock, tmp_path, monkeypatch):
+    cache = tmp_path / 'warm.sqlite3'
+    with server_module.create_server(db, port=0, public_only=True, publication_cache=cache) as httpd:
+        code, built = get(httpd, f'/api/players/{CHANNEL}?character={BETA}')
+        assert code == 200 and not httpd.publisher.stats['cache_error']
+    with server_module.create_server(db, port=0, public_only=True, publication_cache=cache) as httpd:
+        build = httpd.publisher.build
+        monkeypatch.setattr(httpd.publisher, 'build', lambda *a, **k: None if k.get('view') else build(*a, **k))
+        code, body = get(httpd, f'/api/players/{CHANNEL}?character={BETA}')
+        assert code == 200 and body['publication']['state'] == 'restored'
+        assert body['view'] == built['view'] and body['player']['reading'] == built['player']['reading']
+        monkeypatch.setattr(httpd.publisher, 'build', build)
+        code, body = get(httpd, f'/api/players/{CHANNEL}?character={BETA}')
+        assert code == 200 and 'publication' not in body and not httpd.publisher.stats['cache_error']
 
 
 def test_demo_switch_back_resumes_own_valid_endpoint_in_public_api(db, clock):
