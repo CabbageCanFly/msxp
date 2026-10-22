@@ -1,7 +1,7 @@
 // Optional Chromium check: start the local server, then run node tools/overlay.browser.mjs URL.
 import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, openSync, closeSync} from "node:fs";
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, openSync, closeSync} from "node:fs";
 import {join, resolve} from "node:path";
 import {setTimeout as delay} from "node:timers/promises";
 
@@ -146,4 +146,7 @@ try {
   socket?.close();
   child.kill();
   closeSync(log);
+  // Each run's Chrome profile is ~200 MB; delete it once Chrome has exited so they don't pile up.
+  await new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once("exit", ok));
+  try { rmSync(profile, {recursive: true, force: true, maxRetries: 10, retryDelay: 200}); } catch (error) { console.warn(`Browser profile left at ${profile}: ${error.code}`); }
 }

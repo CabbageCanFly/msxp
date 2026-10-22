@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {parseArgs} from 'node:util';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -15,7 +15,7 @@ assert.ok(!existsSync(join(output, 'synthetic.sqlite3')), 'Choose a new output d
 const server = spawn(args.python, ['tools/admin_browser_fixture.py', '--output', output], {
   env: {...process.env, PYTHONPATH: resolve('src'), PYTHONDONTWRITEBYTECODE: '1'},
   windowsHide: true, stdio: ['ignore', 'pipe', 'inherit']});
-let browser, info, port;
+let browser, info, port, profile;
 const sockets = [], errors = [], requests = [];
 async function tab(origin, path, width = 1360, height = 1000) {
   const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, {method: 'PUT'})).json();
@@ -69,7 +69,7 @@ try {
     server.on('error', no); server.once('exit', code => no(Error('fixture exited: '+code)));
     server.stdout.on('data', chunk => {text += chunk; if (text.includes('\n')) {clearTimeout(timer); ok(JSON.parse(text.split('\n')[0]));}});
   });
-  const profile = mkdtempSync(join(output, 'chrome-'));
+  profile = mkdtempSync(join(output, 'chrome-'));
   browser = spawn(args.chrome, ['--headless', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     `--user-data-dir=${profile}`, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', 'about:blank'],
     {windowsHide: true, stdio: 'ignore'});
@@ -309,4 +309,9 @@ try {
     workflows:['single invalidation','single restore','complete-history range','batch pagination','individual batch restore','batch restore','invalidated latest','native local time','percentage only','numeric only','exact microseconds','historical fix','edit','undo','rename','empty states','DST gap/fold','recording ambiguity','clear','refresh failure','publisher'],
     point:point.id, renamedCharacterId:renamed.character_id, scriptErrors:unexpected, networkRequests:requests.length},null,2));
   console.log('PASS: redesigned admin workflows, native date/time, DST, exact historical times, keyboard, desktop/mobile, protected writes and public publication.');
-} finally {sockets.forEach(s=>s.close()); browser?.kill(); server.kill();}
+} finally {
+  sockets.forEach(s=>s.close()); browser?.kill(); server.kill();
+  // Each run's Chrome profile is ~200 MB; delete it once Chrome has exited so they don't pile up.
+  if (browser) await new Promise(ok => browser.exitCode !== null || browser.signalCode !== null ? ok() : browser.once('exit', ok));
+  if (profile) try { rmSync(profile, {recursive: true, force: true, maxRetries: 10, retryDelay: 200}); } catch (error) { console.warn(`Browser profile left at ${profile}: ${error.code}`); }
+}

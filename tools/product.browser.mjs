@@ -1,7 +1,7 @@
 // Real localhost HTTP + SQLite + optional existing local-video capture. No API fixtures.
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {existsSync,mkdirSync,mkdtempSync,readFileSync,writeFileSync,openSync,closeSync} from 'node:fs';
+import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync,openSync,closeSync} from 'node:fs';
 import {resolve,join,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
@@ -618,4 +618,7 @@ try {
   if(capture?.exitCode===null)capture.kill();
   if(fixture){fixture.stdin.end();await new Promise(ok=>{if(fixture.exitCode!==null)return ok();fixture.once('exit',ok);setTimeout(()=>{fixture.kill();ok();},3000).unref();});}
   sockets.forEach(ws=>ws.close());child.kill();closeSync(browserLog);if(captureLog!==null)closeSync(captureLog);
+  // Each run's Chrome profile is ~200 MB; delete it once Chrome has exited so they don't pile up.
+  await new Promise(ok=>child.exitCode!==null || child.signalCode!==null?ok():child.once('exit',ok));
+  try{rmSync(profile,{recursive:true,force:true,maxRetries:10,retryDelay:200});}catch(error){console.warn(`Browser profile left at ${profile}: ${error.code}`);}
 }
