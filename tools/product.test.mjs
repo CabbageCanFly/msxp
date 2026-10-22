@@ -1189,6 +1189,27 @@ test('overlay URL options fall back on unknown values and accept only six-digit 
     {layout:'rates',title:'tracker',icon:'off',name:'both',theme:'night',bar:'abcdef'});
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',icon:'off',name:'both',theme:'night'});
   assert.equal(p.run('overlayOptions("?icon=on").icon'),'on');
+  assert.equal(p.run('overlayOptions("?layout=bar").layout'),'bar');
+  assert.equal(p.run('overlayOptions("?layout=unknown").layout'),'card');
+});
+
+test('General overlay shows minute history, preserves missing and zero bins, and switches to the EXP bar layout',()=>{
+  const p=page('overlay');p.render(player());
+  p.context.tracked={as_of:'2026-01-01T01:00:00Z',chart_intervals:[
+    {start:'2026-01-01T00:48:30Z',end:'2026-01-01T00:49:00Z',value:{approximate:0},policy:'public_endpoint_window_v2'},
+    {start:'2026-01-01T00:50:00Z',end:'2026-01-01T00:52:00Z',value:{approximate:400},policy:'public_endpoint_window_v2'}]};
+  p.run('data.tracked_history=tracked;renderPlayer()');
+  const bars=p.elements['general-chart'].children;
+  assert.equal(bars.length,60);assert.equal(bars.filter(b=>b.attributes.class==='bar').length,2);
+  assert.equal(bars.filter(b=>b.attributes.class==='none').length,58);
+  assert.ok(bars.every(b=>b.attributes.width>0));
+  assert.equal(p.elements.progress.value,5.9);assert.equal(p.elements.rate.textContent,'~2K');
+  p.run('applyOverlay(overlayOptions("?layout=bar"))');
+  assert.equal(p.context.document.body.dataset.layout,'bar');
+  assert.equal(p.elements.progress.value,5.9);assert.equal(p.elements.rate.textContent,'~2K');
+  p.run('applyOverlay(overlayOptions("?layout=chart"))');assert.equal(p.elements['overlay-chart'].children.length,12);
+  p.run('delete data.tracked_history;applyOverlay(overlayOptions(""))');
+  assert.equal(p.elements['general-chart'].children.length,0);
 });
 
 test('overlay rates read each lookback window; the last-hour chart keeps untracked bins unknown',()=>{

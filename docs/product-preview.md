@@ -14,6 +14,12 @@ dependency, database schema, capture path or OCR rule was added.
 | `/overlay/CHANNEL` | Original trusted overlay, unchanged semantics |
 | `/demo/leaderboard` | Separate, explicitly simulated design demo |
 
+The OBS builder offers **General**, **EXP bar**, **EXP rates** and **Last hour**.
+General replaces the progress bar with a miniature EXP history chart (one minute
+per bar over the last hour). EXP bar preserves the previous General layout at
+`?layout=bar`. Both use a 500 × 160 Browser Source; rates use 500 × 110 and the
+standalone last-hour chart uses 500 × 180. Missing history stays blank/dashed.
+
 ## Try the saved data
 
 Run from the repository root with the existing environments. This workstation's

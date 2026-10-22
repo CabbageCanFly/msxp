@@ -32,7 +32,7 @@ let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=view==='playe
 // The character page's charts keep their own time windows, separate from the stat cards above them.
 let chartWindow=60,lineWindow=15;
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
-const OVERLAY_CHOICES={layout:['card','rates','chart'],title:['site','tracker'],icon:['off','on'],name:['both','character','twitch','none'],theme:['night','day']};
+const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],name:['both','character','twitch','none'],theme:['night','day']};
 const OVERLAY_COLORS=['header','bar','accent'];
 // Colors dim only once values are this old; the ~1 min stale flag is too twitchy for a cosmetic cue.
 const FADE_AFTER_SECONDS=300;
@@ -440,7 +440,8 @@ function renderPlayer() {
       const windowPace=publicPace(p,Number(n.dataset.rateWindow)),rate=windowPace?.estimates.exp_per_hour;
       n.textContent=rate?`~${expText(rate.value.approximate)}`:'—';n.dataset.paused=String(!!windowPace && !windowPace.active && faded(windowPace.age));
     }
-    if(document.body.dataset.layout==='chart')drawHourChart();
+    if(document.body.dataset.layout==='card')drawHourChart(el('general-chart'),60);
+    else if(document.body.dataset.layout==='chart')drawHourChart();
   }
   if(view==='player') {
     const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
@@ -541,16 +542,16 @@ function drawExpHistory() {
   el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?chart.range/60+' min':chart.range/3600+' hours'} · times in ${zoneLabel()}${count?'':' · no data in this period'}`;
   el('history-note').title='The 24h view always includes all levels.';
 }
-// Overlay "last hour" layout: EXP per 5 minutes, dashes where nothing was tracked (never zero).
-function drawHourChart() {
-  const svg=el('overlay-chart'),tracked=data?.tracked_history;svg.replaceChildren();
-  const chart=bucketHistory((tracked?.chart_intervals ?? []).map(g=>({gain:g,connect_previous:true})),Date.parse(tracked?.as_of),300,3600);
+// Overlay history: one hour of EXP, with dashes where nothing was tracked (never zero).
+function drawHourChart(svg=el('overlay-chart'),seconds=300) {
+  const tracked=data?.tracked_history;svg.replaceChildren();
+  const chart=bucketHistory((tracked?.chart_intervals ?? []).map(g=>({gain:g,connect_previous:true})),Date.parse(tracked?.as_of),seconds,3600);
   if(!chart){el('hour-total').textContent='—';return;}
-  const top=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),step=462/chart.bins.length;
+  const top=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),step=462/chart.bins.length,gap=Math.min(6,step/4);
   const rect=attrs=>{const n=document.createElementNS('http://www.w3.org/2000/svg','rect');for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);svg.append(n);};
   chart.bins.forEach((b,i)=>{
     const height=b.value==null?2:Math.max(2,Math.max(0,b.value)/top*70);
-    rect({x:i*step+3,y:74-height,width:step-6,height,rx:b.value==null?1:3,class:b.value==null?'none':'bar'});
+    rect({x:i*step+gap/2,y:74-height,width:step-gap,height,rx:b.value==null?1:3,class:b.value==null?'none':'bar'});
   });
   const seen=chart.bins.filter(b=>b.value!=null);
   el('hour-total').textContent=seen.length?`~${expText(seen.reduce((sum,b)=>sum+b.value,0))} EXP`:'—';
@@ -771,7 +772,7 @@ if(view==='player') {
   document.querySelectorAll('[data-chart-window]').forEach(b=>b.addEventListener('click',()=>{if(![15,30,60].includes(Number(b.dataset.chartWindow)))return;chartWindow=Number(b.dataset.chartWindow);drawHistory();}));
   document.querySelectorAll('[data-line-window]').forEach(b=>b.addEventListener('click',()=>{if(![5,10,15,30,60].includes(Number(b.dataset.lineWindow)))return;lineWindow=Number(b.dataset.lineWindow);drawHistory();}));
   globalThis.addEventListener?.('resize',()=>{renderPlayer();drawHistory();rosterEdges();scalePreview();});
-  const builder=overlayOptions(''),SIZES={card:[500,160],rates:[500,110],chart:[500,180]};
+  const builder=overlayOptions(''),SIZES={card:[500,160],bar:[500,160],rates:[500,110],chart:[500,180]};
   const THEME_COLORS={night:{header:'705035',bar:'a6ef2e',accent:'ffc56b'},day:{header:'8a6440',bar:'7fcc12',accent:'a8520a'}};
   const frame=el('overlay-preview');
   const overlayURL=()=>{
