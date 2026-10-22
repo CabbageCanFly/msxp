@@ -22,10 +22,10 @@ from .twitch_auth import AppTokens
 
 
 WEB = Path(__file__).with_name("web")
-# Wandering mob sprites for product.js (credited in README); the folder holds only these GIFs.
-MOB_ASSETS = {f"/static/mobs/{p.name}" for p in WEB.glob("mobs/*.gif")}
+# Wandering mob sprites for product.js (credited in README); the folder holds only these GIF/WebP files.
+MOB_ASSETS = {f"/static/mobs/{p.name}" for p in WEB.glob("mobs/*.*")}
 ASSETS = {
-    **{path: (path.removeprefix("/static/"), "image/gif") for path in MOB_ASSETS},
+    **{path: (path.removeprefix("/static/"), f"image/{path.rsplit('.', 1)[1]}") for path in MOB_ASSETS},
     "/static/overlay.css": ("overlay.css", "text/css"),
     "/static/live-overlay.css": ("live-overlay.css", "text/css"),
     "/static/overlay.js": ("overlay.js", "text/javascript"),

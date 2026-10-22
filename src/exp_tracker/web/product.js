@@ -792,7 +792,7 @@ poll();setInterval(()=>{
 
 // Decorative MapleStory mobs (sprites credited in README) wander along the first card: hover flinches, a click does something random.
 const MOBS=['snail','blue-snail','red-snail','shroom','slime','orange-mushroom','ribbon-pig','stump'],BOSSES=['mano','mushmom'];
-const pick=list=>list[Math.floor(Math.random()*list.length)],sprite=(slug,action)=>`/static/mobs/${slug}-${action}.gif`;
+const pick=list=>list[Math.floor(Math.random()*list.length)],sprite=(slug,action)=>`/static/mobs/${slug}-${action}.${slug==='slime'?'webp':'gif'}`;  // The slime's soft edges need WebP alpha; as GIF they dither.
 function spawnBoss() {
   // A rare faded boss floats slowly across the background behind the cards: a steady drift (translate) plus a gentle bob and sway (transform).
   const boss=node('img','boss'),ltr=Math.random()<.5,[from,to]=ltr?[-150,innerWidth+150]:[innerWidth+150,-150],y=innerHeight*(.08+Math.random()*.32);

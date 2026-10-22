@@ -31,7 +31,7 @@ ORIGIN = re.compile(rf"https://{LABEL}(?:\.{LABEL})+(?::[0-9]{{1,5}})?|http://(?
 PAGES = {'index.html': 'tracker.html', 'player.html': 'player.html', 'live-overlay.html': 'live-overlay.html'}
 STATIC = ('product.js', 'product.css', 'leaderboard.css', 'live-overlay.css', 'steely.png',
           'fonts/fredoka-latin.woff2', 'fonts/nunito-latin.woff2', 'fonts/OFL-Fredoka.txt', 'fonts/OFL-Nunito.txt',
-          *sorted(f'mobs/{p.name}' for p in WEB.glob('mobs/*.gif')))  # Wandering mob sprites; the folder holds only these.
+          *sorted(f'mobs/{p.name}' for p in WEB.glob('mobs/*.*')))  # Wandering mob sprites; the folder holds only these.
 # Developer links kept in the shared HTML; [data-site=public] hides them and they 404 on Pages.
 DEVELOPER_LINKS = {'/dev/streams', '/demo/leaderboard'}
 # Status 200 rewrites keep the browser URL, so product.js still reads the channel from location.pathname

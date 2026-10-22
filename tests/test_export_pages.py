@@ -21,7 +21,7 @@ API = 'https://api.example.org'  # Illustrative; the real API hostname is suppli
 EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'index.html', 'live-overlay.html', 'player.html',
             'static/fonts/OFL-Fredoka.txt', 'static/fonts/OFL-Nunito.txt', 'static/fonts/fredoka-latin.woff2',
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
-            'static/product.js', 'static/steely.png'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.gif')}
+            'static/product.js', 'static/steely.png'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')}
 ROUTES = ['/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
           '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200']
 
@@ -92,7 +92,7 @@ def test_product_js_contacts_only_the_configured_api_origin():
         assert channel not in source, channel
     # Loaded URLs besides the API: the overlay preview iframe and the mob sprites, both on the page's own origin.
     assert set(re.findall(r'\.src=([^;]*);', source)) == {'url', "sprite(slug,'move')", "sprite(slug,'hit')", "sprite(slug,'die')", "sprite(pick(BOSSES),'stand')"}
-    assert 'return `${location.origin}/live/overlay/${encodeURIComponent(channel)}' in source and 'sprite=(slug,action)=>`/static/mobs/${slug}-${action}.gif`' in source
+    assert 'return `${location.origin}/live/overlay/${encodeURIComponent(channel)}' in source and "sprite=(slug,action)=>`/static/mobs/${slug}-${action}.${slug==='slime'?'webp':'gif'}`" in source
     # Absolute URLs are only outbound links and the SVG namespace, never fetched.
     assert set(re.findall(r'https?://[^`\'"$/]+', source)) == {'https://www.twitch.tv', 'http://www.w3.org'}
 
@@ -100,7 +100,7 @@ def test_product_js_contacts_only_the_configured_api_origin():
 def test_mob_sprites_match_the_names_product_js_uses():
     source = (export_pages.WEB / 'product.js').read_text(encoding='utf-8')
     walkers, bosses = (re.findall(r"'([a-z-]+)'", group) for group in re.search(r'const MOBS=\[([^\]]*)\],BOSSES=\[([^\]]*)\]', source).groups())
-    wanted = {f'{slug}-{action}.gif' for slug in walkers for action in ('move', 'hit', 'die')} | {f'{slug}-stand.gif' for slug in bosses}
+    wanted = {f'{slug}-{action}.{"webp" if slug == "slime" else "gif"}' for slug in walkers for action in ('move', 'hit', 'die')} | {f'{slug}-stand.gif' for slug in bosses}
     # A typo would 404 silently in the browser; a stray file would be published unused.
     assert walkers and bosses and {p.name for p in (export_pages.WEB / 'mobs').iterdir()} == wanted
 

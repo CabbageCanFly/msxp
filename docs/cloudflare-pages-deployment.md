@@ -26,7 +26,7 @@ on new API fields must wait for that backend to be live.
 | `index.html`, `player.html`, `live-overlay.html` | `tracker.html`, `player.html`, `live-overlay.html` with `<html data-site="public" data-api="…">` |
 | `static/product.js`, `product.css`, `leaderboard.css`, `live-overlay.css`, `steely.png` | Copied byte for byte |
 | `static/fonts/*.woff2`, `static/fonts/OFL-*.txt` | Self-hosted fonts and their licences |
-| `static/mobs/*.gif` | Wandering mob sprites (see README credits), copied byte for byte |
+| `static/mobs/*.gif`, `*.webp` | Wandering mob sprites (see README credits), copied byte for byte |
 | `_redirects`, `_headers`, `404.html` | Generated: routes, security headers, not-found page |
 | `.msxp-pages-export` | Marker that lets a rerun replace its own output |
 

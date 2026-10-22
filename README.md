@@ -421,6 +421,7 @@ commit commands when managed permissions cannot be changed.
 Monster sprites in `src/exp_tracker/web/mobs/` are MapleStory artwork © Nexon, rendered
 from game data by [maplestory.io](https://maplestory.io)
 (`https://maplestory.io/api/GMS/83/mob/{id}/render/{move|hit1|die1|stand}`), with empty margins
-trimmed losslessly so the feet touch the bottom edge. They decorate this non-commercial fan site, which is
+trimmed losslessly so the feet touch the bottom edge. The Slime is the animated WebP from
+[meowdb.com](https://meowdb.com/msclassic/es/monsters/7), because maplestory.io's GIF dithers its soft edges. They decorate this non-commercial fan site, which is
 not affiliated with Nexon. They are the one intentional exception to "nothing game-derived in Git",
 a rule that covers OCR screenshots, crops and templates.
