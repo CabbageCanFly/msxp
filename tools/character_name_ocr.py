@@ -44,6 +44,9 @@ def name_region(layout, size):
     # shortcut: name beneath job in the Classic status panel; other UI needs a manual region.
     box = [round(hp['x'] - 1.28 * step), round(hp['y'] + .10 * step),
            round(hp['x'] - .06 * step), round(hp['y'] + .265 * step)]
+    # Rounded HUD offsets can put the bottom padding one pixel beyond a flush frame edge.
+    if box[3] == size[1] + 1:
+        box[3] = size[1]
     return dict(box=checked_box(box, size), ownership='status_panel_candidate',
                 anchors=layout['anchors'], anchor_step=step)
 

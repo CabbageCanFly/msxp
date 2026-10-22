@@ -26,6 +26,21 @@ and logs, one worker and no retention/cache. Its exact Windows commands are for 
 after review; no live capture was performed for that milestone. Historical file-only
 restrictions below describe earlier milestones and are superseded by that guide.
 
+## Bottom-edge name crops (2026-10-22)
+
+Automatic name regions now trim an inferred bottom edge that extends exactly one
+pixel below the image. The shared extractor serves both standalone name review and
+capture identity checks. Larger bottom overflows, other out-of-frame edges and
+invalid manual regions remain rejected; duplicate-frame, freshness, OCR quality and
+two-frame identity confirmation rules still apply.
+
+Measured offline: a private 1920x1080 screenshot reads `frenchiefry`, level 40,
+EXP 275,236 [93.55%]. Replaying the supplied server HUD anchors previously inferred
+`[512, 1056, 699, 1081]` and raised `ValueError` before name OCR. Trimming its bottom
+to 1080 reads the name while preserving the level and EXP result. This is a
+single-frame development check, not a confirmed identity or live recovery trial.
+Server deployment, live recovery and capture cadence are untested by this fix.
+
 ## Run it
 
 Run from this worktree. Its optional environments and footage remain at their

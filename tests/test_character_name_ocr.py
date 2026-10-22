@@ -76,7 +76,31 @@ def test_geometry_relative_to_hud_and_all_candidates_retained(monkeypatch):
     assert names.name_regions(Image.new('RGB', (800, 400)))[1] == 2
 
 
-@pytest.mark.parametrize('box', [[-1, 0, 10, 10], [10, 0, 10, 10], [0, 0, 101, 10], [0, 1, 2], [0, 0, 1.5, 2]])
+@pytest.mark.parametrize('height', [126, 125])
+def test_automatic_name_region_tolerates_one_pixel_bottom_overflow(height):
+    layout = dict(anchors=dict(hp=dict(x=300, y=100)), anchor_step=100)
+    region = names.name_region(layout, (800, height))
+    assert region['box'] == [172, 110, 294, height]
+    image = Image.new('RGB', (800, height))
+    image.putpixel((200, height - 1), (255, 255, 255))
+    crop = image.crop(region['box'])
+    assert crop.getpixel((28, crop.height - 1)) == (255, 255, 255)
+
+
+@pytest.mark.parametrize('size,hp', [
+    ((800, 124), dict(x=300, y=100)),  # Two pixels below the frame.
+    ((800, 111), dict(x=300, y=100)),  # Substantial truncation.
+    ((800, 400), dict(x=127, y=100)),  # One pixel past the left edge.
+    ((293, 400), dict(x=300, y=100)),  # One pixel past the right edge.
+    ((800, 400), dict(x=300, y=-11)),  # One pixel past the top edge.
+])
+def test_automatic_name_region_rejects_larger_or_other_edge_overflow(size, hp):
+    with pytest.raises(ValueError):
+        names.name_region(dict(anchors=dict(hp=hp), anchor_step=100), size)
+
+
+@pytest.mark.parametrize('box', [[-1, 0, 10, 10], [10, 0, 10, 10], [0, 0, 101, 10],
+                                 [0, 0, 10, 51], [0, 1, 2], [0, 0, 1.5, 2]])
 def test_invalid_regions_rejected(box):
     with pytest.raises(ValueError):
         names.checked_box(box, (100, 50))

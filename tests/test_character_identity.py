@@ -78,6 +78,22 @@ def test_canonical_pixels_not_png_encoding_establish_distinctness():
     assert value['suggestion']['latest_status'] == 'duplicate_frame'
 
 
+def test_bottom_edge_name_crop_still_requires_two_distinct_frames():
+    state = IdentityCapture('channel')
+    layouts = candidate(x=780, y=1054.5, step=100)
+    first = inspect(state, 0, layouts=layouts)
+    assert first['evidence']['status'] == 'candidate'
+    assert first['evidence']['box'] == [652, 1064, 774, 1080]
+    assert first['suggestion']['proposed_name'] is None
+    duplicate = inspect(state, 1, layouts=layouts, image_frame=make_frame(1, color=(0, 10, 20)))
+    assert duplicate['suggestion']['latest_status'] == 'duplicate_frame'
+    assert duplicate['suggestion']['proposed_name'] is None
+    second = inspect(state, 2, layouts=layouts)
+    assert second['suggestion']['proposed_name'] == 'Alpha'
+    assert second['suggestion']['confirming_frames'] == 2
+    assert second['tracking_action'] == 'none'
+
+
 def test_periodic_cadence_is_bypassed_by_existing_validator_events():
     state = IdentityCapture('channel', interval=300)
     normal = dict(current=True, candidate=[5000, 50.0], visual_level=1)
