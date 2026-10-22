@@ -534,7 +534,7 @@ class Diagnostics:
         floor='(SELECT level FROM character_level_guard WHERE character_id=c.id)' if self.store.schema_version>=10 else 'NULL'
         saved_level="(SELECT json_extract(checkpoint_json,'$.display.display_level.value') FROM retention_state WHERE character_id=c.id)" if self.store.schema_version>=8 else 'NULL'
         saved_seen="(SELECT json_extract(checkpoint_json,'$.display.latest_attempt_at') FROM retention_state WHERE character_id=c.id)" if self.store.schema_version>=8 else 'NULL'
-        rows=[]
+        rows=[];invalid=self.store.invalidated_characters(streamer['id'])  # Never public (e.g. another player's video).
         # Per-session subqueries walk the attempt indexes; a character has one session per switch.
         # An identity-held frame (e.g. the next character's first frame) is not a sighting.
         for row in self.db.execute(f'''SELECT c.id,c.label,{floor} AS floor,{saved_level} AS saved_level,{saved_seen} AS saved_seen,
@@ -543,6 +543,7 @@ class Diagnostics:
                 MAX((SELECT MAX(id) FROM diagnostic_attempts WHERE {owner})) AS revision
                 FROM characters c LEFT JOIN sessions s ON s.character_id=c.id
                 WHERE c.streamer_id=? GROUP BY c.id ORDER BY c.id LIMIT 64''',(streamer['id'],)):
+            if row['id'] in invalid:continue
             rows.append(dict(id=row['id'],label=row['label'],level=row['floor'] or row['saved_level'],
                 last_seen_at=row['seen'] or row['saved_seen'],revision=row['revision'],
                 current=row['id']==streamer['selected_character_id']))

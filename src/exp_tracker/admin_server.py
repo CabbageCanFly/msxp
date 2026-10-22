@@ -19,6 +19,11 @@ from .invalidations import Invalidations,states,validate_reason
 
 WEB = Path(__file__).with_name('web')
 PREVIEW_SECONDS = 900
+CHARACTER_ACTIONS = ('invalidate_character', 'restore_character')
+CHARACTER_NOTICES = dict(
+    invalidate_character="Hides this character from public pages within about 30 seconds, and automatic tracking won't switch to "
+        "this name again (those frames are held). Its readings are kept, and Restore character undoes this.",
+    restore_character='Shows this character on public pages again within about 30 seconds; automatic tracking may switch to this name again.')
 ROSTER_NOTICE = ('Rename preserves the character ID. A database-managed roster reconciles the name at a safe capture boundary. '
                  'For JSON-managed capture, update the private roster character label before restarting. '
                  'This dashboard does not restart capture.')
@@ -46,13 +51,15 @@ def operation(data):
     if not isinstance(data, dict):
         raise ValueError('expected a JSON object')
     action = data.get('action')
-    if action not in ('set', 'correct', 'amend', 'undo', 'clear', 'rename'):
+    if action not in ('set', 'correct', 'amend', 'undo', 'clear', 'rename', *CHARACTER_ACTIONS):
         raise ValueError('unknown administration action')
     allowed = {'action', 'channel', 'character_id', 'reason'}
     if action == 'rename':
         allowed |= {'new_name'}
     elif action == 'undo':
         allowed |= {'correction_id'}
+    elif action in CHARACTER_ACTIONS:
+        pass
     else:
         allowed |= {'session_id', 'effective_at', 'use_now'}
         if action != 'clear':
@@ -69,7 +76,7 @@ def operation(data):
         raise ValueError('select an existing Twitch channel')
     integer(data.get('character_id'), 'character ID')
     result = dict(data, event_id=uuid.uuid4().hex)
-    if action not in ('rename', 'undo'):
+    if action not in ('rename', 'undo', *CHARACTER_ACTIONS):
         now = data.get('use_now', False)
         if type(now) is not bool or now and 'effective_at' in data:
             raise ValueError('choose an explicit timestamp or Use current timestamp, exclusively')
@@ -86,6 +93,8 @@ def apply(store, data):
     reason = data.get('reason') or None
     if action == 'rename':
         return store.rename_character(channel, selected['id'], data.get('new_name'), reason=reason)
+    if action in CHARACTER_ACTIONS:
+        return store.invalidate_character(channel, selected['id'], reason=reason, restore=action == 'restore_character')
     if action == 'undo':
         cid = integer(data.get('correction_id'), 'correction ID')
         previous = next((e for e in store.manual_history(channel) if e['id'] == cid), None)
@@ -137,6 +146,8 @@ def details(store, channel, cid, session=None):
     result['corrections'] = store.manual_history(channel, character_id=selected['id'])
     result['renames'] = [dict(r) for r in store.db.execute(
         'SELECT * FROM character_renames WHERE character_id=? ORDER BY id DESC', (selected['id'],))] if store.schema_version >= 6 else []
+    result['invalidated_characters']=sorted(store.invalidated_characters(store._channel(channel)['id']))
+    result['character_invalidations']=store.character_invalidation_history(selected['id'])
     result['invalidated']=invalidations.excluded(channel,selected['id'])
     result['invalidation_history']=invalidations.history(channel,selected['id'])
     return result
@@ -198,8 +209,8 @@ class AdminServer(ThreadingHTTPServer):
                           timestamp_choice='inherited from correction' if data['action'] == 'undo' else
                           'current time at preview' if data.get('use_now') else 'explicit time',
                           reading=corrected_reading(event) if event.get('action') == 'set' else None,
-                          notice=ROSTER_NOTICE if data['action'] == 'rename' else
-                          'Operator adjustment, not earned EXP. Existing OCR, history and precedence rules apply.')
+                          notice=ROSTER_NOTICE if data['action'] == 'rename' else CHARACTER_NOTICES.get(data['action'],
+                          'Operator adjustment, not earned EXP. Existing OCR, history and precedence rules apply.'))
         with self.lock:
             self.previews = {k:v for k,v in self.previews.items() if v['expires'] > time.monotonic()}
             if len(self.previews) >= 64:
@@ -252,7 +263,8 @@ class AdminServer(ThreadingHTTPServer):
                 event = (Invalidations(store).commit(data['channel'],int(data['character_id']),data['event_id'],
                     data['reading_spec'],item['fingerprint'],data['reason']) if 'reading_spec' in data else apply(store, data))
             item['result'] = dict(action=data['action'], event=event, saved=True,
-                                  notice=ROSTER_NOTICE if data['action'] == 'rename' else 'Saved with manual_admin provenance.')
+                                  notice=ROSTER_NOTICE if data['action'] == 'rename' else CHARACTER_NOTICES.get(data['action'],
+                                  'Saved with manual_admin provenance.'))
             return item['result']
 
 

@@ -294,3 +294,26 @@ def test_trusted_and_rejected_observations_and_historical_point(admin, profile):
     assert rows[trusted['id']]['original']['level'] == 60
     assert rows[trusted['id']]['presentation']['provenance']['id'] == result['event']['id']
     assert store.state('alpha')['last_trusted']['level'] == 60
+
+
+def test_invalidated_character_leaves_public_pages_until_restored(admin):
+    server, store, d = admin
+    save(d, 'run', 1, 0, 3300)
+    selected = store.state('alpha')['selected_character_id']; streamer = store._channel('alpha')['id']
+    other = store.add_character('alpha', 'Watched video')
+    data = dict(action='invalidate_character', channel='alpha', character_id=str(other), reason='Watching a video')
+    # The tracked character can't be ruled out mid-capture, and a reason is required.
+    assert request(server, '/api/preview', 'POST', dict(data, character_id=str(selected)))[0] == 400
+    assert request(server, '/api/preview', 'POST', dict(data, reason=' '))[0] == 400
+    assert preview(server, data)['event']['action'] == 'invalidate' and store.invalidated_characters(streamer) == set()
+    assert 'public pages' in commit(server, data)['notice'] and store.invalidated_characters(streamer) == {other}
+    assert request(server, '/api/preview', 'POST', data)[0] == 400  # Already invalidated.
+    inspected = request(server, f'/api/inspect?channel=alpha&character_id={other}')[2]
+    assert inspected['invalidated_characters'] == [other] and inspected['character_invalidations'][0]['reason'] == 'Watching a video'
+    def public_ids():
+        with create_server(server.database, port=0, public_only=True) as public:
+            rows = json.loads(public_request((public, None), '/api/players?mode=characters')[2])['characters']
+            return {r['id'] for r in rows}, public_request((public, None), f'/api/players/alpha?character={other}')[0]
+    assert public_ids() == ({selected}, 404)
+    commit(server, dict(data, action='restore_character', reason='It was theirs after all'))
+    assert store.invalidated_characters(streamer) == set() and public_ids()[0] == {selected, other}

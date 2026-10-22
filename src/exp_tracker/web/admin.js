@@ -35,7 +35,7 @@ function block() {
   for (const id of ['session', 'refresh', 'new-correction']) $(id).disabled = busy || loading;
   $('save').disabled = busy || loading || !previewId;
   $('preview-button').disabled = !scope?.character;
-  $('rename').disabled = !scope?.character;
+  $('rename').disabled = !scope?.character; $('invalidate').disabled = !scope?.character;
 }
 function invalidate() {
   previewId = null; $('preview').hidden = true; $('save').disabled = true;
@@ -149,6 +149,11 @@ function renderHistory(data) {
     }
     audit(row, e); $('history').append(row);
   }
+  for (const e of data.character_invalidations ?? []) {
+    const row = document.createElement('article');
+    text(row, `${e.label} ${e.action === 'invalidate' ? 'invalidated' : 'restored'}`, 'h3');
+    text(row, when(e.recorded_at), 'p', 'muted'); text(row, e.reason); audit(row, e); $('history').append(row);
+  }
   for (const e of data.renames ?? []) {
     const row = document.createElement('article'); text(row, `${e.previous_label} → ${e.label}`, 'h3');
     text(row, when(e.recorded_at), 'p', 'muted'); audit(row, e); $('history').append(row);
@@ -198,7 +203,9 @@ async function load(channelChanged = false, characterChanged = false, pastOnly =
     if (!channelChanged && $('character').value) query.set('character_id', $('character').value);
     scope = await api('/api/inspect?'+query);
     if (!scope.session && !scope.reading && scope.sessions?.length) scope = await api('/api/inspect?'+query+'&session_id='+scope.sessions[0].id);
-    $('character').replaceChildren(...scope.characters.map(c => option(c.id, c.label)));
+    const invalid = scope.invalidated_characters ?? [];
+    $('character').replaceChildren(...scope.characters.map(c => option(c.id, c.label+(invalid.includes(c.id) ? ' (invalidated)' : ''))));
+    $('invalidate').textContent = invalid.includes(scope.character?.id) ? 'Restore character' : 'Invalidate character';
     if (scope.character) $('character').value = String(scope.character.id);
     else {$('character').prepend(option('', 'Choose a character')); $('character').value = '';}
     const oldPeriod = channelChanged || characterChanged ? '' : $('session').value;
@@ -262,6 +269,8 @@ function showReview(value) {
   const at = e.effective_at ? when(e.effective_at) : '';
   const pct = r?.percentage == null ? '' : ` at ${r.estimated_percentage ? '~' : ''}${r.percentage}%`;
   $('preview-summary').textContent = value.action === 'rename' ? `You're renaming ${e.previous_label} to ${e.label}.` :
+    value.action === 'invalidate_character' ? `You're marking ${name} as not ${value.channel}'s own character.` :
+    value.action === 'restore_character' ? `You're restoring ${name} as one of ${value.channel}'s characters.` :
     value.action === 'undo' ? `You're undoing the correction for ${name} on ${at}.` :
     value.action === 'clear' ? `You're stopping the manual starting point for ${name} from ${at}.` :
     `You're ${value.action === 'amend' ? 'changing the correction for' : 'setting'} ${name} to level ${e.level}${pct} on ${at}.`;
@@ -272,7 +281,7 @@ function showReview(value) {
   if (e.reason) text($('preview-values'), `Reason: ${e.reason}`);
   $('preview-warning').hidden = r?.exp_validity?.status !== 'invalid';
   $('preview-warning').textContent = "EXP values don't match. Check the level and any EXP values you've entered. Your entered values will be kept.";
-  $('preview-notice').textContent = value.action === 'rename' ? value.notice :
+  $('preview-notice').textContent = ['rename', 'invalidate_character', 'restore_character'].includes(value.action) ? value.notice :
     value.action === 'undo' ? 'Original game readings are kept. Earlier versions of this correction will not be restored.' :
     'This corrects the recorded information. It does not add earned EXP or erase game readings.';
   $('preview-audit').textContent = JSON.stringify(value, null, 2);
@@ -294,12 +303,15 @@ async function submit(save = false, rename = false) {
       $('saved-audit').textContent = JSON.stringify(value, null, 2); $('receipt').hidden = false; $('receipt').open = false;
       reset(); await load();
       const message = value.action === 'rename' ? `Saved. Character renamed to ${value.event.label}. ${value.notice}` :
+        value.action === 'invalidate_character' ? `Saved. ${value.event.label} is invalidated. ${value.notice}` :
+        value.action === 'restore_character' ? `Saved. ${value.event.label} is restored. ${value.notice}` :
         value.action === 'undo' ? 'Saved. Correction undone.' : 'Saved. Your changes have been applied.';
       status(scope ? message : `${message} Refresh failed: ${$('status').textContent}`, !scope);
       $('status').scrollIntoView({block: 'nearest'});
     } else {
-      const data = rename ? {action: 'rename', channel: $('channel').value, character_id: $('character').value, new_name: $('new-name').value,
-        ...($('rename-reason').value ? {reason: $('rename-reason').value} : {})} : payload();
+      const data = !rename ? payload() : nameAction === 'rename' ? {action: 'rename', channel: $('channel').value, character_id: $('character').value,
+        new_name: $('new-name').value, ...($('rename-reason').value ? {reason: $('rename-reason').value} : {})} :
+        {action: nameAction, channel: $('channel').value, character_id: $('character').value, reason: $('rename-reason').value};
       invalidate(); showReview(await api('/api/preview', data));
       $('preview').dataset.rename = String(rename);
     }
@@ -333,12 +345,28 @@ $('save').addEventListener('click', () => submit(true));
 $('cancel').addEventListener('click', () => {
   const rename = $('preview').dataset.rename === 'true'; invalidate();
   $('rename-form').hidden = !rename; $('editor').hidden = rename;
-  (rename ? $('new-name') : $('level')).focus(); status('Nothing saved. You can keep editing.');
+  (rename ? $(nameAction === 'rename' ? 'new-name' : 'rename-reason') : $('level')).focus(); status('Nothing saved. You can keep editing.');
 });
-$('rename').addEventListener('click', () => {
-  invalidate(); $('rename-form').reset(); $('rename-form').hidden = false; $('editor').hidden = true;
-  $('new-name').value = scope.character.label; $('new-name').focus(); $('new-name').select();
-});
+// Rename, invalidate and restore share the character form. Invalidating rules out a wrongly detected name, e.g. another player's video.
+let nameAction = 'rename';
+function nameForm(action) {
+  invalidate(); $('rename-form').reset(); nameAction = action;
+  const naming = action === 'rename';
+  $('new-name-field').hidden = !naming; $('new-name').disabled = !naming;
+  $('rename-reason').required = !naming; $('rename-reason-note').textContent = naming ? '(optional)' : '(required)';
+  $('name-title').textContent = {rename: 'Rename character', invalidate_character: 'Invalidate character', restore_character: 'Restore character'}[action];
+  $('name-help').textContent = {
+    rename: 'All readings and corrections stay with this character. Database-managed capture reconciles the name automatically. For JSON-managed capture, update its roster label before restarting.',
+    invalidate_character: "For a name that isn't this streamer's, e.g. when they watch another player's video. It disappears from public pages and automatic tracking won't switch to it again. Readings are kept; Restore character undoes this.",
+    restore_character: 'Shows this character on public pages again, and automatic tracking may switch to this name again.'}[action];
+  $('name-submit').textContent = naming ? 'Review name change' : action === 'invalidate_character' ? 'Review invalidation' : 'Review restore';
+  $('rename-form').hidden = false; $('editor').hidden = true;
+  if (naming) {$('new-name').value = scope.character.label; $('new-name').focus(); $('new-name').select();}
+  else $('rename-reason').focus();
+}
+$('rename').addEventListener('click', () => nameForm('rename'));
+$('invalidate').addEventListener('click', () =>
+  nameForm((scope.invalidated_characters ?? []).includes(scope.character.id) ? 'restore_character' : 'invalidate_character'));
 $('cancel-rename').addEventListener('click', () => {reset(); $('character').focus();});
 $('new-correction').addEventListener('click', reset);
 $('clear').addEventListener('click', () => {edit = {action: 'clear', session: 'auto'}; mode(); $('date').focus();});
