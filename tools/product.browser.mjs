@@ -381,7 +381,8 @@ try {
     for(const minutes of [5,10,15,30]){
       await detail.evaluate(`document.querySelector('[data-window="${minutes}"]').click()`);
       assert.match(await detail.evaluate('document.getElementById("segment-note").textContent'),/last updated/);
-      assert.equal(await detail.evaluate('document.getElementById("movement").dataset.paused'),'true');
+      // The fixture ages readings 90s: stale, but under the 5 min fade.
+      assert.equal(await detail.evaluate('document.getElementById("movement").dataset.paused'),'false');
       assert.equal(await detail.evaluate('document.getElementById("window-rate").textContent'),'Paused');
     }
     await screenshot(detail,'observed-stale',1100,1050);

@@ -37,6 +37,9 @@ let chartWindow=60,lineWindow=15;
 const OVERLAY_CHOICES={layout:['card','rates','chart'],title:['site','tracker'],icon:['off','on'],name:['both','character','twitch','none'],theme:['night','day']};
 const OVERLAY_COLORS=['header','bar','accent'];
 const RANK_PACE_SECONDS=180;
+// Colors dim only once values are this old; the ~1 min stale flag is too twitchy for a cosmetic cue.
+const FADE_AFTER_SECONDS=300;
+function faded(age) { return failed || age==null || age>FADE_AFTER_SECONDS; }
 function overlayOptions(search) {
   const q=new URLSearchParams(search),options={};
   for(const [key,allowed] of Object.entries(OVERLAY_CHOICES))options[key]=allowed.includes(q.get(key))?q.get(key):allowed[0];
@@ -230,7 +233,7 @@ function ranked(players,key) {
   return rows.map(({player,value,order},i)=>{if(order!=null && order!==previous)rank=i+1;previous=order;return {player,value,rank:order==null?null:rank};});
 }
 function entry({player:p,value,rank}) {
-  const r=p.reading,s=current(p),row=node('li','entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale);row.dataset.state=statusText(p)==='Tracking'?'tracking':'paused';
+  const r=p.reading,s=current(p),row=node('li','entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));row.dataset.state=statusText(p)==='Tracking'?'tracking':'paused';
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=node('span','level');level.append(node('small','','LV.'),node('strong','',levelText(p)));level.title=levelTitle(p);
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
@@ -319,7 +322,7 @@ function renderPlayer() {
     el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return;
   }
   const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (view==='player' && p.recent_windows?null:s.metrics);
-  if(view==='overlay') { el('streamer').textContent=p.channel;el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String(s.stale||failed);el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
+  if(view==='overlay') { el('streamer').textContent=p.channel;el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String((s.stale||failed) && faded(s.age));el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
   else {
     el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=p.channel;
     // Video and demo sources have no channel page, so they link to Twitch itself.
@@ -342,7 +345,7 @@ function renderPlayer() {
   const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);
   el('movement').textContent=(observed || !s.stale && !failed) && (summary?.estimated_exp || movement!=null)?movementText(summary):'—';
   amount('movement',el('movement').textContent==='—'?'—':summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate,true)} EXP`:el('movement').textContent,el('movement').textContent);
-  el('movement').dataset.paused=String(!!observed && (observed.paused || s.stale || failed));
+  el('movement').dataset.paused=String(!!observed && (observed.paused || s.stale || failed) && faded(s.age));
   el('movement').title=observed?`${el('movement').dataset.fullNumber}${movement!=null?` (+${movement}% of level)`:''} gained between the first and last update in this time.`:windowNote(p);
   amount('rate',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate,true)}`:'—',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate)}`:'—');el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
@@ -351,7 +354,7 @@ function renderPlayer() {
   amount('eta',etaText(eta),etaText(eta,true));el('eta').title=eta?`${etaText(eta)} to the next level at ${savedETA?`the ${savedETA.window_minutes} min pace${Date.parse(savedETA.estimated_at)?`, estimated ${localTime(savedETA.estimated_at)}`:''}`:'the recent pace'}. Not a live countdown.`:'Needs recent EXP gains';
   if(view==='overlay')el('eta').textContent=etaText(eta);
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';
-  el('rate').dataset.paused=String(!!pace && !pace.active);
+  el('rate').dataset.paused=String(!!pace && !pace.active && faded(pace.age));
   if(pace)el('rate').title=`${pace.label} · ${rateTitle(m?.exp_per_hour ?? m?.percentage_per_hour)}`;
   if(view==='overlay') {
     if(el('eta').clientWidth>0 && el('eta').scrollWidth>el('eta').clientWidth+1)el('eta').textContent=etaText(eta,true);
@@ -359,7 +362,7 @@ function renderPlayer() {
     el('rate-label').textContent=pace && !pace.active?'Last EXP / hour':'EXP / hour';
     for(const n of document.querySelectorAll('[data-rate-window]')) {
       const windowPace=publicPace(p,Number(n.dataset.rateWindow)),rate=windowPace?.estimates.exp_per_hour;
-      n.textContent=rate?`~${expText(rate.value.approximate)}`:'—';n.dataset.paused=String(!!windowPace && !windowPace.active);
+      n.textContent=rate?`~${expText(rate.value.approximate)}`:'—';n.dataset.paused=String(!!windowPace && !windowPace.active && faded(windowPace.age));
     }
     if(document.body.dataset.layout==='chart')drawHourChart();
   }

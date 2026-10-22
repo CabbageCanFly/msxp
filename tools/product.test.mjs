@@ -280,7 +280,8 @@ test('observed windows show real partial endpoints without ranking them or relab
     assert.equal(p.elements.rate.textContent,'~2,000');
   }
   p.context.fixtures=[base];assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"day").map(r=>r.rank))')),[null]);
-  p.render({...base,stale:true});
+  p.render({...base,stale:true});assert.equal(p.elements.movement.dataset.paused,'false');
+  p.render({...base,stale:true,age_seconds:301});
   assert.equal(p.elements.movement.textContent,'+3.55%');assert.equal(p.elements.movement.dataset.paused,'true');
   assert.match(p.elements['segment-note'].textContent,/last updated/);
   assert.match(p.elements['segment-note'].textContent,/^Based on 3m 28s tracked/);
@@ -361,7 +362,8 @@ test('responsive pace has one current rate, retains an explicitly aged rate afte
   assert.equal(p.elements['window-rate'].textContent,'Calculating…');
   p.render({...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}});
   assert.equal(p.elements.rate.textContent,'~2,000');assert.match(p.elements['early-value'].textContent,/As of 35s ago/);
-  assert.equal(p.elements.rate.dataset.paused,'true');assert.equal(p.elements['eta-stat'].hidden,false);
+  assert.equal(p.elements.rate.dataset.paused,'false');assert.equal(p.elements['eta-stat'].hidden,false);
+  p.render({...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:301}});assert.equal(p.elements.rate.dataset.paused,'true');
   // The homepage ranks a pace up to RANK_PACE_SECONDS (180s) old, then drops it.
   p.context.fixtures=[{...base,responsive_pace:{...base.responsive_pace,active:false,age_seconds:35}}];
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(ranked(fixtures,"exp_hour").map(r=>r.rank))')),[1]);
