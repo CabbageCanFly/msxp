@@ -252,7 +252,7 @@ function expSection(r,{label,buckets,day,eta,age,ageTitle,empty='Waiting for EXP
   const meta=node('div','exp-meta');
   if(buckets?.length)meta.append(dayChart(buckets));
   if(day!=null){const total=node('span','fact',`${expText(day)} today`);total.title=`${expText(day,true)} EXP tracked in the last 24 hours`;meta.append(total);}
-  if(eta){const soon=node('span','fact',`Next level in ${eta.text}`);soon.title=`At the ${eta.minutes} min pace. Not a live countdown.`;meta.append(soon);}
+  if(eta){const soon=node('span','fact',`Next level in ${eta.text}${eta.historical?` · est. ${ageText(eta.age)}`:''}`);soon.title=`At the ${eta.minutes} min pace, estimated ${ageText(eta.age)}. Not a live countdown.`;meta.append(soon);}
   const updated=node('span','updated',age);if(ageTitle)updated.title=ageTitle;
   meta.append(updated);section.append(bar,meta);return section;
 }
@@ -282,8 +282,9 @@ function entry({player:p,value,rank}) {
     source.title=`Watch ${p.channel} on Twitch`;
   }
   identity.append(name,source);
-  // Only a current estimate: an offline or stale stream's saved ETA isn't counting down.
-  const saved=publicETA(p),eta=saved && !saved.historical && etaText(saved.estimate)!=='—'?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes}:null;
+  // Retain dated durations within the selected window; never turn them into a countdown.
+  const saved=publicETA(p),eta=saved && saved.age>=0 && saved.age<=windowMinutes*60 && etaText(saved.estimate)!=='—'
+    ?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes,age:saved.age,historical:saved.historical}:null;
   const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta,age:r?'Updated '+ageText(s.age):'No reading yet'});
   row.append(badge,level,identity,section);
   if(sort==='level')return row;  // The level badge already shows it.

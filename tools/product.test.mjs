@@ -553,6 +553,36 @@ test('selected historical rate is dated, has no current gain or ETA, and never f
   assert.equal(p.elements.rate.textContent,'—');
 });
 
+test('homepage row ETAs retain dated durations through the selected window, then disappear',()=>{
+  const p=page('board');
+  p.context.fixture=player({stale:true,recent_windows:Object.fromEntries([5,10,15,30].map(minutes=>[minutes,{
+    eta:{estimate:{seconds:{approximate:minutes*600}},window_minutes:minutes,age_seconds:minutes*60-1,historical:true}
+  }]))});
+  const shownETA=()=>p.run('entry({player:fixture,rank:1,value:60})').children[3].children[1].children.find(n=>n.textContent?.startsWith('Next level in'));
+  for(const button of p.buttons.slice(0,4)){
+    p.context.performance.now=()=>0;button.listeners.click();
+    const minutes=Number(button.dataset.window),eta=shownETA();
+    assert.match(eta.textContent,/ · est\. .* ago$/);
+    assert.match(eta.title,new RegExp(`At the ${minutes} min pace, estimated .* ago. Not a live countdown.`));
+    p.context.performance.now=()=>1000;assert.ok(shownETA());
+    p.run('failed=true');assert.ok(shownETA());p.run('failed=false');
+    assert.equal(shownETA().textContent.split(' · ')[0],eta.textContent.split(' · ')[0]);
+    p.context.performance.now=()=>2000;assert.equal(shownETA(),undefined);
+  }
+});
+
+test('homepage uses only the selected server ETA and retains the fresh label',()=>{
+  const p=page('board');
+  p.context.fixture=player({recent_windows:{5:{pace:{active:true},eta:{estimate:{seconds:{approximate:900}},
+    window_minutes:5,age_seconds:1,historical:false}},10:{eta:null}}});
+  const shownETA=()=>p.run('entry({player:fixture,rank:1,value:60})').children[3].children[1].children.find(n=>n.textContent?.startsWith('Next level in'));
+  assert.equal(shownETA().textContent,'Next level in 15m');
+  p.buttons[1].listeners.click();assert.equal(shownETA(),undefined);
+  p.buttons[0].listeners.click();p.context.fixture.recent_windows[5].eta.estimate.seconds.approximate=-1;
+  assert.equal(shownETA(),undefined);
+  delete p.context.fixture.recent_windows[5].eta;assert.equal(shownETA(),undefined);
+});
+
 test('character ETA is a dated static duration through failed polls, missing OCR and expired windows',()=>{
   const p=page('player'),base=player();
   base.recent_windows=Object.fromEntries([5,10,15,30,60].map(minutes=>[minutes,{status:'ready',available:false,observed:{available:false},
