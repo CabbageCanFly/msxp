@@ -402,3 +402,12 @@ The repository contains the initial prototype commit. This session's permissions
 may still prevent staging/commits inside `.git`; no remote pushes are authorized.
 See [agent-setup.md](docs/agent-setup.md) for future session permissions and manual
 commit commands when managed permissions cannot be changed.
+
+## Credits
+
+Monster sprites in `src/exp_tracker/web/mobs/` are MapleStory artwork © Nexon, rendered
+from game data by [maplestory.io](https://maplestory.io)
+(`https://maplestory.io/api/GMS/83/mob/{id}/render/{move|hit1|die1|stand}`), with empty margins
+trimmed losslessly so the feet touch the bottom edge. They decorate this non-commercial fan site, which is
+not affiliated with Nexon. They are the one intentional exception to "nothing game-derived in Git",
+a rule that covers OCR screenshots, crops and templates.

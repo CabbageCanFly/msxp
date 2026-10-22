@@ -200,3 +200,12 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 #overlay-url:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 @media(max-width:900px) { .overlay-builder { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:650px) { .overlay-builder { padding:16px 14px 18px; } .option-row { grid-template-columns:minmax(0,1fr); gap:6px; } }
+/* Decorative wandering mobs (product.js). The lane has no height, so feet rest on the card's top border. */
+/* Clip on html too, so body clips falling mobs itself rather than handing a scrollable "hidden" to the viewport. */
+html, body.product { overflow-x:clip; }
+.mob-lane { position:relative; height:0; pointer-events:none; }
+.mob { position:absolute; left:0; bottom:-1px; }
+.mob img { position:absolute; left:0; bottom:0; translate:-50% 0; pointer-events:auto; cursor:pointer; }
+.mob-hit { position:absolute; translate:-50% 0; color:#ffb340; font:700 22px var(--font-display); text-shadow:0 2px 0 #7a2e00, 0 0 3px #000; animation:mob-hit 1s ease-out forwards; }
+@keyframes mob-hit { to { transform:translateY(-34px); opacity:0; } }
+.boss { position:fixed; top:0; left:0; opacity:.18; pointer-events:none; }

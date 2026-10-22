@@ -789,3 +789,53 @@ poll();setInterval(()=>{
   else if(view==='board')renderBoard();else renderPlayer();
   if(view==='player')rosterAges();
 },1000);
+
+// Decorative MapleStory mobs (sprites credited in README) wander along the first card: hover flinches, a click does something random.
+const MOBS=['snail','blue-snail','red-snail','shroom','slime','orange-mushroom','ribbon-pig','stump'],BOSSES=['mano','mushmom'];
+const pick=list=>list[Math.floor(Math.random()*list.length)],sprite=(slug,action)=>`/static/mobs/${slug}-${action}.gif`;
+function spawnBoss() {
+  // A rare faded boss floats slowly across the background behind the cards: a steady drift (translate) plus a gentle bob and sway (transform).
+  const boss=node('img','boss'),ltr=Math.random()<.5,[from,to]=ltr?[-150,innerWidth+150]:[innerWidth+150,-150],y=innerHeight*(.08+Math.random()*.32);
+  boss.src=sprite(pick(BOSSES),'stand');boss.alt='';document.body.prepend(boss);
+  boss.animate([{translate:`${from}px ${y}px`},{translate:`${to}px ${y+(Math.random()-.5)*160}px`}],{duration:28000}).finished.then(()=>boss.remove());
+  boss.animate([{transform:'translateY(-14px) rotate(-7deg)'},{transform:'translateY(14px) rotate(7deg)'}],{duration:3200,iterations:Infinity,direction:'alternate',easing:'ease-in-out'});
+}
+function spawnMob(lane) {
+  const slug=pick(MOBS),mob=node('div','mob'),img=node('img');img.alt='';img.src=sprite(slug,'move');mob.append(img);
+  img.decode().then(()=>{
+    lane.append(mob);
+    // Sprites face left, so walking right mirrors the mob. It walks until half its body hangs over the card's edge.
+    const half=img.naturalWidth/2,width=lane.clientWidth,right=Math.random()<.5;
+    const at=f=>`translateX(${right?half+f*(width-half):(width-half)*(1-f)}px) scaleX(${right?-1:1})`;
+    const walk=mob.animate([{transform:at(0)},{transform:at(1)}],{duration:(width-half)/(25+Math.random()*15)*1000,fill:'forwards'});
+    let gone=false;
+    const end=(frames,duration)=>{gone=true;walk.pause();img.style.pointerEvents='none';img.animate(frames,{duration,easing:'ease-in',fill:'forwards'}).finished.then(()=>mob.remove());};
+    const fall=()=>{img.src=sprite(slug,'hit');end([{transform:'none'},{transform:`translate(-${half+10}px,260px) rotate(-110deg)`,opacity:0}],900);};
+    const die=()=>{
+      img.src=sprite(slug,'die');
+      const hit=node('span','mob-hit',String(7+Math.floor(Math.random()*40)));
+      hit.style.left=`${mob.getBoundingClientRect().left-lane.getBoundingClientRect().left}px`;hit.style.bottom=`${img.height+4}px`;lane.append(hit);setTimeout(()=>hit.remove(),1000);
+      end([{opacity:1},{opacity:1,offset:.6},{opacity:0}],1100);
+    };
+    const hop=()=>img.animate([{transform:'none'},{transform:'translateY(-28px)'},{transform:'none'}],{duration:450,easing:'ease-out'});
+    const reactions=[()=>walk.updatePlaybackRate(3),hop,fall,die];
+    walk.finished.then(()=>{if(!gone)fall();});
+    img.addEventListener('pointerenter',()=>{
+      if(gone || walk.playState!=='running')return;
+      walk.pause();img.src=sprite(slug,'hit');
+      setTimeout(()=>{if(!gone){img.src=sprite(slug,'move');walk.play();}},500);
+    });
+    img.addEventListener('click',()=>{if(!gone)pick(reactions)();});
+  },()=>{});  // A sprite that fails to load is simply skipped.
+}
+// Every 10–45 s, whether or not others are still walking: occasionally a boss (one at a time), otherwise a mob, at most 3 at once.
+function wander(lane) {
+  if(Math.random()<1/12 && !document.querySelector('.boss'))spawnBoss();
+  else if(lane.querySelectorAll('.mob').length<3)spawnMob(lane);
+  setTimeout(()=>wander(lane),10000+Math.random()*35000);
+}
+// No matchMedia (the Node tests) or reduced motion: no mobs. Never on the OBS overlay.
+if(view!=='overlay' && globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches===false) {
+  const board=document.querySelector('.board'),lane=node('div','mob-lane');lane.setAttribute('aria-hidden','true');
+  if(board){board.before(lane);setTimeout(()=>wander(lane),3000);}
+}

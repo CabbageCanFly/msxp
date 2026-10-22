@@ -305,7 +305,7 @@ def test_simulated_leaderboard_assets_keep_existing_http_security(database, http
     for path, mime in (("/demo/leaderboard", "text/html"), ("/static/leaderboard.css", "text/css"),
                        ("/static/leaderboard.js", "text/javascript"), ("/static/leaderboard.svg", "image/svg+xml"),
                        ("/static/fonts/fredoka-latin.woff2", "font/woff2"), ("/static/fonts/nunito-latin.woff2", "font/woff2"),
-                       ("/static/steely.png", "image/png")):
+                       ("/static/steely.png", "image/png"), ("/static/mobs/blue-snail-move.gif", "image/gif")):
         code, headers, body = request(http_server, path)
         assert code == 200 and headers["Content-Type"].startswith(mime) and body
         assert headers["Cache-Control"] == ("public, max-age=86400" if path in server.CACHED_ASSETS else "no-store")

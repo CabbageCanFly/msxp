@@ -22,7 +22,10 @@ from .twitch_auth import AppTokens
 
 
 WEB = Path(__file__).with_name("web")
+# Wandering mob sprites for product.js (credited in README); the folder holds only these GIFs.
+MOB_ASSETS = {f"/static/mobs/{p.name}" for p in WEB.glob("mobs/*.gif")}
 ASSETS = {
+    **{path: (path.removeprefix("/static/"), "image/gif") for path in MOB_ASSETS},
     "/static/overlay.css": ("overlay.css", "text/css"),
     "/static/live-overlay.css": ("live-overlay.css", "text/css"),
     "/static/overlay.js": ("overlay.js", "text/javascript"),
@@ -41,9 +44,9 @@ DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
 PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
 # Public-only mode also serves these shared assets; everything else outside the product is refused.
 PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css', '/static/live-overlay.css', '/static/steely.png',
-                 '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'}
+                 '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'} | MOB_ASSETS
 # Unchanging binary assets may be cached briefly so page changes don't re-download them and re-flow text.
-CACHED_ASSETS = {'/static/steely.png', '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'}
+CACHED_ASSETS = {'/static/steely.png', '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'} | MOB_ASSETS
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 # Exact browser origins allowed to read responses cross-origin (a separately hosted frontend).
 # https only; plain http only for a local development origin. Never a wildcard.
