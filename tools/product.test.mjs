@@ -13,18 +13,20 @@ class Element {
 function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null){
   const elements={},timers=[],events={},visits=[];
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
+  const bucketButtons=[60,300,1800].map(seconds=>Object.assign(new Element(),{dataset:{bucket:String(seconds)}}));
+  const chartButtons=[15,30,60].map(minutes=>Object.assign(new Element(),{dataset:{chartWindow:String(minutes)}}));
   const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
   const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
   const context=vm.createContext({Intl,Date,BigInt,AbortController,URL,URLSearchParams,performance:{now:()=>0},
     location:{pathname,search,href:'http://127.0.0.1:8765'+pathname+search,origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
     history:{pushState:(s,t,u)=>visits.push(['push',String(u)]),replaceState:(s,t,u)=>visits.push(['replace',String(u)])},
     navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{documentElement:{dataset:api==null?{}:{api}},body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
-      querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
+      querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
   // Most cases below were written against the original 5 minute card and chart windows with 1 minute bars.
   if(view==='player' && !search.includes('defaults'))vm.runInContext('windowMinutes=5;lineWindow=5;chartWindow=5;bucketSeconds=60',context);
-  return {context,elements,timers,buttons,modes,events,visits,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
+  return {context,elements,timers,buttons,bucketButtons,chartButtons,modes,events,visits,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
 }
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
@@ -1186,11 +1188,29 @@ test('character page defaults: 15 min cards, 24h bar chart and a 15 min line cha
 test('overlay URL options fall back on unknown values and accept only six-digit hex colours',()=>{
   const p=page('overlay');
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions("?layout=rates&name=nope&title=tracker&bar=ABCDEF&accent=red&header=%23123456"))')),
-    {layout:'rates',title:'tracker',icon:'off',name:'both',theme:'night',bar:'abcdef'});
-  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',icon:'off',name:'both',theme:'night'});
+    {layout:'rates',title:'tracker',icon:'off',name:'both',theme:'night',interval:'60',range:'60',bar:'abcdef'});
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',icon:'off',name:'both',theme:'night',interval:'60',range:'60'});
   assert.equal(p.run('overlayOptions("?icon=on").icon'),'on');
   assert.equal(p.run('overlayOptions("?layout=bar").layout'),'bar');
   assert.equal(p.run('overlayOptions("?layout=unknown").layout'),'card');
+  assert.equal(p.run('overlayOptions("?interval=1800&range=15").range'),'1440');
+  assert.equal(p.run('overlayOptions("?interval=60&range=1440").range'),'60');
+  assert.equal(p.run('overlayOptions("?interval=bad&range=bad").interval'),'60');
+});
+
+test('EXP history controls update the General preview and copied URL with the selected interval and range',()=>{
+  const p=page('player',undefined,'?defaults'),updates=[];p.render(player());
+  const frame=p.elements['overlay-preview'];frame.dataset.loaded='true';frame.contentWindow={applyOverlay:options=>updates.push({...options})};
+  const options=()=>p.run(`overlayOptions(new URL(el('overlay-url').value).search)`);
+  assert.equal(options().interval,'1800');assert.equal(options().range,'1440');
+  p.bucketButtons[0].listeners.click();p.chartButtons[0].listeners.click();
+  assert.equal(options().interval,'60');assert.equal(options().range,'15');
+  p.bucketButtons[1].listeners.click();p.chartButtons[1].listeners.click();
+  assert.equal(options().interval,'300');assert.equal(options().range,'30');
+  assert.equal(updates.at(-1).interval,'300');assert.equal(updates.at(-1).range,'30');
+  p.bucketButtons[2].listeners.click();
+  assert.equal(options().interval,'1800');assert.equal(options().range,'1440');
+  assert.equal(updates.at(-1).range,'1440');
 });
 
 test('General overlay shows minute history, preserves missing and zero bins, and switches to the EXP bar layout',()=>{
@@ -1210,6 +1230,19 @@ test('General overlay shows minute history, preserves missing and zero bins, and
   p.run('applyOverlay(overlayOptions("?layout=chart"))');assert.equal(p.elements['overlay-chart'].children.length,12);
   p.run('delete data.tracked_history;applyOverlay(overlayOptions(""))');
   assert.equal(p.elements['general-chart'].children.length,0);
+});
+
+test('General history respects saved chart intervals and uses the same 24h aggregate bins as EXP history',()=>{
+  const p=page('overlay');p.render(player());
+  p.context.tracked={as_of:'2026-01-01T01:00:00Z',chart_intervals:[],buckets:Array.from({length:48},(_,i)=>({value:i===47?{approximate:700}:null}))};
+  p.run('data.tracked_history=tracked');
+  for(const [interval,range,bins,label] of [['60','15',15,'1 min · last 15 min'],['300','60',12,'5 min · last hour'],['1800','1440',48,'30 min · 24h']]){
+    p.run(`applyOverlay(overlayOptions('?interval=${interval}&range=${range}'))`);
+    assert.equal(p.elements['general-chart'].children.length,bins);
+    assert.equal(p.elements['general-history-caption'].textContent,label);
+  }
+  assert.equal(p.elements['general-chart'].children.filter(b=>b.attributes.class==='bar').length,1);
+  assert.equal(p.elements['hour-total'].textContent,'~700 EXP');
 });
 
 test('overlay rates read each lookback window; the last-hour chart keeps untracked bins unknown',()=>{
@@ -1263,7 +1296,7 @@ test('the Pages export calls its configured API origin; backend-served pages sta
   assert.equal(api.urls[0],'https://api.example.org/api/players/alpha?character=2');
   assert.ok(api.urls.includes('https://api.example.org/api/players/alpha/history'));
   // Overlay links and character links stay on the page's own origin, never the API's.
-  assert.equal(p.elements['overlay-url'].value,'http://127.0.0.1:8765/live/overlay/alpha');
+  assert.equal(p.elements['overlay-url'].value,'http://127.0.0.1:8765/live/overlay/alpha?interval=1800&range=1440');
   const board=server([{players:[]}]);page('board',board.fetch,'','https://api.example.org');await settle();
   assert.equal(board.urls[0],'https://api.example.org/api/players');
   const local=server([body([ALPHA],{history:[]})]);page('player',local.fetch);await settle();

@@ -15,8 +15,13 @@ dependency, database schema, capture path or OCR rule was added.
 | `/demo/leaderboard` | Separate, explicitly simulated design demo |
 
 The OBS builder offers **General**, **EXP bar**, **EXP rates** and **Last hour**.
-General replaces the progress bar with a miniature EXP history chart (one minute
-per bar over the last hour). EXP bar preserves the previous General layout at
+General replaces the progress bar and current EXP numbers with a miniature EXP
+history chart. Its preview and copied URL follow the EXP history panel's interval
+(1/5/30 minutes) and time window; 30-minute bars show 24 hours using the same
+aggregate buckets. Standalone URLs without chart settings default to 1-minute
+bars over the last hour. After changing settings, copy the updated URL into OBS;
+an existing OBS source keeps the settings in its URL.
+EXP bar preserves the previous General layout at
 `?layout=bar`. Both use a 500 × 160 Browser Source; rates use 500 × 110 and the
 standalone last-hour chart uses 500 × 180. Missing history stays blank/dashed.
 

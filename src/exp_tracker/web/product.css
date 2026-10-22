@@ -196,6 +196,8 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 
 /* Stream overlay builder. */
 .overlay-board { margin-top:22px; }
+.history-overlay-link { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:8px 20px -12px; color:var(--text-muted); font-size:12px; }
+.history-overlay-link svg { flex:none; color:var(--gold); opacity:.65; }
 .overlay-builder { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,524px); gap:18px 24px; padding:20px 25px 24px; }
 .overlay-options { display:grid; gap:12px; align-content:start; }
 .option-row { display:grid; grid-template-columns:72px minmax(0,1fr); align-items:center; gap:10px; }
