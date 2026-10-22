@@ -25,6 +25,7 @@ from .character_automation import PLACEHOLDER_CHARACTER
 from .diagnostics import Diagnostics, due, operation, present_card
 from .product import refresh, tracked_statistics
 from .store import Store, utc
+from .twitch_probe import outside_maplestory
 
 PRESENT_SECONDS = 1  # A presented body is reused for at most this long.
 TRACKED_SECONDS = 30  # Tracked windows age even without a new capture, as before.
@@ -432,7 +433,8 @@ class Publisher:
         def build(now):
             with self.lock:
                 # online as on the Streamers list: the tracked character, unless Twitch says the stream is offline.
-                rows = [dict(row, channel=head['login'], online=row['current'] and self.statuses.get(head['login'], {}).get('status') != 'offline',
+                rows = [dict(row, channel=head['login'], online=row['current'] and self.statuses.get(head['login'], {}).get('status') != 'offline'
+                    and not outside_maplestory(self.statuses.get(head['login'])),
                     **self.summary(head, row['id'], now)) for head in self.heads
                     if head['login'] in self.directory_logins and (entry := self.entries.get(head['login'])) for row in entry['roster']]
                 warming = [h['login'] for h in self.heads if h['login'] in self.directory_logins and (

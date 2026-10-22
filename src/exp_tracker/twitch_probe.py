@@ -44,6 +44,12 @@ def helix(endpoint: str, params: dict, client_id: str, token: str, *, timeout=15
         return json.loads(payload)
 
 
+def outside_maplestory(status):
+    """Live in a category other than MapleStory (e.g. Just Chatting). Unknown or blank categories never count."""
+    name=(status or {}).get('game_name')
+    return (status or {}).get('status')=='live' and isinstance(name,str) and bool(name.strip()) and 'maplestory' not in name.lower()
+
+
 class StreamAvailability:
     """Opt-in, process-local Get Streams cache; never evidence of capture health."""
     def __init__(self, *, enabled=False, fetch=None, clock=time.monotonic,auth=None):
@@ -58,7 +64,7 @@ class StreamAvailability:
         now=now or datetime.now(timezone.utc)
         with self.lock:
             if self.clock()>=self.next_check:
-                reason=None;live=set();completed=set();delay=60
+                reason=None;live=set();completed=set();delay=60;games={}
                 if not self.enabled:reason='not_enabled'
                 elif channels:
                     try:
@@ -82,6 +88,9 @@ class StreamAvailability:
                                     if row.get('user_login') not in batch or row.get('type')!='live':
                                         raise ValueError('Unexpected stream status response')
                                     page.add(row['user_login'])
+                                    # The same response names the category; it only gates MapleStory capture.
+                                    game=row.get('game_name')
+                                    games[row['user_login']]=game if isinstance(game,str) and len(game)<=200 else None
                                 live.update(page)
                                 if all(c in live for c in batch):break
                                 cursor=response.get('pagination',{}).get('cursor','')
@@ -104,6 +113,7 @@ class StreamAvailability:
                             except (TypeError,ValueError):pass
                     except (OSError,ValueError,TypeError,KeyError,AttributeError,URLError):reason='api_unavailable'
                 self.results={c:dict(status='live' if c in live else 'offline' if c in completed else 'unknown' if reason else 'offline',
+                    game_name=games.get(c),
                     reason=None if c in live or c in completed else reason,checked_at=now.isoformat(),source='twitch_helix_get_streams',
                     valid_until=datetime.fromtimestamp(now.timestamp()+(60 if c in live or c in completed else delay),timezone.utc).isoformat(),
                     last_known_status=(self.results.get(c,{}).get('last_known_status') if self.results.get(c,{}).get('status')=='unknown'

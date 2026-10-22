@@ -542,3 +542,16 @@ def test_final_summary_skip_count_can_exceed_the_last_attempt_record(schedule):
     schedule(group, perform, lambda lane, record: records.append(record['skipped_deadlines']),
              clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0]+max(0, s)))
     assert records == [0, 2] and group[0]['skipped'] == 4
+
+
+def test_gated_lane_starts_no_capture_and_resumes_on_time(schedule):
+    held = {'b'}; started = []; now = [0.0]
+    def sleep(seconds):
+        now[0] += seconds
+        if now[0] > 25: held.clear()  # b's stream returns to MapleStory.
+    def perform(lane, index, seek):
+        started.append((lane['channel'], now[0])); return attempt(index)
+    group = lanes('a', 'b', count=2, interval=10)
+    assert schedule(group, perform, lambda *_: None, clock=lambda: now[0], sleep=sleep, gate=lambda lane: lane['channel'] in held) is False
+    assert started == [('a', 0), ('a', 10), ('b', 26), ('b', 36)]
+    assert group[1]['skipped'] == 0  # Held time isn't reported as missed deadlines.

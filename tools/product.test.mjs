@@ -1120,6 +1120,12 @@ test('the online filter cycles all, online, offline, ranks what it shows and car
   assert.deepEqual([p.elements.entries.children.map(r=>r.dataset.character),p.elements['board-count'].textContent],[[1],'1 of 2 characters']);
 });
 
+test('a stream live in another category reads Not in MapleStory; blank or unknown categories stay Online',()=>{
+  const p=page('board');
+  const status=game_name=>{p.context.sample=player({twitch:{status:'live',game_name}});return p.run('statusText(sample)');};
+  assert.deepEqual(['MapleStory','Just Chatting','',undefined].map(status),['Online','Not in MapleStory','Online','Online']);
+});
+
 test('level ranking breaks ties on EXP % within the level and still shows the level',()=>{
   const p=page('board'),at=(channel,level,bp)=>player({channel,reading:{...player().reading,bp,level:{value:level,status:'agreement'}}});
   p.context.fixtures=[at('a',65,5000),at('b',65,7500),at('c',66,100),at('d',65,7500)];

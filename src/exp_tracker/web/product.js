@@ -197,7 +197,10 @@ function statusText(p) {
   // Another character's saved state: never the tracked character's capture or Twitch status.
   if(inactiveView())return `Not currently tracked · ${p.reading?'last tracked '+ageText(current(p).age):'nothing saved yet'}`;
   // Public status is deliberately two-state; delays and capture issues still read as Online.
-  return p.twitch?.status==='offline'?'Offline':'Online';
+  if(p.twitch?.status==='offline')return 'Offline';
+  // Live in another category (e.g. Just Chatting) isn't tracked, so it doesn't read as Online either.
+  const game=p.twitch?.status==='live' && p.twitch.game_name?.trim();
+  return game && !/maplestory/i.test(game)?'Not in MapleStory':'Online';
 }
 function etaText(value,compact=false) {
   const seconds=value?.seconds?.approximate;
