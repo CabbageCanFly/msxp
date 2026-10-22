@@ -1,5 +1,8 @@
 # Automatic Twitch status authentication
 
+For optional Turbo playback authentication, see [Twitch Turbo setup](twitch-turbo.md).
+The browser token used for playback is separate from the app credentials below.
+
 Keep your existing repository-root `.env` (UTF-8):
 
 ```dotenv
@@ -36,7 +39,8 @@ It does not authenticate streamer or character identity. A standalone invocation
 has a separate short-lived in-memory token cache; do not loop this command to
 replace the running server's cached checks.
 
-Without `--twitch-status`, normal capture does not load `.env` or contact OAuth.
+Without `--twitch-status`, capture does not contact the status OAuth API.
+Twitch playback independently reads the optional `TWITCH_PLAYBACK_TOKEN` from `.env`.
 The single-stream `tools/local_alpha.py` flag works the same way. The old optional
 thumbnail experiment remains separate; `--status-only` never downloads an image.
 
@@ -53,11 +57,14 @@ authentication despite a secret in the file, explicitly set
 `$env:TWITCH_CLIENT_SECRET = ''`. Do not print or share credential values.
 
 The small loader supports blank/comment lines, `KEY=value`, optional `export`,
-single/double quotes and trailing comments. It reads only the three Twitch keys,
+single/double quotes and trailing comments. Status reads only the three status keys;
+playback reads only `TWITCH_PLAYBACK_TOKEN`,
 with a 16 KiB file limit. It does not execute shell text, expand variables, modify
 `os.environ`, or support multiline values. Runtime credential edits require a
-controlled restart after credentials have been loaded. Tokens are never saved to
-the file, SQLite, JSONL, URLs or public HTTP responses.
+controlled restart after credentials have been loaded. Managed status tokens are
+never saved to the file, SQLite, JSONL, URLs or public HTTP responses. The optional
+browser token is operator-supplied; playback uses a private temporary Streamlink
+config that is removed on normal exit, including handled failures.
 
 ## Lifecycle and failure handling
 

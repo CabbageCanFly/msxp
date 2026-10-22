@@ -13,6 +13,8 @@ import time
 
 from PIL import Image
 
+from .streamlink_playback import playback_token
+
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MAX_PNG_BYTES = 32 * 1024 * 1024
 MAX_PIXELS = 4096 * 2160
@@ -58,7 +60,7 @@ def read_png(stream):
 
 @dataclass(frozen=True)
 class Source:
-    kind: str  # file, hls (authorized HTTP input), twitch (anonymous public playback)
+    kind: str  # file, hls (authorized HTTP input), twitch (public playback)
     value: str
     quality: str = "best"
 
@@ -75,7 +77,8 @@ class Source:
             url = "hls://" + self.value
         else:
             raise ValueError("Not a Streamlink source")
-        return [sys.executable, "-m", "streamlink", "--no-config", "--no-plugin-cache",
+        module = "exp_tracker.streamlink_playback" if self.kind == "twitch" and playback_token() else "streamlink"
+        return [sys.executable, "-m", module, "--no-config", "--no-plugin-cache",
                 "--no-plugin-sideloading", "--webbrowser", "false", "--loglevel", "error",
                 "--http-timeout", "10", "--stream-timeout", "15", "--stream-segment-timeout", "10",
                 "--stream-segment-attempts", "2", "--stream-segment-threads", "1",

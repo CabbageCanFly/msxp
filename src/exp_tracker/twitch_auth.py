@@ -22,19 +22,19 @@ class AuthError(RuntimeError):
         self.reason=reason;self.retry_after=retry_after
 
 
-def credentials(env_file=None,environ=None):
+def credentials(env_file=None,environ=None,*,keys=KEYS):
     """A deliberately small KEY=value reader: no expansion, execution or env writes."""
     values={};path=Path(env_file) if env_file is not None else DEFAULT_ENV_FILE
     environment=os.environ if environ is None else environ
     try:
-        if path.exists():
+        if any(key not in environment for key in keys) and path.exists():
             with path.open('rb') as source:payload=source.read(16385)
             if len(payload)>16384:raise ValueError
             for line in payload.decode('utf-8-sig').splitlines():
                 line=line.strip()
                 if line.startswith('export '):line=line[7:].lstrip()
                 key,separator,value=line.partition('=');key=key.strip()
-                if key not in KEYS or key in environment:continue
+                if key not in keys or key in environment:continue
                 if not separator:raise ValueError
                 value=value.strip()
                 if value[:1] in ('"',"'"):
@@ -44,7 +44,7 @@ def credentials(env_file=None,environ=None):
                 else:value=re.split(r'\s+#',value,maxsplit=1)[0].strip()
                 values[key]=value
     except (OSError,ValueError):raise AuthError('invalid_credentials_file') from None
-    values={key:environment.get(key,values.get(key,'')) for key in KEYS}
+    values={key:environment.get(key,values.get(key,'')) for key in keys}
     if any(not isinstance(v,str) or len(v)>4096 or any(c.isspace() or ord(c)<32 or ord(c)==127 for c in v) for v in values.values()):
         raise AuthError('invalid_credentials')
     return values

@@ -40,7 +40,8 @@ def test_png_parser_bounds_resolution():
         read_png(BytesIO(payload))
 
 
-def test_source_disables_browser_and_cached_credentials():
+def test_source_disables_browser_and_cached_credentials(monkeypatch):
+    monkeypatch.setenv("TWITCH_PLAYBACK_TOKEN", "")
     command = Source("twitch", "example").streamlink_command()
     assert command[command.index("--webbrowser") + 1] == "false"
     assert "--no-config" in command and "--no-plugin-cache" in command
