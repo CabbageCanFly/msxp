@@ -145,3 +145,28 @@ reuse, memory eviction, long inactivity, original reading dates, correction/clea
 invalidation, retention and source/code changes, and frontend loading behavior.
 Unmeasured: VPS latency/CPU and concurrent-viewer capacity. A retention-display seed
 and broader checkpoint work remain outside this change.
+
+## Missing EXP after long capture failures (2026-10-22)
+
+Janet's VPS response had nonempty 24h totals but no reading, with
+`recent_history.eta_status = "history_limit"` after 4,486 attempts. The historical
+ETA replay exceeded its 4,096 retained-row limit and returned no compact display.
+The publication cache could only preserve that empty result; caching was not the
+cause of the missing reading.
+
+Historical replay now drops its oversized ETA/chart row buffer, keeps those
+calculations explicitly limited, and continues causal validation to maintain the
+compact last accepted display through the complete bounded stream. It does not
+guess EXP from gains, promote failed frames, or increase any replay budget. Global
+run/event/byte limits still withhold incomplete replay; operator clears and
+invalidations still apply to the display.
+
+Roster `last_seen_at` now requires a current, acquired frame with one HUD and no
+identity hold. Failed/offline polls do not advance it. After retention, the fallback
+comes from the saved reading/level timestamp rather than the last attempted capture.
+The independent attempt revision still advances so cache invalidation works normally.
+
+Synthetic regressions cover 4,200 failed attempts after full and percentage-only
+readings, valid readings arriving after the ETA limit, operator clear, and sightings
+before and after retention. No production database change or migration is needed;
+the split deployment needs only the updated API restarted after review.

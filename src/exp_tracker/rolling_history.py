@@ -229,7 +229,10 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
                 cutoff=datetime.fromisoformat(intervals[-1]['after']['timestamp'])-timedelta(minutes=65)
                 keep=next((i for i,r in enumerate(rows) if stamp(r)>=cutoff),len(rows))
                 state['rows']=rows[keep:];state['decisions']=decisions[keep:]
-        if len(state['rows'])>4096:raise HistoryLimit('recent_attempt_limit')
+        if _historical and (state.get('history_limited') or len(state['rows'])>4096):
+            # Keep validating the stream and its compact display even when ETA/chart rows exceed the limit.
+            state.update(rows=[],decisions=[],history_limited=True)
+        elif len(state['rows'])>4096:raise HistoryLimit('recent_attempt_limit')
         state['previous_run']=run
         return reviewed
     state=dict(level_state={},percentage_state={},barrier_state={},previous_run=None,previous_time=None,rows=[],decisions=[])
@@ -244,7 +247,8 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     kept=[(r,d) for r,d in zip(state['rows'],state['decisions']) if stamp(r)>=start]
     rows=[r for r,_ in kept];decisions=[d for _,d in kept]
     data=dict(percentage_reviews=decisions,reason=decisions[-1]['reason'] if decisions else 'no_observations')
-    result=dict(base,observations=rows,percentage_progress=data,recent_history_status='ready',recent_history_receipt=receipt)
+    result=dict(base,observations=rows,percentage_progress=data,
+        recent_history_status='history_limit' if state.get('history_limited') else 'ready',recent_history_receipt=receipt)
     if _historical:result['historical_display']=state.get('historical_display',{})
     from .retention import checkpoint
     frozen=checkpoint(diagnostic.store,(base['selected_character'] or {}).get('id'))
