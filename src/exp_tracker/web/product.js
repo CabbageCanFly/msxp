@@ -337,9 +337,10 @@ function renderPlayer() {
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
   el('level').dataset.lastKnown=String(lastKnown(p));
   el('level').dataset.inferred=String(!!levelTransition(p) || !!LEVEL_SOURCES[displayLevel(p)?.status]);
-  el('progress').value=r?.bp!=null?r.bp/100:0;
-  el('progress').hidden=r?.bp==null;
   const shown=last && s.stale && r?.exp==null?last:r;
+  const shownBp=shown?.bp ?? (shown?.percentage!=null?Math.round(Number(shown.percentage)*100):null);
+  el('progress').value=shownBp!=null?shownBp/100:0;
+  el('progress').hidden=shownBp==null;
   const absolute=shown?.exp!=null?expText(shown.exp,true):displayedExp(shown,true);
   amount('exp',absolute==='—'?'—':absolute+' EXP',displayedExp(shown));el('exp').title=last && s.stale && r?.exp==null?`Last exact EXP reading from ${localTime(last.timestamp)}.`:expTitle(r);
   el('percentage').textContent=percentageText(shown);el('percentage').title=shown?.evidence==='manual_admin'?expTitle(shown):'';
