@@ -1,0 +1,12 @@
+# OPT-IN: enable only after the copy rehearsal in docs/24h-retention.md. Disabling it disables retention.
+[Unit]
+Description=Hourly MS XP retention pass
+
+[Timer]
+OnBootSec=15min
+# Measured from the end of the previous pass, so passes never overlap.
+OnUnitInactiveSec=1h
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

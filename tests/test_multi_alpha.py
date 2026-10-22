@@ -197,16 +197,13 @@ def test_live_authorization_and_check_do_not_connect_or_write(multi,monkeypatch)
     assert not calls and not (path.parent/'shared.sqlite3').exists()
 
 
-def test_continuous_retention_runs_under_coordinator_ownership(multi,monkeypatch):
+def test_coordinator_never_prunes_but_owns_its_logs_for_the_separate_worker(multi,monkeypatch):
     from exp_tracker import retention
     module,path,_,calls,_=multi
-    seen=[];original=retention.prune
-    def capture(store,**kwargs):
-        seen.append(set(kwargs['active_runs']))
-        return original(store,**kwargs)
-    monkeypatch.setattr(retention,'prune',capture)
-    assert main(multi,'--continuous','--retention-24h','--max-attempts','2')==0
-    assert len(seen)==1 and len(seen[0])==2 and len(calls)==4
+    monkeypatch.setattr(retention,'prune',lambda *a,**k:pytest.fail('capture must not run retention inline'))
+    assert main(multi,'--continuous','--retention-24h','--max-attempts','2')==1  # Refused before any capture.
+    assert not calls and not (path.parent/'shared.sqlite3').exists()
+    assert main(multi,'--continuous','--max-attempts','2')==0 and len(calls)==4
     assert list((path.parent/'multi-alpha/runs').glob('*/.retention-owner.json'))
 
 
