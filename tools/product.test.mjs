@@ -30,6 +30,45 @@ function player(changes={}){return {channel:'alpha',character:{label:'Main'},sou
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
 
+test('background tabs freeze mob and boss motion, including a hovered mob that resumes, then restore speeds',()=>{
+  const p=page('board'),walk={playState:'running',playbackRate:3},hover={playState:'paused',playbackRate:1},
+    finished={playState:'finished',playbackRate:1},boss={playState:'running',playbackRate:1};
+  let lane;
+  p.context.matchMedia=()=>({matches:false});
+  p.context.document.querySelector=selector=>selector==='.board'?{before:element=>{lane=element;}}:{getAnimations:()=>[boss]};
+  p.run(source.slice(source.indexOf('// No matchMedia')));
+  lane.getAnimations=options=>{assert.equal(options.subtree,true);return [walk,hover,finished];};
+  const timers=p.timers.length;
+  for(let i=0;i<20;i++){
+    hover.playState='paused';p.context.document.hidden=true;p.events.visibilitychange();
+    assert.deepEqual([walk.playbackRate,hover.playbackRate,boss.playbackRate,finished.playbackRate],[0,0,0,1]);
+    hover.playState='running';  // The existing hover timeout may call play() while hidden.
+    assert.equal(hover.playbackRate,0);
+    p.context.document.hidden=false;p.events.visibilitychange();
+    assert.deepEqual([walk.playbackRate,hover.playbackRate,boss.playbackRate],[3,1,1]);
+  }
+  assert.equal(p.timers.length,timers);
+});
+
+test('hidden mob spawn ticks do no work and keep only the next scheduled tick',()=>{
+  const p=page('board');p.context.document.hidden=true;
+  p.context.lane={querySelectorAll:()=>{throw new Error('Hidden tab should not spawn');}};
+  p.context.document.querySelector=()=>{throw new Error('Hidden tab should not spawn a boss');};
+  const timers=p.timers.length;p.run('wander(lane)');
+  assert.equal(p.timers.length,timers+1);
+  assert.ok(p.timers.at(-1)>=10000 && p.timers.at(-1)<=45000);
+});
+
+test('a delayed sprite decode cannot spawn in a hidden tab or exceed the three-mob cap',async()=>{
+  const p=page('board'),pending=[],added=[];let count=0;
+  p.context.document.createElement=tag=>Object.assign(new Element(tag),tag==='img'?{decode:()=>new Promise(resolve=>pending.push(resolve))}:{});
+  p.context.lane={append:mob=>{added.push(mob);},querySelectorAll:()=>Array(count)};
+  p.run('spawnMob(lane)');p.context.document.hidden=true;pending.shift()();await Promise.resolve();
+  assert.equal(added.length,0);
+  p.context.document.hidden=false;p.run('spawnMob(lane)');count=3;pending.shift()();await Promise.resolve();
+  assert.equal(added.length,0);
+});
+
 test('offline last-seen EXP fills the bar and ages its original timestamp',()=>{
   const p=page('player'),reading=player().reading;
   p.render(player({reading:null,stale:true,age_seconds:null,twitch:{status:'offline'},

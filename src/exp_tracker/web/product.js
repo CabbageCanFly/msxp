@@ -890,6 +890,7 @@ function spawnBoss() {
 function spawnMob(lane) {
   const slug=pick(MOBS),mob=node('div','mob'),img=node('img');img.alt='';img.src=sprite(slug,'move');mob.append(img);
   img.decode().then(()=>{
+    if(document.hidden || lane.querySelectorAll('.mob').length>=3)return;
     lane.append(mob);
     // Sprites face left, so walking right mirrors the mob. It walks until half its body hangs over the card's edge.
     const half=img.naturalWidth/2,width=lane.clientWidth,right=Math.random()<.5;
@@ -917,12 +918,27 @@ function spawnMob(lane) {
 }
 // Every 10–45 s, whether or not others are still walking: occasionally a boss (one at a time), otherwise a mob, at most 3 at once.
 function wander(lane) {
-  if(Math.random()<1/12 && !document.querySelector('.boss'))spawnBoss();
-  else if(lane.querySelectorAll('.mob').length<3)spawnMob(lane);
+  if(!document.hidden) {
+    if(Math.random()<1/12 && !document.querySelector('.boss'))spawnBoss();
+    else if(lane.querySelectorAll('.mob').length<3)spawnMob(lane);
+  }
   setTimeout(()=>wander(lane),10000+Math.random()*35000);
 }
 // No matchMedia (the Node tests) or reduced motion: no mobs. Never on the OBS overlay.
 if(view!=='overlay' && globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches===false) {
   const board=document.querySelector('.board'),lane=node('div','mob-lane');lane.setAttribute('aria-hidden','true');
-  if(board){board.before(lane);setTimeout(()=>wander(lane),3000);}
+  if(board){
+    board.before(lane);setTimeout(()=>wander(lane),3000);
+    let frozen=[];
+    document.addEventListener('visibilitychange',()=>{
+      if(document.hidden) {
+        const animations=[...lane.getAnimations({subtree:true}),...(document.querySelector('.boss')?.getAnimations() ?? [])];
+        frozen=animations.filter(a=>a.playState==='running' || a.playState==='paused').map(a=>[a,a.playbackRate]);
+        // Zero speed also keeps a hover timeout's play() from restarting movement while hidden.
+        frozen.forEach(([a])=>{a.playbackRate=0;});
+      } else {
+        frozen.forEach(([a,rate])=>{a.playbackRate=rate;});frozen=[];
+      }
+    });
+  }
 }
