@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../src/exp_tracker/web/product.js',import.meta.url),'utf8');
 class Element {
-  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={};this.value='';}
+  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={setProperty(k,v){this[k]=v;},removeProperty(k){delete this[k];}};this.value='';}
   append(...c){this.children.push(...c);}replaceChildren(...c){this.children=c;}
   querySelector(){return null;}querySelectorAll(){return [];}contains(){return false;}focus(){}scrollIntoView(){}
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v,options){(this.listeners??={})[k]=v;(this.listenerOptions??={})[k]=options;}
@@ -958,6 +958,45 @@ test('one saved character shows exactly the existing profile: no roster at all',
   assert.equal(p.elements['player-name'].textContent,'Alpha');assert.equal(api.urls[0],'/api/players/alpha');
 });
 
+test('overlay character selector defaults to automatic, locks preview and URL, and preserves an unavailable lock',async()=>{
+  const api=server([body([ALPHA,BETA])]),p=page('player',api.fetch);await settle();
+  const select=p.elements['overlay-character'],frame=p.elements['overlay-preview'];
+  assert.deepEqual(select.children.map(n=>[n.value,n.textContent]),[['','Automatic (most recent character)'],['2','Alpha'],['3','Beta']]);
+  assert.equal(new URL(p.elements['overlay-url'].value).searchParams.has('character'),false);
+  frame.dataset.loaded='true';select.value='3';select.listeners.change();
+  assert.equal(new URL(p.elements['overlay-url'].value).searchParams.get('character'),'3');
+  assert.equal(new URL(frame.src).searchParams.get('character'),'3');assert.equal(frame.dataset.loaded,'');
+  assert.deepEqual(p.visits,[]);assert.equal(p.run('viewCharacter'),null);
+  p.context.fixture=[ALPHA];p.run('roster=fixture;renderOverlayCharacters()');
+  assert.equal(select.value,'3');assert.equal(select.children.at(-1).textContent,'Locked character unavailable');
+  select.value='';select.listeners.change();
+  assert.equal(new URL(frame.src).searchParams.has('character'),false);
+});
+
+for(const layout of ['card','bar','rates','chart'])test(`${layout} overlay stays locked across tracking changes and never falls back when the character disappears`,async()=>{
+  const saved=body([ALPHA,BETA],{player:player({character:{id:3,label:'Beta'}}),view:{character_id:3,current:false},
+    tracked_history:{as_of:'2026-01-01T01:00:00Z',chart_intervals:[]}});
+  const api=server([saved,{...saved,roster:[{...ALPHA,current:false},{...BETA,current:true}]},{status:404,body:{error:'unknown_character'}}]);
+  const p=page('overlay',api.fetch,`?layout=${layout}&character=3`);await settle();
+  assert.equal(p.elements.character.textContent,'Beta');assert.match(p.elements.age.textContent,/^Last tracked/);
+  assert.equal(p.run('viewCharacter'),'3');assert.equal(p.run('publicPace(data.player)?.active ?? false'),false);
+  await p.run('poll()');assert.equal(p.elements.character.textContent,'Beta');
+  await p.run('poll()');assert.equal(p.run('viewCharacter'),'3');assert.equal(p.run('data'),null);
+  assert.equal(p.elements.exp.textContent,'—');assert.equal(p.elements.level.textContent,'Lv. —');
+  assert.equal(p.elements['general-chart'].children.length,0);assert.equal(p.elements['overlay-chart'].children.length,0);
+  assert.ok(api.urls.every(url=>new URL(url,'http://localhost').searchParams.get('character')==='3'));assert.deepEqual(p.visits,[]);
+});
+
+test('automatic overlays follow tracking; locked overlays reject malformed or mismatched character responses',async()=>{
+  const api=server([body([ALPHA,BETA]),body([ALPHA,BETA],{player:player({character:{id:3,label:'Beta'}})})]),auto=page('overlay',api.fetch);
+  await settle();assert.equal(auto.elements.character.textContent,'Alpha');await auto.run('poll()');assert.equal(auto.elements.character.textContent,'Beta');
+  assert.ok(api.urls.every(url=>!url.includes('character=')));
+  const wrong=server([body([ALPHA,BETA])]),locked=page('overlay',wrong.fetch,'?character=3');await settle();
+  assert.equal(locked.run('data'),null);assert.notEqual(locked.elements.character.textContent,'Alpha');
+  const invalid=server([{status:400,body:{error:'invalid_character'}}]),bad=page('overlay',invalid.fetch,'?character=bad');await settle();
+  assert.equal(bad.run('viewCharacter'),'bad');assert.match(invalid.urls[0],/character=bad/);assert.equal(bad.run('data'),null);
+});
+
 test('a second saved character reveals the roster on the next poll; tracked character first and marked',async()=>{
   const api=server([body([ALPHA]),body([ALPHA,BETA])]),p=page('player',api.fetch);await settle();
   assert.equal(p.elements.roster.hidden,true);
@@ -1026,7 +1065,7 @@ test('homepage Characters uses compact records, scoped links and no stale pace r
   assert.deepEqual(api.urls,['/api/players?mode=characters']);
   assert.equal(p.elements['entries'].children.length,3);
   assert.equal(p.elements['streamer-metrics'].hidden,true);assert.equal(p.elements['streamer-windows'].hidden,true);
-  assert.equal(p.elements['character-controls'].hidden,false);
+  assert.equal(p.elements['character-sort-control'].hidden,false);
   // Highest level first by default.
   const [other,alpha,beta]=p.elements.entries.children;assert.equal(other.dataset.character,9);
   assert.equal(alpha.children[1].children[0].href,'/stream/alpha?character=2');
@@ -1040,6 +1079,26 @@ test('homepage Characters uses compact records, scoped links and no stale pace r
   p.elements['character-filter'].value='OTHER';p.elements['character-filter'].listeners.input();
   assert.equal(p.elements.entries.children.length,1);assert.equal(p.elements.entries.children[0].dataset.channel,'other');
   p.elements['character-filter'].value='missing';p.elements['character-filter'].listeners.input();assert.equal(p.elements.empty.hidden,false);
+});
+
+test('homepage search filters both lists, preserves text when switching, and only shows character sorting for Characters',async()=>{
+  const streams={players:[player({channel:'lumi_stream',character:{label:'Lumi'}}),player({channel:'other',character:{label:'Beta'}})]};
+  const characters={characters:[{...ALPHA,label:'Lumi',channel:'lumi_stream'},{...BETA,channel:'other'}]};
+  const api=server([streams,characters,streams]),p=page('board',api.fetch);await settle();
+  assert.equal(p.elements['character-sort-control'].hidden,true);
+  p.elements['character-filter'].value=' LUMI ';p.elements['character-filter'].listeners.input();
+  assert.deepEqual(p.elements.entries.children.map(row=>row.dataset.channel),['lumi_stream']);
+  assert.equal(p.elements['board-count'].textContent,'1 of 2 players');
+  p.modes[1].listeners.click();await settle();
+  assert.equal(p.elements['character-filter'].value,' LUMI ');assert.equal(p.elements['character-sort-control'].hidden,false);
+  assert.deepEqual(p.elements.entries.children.map(row=>row.dataset.channel),['lumi_stream']);
+  p.modes[0].listeners.click();await settle();
+  assert.equal(p.elements['character-filter'].value,' LUMI ');assert.equal(p.elements['character-sort-control'].hidden,true);
+  p.elements['character-filter'].value='OTHER';p.elements['character-filter'].listeners.input();
+  assert.deepEqual(p.elements.entries.children.map(row=>row.dataset.channel),['other']);
+  p.elements['character-filter'].value='missing';p.elements['character-filter'].listeners.input();
+  assert.equal(p.elements.entries.children.length,0);assert.equal(p.elements.empty.textContent,'No streamers match your search.');
+  p.elements['character-filter'].value='';p.elements['character-filter'].listeners.input();assert.equal(p.elements.entries.children.length,2);
 });
 
 test('homepage toggle is view-only, preserves default cards and handles Back/Forward without reload',async()=>{
@@ -1064,7 +1123,7 @@ test('switching lists keeps the current one until the other arrives, then swaps 
   assert.equal(p.modes[1].attributes['aria-pressed'],'true');assert.equal(p.elements.entries.attributes['aria-busy'],'true');
   assert.equal(p.elements.entries.children.length,2);assert.equal(p.elements['streamer-metrics'].hidden,false);
   release();await settle();
-  assert.equal(p.elements.entries.children.length,1);assert.equal(p.elements['character-controls'].hidden,false);
+  assert.equal(p.elements.entries.children.length,1);assert.equal(p.elements['character-sort-control'].hidden,false);
   assert.equal(p.elements['streamer-metrics'].hidden,true);assert.equal(p.elements.entries.attributes['aria-busy'],'false');
 });
 
@@ -1087,6 +1146,30 @@ test('viewed roster chip is positioned after last-seen labels fill its final wid
     assert.equal(beta.children[1].children[0].textContent,'2h ago');positioned=true;
   }});
   p.run("viewCharacter='3';renderRoster()");assert(positioned);
+});
+
+test('roster Current requires a confirmed EXP reading within five minutes and older readings show compact ages',()=>{
+  const p=page('player');p.context.person={...ALPHA,last_seen_at:'2026-01-01T00:00:00Z'};
+  p.render(player({character:{id:2,label:'Alpha'}}));p.run("data.served_at='2026-01-01T00:00:00Z'");
+  assert.equal(p.run('rosterSeenText(person)'),'Current');
+  p.context.performance.now=()=>300000;assert.equal(p.run('rosterSeenText(person)'),'Current');
+  for(const [seconds,label] of [[600,'10m ago'],[36000,'10h ago'],[3*86400,'3d ago'],[70*86400,'10w ago'],[3650*86400,'10y ago']]){
+    p.context.performance.now=()=>seconds*1000;assert.equal(p.run('rosterSeenText(person)'),label);
+  }
+  p.context.performance.now=()=>0;p.context.person.last_seen_at='2026-01-01T00:00:00Z';
+  p.run("data.player.reading.timestamp='2025-12-31T23:50:00Z'");
+  assert.equal(p.run('rosterSeenText(person)'),'10m ago');  // A newer HUD sighting cannot refresh an old EXP reading.
+  p.run("data.player.character.id=3");assert.equal(p.run('rosterSeenText(person)'),'0s ago');
+  p.context.person.last_seen_at=null;assert.equal(p.run('rosterSeenText(person)'),'Not seen yet');
+});
+
+test('overlay header text follows relative luminance and resets with the theme',()=>{
+  const p=page('overlay');
+  for(const [color,ink] of [['ffffff','dark'],['ffff00','dark'],['00ff00','dark'],['ff0000','dark'],['808080','dark'],['000000','light'],['0000ff','light']]){
+    p.run(`applyOverlay(overlayOptions('?header=${color}'))`);assert.equal(p.context.document.body.dataset.headerInk,ink);
+  }
+  p.run("applyOverlay(overlayOptions('?theme=day'))");assert.equal(p.context.document.body.dataset.headerInk,'light');
+  p.run("applyOverlay(overlayOptions('?header=invalid'))");assert.equal(p.context.document.body.dataset.headerInk,'light');
 });
 
 function rosterMouse(p=page('player')){

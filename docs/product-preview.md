@@ -24,6 +24,17 @@ an existing OBS source keeps the settings in its URL.
 EXP bar preserves the previous General layout at
 `?layout=bar`. Both use a 500 × 160 Browser Source; rates use 500 × 110 and the
 standalone last-hour chart uses 500 × 180. Missing history stays blank/dashed.
+The builder's **Character** selector defaults to **Automatic (most recent character)**.
+Choosing a character's name puts that saved character's ID in the overlay URL and
+reloads the preview for that character across all four layouts. An inactive
+character shows its saved readings with a last-tracked date. An unavailable lock
+stays locked and clears the display rather than switching to another character.
+Header text switches to black for light header colours. Roster status text is
+neutral: **Current** requires a confirmed EXP reading within five minutes;
+otherwise the pill shows the available last-seen age.
+The homepage header search filters both Streamers and Characters by character
+name or channel, keeping the search text when switching views. Character sorting
+appears beside the search field only in Characters.
 
 ## Try the saved data
 

@@ -34,6 +34,11 @@ let chartWindow=60,lineWindow=15;
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
 const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],name:['both','character','twitch','none'],theme:['night','day'],interval:['60','300','1800'],range:['60','15','30','1440']};
 const OVERLAY_COLORS=['header','bar','accent'];
+const THEME_COLORS={night:{header:'705035',bar:'a6ef2e',accent:'ffc56b'},day:{header:'8a6440',bar:'7fcc12',accent:'a8520a'}};
+function headerInk(hex) {
+  const rgb=hex.match(/../g).map(channel=>{const s=parseInt(channel,16)/255;return s<=.04045?s/12.92:((s+.055)/1.055)**2.4;});
+  return .2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]>.179?'dark':'light';
+}
 // Colors dim only once values are this old; the ~1 min stale flag is too twitchy for a cosmetic cue.
 const FADE_AFTER_SECONDS=300;
 function faded(age) { return failed || age==null || age>FADE_AFTER_SECONDS; }
@@ -48,6 +53,7 @@ function overlayOptions(search) {
 // Also called by the character page's live preview (same origin) as options change.
 function applyOverlay(o) {
   Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon,interval:o.interval,range:o.range});
+  document.body.dataset.headerInk=headerInk(o.header ?? THEME_COLORS[o.theme].header);
   const historyLabel=`${Number(o.interval)/60} min · ${o.range==='1440'?'24h':o.range==='60'?'last hour':`last ${o.range} min`}`;
   if(view==='overlay'){
     el('general-history-caption').textContent=historyLabel;
@@ -61,11 +67,11 @@ let rollingData=null,rollingReceived=0,rollingRevision=null,rollingFailed=false,
 let tip=null,tipKey=null,tipPosition=null,tipDismissed=false,lastPointer=null;
 let currentLevelOnly=false,warming=false;
 // View-only character choice (?character=ID); null follows whichever character is being tracked.
-const characterParam=()=>{const id=new URLSearchParams(location.search).get('character');return view==='player' && /^[1-9][0-9]{0,17}$/.test(id ?? '')?id:null;};
+const characterParam=()=>{const id=new URLSearchParams(location.search).get('character');return view==='overlay'?id || null:view==='player' && /^[1-9][0-9]{0,17}$/.test(id ?? '')?id:null;};
 let viewCharacter=characterParam(),roster=[],rosterKey='',rosterViewing=null;
 const boardParam=()=>new URLSearchParams(location.search).get('mode')==='characters'?'characters':'streamers';
 let boardMode=boardParam(),shownMode=boardMode;  // shownMode: the list on screen, which switches only once its data has arrived.
-const inactiveView=()=>view==='player' && data?.view?.current===false;
+const inactiveView=()=>view!=='board' && data?.view?.current===false;
 const el=id=>document.getElementById(id);
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
 function hideTip() { if(tip)tip.hidden=true;tipKey=null;tipPosition=null; }
@@ -154,7 +160,7 @@ function publicPace(p,minutes=null) {
   if(!pace)return null;
   const age=pace.age_seconds+(performance.now()-receivedAt)/1000;
   const policy=pace.presentation;
-  const active=pace.active && !(windowed && recent && !recent.pace) && !current(p).stale && !failed && (!policy || policy.state==='observed');
+  const active=pace.active && !inactiveView() && !(windowed && recent && !recent.pace) && !current(p).stale && !failed && (!policy || policy.state==='observed');
   let estimates=active?pace.estimates:{...pace.estimates,eta:null};
   const expired=policy?.state==='paused' || policy?.running && age>=(policy.expire_after_seconds ?? policy.pause_after_seconds);
   if(expired)estimates={exp_per_hour:null,percentage_per_hour:null,eta:null};
@@ -166,7 +172,7 @@ function publicETA(p) {
   if(!saved)return null;
   const age=saved.age_seconds+(performance.now()-receivedAt)/1000;
   const pace=recentWindow(p)?.pace;
-  return {...saved,age,historical:saved.historical || failed || current(p).stale || !pace?.active || (pace.presentation && pace.presentation.state!=='observed')};
+  return {...saved,age,historical:saved.historical || inactiveView() || failed || current(p).stale || !pace?.active || (pace.presentation && pace.presentation.state!=='observed')};
 }
 function current(p) {
   const age=p.age_seconds==null?null:p.age_seconds+(performance.now()-receivedAt)/1000;
@@ -280,6 +286,7 @@ function showPresence() {
 }
 function entry({player:p,value,rank}) {
   const r=p.reading,s=current(p),row=node('li',`entry streamer-entry${sort==='level'?' unscored':''}`);row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));
+  row.dataset.metric=sort;
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
@@ -316,17 +323,18 @@ function renderBoard() {
   const characters=shownMode==='characters';
   document.querySelectorAll('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===boardMode)));
   el('entries').setAttribute('aria-busy',String(boardMode!==shownMode));  // The other list is on its way.
-  el('streamer-metrics').hidden=characters;el('streamer-windows').hidden=characters;el('character-controls').hidden=!characters;
+  el('streamer-metrics').hidden=characters;el('streamer-windows').hidden=characters;el('character-sort-control').hidden=!characters;
   el('connection').textContent=failed?'Reconnecting · showing last known numbers':'';
   showPresence();
   if(characters){renderCharacters();return;}
-  const all=data?.players ?? [],rows=ranked(all.filter(p=>shown(statusText(p)==='Online')),sort);
+  const search=el('character-filter').value.trim().toLowerCase();
+  const all=data?.players ?? [],rows=ranked(all.filter(p=>shown(statusText(p)==='Online') && `${p.character?.label ?? ''} ${p.channel}`.toLowerCase().includes(search)),sort);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
   patchChildren(el('entries'),rows.map(entry));
   [...el('entries').querySelectorAll('.exp-number')].filter(n=>n.clientWidth>0 && n.scrollWidth>n.clientWidth+1).forEach(n=>{n.textContent=n.dataset.compactNumber;});
   if(focus) [...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
-  el('empty').textContent=all.length?`No ${presence} players right now.`:'No players are being tracked yet.';
+  el('empty').textContent=search?'No streamers match your search.':all.length?`No ${presence} players right now.`:'No players are being tracked yet.';
   el('board-count').textContent=data?`${rows.length<all.length?`${rows.length} of `:''}${all.length} player${all.length===1?'':'s'}${data.warming?.length?` · ${data.warming.length} more loading`:''}`:failed?'Tracker unavailable':'Loading players…';
   el('ranking-count').textContent='';el('ranking-note').textContent='';
   document.querySelectorAll('[data-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.sort===sort)));
@@ -370,12 +378,16 @@ function selectBoard(mode,historyMode='push') {
 function renderPlayer() {
   const p=data?.player,r=p?.reading;
   if(!p) {
-    if(warming) {
+    if(warming || view==='overlay' && viewCharacter && failed) {
       // Warming can mean ownership changed: never retain another character's display.
       for(const id of ['level','exp','percentage','movement','rate','pp-rate','eta','age','tracked-exp','tracked-note','early-value','eta-note','segment-note','history-note','window-rate']) {
         const target=el(id);if(target){amount(id,'—','—');target.title='';}
       }
       el('level').textContent='Lv. —';el('progress').hidden=true;el('progress').value=0;
+      if(view==='overlay'){
+        el('general-chart').replaceChildren();el('overlay-chart').replaceChildren();el('hour-total').textContent='—';
+        document.querySelectorAll('[data-rate-window]').forEach(n=>{n.textContent='—';});
+      }
       for(const id of ['player-name','player-source','streamer','character'])if(el(id)){el(id).textContent=channel;el(id).title='';}
       if(!data?.summary?.day_buckets)el('history-chart')?.replaceChildren();if(el('level-event'))el('level-event').hidden=true;
       // A chosen saved character keeps its roster name, level and last sighting while its history loads.
@@ -420,6 +432,7 @@ function renderPlayer() {
   // Skip "Updated …" when the status already says how long ago, e.g. "Last tracked 13m ago".
   const lastAge=p.last_seen?.age_seconds==null?s.age:p.last_seen.age_seconds+(performance.now()-receivedAt)/1000;
   el('age').textContent=shown && s.stale?`Last tracked ${ageText(lastAge)}`:r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=shown?.timestamp?localTime(shown.timestamp):'';
+  if(view==='overlay' && inactiveView())el('age').textContent=r?`Last tracked ${ageText(s.age)}`:'No saved reading';
   const observed=observedWindow(p);
   let movement=observed?.difference_percentage_points ?? null;
   if(movement==null && !p.recent_windows && !p.tracked_status)
@@ -661,8 +674,12 @@ async function poll() {
       if(Array.isArray(body.roster))roster=body.roster;
       render();return;
     }
-    if(response.status===404 && body.error==='unknown_character'){selectCharacter(null,'replace');return;}
+    if(response.status===404 && body.error==='unknown_character'){
+      if(view==='player'){selectCharacter(null,'replace');return;}
+      data=null;throw new Error();
+    }
     if(!response.ok)throw new Error();
+    if(view==='overlay' && requestedView && String(body.player?.character?.id)!==requestedView)throw new Error();
     // An omitted section is the same revision this page holds; anything else arrives in full.
     if(held && body.history===undefined && body.history_revision===data.history_revision)body.history=data.history;
     if(held && body.tracked_history===undefined && body.tracked_revision===data.tracked_revision)body.tracked_history=data.tracked_history;
@@ -676,12 +693,21 @@ async function poll() {
   finally { clearTimeout(timeout);activeController=null;delete document.body.dataset.loading;pollTimer=setTimeout(poll,unchanged()?2000:0); }
 }
 
+function rosterSeenText(r) {
+  const p=data?.player,reading=r.current && String(p?.character?.id)===String(r.id)?p.reading ?? lastSeenReading(p):null;
+  const stamp=reading?.timestamp ?? r.last_seen_at,now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
+  const age=(now-Date.parse(stamp))/1000;
+  if(!Number.isFinite(age))return 'Not seen yet';
+  if(reading && age>=0 && age<=300)return 'Current';
+  if(age>=365*86400)return `${Math.floor(age/(365*86400))}y ago`;
+  if(age>=7*86400)return `${Math.floor(age/(7*86400))}w ago`;
+  return ageText(Math.max(0,age));
+}
 function rosterLink(r,viewing,className) {
-  const link=node('a',className),seen=node('span',r.current?'roster-live':'roster-seen',r.current?'Current':r.last_seen_at?'':'Not seen yet');
+  const link=node('a',className),seen=node('span','roster-seen',rosterSeenText(r));seen.dataset.character=String(r.id);seen.dataset.seen=r.last_seen_at ?? '';
   // The tracked character's link follows live tracking; others are stable, shareable views.
   link.href=r.current?location.pathname:`${location.pathname}?character=${r.id}`;link.dataset.character=r.id;
   if(String(r.id)===viewing)link.setAttribute('aria-current','page');
-  if(!r.current && r.last_seen_at)seen.dataset.seen=r.last_seen_at;
   const meta=node('span','roster-meta',`Lv. ${r.level ?? '—'} · `);meta.append(seen);
   link.append(node('span','roster-name',r.label),meta);
   link.title=`${r.label} · ${r.current?'currently tracked':r.last_seen_at?'last tracked '+localTime(r.last_seen_at):'not seen yet'}`;
@@ -696,10 +722,11 @@ function rosterEdges() {
   track.dataset.more=start && end?'both':start?'start':end?'end':'';
 }
 function rosterAges() {
-  const now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
-  document.querySelectorAll('#roster [data-seen]').forEach(n=>{n.textContent=ageText(Math.max(0,(now-Date.parse(n.dataset.seen))/1000));});
+  const characters=new Map(roster.map(r=>[String(r.id),r]));
+  document.querySelectorAll('#roster [data-seen]').forEach(n=>{const r=characters.get(n.dataset.character);if(r)n.textContent=rosterSeenText(r);});
 }
 function renderRoster() {
+  renderOverlayCharacters();
   // Two or more saved characters; the server already excludes the unrecognized placeholder.
   el('roster').hidden=roster.length<2;
   const viewing=viewCharacter ?? String(roster.find(r=>r.current)?.id ?? '');
@@ -719,6 +746,16 @@ function renderRoster() {
   rosterAges();
   if(viewing!==rosterViewing)el('roster-track').querySelector('[aria-current]')?.scrollIntoView({block:'nearest',inline:'center'});
   rosterViewing=viewing;rosterEdges();
+}
+function renderOverlayCharacters() {
+  const select=el('overlay-character'),key=JSON.stringify(roster.map(r=>[r.id,r.label,r.current]));
+  if(select.dataset.roster===key)return;
+  const selected=select.value,automatic=node('option','','Automatic (most recent character)');automatic.value='';
+  const options=roster.map(r=>{const option=node('option','',r.label);option.value=String(r.id);return option;});
+  if(selected && !roster.some(r=>String(r.id)===selected)){
+    const missing=node('option','','Locked character unavailable');missing.value=selected;options.push(missing);
+  }
+  select.replaceChildren(automatic,...options);select.value=selected;select.dataset.roster=key;
 }
 function filterRoster() {
   const text=el('roster-search').value.trim().toLowerCase();
@@ -781,12 +818,12 @@ if(view==='player') {
   document.querySelectorAll('[data-line-window]').forEach(b=>b.addEventListener('click',()=>{if(![5,10,15,30,60].includes(Number(b.dataset.lineWindow)))return;lineWindow=Number(b.dataset.lineWindow);drawHistory();}));
   globalThis.addEventListener?.('resize',()=>{renderPlayer();drawHistory();rosterEdges();scalePreview();});
   const builder=overlayOptions(''),SIZES={card:[500,160],bar:[500,160],rates:[500,110],chart:[500,180]};
-  const THEME_COLORS={night:{header:'705035',bar:'a6ef2e',accent:'ffc56b'},day:{header:'8a6440',bar:'7fcc12',accent:'a8520a'}};
   const frame=el('overlay-preview');
   const overlayURL=()=>{
     const q=new URLSearchParams();
     for(const [key,allowed] of Object.entries(OVERLAY_CHOICES))if(builder[key]!==allowed[0])q.set(key,builder[key]);
     for(const key of OVERLAY_COLORS)if(builder[key])q.set(key,builder[key]);
+    if(el('overlay-character').value)q.set('character',el('overlay-character').value);
     return `${location.origin}/live/overlay/${encodeURIComponent(channel)}${String(q)?'?'+q:''}`;
   };
   function scalePreview() {
@@ -801,9 +838,13 @@ if(view==='player') {
     document.querySelectorAll('[data-color]').forEach(input=>{input.value='#'+(builder[input.dataset.color] ?? THEME_COLORS[builder.theme][input.dataset.color]);});
     frame.width=width;frame.height=height;scalePreview();
     // The preview is this site's own overlay page, so options apply in place without reloading it.
-    if(frame.dataset.loaded)frame.contentWindow?.applyOverlay?.(builder);else if(!frame.src)frame.src=url;
+    const character=el('overlay-character').value || '';
+    if((frame.dataset.character ?? '')!==character){
+      frame.dataset.character=character;frame.dataset.loaded='';frame.src=url;
+    } else if(frame.dataset.loaded)frame.contentWindow?.applyOverlay?.(builder);else if(!frame.src)frame.src=url;
   }
   frame.addEventListener('load',()=>{frame.dataset.loaded='true';frame.contentWindow?.applyOverlay?.(builder);});
+  el('overlay-character').addEventListener('change',updateBuilder);
   document.querySelectorAll('[data-option] button').forEach(b=>b.addEventListener('click',()=>{
     const key=b.closest('[data-option]').dataset.option;if(!OVERLAY_CHOICES[key]?.includes(b.dataset.value))return;builder[key]=b.dataset.value;updateBuilder();
   }));

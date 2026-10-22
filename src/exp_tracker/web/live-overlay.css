@@ -23,6 +23,8 @@ html, body { margin: 0; background: transparent; }
 
 header { display: flex; align-items: center; gap: 7px; height: 28px; flex: none; padding: 0 12px 0 9px; color: #fff3dc;
   background: linear-gradient(#ffffff26, #0000001f), var(--header); border-bottom: 2px solid #0000004d; }
+[data-header-ink="dark"] header { color: #000; }
+[data-header-ink="dark"] :is(.brand, #character) { text-shadow: none; }
 .charm { flex: none; filter: drop-shadow(0 1px 0 #0006); }
 [data-icon="off"] .charm { display: none; }
 [data-icon="off"] header { padding-left: 12px; }
@@ -35,11 +37,11 @@ header { display: flex; align-items: center; gap: 7px; height: 28px; flex: none;
 [data-name="twitch"] #streamer { max-width: 100%; font-size: 13px; }
 
 .reading { display: flex; align-items: center; gap: 8px; padding: 7px 10px 0; font-variant-numeric: tabular-nums; }
-#level { flex: none; min-width: 64px; padding: 0 8px; text-align: center; line-height: 30px; border-radius: 8px; background: var(--badge); color: var(--level);
-  font: 600 16px/30px "Fredoka", sans-serif; box-shadow: inset 0 -2px #0000004d; }
+#level { flex: none; min-width: 64px; padding: 0 8px; text-align: center; line-height: 32px; border-radius: 8px; background: var(--badge); color: var(--level);
+  font: 600 16px/32px "Fredoka", sans-serif; box-shadow: inset 0 -2px #0000004d; }
 #level[data-last-known="true"] { outline: 1px dashed var(--accent); outline-offset: -3px; }
 .progress-section { position: relative; flex: 1; min-width: 0; }
-progress { display: block; width: 100%; height: 30px; margin: 0; border: 1px solid #0000004d; border-radius: 8px; overflow: hidden; background: var(--track); appearance: none; }
+progress { display: block; width: 100%; height: 32px; margin: 0; border: 1px solid #0000004d; border-radius: 8px; overflow: hidden; background: var(--track); appearance: none; }
 progress::-webkit-progress-bar { background: var(--track); }
 progress::-webkit-progress-value { background: linear-gradient(#ffffff59, #ffffff00 60%), var(--bar); }
 progress::-moz-progress-bar { background: var(--bar); }
@@ -50,9 +52,9 @@ progress::-moz-progress-bar { background: var(--bar); }
 .mini-history, .general-history-caption { display: none; }
 [data-layout="card"] #progress { display: none; }
 [data-layout="card"] .progress-label > :not(.general-history-caption) { display: none; }
-[data-layout="card"] .progress-label { position: static; height: 18px; justify-content: flex-start; color: var(--text); text-shadow: none; }
+[data-layout="card"] .progress-label { position: static; height: 14px; justify-content: flex-start; color: var(--text); text-shadow: none; }
 [data-layout="card"] .general-history-caption { display: inline; margin-left: auto; color: var(--muted); font-size: 9px; }
-[data-layout="card"] .mini-history { display: block; width: 100%; height: 28px; }
+[data-layout="card"] .mini-history { display: block; width: 100%; height: 20px; }
 .mini-history .bar { fill: var(--accent); }
 .mini-history .none { fill: var(--muted); opacity: .45; }
 [data-layout="card"] .general-stats { padding-top: 4px; }
