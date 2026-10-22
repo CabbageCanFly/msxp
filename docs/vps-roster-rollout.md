@@ -298,7 +298,7 @@ Do not proxy admin through Caddy. Stop the admin process after review.
 
 After approval, install the opt-in files (never overwrite an existing reviewed env
 file without reviewing it). Set `MSXP_DATABASE` to the exact `$DB` above. Keep the
-600s limits, `MSXP_RETENTION=` and initially `MSXP_TWITCH_STATUS=`. Optional Twitch
+600s limits and initially `MSXP_TWITCH_STATUS=` (retention is a separate timer, below). Optional Twitch
 status requires existing local `TWITCH_CLIENT_ID`/`TWITCH_CLIENT_SECRET` in
 `/etc/msxp/msxp.env`; never copy Windows credentials in the database bundle.
 
@@ -471,12 +471,13 @@ sudo -u msxp env PYTHONPATH=src .venv/bin/python -m exp_tracker.server \
 # Ctrl+C closes only this read-only drill server.
 ```
 
-After a successful drill and explicit retention approval, stop the tracker cleanly,
-take a verified recovery snapshot, set `MSXP_RETENTION=--retention-24h`, and restart
-the **same roster service**. Inspect `Retention SQLite`, `Retention files` and
-`Retention postponed` messages. This enables irreversible raw-evidence expiry, not
-a strict DB-size cap. All readers/admin tools must support schema 11 and compact
-checkpoints. Never run standalone retention `--apply` on the live database.
+Retention never runs inside the tracker (the coordinator refuses `--retention-24h`, and
+`MSXP_RETENTION` is unused). After a successful drill and explicit retention approval, take a
+verified recovery snapshot, install `deploy/msxp-retention.service` and `.timer`, and follow the
+validation procedure in [retention-capture-interference.md](retention-capture-interference.md).
+The tracker keeps running. This enables irreversible raw-evidence expiry, not a strict DB-size
+cap. All readers/admin tools must support schema 11 and compact checkpoints. Disabling the timer
+disables retention.
 
 ## Local validation
 
