@@ -31,7 +31,14 @@ character shows its saved readings with a last-tracked date. An unavailable lock
 stays locked and clears the display rather than switching to another character.
 Header text switches to black for light header colours. Roster status text is
 neutral: **Current** requires a confirmed EXP reading within five minutes;
-otherwise the pill shows the available last-seen age.
+otherwise the pill shows the saved EXP reading's age. Published roster entries
+include `last_exp_at` from cached summaries; a newer HUD sighting does not refresh it.
+While a character's summary warms, its EXP timestamp may be unavailable.
+The Streamers Level view and every Characters sort show a five-minute EXP/hour
+estimate on the right, or a dash if unavailable or over five minutes old.
+Character list rates reuse the cached five-minute pace; HTTP requests do not build
+history or fetch individual profiles. Character rows are numbered in every sort,
+with gold/silver/bronze rank badges only when sorted by Level.
 The homepage header search filters both Streamers and Characters by character
 name or channel, keeping the search text when switching views. Both views have
 **SORT BY** pills below the header. Characters offers **Name / Level / Last seen**

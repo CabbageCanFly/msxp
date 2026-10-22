@@ -51,6 +51,9 @@ def reference(store,server,channel,now):
         _,card,extras=d.card({},head,now=card_at)
         tracked=d.rolling_history(channel,now=tracked_at)
         roster=public_roster(d.roster(channel),(card['player'].get('display_level') or {}).get('value'))
+        for row in roster:
+            summary=server.publisher.summary(head,row['id'],now)
+            row['last_exp_at']=(summary.get('reading') or {}).get('timestamp')
     card['player']['character']=public_character(card['player']['character'])
     value=tracked_statistics(refresh(card['player'],now=now,activity=operation(extras['lifecycle'],None,now)),tracked,now=now,pace_as_of=card_at)
     # The removed broadcasts(): Twitch status for channels whose latest run is a Twitch source.

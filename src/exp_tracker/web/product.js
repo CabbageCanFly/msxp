@@ -225,14 +225,14 @@ function etaText(value,compact=false) {
   return '~'+parts.join(' ');
 }
 function rateTitle(rate) { return rate?'Estimated from recent stream updates.':'Not enough recent updates yet.'; }
-function metricValue(p,key) {
+function metricValue(p,key,minutes=windowMinutes) {
   if(key==='level')return displayLevel(p)?.value ?? null;
   // A saved 24h total, so it ranks whether or not the stream is live right now.
   if(key==='day')return p.tracked_status==='ready' && p.tracked_windows?.['1440']?.available?p.tracked_windows['1440'].gain?.approximate ?? null:null;
   if(failed)return null;
   // The selected lookback also limits how old a ranked pace can be.
-  const pace=publicPace(p,windowMinutes);
-  return pace && pace.age<=windowMinutes*60?pace.estimates.exp_per_hour?.value.approximate ?? null:null;
+  const pace=publicPace(p,minutes);
+  return pace && pace.age>=0 && pace.age<=minutes*60?pace.estimates.exp_per_hour?.value.approximate ?? null:null;
 }
 // Level ties break on EXP % within the level (Lv. 65 at 75% ranks above Lv. 65 at 50%).
 function sortValue(p,key) { const value=metricValue(p,key);return key==='level' && value!=null?value+(p.reading?.bp ?? 0)/10000:value; }
@@ -285,7 +285,7 @@ function showPresence() {
   if(toggle.textContent!==label)toggle.textContent=label;
 }
 function entry({player:p,value,rank}) {
-  const r=p.reading,s=current(p),row=node('li',`entry streamer-entry${sort==='level'?' unscored':''}`);row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));
+  const r=p.reading,s=current(p),row=node('li','entry streamer-entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));
   row.dataset.metric=sort;
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
@@ -301,9 +301,9 @@ function entry({player:p,value,rank}) {
     ?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes,age:saved.age}:null;
   const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta,age:r?'Updated '+ageText(s.age):'No reading yet'});
   row.append(badge,level,identity,section);
-  if(sort==='level')return row;  // The level badge already shows it.
+  if(sort==='level')value=metricValue(p,'exp_hour',5);
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label',sort==='day'?'EXP · 24h':'EXP / hour'));
-  score.title=sort==='exp_hour'?rateTitle(value):value==null?'No tracked EXP in the last 24 hours':`${expText(value,true)} EXP in the last 24 hours while tracked`;
+  score.title=sort!=='day'?rateTitle(value):value==null?'No tracked EXP in the last 24 hours':`${expText(value,true)} EXP in the last 24 hours while tracked`;
   row.append(score);return row;
 }
 // Rows update in place instead of being replaced, so hover, open tooltips and selections survive the 1 s refresh.
@@ -349,16 +349,19 @@ function renderCharacters() {
     (Date.parse(b.reading?.timestamp) || 0)-(Date.parse(a.reading?.timestamp) || 0)) || a.channel.localeCompare(b.channel) || a.id-b.id);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
   const now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
-  patchChildren(el('entries'),rows.map(r=>{
-    const row=node('li','entry character-entry');row.dataset.channel=r.channel;row.dataset.character=r.id;
+  patchChildren(el('entries'),rows.map((r,index)=>{
+    const row=node('li','entry character-entry');row.dataset.channel=r.channel;row.dataset.character=r.id;row.dataset.rank=order==='level'?index+1:'';
+    const badge=node('span','rank',index+1);badge.dataset.medal=order==='level' && index<3?index+1:'';badge.setAttribute('aria-label',`Rank ${index+1}`);
     const level=levelPill(r.level ?? '—',!!r.online,r.online?'Online':r.current?'Offline':'Not currently tracked');
     const identity=node('div','identity'),link=node('a','character',r.label);link.href=`/stream/${encodeURIComponent(r.channel)}?character=${r.id}`;
     identity.append(link,node('span','channel',r.channel));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
     const at=r.reading?.timestamp ?? r.last_seen_at;
     const section=expSection(r.reading ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
-      age:at?`${r.reading?'Last EXP':'Last seen'} ${ageText(Math.max(0,(now-Date.parse(at))/1000))}`:'Not seen yet',ageTitle:at?localTime(at):''});
-    row.append(level,identity,section);return row;
+      age:at?`Updated ${ageText(Math.max(0,(now-Date.parse(at))/1000))}`:'Not seen yet',ageTitle:at?localTime(at):''});
+    const value=metricValue(r,'exp_hour',5),score=node('div','score');
+    score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label','EXP / hour'));score.title=rateTitle(value);
+    row.append(level,identity,section,badge,score);return row;
   }));
   if(focus)[...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
@@ -694,12 +697,19 @@ async function poll() {
   finally { clearTimeout(timeout);activeController=null;delete document.body.dataset.loading;pollTimer=setTimeout(poll,unchanged()?2000:0); }
 }
 
+function rosterReading(r) {
+  const p=data?.player,reading=String(p?.character?.id)===String(r.id)?p.reading ?? lastSeenReading(p):null;
+  return reading ?? (r.last_exp_at?{timestamp:r.last_exp_at}:null);
+}
+function rosterStamp(r) {
+  return rosterReading(r)?.timestamp ?? (r.last_exp_at===undefined?r.last_seen_at:r.last_exp_at);
+}
 function rosterSeenText(r) {
-  const p=data?.player,reading=r.current && String(p?.character?.id)===String(r.id)?p.reading ?? lastSeenReading(p):null;
-  const stamp=reading?.timestamp ?? r.last_seen_at,now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
+  const reading=rosterReading(r);
+  const stamp=rosterStamp(r),now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
   const age=(now-Date.parse(stamp))/1000;
   if(!Number.isFinite(age))return 'Not seen yet';
-  if(reading && age>=0 && age<=300)return 'Current';
+  if(r.current && reading && age>=0 && age<=300)return 'Current';
   if(age>=365*86400)return `${Math.floor(age/(365*86400))}y ago`;
   if(age>=7*86400)return `${Math.floor(age/(7*86400))}w ago`;
   return ageText(Math.max(0,age));
@@ -711,7 +721,8 @@ function rosterLink(r,viewing,className) {
   if(String(r.id)===viewing)link.setAttribute('aria-current','page');
   const meta=node('span','roster-meta',`Lv. ${r.level ?? '—'} · `);meta.append(seen);
   link.append(node('span','roster-name',r.label),meta);
-  link.title=`${r.label} · ${r.current?'currently tracked':r.last_seen_at?'last tracked '+localTime(r.last_seen_at):'not seen yet'}`;
+  const stamp=rosterStamp(r);
+  link.title=`${r.label} · ${r.current?'currently tracked':stamp?'last tracked '+localTime(stamp):'not seen yet'}`;
   link.addEventListener('click',e=>{
     if(e.button!==0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)return;
     e.preventDefault();el('roster-all').open=false;selectCharacter(r.current?null:String(r.id));
@@ -731,7 +742,7 @@ function renderRoster() {
   // Two or more saved characters; the server already excludes the unrecognized placeholder.
   el('roster').hidden=roster.length<2;
   const viewing=viewCharacter ?? String(roster.find(r=>r.current)?.id ?? '');
-  const key=JSON.stringify([roster.map(r=>[r.id,r.label,r.level,r.current,r.current?null:r.last_seen_at]),viewing]);
+  const key=JSON.stringify([roster.map(r=>[r.id,r.label,r.level,r.current,r.current?null:r.last_seen_at,r.last_exp_at]),viewing]);
   if(key!==rosterKey) {
     rosterKey=key;
     const track=el('roster-track'),left=track.scrollLeft,focused=document.activeElement?.closest?.('#roster a');

@@ -1108,6 +1108,29 @@ test('Last seen orders characters by saved EXP readings, ignoring newer characte
   assert.deepEqual(p.elements.entries.children.map(row=>row.dataset.character),[3,2,9,10]);
 });
 
+test('character rows number every sort and reserve medals for Level, with Updated ages and missing rates dashed',async()=>{
+  const characters=[{...ALPHA,channel:'alpha',reading:{timestamp:ALPHA.last_seen_at}},{...BETA,channel:'beta',reading:null}];
+  const p=page('board',server([{characters,served_at:'2026-01-01T00:00:00Z'}]).fetch,'?mode=characters');await settle();
+  for(const index of [0,1,2]){
+    p.characterSortButtons[index].listeners.click();
+    const rows=p.elements.entries.children;
+    assert.deepEqual(rows.map(r=>r.children[3].textContent),[1,2]);
+    assert.deepEqual(rows.map(r=>r.children[3].dataset.medal),index===1?[1,2]:['','']);
+    assert.deepEqual(rows.map(r=>r.dataset.rank),index===1?[1,2]:['','']);
+    assert.ok(rows.every(r=>r.children[4].children[0].textContent==='—'));
+    assert.equal(rows[0].children[2].children[1].children.at(-1).textContent,'Updated 0s ago');
+  }
+});
+
+test('Level rows show only five-minute EXP/hour even when a longer window is selected',()=>{
+  const p=page('board'),pace=(age,rate)=>({active:false,age_seconds:age,estimates:{exp_per_hour:{value:{approximate:rate}}}});
+  p.context.fixture=player({recent_windows:{'5':{last_observed_pace:pace(300,2000)},'30':{last_observed_pace:pace(1,9000)}}});
+  p.run('windowMinutes=30;data={players:[fixture]};renderBoard()');
+  assert.equal(p.elements.entries.children[0].children[4].children[0].textContent,'2K');
+  p.context.performance.now=()=>1000;p.run('renderBoard()');
+  assert.equal(p.elements.entries.children[0].children[4].children[0].textContent,'—');
+});
+
 test('homepage search filters both lists, preserves text when switching, and only shows character sorting for Characters',async()=>{
   const streams={players:[player({channel:'lumi_stream',character:{label:'Lumi'}}),player({channel:'other',character:{label:'Beta'}})]};
   const characters={characters:[{...ALPHA,label:'Lumi',channel:'lumi_stream'},{...BETA,channel:'other'}]};
@@ -1188,6 +1211,34 @@ test('roster Current requires a confirmed EXP reading within five minutes and ol
   assert.equal(p.run('rosterSeenText(person)'),'10m ago');  // A newer HUD sighting cannot refresh an old EXP reading.
   p.run("data.player.character.id=3");assert.equal(p.run('rosterSeenText(person)'),'0s ago');
   p.context.person.last_seen_at=null;assert.equal(p.run('rosterSeenText(person)'),'Not seen yet');
+});
+
+test('viewed inactive roster character uses its saved EXP age and tooltip rather than its newer sighting',()=>{
+  const p=page('player');p.context.person={...BETA,last_seen_at:'2025-12-31T23:59:00Z'};
+  p.render(player({character:{id:3,label:'Beta'},reading:{timestamp:'2025-12-31T22:00:00Z'}}));
+  p.run("data.served_at='2026-01-01T00:00:00Z'");
+  assert.equal(p.run('rosterSeenText(person)'),'2h ago');
+  assert.equal(p.run("rosterLink(person,'3','roster-chip').title"),p.run("'Beta · last tracked '+localTime(data.player.reading.timestamp)"));
+  p.run("data.player.reading.timestamp='2025-12-31T23:59:00Z'");
+  assert.equal(p.run('rosterSeenText(person)'),'1m ago');
+});
+
+test('unviewed roster characters use published EXP timestamps and never fall back to newer sightings when EXP is absent',()=>{
+  const p=page('player');p.context.person={...BETA,last_seen_at:'2026-01-01T00:00:00Z',last_exp_at:'2025-12-31T22:00:00Z'};
+  p.render(player({character:{id:2,label:'Alpha'}}));p.run("data.served_at='2026-01-01T00:00:00Z'");
+  assert.equal(p.run('rosterSeenText(person)'),'2h ago');
+  p.context.person.last_exp_at=null;assert.equal(p.run('rosterSeenText(person)'),'Not seen yet');
+  p.context.person={...ALPHA,last_exp_at:'2025-12-31T23:59:00Z'};
+  p.run('data.player.character.id=3');assert.equal(p.run('rosterSeenText(person)'),'Current');
+});
+
+test('all character sorts show the published five-minute rate and expire it after five minutes',async()=>{
+  const pace={active:false,age_seconds:299,estimates:{exp_per_hour:{value:{approximate:2000}}}};
+  const characters=[{...ALPHA,channel:'alpha',recent_windows:{'5':{last_observed_pace:pace}}}];
+  const p=page('board',server([{characters}]).fetch,'?mode=characters');await settle();
+  for(const button of p.characterSortButtons){button.listeners.click();assert.equal(p.elements.entries.children[0].children[4].children[0].textContent,'2K');}
+  p.context.performance.now=()=>2000;p.run('renderBoard()');
+  assert.equal(p.elements.entries.children[0].children[4].children[0].textContent,'—');
 });
 
 test('overlay header text follows relative luminance and resets with the theme',()=>{

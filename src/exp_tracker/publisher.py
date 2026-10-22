@@ -14,6 +14,7 @@ Database-managed directories also allow MAX_CHANNEL_VIEWS hidden/historical chan
 on demand, with the same idle expiry. Directory refreshes have priority. Viewing
 never changes the selection.
 """
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -332,10 +333,12 @@ class Publisher:
             entry['roster'] = public_roster(roster, (card['player'].get('display_level') or {}).get('value'))
         # The Characters list's copy, valid until a correction or invalidation on the channel.
         character = view[0][2] if view else head['selected_character_id']
+        recent = shown['player'].get('recent_windows', {}).get('5', {})
         summary = dict(revision=(head['manual_revision'], head['invalidation_revision'], head['retention_revision']),
             source_revision=row and row['revision'], as_of=tracked['as_of'],
             reading=shown['player']['reading'] or (shown['player'].get('last_seen') or {}).get('reading'),
             display_level=shown['player'].get('display_level'),
+            five_minute_pace=recent.get('pace') or recent.get('last_observed_pace'),
             buckets=[None if b['value'] is None else round(b['value']['approximate']) for b in shown['tracked']['buckets']])
         entry['summary'] = summary
         cache=getattr(self.server,'publication_cache',None)
@@ -451,7 +454,12 @@ class Publisher:
         # Nothing was tracked since the build, so earlier buckets slide left and the new ones are empty.
         n = len(found['buckets']); shift = max(0, int((now - datetime.fromisoformat(found['as_of'])).total_seconds() // 1800))
         buckets = (found['buckets'][shift:] + [None] * n)[:n]; seen = [v for v in buckets if v is not None]
+        pace = deepcopy(found.get('five_minute_pace'))
+        if pace:
+            pace['age_seconds'] = max(0, (now - datetime.fromisoformat(pace['end'])).total_seconds())
+            if pace['age_seconds'] > 300:pace = None
         return dict(reading=found['reading'], display_level=found['display_level'],
+            recent_windows={'5': dict(last_observed_pace=pace)},
             as_of=(datetime.fromisoformat(found['as_of'])+timedelta(minutes=30*shift)).isoformat(),
             day_buckets=buckets, day=sum(seen) if seen else None)
 
@@ -464,7 +472,15 @@ class Publisher:
             character = character or head['selected_character_id']
             row = next((r for r in entry['roster'] if r['id'] == character), None)
             if row is None:return {}
-            return dict(roster=entry['roster'], summary=dict(character_id=character, **self.summary(head, character, self.clock())))
+            summary = dict(character_id=character, **self.summary(head, character, self.clock()))
+        return dict(roster=self.roster(channel, entry, self.clock()), summary=summary)
+
+    def roster(self, channel, entry, now):
+        """Saved EXP times from published summaries; never mistake a HUD sighting for an EXP update."""
+        with self.lock:
+            head = next((h for h in self.heads if h['login'] == channel), None)
+            return [dict(row, last_exp_at=((self.summary(head, row['id'], now) if head else {}).get('reading') or {}).get('timestamp'))
+                for row in entry['roster']]
 
     def missing_summaries(self, now):
         """Inactive directory characters without a usable summary, or seen after it was built; each roster's most recent first."""
@@ -503,7 +519,7 @@ class Publisher:
             entry = self.entry(channel)
             if entry is None:raise LookupError(channel)
             body = dict(player=broadcast([self.player(entry, now)], self.statuses, now)[0],
-                roster=entry['roster'], view=dict(character_id=entry['key'][1], current=True))
+                roster=self.roster(channel, entry, now), view=dict(character_id=entry['key'][1], current=True))
             return self.sections(body, entry, held, now)
         # Bounded keys; the held revisions are runtime, so a cached body is only reused for the same ones.
         key = ('character', channel, held[0] is not None, held[1] is not None)
@@ -534,7 +550,7 @@ class Publisher:
             value = refresh(found['public']['player'], now=now, activity=dict(state='historical_session'))
             value = tracked_statistics(value, found['public']['tracked'], now=now, pace_as_of=datetime.fromisoformat(found['card']['recent_as_of']))
             value.update(activity=public(value['activity']), twitch=dict(status='not_applicable', reason='inactive_character'))
-            return self.sections(dict(player=value, roster=entry['roster'], view=dict(character_id=character, current=False)), found, held, now)
+            return self.sections(dict(player=value, roster=self.roster(channel, entry, now), view=dict(character_id=character, current=False)), found, held, now)
         try:return self.present((*key, held[0] is not None, held[1] is not None), build, json.dumps(held))
         except LookupError:return None
 

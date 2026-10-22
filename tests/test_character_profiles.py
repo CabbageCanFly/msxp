@@ -106,7 +106,9 @@ def test_public_profile_shows_current_and_inactive_views_without_mutation(db, cl
         assert current['tracked_history']['character_id'] == ALPHA
         code, inactive = get(httpd, f'/api/players/{CHANNEL}?character={BETA}')
         assert code == 200 and inactive['view'] == dict(character_id=BETA, current=False)
-        assert inactive['roster'] == current['roster']
+        assert [{k:v for k,v in r.items() if k != 'last_exp_at'} for r in inactive['roster']] == [
+            {k:v for k,v in r.items() if k != 'last_exp_at'} for r in current['roster']]
+        assert next(r for r in inactive['roster'] if r['id'] == BETA)['last_exp_at'] == inactive['player']['reading']['timestamp']
         player = inactive['player']
         assert player['character'] == dict(id=BETA, label='Beta') and player['reading']['level']['value'] == 43
         assert player['activity'] == dict(state='historical_session') and player['twitch']['status'] == 'not_applicable'
@@ -311,7 +313,13 @@ def test_optional_demo_rosters_and_lightweight_home_projection(tmp_path, clock, 
         assert sum(r['current'] for r in home['characters']) == 1
         # The tracked character carries its own build's summary; inline requests never build the others'.
         base = {'id', 'label', 'level', 'last_seen_at', 'current', 'channel', 'online'}
-        assert all(set(r) == (base | {'reading', 'display_level', 'as_of', 'day_buckets', 'day'} if r['current'] else base) for r in home['characters'])
+        assert all(set(r) == (base | {'reading', 'display_level', 'as_of', 'day_buckets', 'day', 'recent_windows'} if r['current'] else base) for r in home['characters'])
+        tracked = next(r for r in home['characters'] if r['current'])
+        expected = current['player']['recent_windows']['5']
+        expected = expected.get('pace') or expected.get('last_observed_pace')
+        pace = tracked['recent_windows']['5']['last_observed_pace']
+        assert pace and expected and pace['estimates']['exp_per_hour'] == expected['estimates']['exp_per_hour']
+        assert pace['end'] == expected['end']
         assert {r['id'] for r in home['characters']} == {r['id'] for r in current['roster']}
         assert 'PendingOCR' not in json.dumps(home) and not httpd.publisher.views
         assert len(get(httpd, '/api/players')[1]['players']) == 1
@@ -460,12 +468,25 @@ def test_saved_summary_slides_its_chart_and_is_withheld_after_a_correction():
     p = publisher_module.Publisher(object(), clock=lambda: NOW, background=False)
     p.summaries[(CHANNEL, BETA)] = dict(revision=(1, 2, 3), as_of=NOW.isoformat(), reading={'bp': 5000}, display_level=None, buckets=[None] * 46 + [10, 20])
     head = dict(login=CHANNEL, manual_revision=1, invalidation_revision=2, retention_revision=3)
-    assert p.summary(head, BETA, NOW + timedelta(minutes=29)) == dict(reading={'bp': 5000}, display_level=None, as_of=NOW.isoformat(), day_buckets=[None] * 46 + [10, 20], day=30)
+    assert p.summary(head, BETA, NOW + timedelta(minutes=29)) == dict(reading={'bp': 5000}, display_level=None, as_of=NOW.isoformat(), day_buckets=[None] * 46 + [10, 20], day=30, recent_windows={'5': {'last_observed_pace': None}})
     # Half an hour on, both bars move left and the newest bucket is empty: nothing was tracked meanwhile.
     assert p.summary(head, BETA, NOW + timedelta(minutes=31))['day_buckets'] == [None] * 45 + [10, 20, None]
     assert p.summary(head, BETA, NOW + timedelta(hours=24))['day'] is None
     assert p.summary(dict(head, manual_revision=3), BETA, NOW) == {} and p.summary(head, ALPHA, NOW) == {}
     assert p.summary(dict(head, retention_revision=4), BETA, NOW) == {} and p.summary(head, BETA, NOW-timedelta(seconds=1)) == {}
+
+
+def test_character_summary_ages_existing_five_minute_pace_without_mutating_cached_values():
+    p = publisher_module.Publisher(object(), clock=lambda: NOW, background=False)
+    pace = dict(end=NOW.isoformat(), age_seconds=0, active=False,
+        estimates=dict(exp_per_hour=dict(value=dict(approximate=2000))))
+    p.summaries[(CHANNEL, BETA)] = dict(revision=(1, 2, 3), as_of=NOW.isoformat(),
+        reading={'timestamp': NOW.isoformat()}, display_level=None, buckets=[None] * 48, five_minute_pace=pace)
+    head = dict(login=CHANNEL, manual_revision=1, invalidation_revision=2, retention_revision=3)
+    shown = p.summary(head, BETA, NOW + timedelta(seconds=300))['recent_windows']['5']['last_observed_pace']
+    assert shown['age_seconds'] == 300 and shown['estimates']['exp_per_hour']['value']['approximate'] == 2000
+    assert p.summary(head, BETA, NOW + timedelta(seconds=301))['recent_windows']['5']['last_observed_pace'] is None
+    assert pace['age_seconds'] == 0
 
 
 def test_inactive_character_summaries_are_built_in_the_background_not_by_requests(db, clock, monkeypatch):

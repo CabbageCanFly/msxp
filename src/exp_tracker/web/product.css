@@ -36,14 +36,9 @@
 .toolbar:has(.sort-controls) { align-items:flex-end; }
 .sort-controls { display:grid; gap:5px; }
 .sort-caption { color:var(--text-muted); font-size:9px; font-weight:700; letter-spacing:1px; margin-left:2px; }
-.product .character-entry { grid-template-columns:70px minmax(135px,190px) minmax(0,1fr); }  /* Lines up with the level-sorted streamer rows. */
 @media(max-width:650px) {
   .product .board-header:has(.board-modes) { flex-wrap:wrap; align-items:center; }
   .board-tools #board-count { font-size:11px; }
-  .product .character-entry { grid-template-columns:40px minmax(0,1fr); }
-  .character-entry .level { grid-column:1; grid-row:1; }
-  .character-entry .identity { grid-column:2; grid-row:1; }
-  .character-entry .exp-section { grid-column:1 / -1; grid-row:2; }
 }
 .product .entry .exp-label { color:#fff; }
 .product .entry .exp-number { min-width:0; white-space:nowrap; }
@@ -230,16 +225,14 @@ html, body.product { overflow-x:clip; }
 .mob-hit { position:absolute; translate:-50% 0; color:#ffb340; font:700 22px var(--font-display); text-shadow:0 2px 0 #7a2e00, 0 0 3px #000; animation:mob-hit 1s ease-out forwards; }
 @keyframes mob-hit { to { transform:translateY(-34px); opacity:0; } }
 .boss { position:fixed; top:0; left:0; opacity:.18; pointer-events:none; }
-/* Streamer rows: an indicator light in the level badge's corner; under the EXP bar a 24 h mini chart, today's total
-   and the next-level ETA, with the reading's age on the right. Sorted by level there is no score column: the badge shows it. */
-.product .streamer-entry { grid-template-columns:36px 70px minmax(135px,190px) minmax(0,1fr) 70px; grid-template-areas:"rank level identity exp score"; }
-.product .streamer-entry.unscored { grid-template-columns:36px 70px minmax(135px,190px) minmax(0,1fr); grid-template-areas:"rank level identity exp"; }
-.streamer-entry .rank { grid-area:rank; }
-.streamer-entry .level { grid-area:level; }
+/* Both lists share rank, level, identity, EXP history and a right-hand score. */
+.product :is(.streamer-entry,.character-entry) { grid-template-columns:36px 70px minmax(135px,190px) minmax(0,1fr) 70px; grid-template-areas:"rank level identity exp score"; }
+:is(.streamer-entry,.character-entry) .rank { grid-area:rank; }
+:is(.streamer-entry,.character-entry) .level { grid-area:level; }
 .product .entry .level { position:relative; padding:8px 7px 6px 11px; }
-.streamer-entry .identity { grid-area:identity; }
-.streamer-entry .exp-section { grid-area:exp; }
-.streamer-entry .score { grid-area:score; }
+:is(.streamer-entry,.character-entry) .identity { grid-area:identity; }
+:is(.streamer-entry,.character-entry) .exp-section { grid-area:exp; }
+:is(.streamer-entry,.character-entry) .score { grid-area:score; }
 .level .led { position:absolute; top:4px; left:4px; width:6px; height:6px; border-radius:50%; background:#262d3d; box-shadow:inset 0 1px 1px #000c, 0 0 0 1px #4f5a70; }
 .level .led[data-on="true"] { background:radial-gradient(circle at 35% 35%, #f1ffc8, var(--green) 55%, var(--green-deep)); box-shadow:0 0 5px 1px #b6e65b8c; }
 /* The player page's status dot lights the same way. */
@@ -266,16 +259,13 @@ html, body.product { overflow-x:clip; }
 /* The sort and list notes were removed; an empty strip would only add space. */
 .ranking-context:has(> p:empty):has(> span:empty) { min-height:0; padding-bottom:6px; }
 @media(max-width:850px) {
-  .product .streamer-entry { grid-template-columns:30px 66px minmax(105px,145px) minmax(0,1fr) 70px; }
-  .product .streamer-entry.unscored { grid-template-columns:30px 66px minmax(105px,145px) minmax(0,1fr); }
+  .product :is(.streamer-entry,.character-entry) { grid-template-columns:30px 66px minmax(105px,145px) minmax(0,1fr) 70px; }
 }
 @media(max-width:650px) {
-  .product .streamer-entry { grid-template-columns:40px minmax(0,1fr) 72px; grid-template-areas:"rank identity score" "level exp exp"; }
-  .product .streamer-entry.unscored { grid-template-columns:40px minmax(0,1fr); grid-template-areas:"rank identity" "level exp"; }
-  .product .streamer-entry { padding:10px 11px; row-gap:7px; }
-  .streamer-entry .identity { display:flex; align-items:baseline; gap:6px; overflow:hidden; }
-  .product .streamer-entry .character { flex:0 1 auto; max-width:65%; font-size:16px; }
-  .streamer-entry .channel { flex:1; min-width:0; margin:0; font-size:11px; }
+  .product :is(.streamer-entry,.character-entry) { grid-template-columns:40px minmax(0,1fr) 72px; grid-template-areas:"rank identity score" "level exp exp"; padding:10px 11px; row-gap:7px; }
+  :is(.streamer-entry,.character-entry) .identity { display:flex; align-items:baseline; gap:6px; overflow:hidden; }
+  .product :is(.streamer-entry,.character-entry) .character { flex:0 1 auto; max-width:65%; font-size:16px; }
+  :is(.streamer-entry,.character-entry) .channel { flex:1; min-width:0; margin:0; font-size:11px; }
   .product .streamer-entry[data-metric="day"] .score strong { font-size:22px; }
   .product .entry .level { padding:10px 1px 5px; }
   .level .led { top:3px; left:3px; }
