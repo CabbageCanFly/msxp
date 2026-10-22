@@ -60,6 +60,18 @@ for(const view of ['player','overlay'])test(`${view} shows manual partial values
   assert.equal(p.elements.progress.value,0);
 });
 
+test('homepage Twitch labels link to the channel in a new tab; video labels stay plain text',()=>{
+  const p=page('board');
+  for(const kind of ['twitch','file']){
+    p.context.fixture=player({source_kind:kind});
+    const source=p.run('entry({player:fixture,rank:1,value:60})').children[2].children[1];
+    assert.equal(source.tag,kind==='twitch'?'a':'span');
+    assert.equal(source.textContent,kind==='twitch'?'ttv/alpha':'Video · alpha');
+    assert.equal(source.href,kind==='twitch'?'https://www.twitch.tv/alpha':undefined);
+    if(kind==='twitch'){assert.equal(source.target,'_blank');assert.equal(source.rel,'noopener noreferrer');}
+  }
+});
+
 test('homepage renders an operator correction with ordinary numeric labels',()=>{
   const p=page('board'),level={value:64,status:'manual_admin',correction_id:8};
   p.context.fixture=player({reading:{exp:'123456',percentage:'50.00',bp:5000,evidence:'manual_admin',

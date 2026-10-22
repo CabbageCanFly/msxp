@@ -13,6 +13,9 @@
 .product .entry { grid-template-columns:36px 64px minmax(135px,190px) minmax(160px,1fr) 120px; }
 .product .character { text-decoration:none; color:var(--text); }
 .product .character:hover { color:var(--gold); }
+.product a.channel { color:var(--text-muted); text-decoration:none; }
+.product a.channel:hover { color:var(--gold); }
+.product a.channel:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
 .product .score strong { font-size:26px; }
 .product .exp-bar[data-missing="true"] { opacity:.65; }
 .product .exp-bar[data-recovered="true"] { border-color:#dbb26e; }

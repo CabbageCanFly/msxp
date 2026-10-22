@@ -276,7 +276,12 @@ function entry({player:p,value,rank}) {
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
-  identity.append(name,node('span','channel',sourceText(p)));
+  const source=node(p.source_kind==='twitch'?'a':'span','channel',sourceText(p));
+  if(p.source_kind==='twitch') {
+    source.href=`https://www.twitch.tv/${encodeURIComponent(p.channel)}`;source.target='_blank';source.rel='noopener noreferrer';
+    source.title=`Watch ${p.channel} on Twitch`;
+  }
+  identity.append(name,source);
   // Only a current estimate: an offline or stale stream's saved ETA isn't counting down.
   const saved=publicETA(p),eta=saved && !saved.historical && etaText(saved.estimate)!=='—'?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes}:null;
   const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta,age:r?'Updated '+ageText(s.age):'No reading yet'});
