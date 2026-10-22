@@ -69,7 +69,5 @@ progress::-moz-progress-bar { background: var(--bar); }
 #overlay-chart .base { stroke: var(--line); stroke-width: 1; }
 
 footer { display: flex; align-items: center; gap: 10px; margin-top: auto; padding: 0 12px 5px; height: 21px; color: var(--muted); font-size: 10px; font-weight: 700; }
-#status { flex: 1.5; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#age { flex: 1; min-width: 0; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+#age { flex: 1; min-width: 0; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; opacity: .85; }
 #age:empty { display: none; }
-.estimate-mark { flex: none; font-size: 9px; opacity: .8; }

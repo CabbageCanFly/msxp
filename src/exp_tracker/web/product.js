@@ -399,6 +399,7 @@ function renderPlayer() {
   const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);
   el('movement').textContent=(observed || !s.stale && !failed) && (summary?.estimated_exp || movement!=null)?movementText(summary):'—';
   amount('movement',el('movement').textContent==='—'?'—':summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate,true)} EXP`:el('movement').textContent,el('movement').textContent);
+  if(view==='overlay')el('movement').textContent=el('movement').textContent.replace(/ EXP$/,'');
   el('movement').dataset.paused=String(!!observed && (observed.paused || s.stale || failed) && faded(s.age));
   el('movement').title=observed?`${el('movement').dataset.fullNumber}${movement!=null?` (+${movement}% of level)`:''} gained between the first and last update in this time.`:windowNote(p);
   amount('rate',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate,true)}`:'—',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate)}`:'—');el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);

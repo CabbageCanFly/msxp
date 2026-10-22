@@ -168,6 +168,7 @@ test('overlay uses the same five-minute gain and dated ETA as the player through
   for(const p of [overlay,detail]) {
     p.render(base);
     assert.equal(p.elements.movement.dataset.fullNumber,'+17,500 EXP');
+    assert.equal(p.elements.movement.textContent,p===overlay?'+17.5K':'+17,500 EXP');
     assert.equal(p.elements.eta.textContent,'~2h');
     assert.match(p.elements.eta.title,/5 min pace.*estimated/);
     p.run('failed=true;renderPlayer()');
