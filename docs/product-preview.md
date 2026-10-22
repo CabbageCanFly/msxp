@@ -33,8 +33,10 @@ Header text switches to black for light header colours. Roster status text is
 neutral: **Current** requires a confirmed EXP reading within five minutes;
 otherwise the pill shows the available last-seen age.
 The homepage header search filters both Streamers and Characters by character
-name or channel, keeping the search text when switching views. Character sorting
-appears beside the search field only in Characters.
+name or channel, keeping the search text when switching views. Both views have
+**SORT BY** pills below the header. Characters offers **Name / Level / Last seen**
+and defaults to Level. Streamers retains **EXP / hour / Level / 24h EXP**; its
+5/10/15/30-minute controls are hidden in Characters because they do not apply.
 
 ## Try the saved data
 
@@ -148,7 +150,8 @@ with unavailable values after eligible ones and equal values sharing ranks.
 On the homepage, the EXP/hour selection also sets the maximum age of a saved
 pace: 5, 10, 15 or 30 minutes. Older estimates have no rank and sort last.
 Homepage row ETAs also retain saved durations up to the selected window's age
-limit, with dated estimates labeled. They do not count down or fill missing ETAs.
+limit. Estimate age is in the hover text, without a second age label beside the
+duration. They do not count down or fill missing ETAs.
 Level sorting explicitly uses **last observed** levels, which may be old. Recent
 progress on the website compares eligible selected windows with actual coverage.
 The overlay retains shorter segment estimates. No unsupported window,

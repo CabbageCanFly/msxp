@@ -15,18 +15,19 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null)
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const bucketButtons=[60,300,1800].map(seconds=>Object.assign(new Element(),{dataset:{bucket:String(seconds)}}));
   const chartButtons=[15,30,60].map(minutes=>Object.assign(new Element(),{dataset:{chartWindow:String(minutes)}}));
+  const characterSortButtons=['name','level','recent'].map(value=>Object.assign(new Element(),{dataset:{characterSort:value}}));
   const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
   const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
   const context=vm.createContext({Intl,Date,BigInt,AbortController,URL,URLSearchParams,performance:{now:()=>0},
     location:{pathname,search,href:'http://127.0.0.1:8765'+pathname+search,origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
     history:{pushState:(s,t,u)=>visits.push(['push',String(u)]),replaceState:(s,t,u)=>visits.push(['replace',String(u)])},
     navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{documentElement:{dataset:api==null?{}:{api}},body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
-      querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
+      querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:selector==='[data-character-sort]'?characterSortButtons:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
   // Most cases below were written against the original 5 minute card and chart windows with 1 minute bars.
   if(view==='player' && !search.includes('defaults'))vm.runInContext('windowMinutes=5;lineWindow=5;chartWindow=5;bucketSeconds=60',context);
-  return {context,elements,timers,buttons,bucketButtons,chartButtons,modes,events,visits,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
+  return {context,elements,timers,buttons,bucketButtons,chartButtons,characterSortButtons,modes,events,visits,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
 }
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
@@ -564,11 +565,11 @@ test('homepage row ETAs retain dated durations through the selected window, then
   for(const button of p.buttons.slice(0,4)){
     p.context.performance.now=()=>0;button.listeners.click();
     const minutes=Number(button.dataset.window),eta=shownETA();
-    assert.match(eta.textContent,/ · est\. .* ago$/);
+    assert.doesNotMatch(eta.textContent,/est\.|ago/);
     assert.match(eta.title,new RegExp(`At the ${minutes} min pace, estimated .* ago. Not a live countdown.`));
     p.context.performance.now=()=>1000;assert.ok(shownETA());
     p.run('failed=true');assert.ok(shownETA());p.run('failed=false');
-    assert.equal(shownETA().textContent.split(' · ')[0],eta.textContent.split(' · ')[0]);
+    assert.equal(shownETA().textContent,eta.textContent);
     p.context.performance.now=()=>2000;assert.equal(shownETA(),undefined);
   }
 });
@@ -1074,11 +1075,26 @@ test('homepage Characters uses compact records, scoped links and no stale pace r
     [['true','Online',2],['false','Not currently tracked',2]]);
   assert.equal(other.children[2].children[1].children.at(-1).textContent,'Not seen yet');  // Under its EXP bar.
   assert.equal(p.elements['ranking-note'].textContent,'');
-  p.elements['character-sort'].value='recent';p.elements['character-sort'].listeners.change();
+  p.characterSortButtons[2].listeners.click();
   assert.equal(p.elements.entries.children[0].dataset.character,2);
   p.elements['character-filter'].value='OTHER';p.elements['character-filter'].listeners.input();
   assert.equal(p.elements.entries.children.length,1);assert.equal(p.elements.entries.children[0].dataset.channel,'other');
   p.elements['character-filter'].value='missing';p.elements['character-filter'].listeners.input();assert.equal(p.elements.empty.hidden,false);
+});
+
+test('character sort pills default to Level and sort by Name, Level and Last seen independently of streamer sorting',async()=>{
+  const characters=[{...ALPHA,channel:'alpha'},{...BETA,channel:'beta'},
+    {id:9,label:'Aster',level:99,last_seen_at:null,channel:'aster'}];
+  const p=page('board',server([{characters,served_at:'2026-01-01T00:00:00Z'}]).fetch,'?mode=characters');await settle();
+  assert.deepEqual(p.characterSortButtons.map(b=>b.attributes['aria-pressed']),['false','true','false']);
+  assert.deepEqual(p.elements.entries.children.map(row=>row.dataset.character),[9,2,3]);
+  for(const [index,order] of [[0,[2,9,3]],[1,[9,2,3]],[2,[2,3,9]]]){
+    p.characterSortButtons[index].listeners.click();p.run('renderBoard()');
+    assert.deepEqual(p.elements.entries.children.map(row=>row.dataset.character),order);
+    assert.equal(p.characterSortButtons[index].attributes['aria-pressed'],'true');
+    assert.equal(p.characterSortButtons.filter(b=>b.attributes['aria-pressed']==='true').length,1);
+    assert.equal(p.run('sort'),'level');
+  }
 });
 
 test('homepage search filters both lists, preserves text when switching, and only shows character sorting for Characters',async()=>{

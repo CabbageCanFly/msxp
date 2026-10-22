@@ -30,10 +30,12 @@
 .product .board-header:has(.board-modes) { flex-wrap:wrap; justify-content:flex-start; }
 .character-controls { display:flex; flex-wrap:wrap; gap:12px; color:var(--text-soft); font-size:13px; font-weight:700; min-width:0; }
 .character-controls label { display:flex; align-items:center; gap:7px; min-width:0; }
-.character-controls input,.character-controls select { min-width:0; max-width:100%; box-sizing:border-box; padding:8px 11px; color:var(--text); background:var(--surface-sunken); border:1px solid var(--line-strong); border-radius:var(--radius-sm); font:inherit; font-weight:600; }
-.character-controls input:focus-visible,.character-controls select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
+.character-controls input { min-width:0; max-width:100%; box-sizing:border-box; padding:8px 11px; color:var(--text); background:var(--surface-sunken); border:1px solid var(--line-strong); border-radius:var(--radius-sm); font:inherit; font-weight:600; }
+.character-controls input:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 .character-controls input { width:180px; }
-.product .toolbar:has(#streamer-metrics[hidden]):has(#connection:empty) { display:none; }
+.toolbar:has(.sort-controls) { align-items:flex-end; }
+.sort-controls { display:grid; gap:5px; }
+.sort-caption { color:var(--text-muted); font-size:9px; font-weight:700; letter-spacing:1px; }
 .product .character-entry { grid-template-columns:70px minmax(135px,190px) minmax(0,1fr); }  /* Lines up with the level-sorted streamer rows. */
 @media(max-width:650px) {
   .product .board-header:has(.board-modes) { flex-wrap:wrap; align-items:center; }

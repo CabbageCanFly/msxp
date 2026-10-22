@@ -28,7 +28,7 @@ function zoneLabel() { return new Intl.DateTimeFormat('en-US',{timeZone,timeZone
 let deferredRender=false;
 const selecting=()=>{const s=globalThis.getSelection?.();return !!s && s.rangeCount>0 && !s.isCollapsed;};
 const sorts=new Set(['exp_hour','level','day']);
-let data=null,receivedAt=0,failed=false,sort='level',windowMinutes=view==='player'?15:5,chartMode='exp',bucketSeconds=1800,pollTimer=null,activeController=null;
+let data=null,receivedAt=0,failed=false,sort='level',characterSort='level',windowMinutes=view==='player'?15:5,chartMode='exp',bucketSeconds=1800,pollTimer=null,activeController=null;
 // The character page's charts keep their own time windows, separate from the stat cards above them.
 let chartWindow=60,lineWindow=15;
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
@@ -265,7 +265,7 @@ function expSection(r,{label,buckets,day,eta,age,ageTitle,empty='Waiting for EXP
   const meta=node('div','exp-meta');
   if(buckets?.length)meta.append(dayChart(buckets));
   if(day!=null){const total=node('span','fact',`${expText(day)} today`);total.title=`${expText(day,true)} EXP tracked in the last 24 hours`;meta.append(total);}
-  if(eta){const soon=node('span','fact',`Next level in ${eta.text}${eta.historical?` · est. ${ageText(eta.age)}`:''}`);soon.title=`At the ${eta.minutes} min pace, estimated ${ageText(eta.age)}. Not a live countdown.`;meta.append(soon);}
+  if(eta){const soon=node('span','fact',`Next level in ${eta.text}`);soon.title=`At the ${eta.minutes} min pace, estimated ${ageText(eta.age)}. Not a live countdown.`;meta.append(soon);}
   const updated=node('span','updated',age);if(ageTitle)updated.title=ageTitle;
   meta.append(updated);section.append(bar,meta);return section;
 }
@@ -298,7 +298,7 @@ function entry({player:p,value,rank}) {
   identity.append(name,source);
   // Retain dated durations within the selected window; never turn them into a countdown.
   const saved=publicETA(p),eta=saved && saved.age>=0 && saved.age<=windowMinutes*60 && etaText(saved.estimate)!=='—'
-    ?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes,age:saved.age,historical:saved.historical}:null;
+    ?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes,age:saved.age}:null;
   const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta,age:r?'Updated '+ageText(s.age):'No reading yet'});
   row.append(badge,level,identity,section);
   if(sort==='level')return row;  // The level badge already shows it.
@@ -342,7 +342,8 @@ function renderBoard() {
   document.querySelectorAll('[data-window]').forEach(button=>{button.setAttribute('aria-pressed',String(sort==='exp_hour' && Number(button.dataset.window)===windowMinutes));button.disabled=sort!=='exp_hour';});
 }
 function renderCharacters() {
-  const search=el('character-filter').value.trim().toLowerCase(),order=el('character-sort').value || 'level';
+  const search=el('character-filter').value.trim().toLowerCase(),order=characterSort;
+  document.querySelectorAll('[data-character-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.characterSort===order)));
   const all=data?.characters ?? [],rows=all.filter(r=>shown(!!r.online) && `${r.label} ${r.channel}`.toLowerCase().includes(search));
   rows.sort((a,b)=>(order==='level'?(b.level ?? -1)-(a.level ?? -1):order==='name'?a.label.localeCompare(b.label):
     (Date.parse(b.last_seen_at) || 0)-(Date.parse(a.last_seen_at) || 0)) || a.channel.localeCompare(b.channel) || a.id-b.id);
@@ -797,7 +798,11 @@ globalThis.addEventListener?.('pageshow',poll);
 if(view==='board')globalThis.addEventListener?.('resize',renderBoard);
 if(view==='board') {
   document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>selectBoard(button.dataset.mode)));
-  el('character-filter').addEventListener('input',renderBoard);el('character-sort').addEventListener('change',renderBoard);
+  el('character-filter').addEventListener('input',renderBoard);
+  document.querySelectorAll('[data-character-sort]').forEach(button=>button.addEventListener('click',()=>{
+    if(!['name','level','recent'].includes(button.dataset.characterSort))return;
+    characterSort=button.dataset.characterSort;renderBoard();
+  }));
   globalThis.addEventListener?.('popstate',()=>selectBoard(boardParam(),'none'));
 }
 if(view==='board')el('presence').addEventListener('click',()=>{presence=PRESENCE[presence].next;renderBoard();});
