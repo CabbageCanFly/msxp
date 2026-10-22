@@ -98,6 +98,34 @@ test('a warming server is described as preparing history, not as unavailable',as
   board.run("el('entries').querySelectorAll=()=>[];data=fixture;renderBoard()");assert.match(board.elements['board-count'].textContent,/1 more loading/);
 });
 
+test('a direct inactive profile shows its dated summary while history warms, without borrowing another character',async()=>{
+  const reading={...player().reading,timestamp:new Date(Date.now()-7200000).toISOString()},roster=[
+    {id:1,label:'Current',level:70,current:true,last_seen_at:new Date().toISOString()},
+    {id:7,label:'Saved alt',level:60,current:false,last_seen_at:new Date().toISOString()}];
+  let body={error:'warming_up',roster,summary:{character_id:7,reading,day:30,as_of:'2026-01-01T00:00:00Z',day_buckets:[...Array(46).fill(null),10,20]}};
+  const p=page('player',async()=>({ok:false,status:503,json:async()=>body}),'?character=7');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(p.elements['player-name'].textContent,'Saved alt');
+  assert.equal(p.elements.exp.textContent,'71,441 EXP');assert.equal(p.elements.percentage.textContent,'5.90%');
+  assert.equal(p.elements.progress.hidden,false);assert.equal(p.elements.progress.value,5.9);
+  assert.equal(p.elements.age.textContent,'Last tracked 2h ago');
+  assert.equal(p.elements.status.textContent,'Preparing saved history…');
+  for(const id of ['rate','movement','eta'])assert.equal(p.elements[id].textContent,'—');
+  assert.equal(p.elements['tracked-exp'].textContent,'~30');
+  p.run('bucketSeconds=1800;drawHistory()');
+  const svg=p.elements['history-chart'];
+  assert.equal(svg.dataset.end,body.summary.as_of.replace('Z','.000Z'));
+  assert.equal(svg.children.filter(n=>n.attributes.class==='exp-column' && n.attributes.height>0).length,2);
+  p.run('renderPlayer()');assert.ok(svg.children.length);  // The one-second age refresh must not clear the preview chart.
+  p.run('currentLevelOnly=true;drawHistory()');
+  assert.equal(svg.children.filter(n=>n.attributes.class==='exp-column' && n.attributes.height>0).length,0);
+  body={...body,summary:{character_id:1,reading}};await p.run('poll()');
+  assert.equal(p.elements.progress.hidden,true);assert.equal(p.elements.exp.textContent,'—');
+  // A correction removes the summary on the next response; it must clear the old bar.
+  body={error:'warming_up',roster};await p.run('poll()');
+  assert.equal(p.elements.progress.hidden,true);assert.equal(p.elements.exp.textContent,'—');
+});
+
 for(const view of ['player','overlay'])test(`${view} clears previous identity while replacement publication warms and recovers`,async()=>{
   let respond;
   const p=page(view,()=>new Promise(resolve=>{respond=resolve;}));

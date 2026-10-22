@@ -122,6 +122,7 @@ class Publisher:
                             entry=cache.restore_entry(store,head,self.clock())
                             if entry:
                                 self.entries[head['login']]=entry;self.stats['restored']+=1
+                            self.summaries.update(cache.restore_summaries(store,head,self.clock()))
                         except (ValueError,TypeError,KeyError,sqlite3.Error):self.stats['cache_error']='restore_failed'
         except Exception as error:
             self.stats['last_error'] = type(error).__name__
@@ -305,11 +306,16 @@ class Publisher:
                     except (ValueError,TypeError,KeyError,sqlite3.Error):self.stats['cache_error']='checkpoint_restore_failed'
                     self.checkpoints_restored.add(login)
                 character = view[0][2] if view else None
+                roster = diagnostics.roster(login)
+                row = next((r for r in roster if r['id'] == (character or head['selected_character_id'])), None)
+                if view:
+                    # Summary-only builds need the same revision key as a visitor's view.
+                    view = (view[0], (head['manual_revision'], head['rename_revision'], head['invalidation_revision'],
+                        head['retention_revision'], row and row['revision']))
                 # A view keeps no card cache; due_views decides when it is rebuilt.
                 _, card, extras = diagnostics.card({} if view else self.cards, head, now=now,
                     checkpoints=self.server.checkpoints, eta_cache=self.server.eta_cache, character=character)
                 tracked = diagnostics.rolling_history(login, now=now, checkpoints=self.server.checkpoints, character=character)
-                roster = None if view else diagnostics.roster(login)
         except Exception as error:
             attempts = self.failures.get(name, (0, None))[0] + 1
             self.failures[name] = (attempts, now + timedelta(seconds=min(RETRY_SECONDS[1], RETRY_SECONDS[0] * 2 ** (attempts - 1))))
@@ -321,15 +327,18 @@ class Publisher:
         shown['player']['character'] = public_character(shown['player']['character'])
         entry = dict(key=view[1] if view else tuple(head), built_at=now.isoformat(), card=card, extras=extras, tracked=tracked, build_seconds=seconds,
             public=shown, revisions=(revision(shown['history']), revision(shown['tracked'])))
-        if roster is not None:
+        if not view:
             entry['roster'] = public_roster(roster, (card['player'].get('display_level') or {}).get('value'))
         # The Characters list's copy, valid until a correction or invalidation on the channel.
         character = view[0][2] if view else head['selected_character_id']
-        summary = dict(revision=(head['manual_revision'], head['invalidation_revision']), as_of=tracked['as_of'], reading=shown['player']['reading'],
+        summary = dict(revision=(head['manual_revision'], head['invalidation_revision'], head['retention_revision']),
+            source_revision=row and row['revision'], as_of=tracked['as_of'],
+            reading=shown['player']['reading'] or (shown['player'].get('last_seen') or {}).get('reading'),
+            display_level=shown['player'].get('display_level'),
             buckets=[None if b['value'] is None else round(b['value']['approximate']) for b in shown['tracked']['buckets']])
-        with self.lock:kept = not view or name in self.viewed  # A summary-only build is not a view to persist.
+        entry['summary'] = summary
         cache=getattr(self.server,'publication_cache',None)
-        if cache and kept:
+        if cache:
             try:
                 with store._transaction():
                     if view:cache.save_view(store,diagnostics,login,view[0][2],entry)
@@ -435,11 +444,25 @@ class Publisher:
     def summary(self, head, character, now):
         """Called under lock: the character's saved reading and 24 h chart moved on to now; nothing if unknown or outdated."""
         found = self.summaries.get((head['login'], character))
-        if not found or found['revision'] != (head['manual_revision'], head['invalidation_revision']):return {}
+        if (not found or found['revision'] != (head['manual_revision'], head['invalidation_revision'], head['retention_revision'])
+                or now < datetime.fromisoformat(found['as_of'])):return {}
         # Nothing was tracked since the build, so earlier buckets slide left and the new ones are empty.
         n = len(found['buckets']); shift = max(0, int((now - datetime.fromisoformat(found['as_of'])).total_seconds() // 1800))
         buckets = (found['buckets'][shift:] + [None] * n)[:n]; seen = [v for v in buckets if v is not None]
-        return dict(reading=found['reading'], day_buckets=buckets, day=sum(seen) if seen else None)
+        return dict(reading=found['reading'], display_level=found['display_level'],
+            as_of=(datetime.fromisoformat(found['as_of'])+timedelta(minutes=30*shift)).isoformat(),
+            day_buckets=buckets, day=sum(seen) if seen else None)
+
+    def preview(self, channel, character=None):
+        """Dated display while a report warms; memory only, never replays source history."""
+        with self.lock:
+            head = next((h for h in self.heads if h['login'] == channel), None)
+            entry = self.entries.get(channel)
+            if head is None or entry is None:return {}
+            character = character or head['selected_character_id']
+            row = next((r for r in entry['roster'] if r['id'] == character), None)
+            if row is None:return {}
+            return dict(roster=entry['roster'], summary=dict(character_id=character, **self.summary(head, character, self.clock())))
 
     def missing_summaries(self, now):
         """Inactive directory characters without a usable summary, or seen after it was built; each roster's most recent first."""
@@ -450,7 +473,8 @@ class Publisher:
                 for row in entry['roster']:
                     key = (head['login'], row['id']); found = self.summaries.get(key); failure = self.failures.get(('view', *key))
                     if row['current'] or failure and now < failure[1]:continue
-                    if (found and found['revision'] == (head['manual_revision'], head['invalidation_revision'])
+                    if (found and found['revision'] == (head['manual_revision'], head['invalidation_revision'], head['retention_revision'])
+                            and datetime.fromisoformat(found['as_of']) <= now
                             and not (row['last_seen_at'] and datetime.fromisoformat(row['last_seen_at']) > datetime.fromisoformat(found['as_of']))):continue
                     missing.append(key)
         return missing

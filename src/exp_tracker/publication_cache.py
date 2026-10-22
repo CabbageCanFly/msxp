@@ -57,12 +57,13 @@ class PublicationCache:
             self.db.execute(f'PRAGMA application_id={APPLICATION_ID}')
             self.db.execute('CREATE TABLE IF NOT EXISTS metadata (scope TEXT NOT NULL)')
             self.db.execute('CREATE TABLE IF NOT EXISTS entries (channel TEXT PRIMARY KEY,payload BLOB NOT NULL)')
+            self.db.execute('CREATE TABLE IF NOT EXISTS summaries (channel TEXT PRIMARY KEY,payload BLOB NOT NULL)')
             self.db.execute('CREATE TABLE IF NOT EXISTS checkpoints (channel TEXT PRIMARY KEY,prefix TEXT NOT NULL,payload BLOB NOT NULL)')
             row=self.db.execute('SELECT scope FROM metadata').fetchone()
             try:scope=json.loads(row[0]) if row else None
             except ValueError:scope=None
             if scope!=self.scope:
-                for table in ('entries','checkpoints','metadata'):self.db.execute('DELETE FROM '+table)
+                for table in ('entries','summaries','checkpoints','metadata'):self.db.execute('DELETE FROM '+table)
                 self.db.execute('INSERT INTO metadata VALUES(?)',(json.dumps(self.scope),))
             self.db.commit()
             self.path.chmod(0o600)
@@ -134,8 +135,26 @@ class PublicationCache:
     def save_view(self,store,diagnostics,channel,character,entry):
         now=datetime.fromisoformat(entry['built_at'])
         runs=[r['run_id'] for r in select_runs(diagnostics,channel,start=now-timedelta(hours=48,minutes=5),now=now,character=character)]
-        payload=encoded(self.wrap(store,entry,runs))
-        with self.db:self.db.execute('INSERT OR REPLACE INTO entries VALUES(?,?)',(f'{channel}#{character}',payload))
+        saved=self.wrap(store,entry,runs)
+        with self.db:self.save_publication(f'{channel}#{character}',saved,channel,character)
+
+    def save_publication(self,key,saved,channel,character):
+        """Caller owns the cache transaction; full reports and compact summaries share source validation."""
+        self.db.execute('INSERT OR REPLACE INTO entries VALUES(?,?)',(key,encoded(saved)))
+        if character is not None:
+            self.db.execute('INSERT OR REPLACE INTO summaries VALUES(?,?)',
+                (f'{channel}#{character}',encoded(dict(saved,value=saved['value']['summary']))))
+
+    def restore_summaries(self,store,head,now):
+        """Restore dated displays independently of full reports' 24h lifetime, with current source/operator checks."""
+        from .diagnostics import Diagnostics
+        found={};channel=head['login']
+        for row in Diagnostics(store).roster(channel):
+            summary=self.read('summaries',store,f"{channel}#{row['id']}")
+            if (summary and summary['revision']==(head['manual_revision'],head['invalidation_revision'],head['retention_revision'])
+                    and summary['source_revision']==row['revision'] and datetime.fromisoformat(summary['as_of'])<=now):
+                found[(channel,row['id'])]=summary
+        return found
 
     def restore_checkpoints(self,store,head,checkpoints,now):
         saved=self.read('checkpoints',store,head['login'])
@@ -152,18 +171,18 @@ class PublicationCache:
         with LOCK:items=[(k,v) for k,v in checkpoints.items() if k[1:3]==(channel,head['selected_character_id'])]
         prefix=hashlib.sha256(dumps([(k,v['runs']) for k,v in items]).encode()).hexdigest()
         old=self.db.execute('SELECT prefix FROM checkpoints WHERE channel=?',(channel,)).fetchone()
-        # Encode before the transaction so failure cannot persist half of a publication.
-        payload=encoded(self.wrap(store,entry,runs))
+        # Cache writes share one transaction, including the compact display.
+        saved=self.wrap(store,entry,runs)
         checkpoint=None
         if items and (not old or old[0]!=prefix):
             covered=sorted({r[0] for _,v in items for r in v['runs']})
             checkpoint=encoded(self.wrap(store,dict(head=tuple(head),items=items),covered))
         with self.db:
-            self.db.execute('INSERT OR REPLACE INTO entries VALUES(?,?)',(channel,payload))
+            self.save_publication(channel,saved,channel,head['selected_character_id'])
             if checkpoint is not None:self.db.execute('INSERT OR REPLACE INTO checkpoints VALUES(?,?,?)',(channel,prefix,checkpoint))
 
     def prune(self,channels):
-        for table in ('entries','checkpoints'):
+        for table in ('entries','summaries','checkpoints'):
             for row in self.db.execute('SELECT channel FROM '+table).fetchall():
                 if row[0].split('#')[0] not in channels:self.db.execute('DELETE FROM '+table+' WHERE channel=?',row)
         self.db.commit()

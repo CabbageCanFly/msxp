@@ -151,7 +151,8 @@ class Handler(BaseHTTPRequestHandler):
                     if body is None:
                         with Store(self.server.database,read_only=True) as store:store._channel(channel)  # Unknown: 404.
                         publisher.want(channel)
-                        self.reply(503,{'error':'warming_up','retry_after_seconds':2},headers=[('Retry-After','2')])
+                        preview=publisher.preview(channel,int(view[0]) if product_api and view else None) if product_api else {}
+                        self.reply(503,{'error':'warming_up','retry_after_seconds':2,**preview},headers=[('Retry-After','2')])
                     else:
                         self.reply(200,body)
             except ValueError as error:

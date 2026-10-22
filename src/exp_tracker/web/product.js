@@ -331,8 +331,9 @@ function renderCharacters() {
     const identity=node('div','identity'),link=node('a','character',r.label);link.href=`/stream/${encodeURIComponent(r.channel)}?character=${r.id}`;
     identity.append(link,node('span','channel',r.channel));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
+    const at=r.reading?.timestamp ?? r.last_seen_at;
     const section=expSection(r.reading ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
-      age:r.last_seen_at?`Last seen ${ageText(Math.max(0,(now-Date.parse(r.last_seen_at))/1000))}`:'Not seen yet',ageTitle:r.last_seen_at?localTime(r.last_seen_at):''});
+      age:at?`${r.reading?'Last EXP':'Last seen'} ${ageText(Math.max(0,(now-Date.parse(at))/1000))}`:'Not seen yet',ageTitle:at?localTime(at):''});
     row.append(level,identity,section);return row;
   }));
   if(focus)[...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
@@ -361,11 +362,23 @@ function renderPlayer() {
       }
       el('level').textContent='Lv. —';el('progress').hidden=true;el('progress').value=0;
       for(const id of ['player-name','player-source','streamer','character'])if(el(id)){el(id).textContent=channel;el(id).title='';}
-      el('history-chart')?.replaceChildren();if(el('level-event'))el('level-event').hidden=true;
+      if(!data?.summary?.day_buckets)el('history-chart')?.replaceChildren();if(el('level-event'))el('level-event').hidden=true;
       // A chosen saved character keeps its roster name, level and last sighting while its history loads.
-      const chosen=viewCharacter && roster.find(r=>String(r.id)===viewCharacter);
+      const chosen=view==='player' && roster.find(r=>viewCharacter?String(r.id)===viewCharacter:r.current);
       if(chosen){el('player-name').textContent=chosen.label;el('level').textContent=`Lv. ${chosen.level ?? '—'}`;
         if(chosen.last_seen_at)el('age').textContent=`Last tracked ${ageText(Math.max(0,(Date.now()-Date.parse(chosen.last_seen_at))/1000))}`;}
+      const saved=chosen && String(data?.summary?.character_id)===String(chosen.id)?data.summary:null,reading=saved?.reading;
+      if(reading) {
+        const bp=reading.bp ?? (reading.percentage!=null?Math.round(Number(reading.percentage)*100):null);
+        el('progress').hidden=bp==null;el('progress').value=bp==null?0:bp/100;
+        const exp=displayedExp(reading,true);amount('exp',exp==='—'?'—':`${exp} EXP`,displayedExp(reading));el('exp').title=expTitle(reading);
+        el('percentage').textContent=percentageText(reading);
+        el('age').textContent=`Last tracked ${ageText(Math.max(0,(Date.now()-Date.parse(reading.timestamp))/1000))}`;el('age').title=localTime(reading.timestamp);
+      }
+      if(saved?.day!=null) {
+        amount('tracked-exp',`~${expText(saved.day,true)}`,`~${expText(saved.day)}`);
+        el('tracked-note').textContent='Saved · preparing history';
+      }
       hideTip();
     }
     el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return;
@@ -480,7 +493,12 @@ function drawExpHistory() {
   const intervals=currentLevelOnly?rolling?.current_level_chart_intervals ?? rolling?.chart_intervals:rolling?.chart_intervals;
   const history=intervals?intervals.map(g=>({gain:g,connect_previous:true,level:{value:g.level}})):data?.history ?? [],level=rolling?.current_level ?? displayLevel(data?.player ?? {})?.value;
   const rows=currentLevelOnly?history.filter(p=>p.level.value===level):history,anchor=Date.parse(rolling?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end ?? data?.player?.latest_attempt_at ?? history.at(-1)?.timestamp);
-  const chart=bucketSeconds===1800 && rolling?{
+  const saved=!data?.player && data?.summary?.character_id===Number(viewCharacter ?? roster.find(r=>r.current)?.id)?data.summary:null;
+  const savedEnd=Date.parse(saved?.as_of);
+  const chart=bucketSeconds===1800 && saved?.day_buckets?.length===48 && Number.isFinite(savedEnd) && !currentLevelOnly?{
+    start:savedEnd-86400000,end:savedEnd,seconds:1800,range:86400,
+    bins:saved.day_buckets.map((value,i)=>({start:savedEnd-(48-i)*1800000,end:savedEnd-(47-i)*1800000,value,state:value==null?'missing':'saved'}))
+  }:bucketSeconds===1800 && rolling?{
     start:Date.parse(rolling.start),end:Date.parse(rolling.end),seconds:1800,range:86400,
     bins:rolling.buckets.map(b=>({...b,start:Date.parse(b.start),end:Date.parse(b.end),value:b.value?.approximate ?? null,covered:b.covered.approximate}))
   }:bucketHistory(bucketSeconds===1800?[]:rows,bucketSeconds===1800?Date.parse(data?.served_at):anchor,bucketSeconds,bucketSeconds===1800?null:chartWindow*60);
@@ -621,7 +639,11 @@ async function poll() {
     if(!unchanged())return;  // The visitor chose another character or homepage mode meanwhile.
     // The first publication or a changed character/session is not ready yet.
     warming=response.status===503 && body.error==='warming_up';
-    if(warming){data=null;rollingData=null;rollingRevision=null;}
+    if(warming){
+      data=body.summary?body:null;rollingData=null;rollingRevision=null;failed=false;
+      if(Array.isArray(body.roster))roster=body.roster;
+      render();return;
+    }
     if(response.status===404 && body.error==='unknown_character'){selectCharacter(null,'replace');return;}
     if(!response.ok)throw new Error();
     // An omitted section is the same revision this page holds; anything else arrives in full.

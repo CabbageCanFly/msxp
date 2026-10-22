@@ -311,7 +311,7 @@ def test_optional_demo_rosters_and_lightweight_home_projection(tmp_path, clock, 
         assert sum(r['current'] for r in home['characters']) == 1
         # The tracked character carries its own build's summary; inline requests never build the others'.
         base = {'id', 'label', 'level', 'last_seen_at', 'current', 'channel', 'online'}
-        assert all(set(r) == (base | {'reading', 'day_buckets', 'day'} if r['current'] else base) for r in home['characters'])
+        assert all(set(r) == (base | {'reading', 'display_level', 'as_of', 'day_buckets', 'day'} if r['current'] else base) for r in home['characters'])
         assert {r['id'] for r in home['characters']} == {r['id'] for r in current['roster']}
         assert 'PendingOCR' not in json.dumps(home) and not httpd.publisher.views
         assert len(get(httpd, '/api/players')[1]['players']) == 1
@@ -458,13 +458,14 @@ def test_demo_day_history_fills_the_24_hour_charts(tmp_path):
 
 def test_saved_summary_slides_its_chart_and_is_withheld_after_a_correction():
     p = publisher_module.Publisher(object(), clock=lambda: NOW, background=False)
-    p.summaries[(CHANNEL, BETA)] = dict(revision=(1, 2), as_of=NOW.isoformat(), reading={'bp': 5000}, buckets=[None] * 46 + [10, 20])
-    head = dict(login=CHANNEL, manual_revision=1, invalidation_revision=2)
-    assert p.summary(head, BETA, NOW + timedelta(minutes=29)) == dict(reading={'bp': 5000}, day_buckets=[None] * 46 + [10, 20], day=30)
+    p.summaries[(CHANNEL, BETA)] = dict(revision=(1, 2, 3), as_of=NOW.isoformat(), reading={'bp': 5000}, display_level=None, buckets=[None] * 46 + [10, 20])
+    head = dict(login=CHANNEL, manual_revision=1, invalidation_revision=2, retention_revision=3)
+    assert p.summary(head, BETA, NOW + timedelta(minutes=29)) == dict(reading={'bp': 5000}, display_level=None, as_of=NOW.isoformat(), day_buckets=[None] * 46 + [10, 20], day=30)
     # Half an hour on, both bars move left and the newest bucket is empty: nothing was tracked meanwhile.
     assert p.summary(head, BETA, NOW + timedelta(minutes=31))['day_buckets'] == [None] * 45 + [10, 20, None]
     assert p.summary(head, BETA, NOW + timedelta(hours=24))['day'] is None
     assert p.summary(dict(head, manual_revision=3), BETA, NOW) == {} and p.summary(head, ALPHA, NOW) == {}
+    assert p.summary(dict(head, retention_revision=4), BETA, NOW) == {} and p.summary(head, BETA, NOW-timedelta(seconds=1)) == {}
 
 
 def test_inactive_character_summaries_are_built_in_the_background_not_by_requests(db, clock, monkeypatch):
