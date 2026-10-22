@@ -41,6 +41,7 @@ h1 span { color: var(--gold); margin-right: 7px; }
 .board-header > span { font-size: 12px; font-weight: 600; color: #f0dcc0; }
 .toolbar { justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 12px 20px 8px; }
 .metrics, .windows { gap: 7px; flex-wrap: wrap; }
+#streamer-metrics button, #character-sort-control button { width: 8em; }
 button { font: inherit; cursor: pointer; border: 1px solid var(--line-strong); background: var(--surface-raised); color: var(--text-soft); border-radius: 100px; font-size: 14px; font-weight: 800; padding: 9px 17px; min-height: 40px; transition: background-color .15s, border-color .15s, color .15s; }
 button:hover:not(:disabled) { border-color: var(--gold-deep); color: var(--text); background: #34405a; }
 button:focus-visible { outline: 3px solid #bedbff; outline-offset: 3px; }

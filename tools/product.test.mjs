@@ -1083,7 +1083,7 @@ test('homepage Characters uses compact records, scoped links and no stale pace r
 });
 
 test('character sort pills default to Level and sort by Name, Level and Last seen independently of streamer sorting',async()=>{
-  const characters=[{...ALPHA,channel:'alpha'},{...BETA,channel:'beta'},
+  const characters=[{...ALPHA,channel:'alpha',reading:{timestamp:ALPHA.last_seen_at}},{...BETA,channel:'beta',reading:{timestamp:BETA.last_seen_at}},
     {id:9,label:'Aster',level:99,last_seen_at:null,channel:'aster'}];
   const p=page('board',server([{characters,served_at:'2026-01-01T00:00:00Z'}]).fetch,'?mode=characters');await settle();
   assert.deepEqual(p.characterSortButtons.map(b=>b.attributes['aria-pressed']),['false','true','false']);
@@ -1095,6 +1095,17 @@ test('character sort pills default to Level and sort by Name, Level and Last see
     assert.equal(p.characterSortButtons.filter(b=>b.attributes['aria-pressed']==='true').length,1);
     assert.equal(p.run('sort'),'level');
   }
+});
+
+test('Last seen orders characters by saved EXP readings, ignoring newer character sightings',async()=>{
+  const characters=[
+    {...ALPHA,channel:'alpha',last_seen_at:'2026-01-01T00:00:00Z',reading:{timestamp:'2025-12-31T09:00:00Z'}},
+    {...BETA,channel:'beta',last_seen_at:'2025-12-31T23:00:00Z',reading:{timestamp:'2025-12-31T23:59:03Z'}},
+    {...ALPHA,id:9,channel:'missing',last_seen_at:'2026-01-01T00:00:00Z'},
+    {...ALPHA,id:10,channel:'null',last_seen_at:'2026-01-01T00:00:00Z',reading:null}];
+  const p=page('board',server([{characters,served_at:'2026-01-01T00:00:00Z'}]).fetch,'?mode=characters');await settle();
+  p.characterSortButtons[2].listeners.click();
+  assert.deepEqual(p.elements.entries.children.map(row=>row.dataset.character),[3,2,9,10]);
 });
 
 test('homepage search filters both lists, preserves text when switching, and only shows character sorting for Characters',async()=>{

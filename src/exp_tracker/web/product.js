@@ -346,7 +346,7 @@ function renderCharacters() {
   document.querySelectorAll('[data-character-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.characterSort===order)));
   const all=data?.characters ?? [],rows=all.filter(r=>shown(!!r.online) && `${r.label} ${r.channel}`.toLowerCase().includes(search));
   rows.sort((a,b)=>(order==='level'?(b.level ?? -1)-(a.level ?? -1):order==='name'?a.label.localeCompare(b.label):
-    (Date.parse(b.last_seen_at) || 0)-(Date.parse(a.last_seen_at) || 0)) || a.channel.localeCompare(b.channel) || a.id-b.id);
+    (Date.parse(b.reading?.timestamp) || 0)-(Date.parse(a.reading?.timestamp) || 0)) || a.channel.localeCompare(b.channel) || a.id-b.id);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
   const now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
   patchChildren(el('entries'),rows.map(r=>{
