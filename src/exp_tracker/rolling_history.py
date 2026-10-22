@@ -123,7 +123,7 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
     return state
 
 
-MAX_CHECKPOINTS=256  # Two per channel: room for 100 channels plus on-demand views.
+MAX_CHECKPOINTS=256  # Two per channel, three without current pace (historical ETA): room for 80+ channels plus on-demand views.
 MAX_ETA_CACHE=256
 LOCK=threading.Lock()  # Directory and character threads share one checkpoint store.
 
@@ -236,12 +236,11 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
         state['previous_run']=run
         return reviewed
     state=dict(level_state={},percentage_state={},barrier_state={},previous_run=None,previous_time=None,rows=[],decisions=[])
-    # The 4,096-row historical restoration is too large to retain per channel.
-    resume=None if _historical else checkpoints
+    # Historical restoration resumes too: replaying a whole offline history on every failed capture fell minutes behind.
     try:
         state=replay(diagnostic,channel,start=start,now=now,receipt=receipt,state=state,step=step,
-            checkpoints=resume,key=('recent',channel,base['selected_character'] and base['selected_character']['id'],session,
-                revision(base['manual_corrections']),base['invalidation_revision']),character=character)
+            checkpoints=checkpoints,key=('recent',channel,base['selected_character'] and base['selected_character']['id'],session,
+                revision(base['manual_corrections']),base['invalidation_revision'],*(('historical',start.isoformat()) if _historical else ())),character=character)
     except HistoryLimit:
         return dict(base,observations=[],recent_history_status='history_limit',recent_history_receipt=receipt)
     kept=[(r,d) for r,d in zip(state['rows'],state['decisions']) if stamp(r)>=start]
@@ -266,7 +265,7 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
             name=channel if character is None else (channel,character)
             cached=eta_cache.get(name) if eta_cache is not None else None
             if cached is None or cached[0]!=key:
-                historical=recent_snapshot(diagnostic,channel,now=now,_historical=True,character=character)
+                historical=recent_snapshot(diagnostic,channel,now=now,_historical=True,checkpoints=checkpoints,character=character)
                 old=recent_windows(historical,None,now=now)
                 saved={m:w['eta'] for m,w in old.items()}
                 cached=(key,saved,historical['recent_history_status'],historical['recent_history_receipt'],historical.get('historical_display',{}))

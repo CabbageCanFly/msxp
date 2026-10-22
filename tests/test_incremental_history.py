@@ -136,6 +136,24 @@ def test_100_idle_channels_reuse_checkpoints_and_historical_eta_cache(tracking,m
     assert not seen  # Neither the causal prefix nor the old ETA history was replayed.
 
 
+def test_offline_failed_captures_resume_the_historical_eta_replay(tracking,monkeypatch):
+    """Production: each failed capture of an offline channel replayed its whole history (≈8 s), so publications fell minutes behind."""
+    _,store,d=tracking;checkpoints={};etas={};run='r0';d.begin(run,'alpha',config(run))
+    for n in range(240):  # Four rotated runs of readings, then the stream goes offline.
+        if n and n%60==0:rotate(d,run,f'r{n//60}');run=f'r{n//60}'
+        save(d,run,n%60+1,n*20,3300+n)
+    seen=[];original=rolling_history.run_rows
+    monkeypatch.setattr(rolling_history,'run_rows',lambda *a,**k:seen.append(a[2]['run_id']) or original(*a,**k))
+    for n in range(240,330):  # Capture keeps failing, across a rotation, long after the 125-minute recent view.
+        if n%60==0:rotate(d,run,f'r{n//60}');run=f'r{n//60}'
+        save(d,run,n%60+1,n*20+3*3600,0,missing=True);now=NOW+timedelta(seconds=n*20+3*3600)
+        seen.clear();fast=d.recent_snapshot('alpha',now=now,checkpoints=checkpoints,eta_cache=etas)
+        # After the first (cold recent view), each failure rereads only the open run (and one just rotated) per replay.
+        assert fast['historical_etas'] and (n==240 or len(seen)<=4)
+        if n%30==0:assert fast==d.recent_snapshot('alpha',now=now)  # Exactly the full replay.
+    assert any('historical' in k for k in checkpoints)
+
+
 def saved_logs(root,channel):
     """Each saved capture log read once, as records in run order. Live capture may still
     append: a trailing unfinished line and a header-only new log are not yet part of it."""

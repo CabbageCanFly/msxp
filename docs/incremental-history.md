@@ -159,10 +159,30 @@ rebuild was left unchanged.
   plus the existing 10-second rolling-window expiry exceed one core beyond roughly
   10 active channels. The budget bounds request latency, but cards then age beyond
   10 s and queued viewers still time out under load.
-- **The historical-ETA fallback still replays the session.** When a channel has no
-  eligible interval in the last 65 minutes, restoring its dated ETA replays the whole
-  session once per new attempt (cached per revision). Its 4,096-row window (≈12.5 KiB
-  per decorated row, ≈50 MiB) is too large to checkpoint.
+- **The historical-ETA fallback now resumes from a checkpoint (2026-10-22).** When a
+  channel has no eligible interval in the last 65 minutes, every offline channel for
+  example, its dated ETA is restored from the character's whole saved history, and
+  every new attempt invalidates the cached result. Without a checkpoint, each
+  failed capture replayed that history. For one real offline channel that was 184
+  runs, 9,740 attempts and 22 MB of JSON, about 8–20 s, and it grew with each failure.
+  Single-refresher publications then fell minutes behind: production showed
+  publication ages of 10–194 s across 28 channels. The replay now uses the same
+  checkpoint rules as the 24 h and recent views, under its own key. Parity against
+  full replay is covered by `same()` and by the failed-capture regression test.
+  - *Measured* (local, 15 real channels, read-only API on the live desktop
+    database while capture ran): steady publication age went from median ≈40 s /
+    max ≈75 s to median ≈12 s / max ≈25 s. Commit-to-API time for new attempts went
+    from median 16.3 s / max 39.8 s (only 36 of them were ever shown) to median 4.5 s /
+    max 23.8 s (161 shown). RSS went from 252 to ≈507 MiB.
+  - *Memory:* a retained historical state is at most 4,096 rows, measured at 33–44
+    MiB in memory for the largest channels. Rows are shared with the working state,
+    not copied.
+  - *Untested:* VPS timings and memory, and the extra persistent-cache write size
+    with `--publication-cache`. Historical checkpoints are saved there like the
+    others.
+  - *Unchanged and still open:* failed captures count toward the 4,096-row bound.
+    After a long offline tail, the historical 24 h ETA is computed from only the last
+    65 minutes of readings, or becomes unavailable.
 - **Some changes rebuild from scratch.** Cold start, restart chains whose earliest run
   leaves the window, and any invalidation rebuild once (≈0.8 s per full day).
 - **Abandoned requests still run** to completion. They now usually find a warm cache.
