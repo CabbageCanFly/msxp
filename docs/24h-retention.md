@@ -155,6 +155,10 @@ their accounting is preserved in checkpoint totals.
 
 ## Operation and reporting
 
+Measured 2026-10-22: inline maintenance froze the live coordinator 19–41 s per round and skipped
+captures. Keep it off until it runs outside the capture loop; see
+[retention-capture-interference.md](retention-capture-interference.md).
+
 The legacy JSON `msxp-tracker.service` includes `--retention-24h` with `--continuous`.
 The opt-in [schema-11 VPS roster service](vps-roster-rollout.md) starts with retention
 disabled and requires separate copy rehearsal and operator approval to enable it.
