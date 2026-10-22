@@ -141,7 +141,7 @@ function earlyText(p) {
 }
 function publicPace(p,minutes=null) {
   // minutes reads that lookback's saved pace (overlay rates); otherwise the page's own selection.
-  const windowed=view==='player' || minutes!=null,recent=minutes!=null?p.recent_windows?.[String(minutes)]:recentWindow(p);
+  const windowed=view==='player' || view==='overlay' || minutes!=null,recent=minutes!=null?p.recent_windows?.[String(minutes)]:recentWindow(p);
   if(windowed && recent?.status==='history_limit')return null;
   const compatible=p.responsive_pace?.level==null || p.responsive_pace.level===(p.reading?.level?.value ?? p.display_level?.value);
   const pace=windowed && recent?(recent.pace ?? recent.last_observed_pace ?? ((minutes ?? windowMinutes)===5 && compatible?p.responsive_pace:null)):p.responsive_pace;
@@ -156,7 +156,6 @@ function publicPace(p,minutes=null) {
     estimates,source:pace};
 }
 function publicETA(p) {
-  if(view==='overlay')return null;
   const saved=recentWindow(p)?.eta;
   if(!saved)return null;
   const age=saved.age_seconds+(performance.now()-receivedAt)/1000;
@@ -371,7 +370,7 @@ function renderPlayer() {
     }
     el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return;
   }
-  const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (view==='player' && p.recent_windows?null:s.metrics),last=lastSeenReading(p);
+  const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (p.recent_windows?null:s.metrics),last=lastSeenReading(p);
   if(view==='overlay') { el('streamer').textContent=p.channel;el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String((s.stale||failed) && faded(s.age));el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
   else {
     el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=p.channel;
@@ -393,8 +392,10 @@ function renderPlayer() {
   // Skip "Updated …" when the status already says how long ago, e.g. "Last tracked 13m ago".
   const lastAge=p.last_seen?.age_seconds==null?s.age:p.last_seen.age_seconds+(performance.now()-receivedAt)/1000;
   el('age').textContent=shown && s.stale?`Last tracked ${ageText(lastAge)}`:r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=shown?.timestamp?localTime(shown.timestamp):'';
-  const observed=view==='player'?observedWindow(p):null;
-  const movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):observed?.difference_percentage_points ?? (!p.recent_windows && selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null);
+  const observed=observedWindow(p);
+  let movement=observed?.difference_percentage_points ?? null;
+  if(movement==null && !p.recent_windows && !p.tracked_status)
+    movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null;
   const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);
   el('movement').textContent=(observed || !s.stale && !failed) && (summary?.estimated_exp || movement!=null)?movementText(summary):'—';
   amount('movement',el('movement').textContent==='—'?'—':summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate,true)} EXP`:el('movement').textContent,el('movement').textContent);
@@ -403,7 +404,7 @@ function renderPlayer() {
   amount('rate',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate,true)}`:'—',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate)}`:'—');el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Estimated level % per hour.';
-  const savedETA=publicETA(p),eta=view==='player' && p.recent_windows?savedETA?.estimate:m?.eta;
+  const savedETA=publicETA(p),eta=p.recent_windows?savedETA?.estimate:m?.eta;
   amount('eta',etaText(eta),etaText(eta,true));el('eta').title=eta?`${etaText(eta)} to the next level at ${savedETA?`the ${savedETA.window_minutes} min pace${Date.parse(savedETA.estimated_at)?`, estimated ${localTime(savedETA.estimated_at)}`:''}`:'the recent pace'}. Not a live countdown.`:'Needs recent EXP gains';
   if(view==='overlay')el('eta').textContent=etaText(eta);
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';

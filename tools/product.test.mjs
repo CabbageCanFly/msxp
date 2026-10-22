@@ -155,6 +155,31 @@ test('cached failures and advancing ages preserve values but suppress rates and 
   p.context.performance.now=()=>0;p.run('failed=true;renderPlayer()');assert.equal(p.elements.eta.textContent,'—');assert.equal(p.elements.card.dataset.stale,'true');
 });
 
+test('overlay uses the same five-minute gain and dated ETA as the player through OCR gaps',()=>{
+  const observed={available:true,estimated_exp:{value:{approximate:17500}},difference_percentage_points:'1.00',
+    span_seconds:{approximate:270},coverage_seconds:{approximate:250},paused:true,age_seconds:65};
+  const base=player({segment:null,stale:true,age_seconds:65,latest_attempt_status:'capture_failed',
+    tracked_status:'ready',tracked_windows:{5:{observed}},
+    recent_windows:{5:{status:'ready',observed,pace:{active:false,age_seconds:65,level:60,
+      estimates:{exp_per_hour:{value:{approximate:210000}},percentage_per_hour:{value:{approximate:12}},eta:null}},
+      eta:{estimate:{seconds:{approximate:7200}},window_minutes:5,estimated_at:'2026-01-01T00:00:00Z',
+        age_seconds:65,historical:true}}}});
+  const overlay=page(),detail=page('player');
+  for(const p of [overlay,detail]) {
+    p.render(base);
+    assert.equal(p.elements.movement.dataset.fullNumber,'+17,500 EXP');
+    assert.equal(p.elements.eta.textContent,'~2h');
+    assert.match(p.elements.eta.title,/5 min pace.*estimated/);
+    p.run('failed=true;renderPlayer()');
+    assert.equal(p.elements.movement.dataset.fullNumber,'+17,500 EXP');
+    assert.equal(p.elements.eta.textContent,'~2h');
+  }
+  // Explicitly unavailable windows must not fall back to an unrelated continuous segment.
+  overlay.render({...base,segment:player().segment,tracked_status:'history_limit',tracked_windows:{},
+    recent_windows:{5:{status:'history_limit',observed:{available:false},eta:null}}});
+  assert.equal(overlay.elements.movement.textContent,'—');assert.equal(overlay.elements.eta.textContent,'—');
+});
+
 test('unreadable HUD retains dated rate without assuming zero gain, expires, and ranks it only while recent',()=>{
   const p=page(),base=player();
   base.latest_attempt_status='malformed_or_unavailable';

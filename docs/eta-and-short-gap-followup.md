@@ -66,7 +66,11 @@ polling cannot erase this character-page duration. Age increases; duration does
 not count down or recompute merely because polling ages old rate samples out.
 Its selected-period rate is anchored at the supporting observation timestamp;
 fresh supported evidence replaces it. The four cards remain present.
-The OBS overlay retains its separate live-ETA suppression policy.
+The OBS overlay now uses the same validated five-minute window gain and dated ETA
+as the character page with five minutes selected. Its progress label is **Last 5 min**.
+Missing OCR and failed polls preserve supported totals and the original ETA duration;
+they do not invent missing readings or renew its observation timestamp. Backend
+level/reset/source guards still decide whether an ETA is available.
 
 After a server/coordinator restart, bounded read-only SQLite replay can restore
 the dated estimate for the same selected character/session/source. No endpoint
