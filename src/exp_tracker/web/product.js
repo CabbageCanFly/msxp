@@ -565,7 +565,7 @@ function drawPercentageHistory() {
   const values=points.filter(visible).map(p=>p.reading.bp/100),min=values.length?Math.min(...values):0,max=values.length?Math.max(...values):100;
   const padding=Math.max(.01,(max-min)*.1),low=Math.max(0,min-padding),high=Math.min(100,max+padding);
   function shape(tag,attrs,title) { const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(title)n.append(node('title','',title));svg.append(n);return n; }
-  if(!points.length)shape('text',{x:60,y:100}).textContent='Your next adventure starts here.';
+  if(!points.length)shape('text',{x:60,y:100}).textContent='';
   const x=t=>60+(t-first)/Math.max(1,last-first)*plotWidth,y=v=>190-(v-low)/Math.max(.01,high-low)*165;
   for(let i=0;i<=4;i++) {
     const value=low+(high-low)*i/4;
