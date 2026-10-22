@@ -321,6 +321,7 @@ function patchChildren(parent,nodes) {
 }
 function renderBoard() {
   const characters=shownMode==='characters';
+  el('board-count').dataset.loading=String(!failed && (!data || !!data.warming?.length));
   document.querySelectorAll('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===boardMode)));
   el('entries').setAttribute('aria-busy',String(boardMode!==shownMode));  // The other list is on its way.
   el('streamer-metrics').hidden=characters;el('streamer-windows').hidden=characters;el('character-sort-control').hidden=!characters;

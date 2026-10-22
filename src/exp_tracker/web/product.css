@@ -27,6 +27,9 @@
 /* The count and the online filter stay together at the right, also when the header wraps on a phone. */
 .board-tools { display:flex; align-items:center; gap:10px; margin-left:auto; }
 .board-tools #board-count { font-size:12px; font-weight:600; color:#f0dcc0; }
+.board-tools #board-count[data-loading="true"]::before { content:""; display:inline-block; width:10px; height:10px; margin-right:6px; vertical-align:-1px; border:2px solid #f0dcc044; border-top-color:currentColor; border-radius:50%; }
+@keyframes board-count-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:no-preference) { #board-count[data-loading="true"]::before { animation:board-count-spin .8s linear infinite; } }
 .product .board-header:has(.board-modes) { flex-wrap:wrap; justify-content:flex-start; }
 .character-controls { display:flex; flex-wrap:wrap; gap:12px; color:var(--text-soft); font-size:13px; font-weight:700; min-width:0; }
 .character-controls label { display:flex; align-items:center; gap:7px; min-width:0; }

@@ -1177,6 +1177,18 @@ test('switching lists keeps the current one until the other arrives, then swaps 
   assert.equal(p.elements['streamer-metrics'].hidden,true);assert.equal(p.elements.entries.attributes['aria-busy'],'false');
 });
 
+test('homepage loading spinner follows initial load and warming channels in both lists, and stops on completion or failure',()=>{
+  const p=page('board');p.run('renderBoard()');
+  assert.equal(p.elements['board-count'].dataset.loading,'true');
+  for(const mode of ['streamers','characters']){
+    p.run(`shownMode=boardMode='${mode}';data={players:[],characters:[],warming:['alpha']};renderBoard()`);
+    assert.equal(p.elements['board-count'].dataset.loading,'true');
+    p.run('data.warming=[];renderBoard()');assert.equal(p.elements['board-count'].dataset.loading,'false');
+    p.run("data.warming=['alpha'];failed=true;renderBoard()");assert.equal(p.elements['board-count'].dataset.loading,'false');
+    p.run('failed=false');
+  }
+});
+
 test('homepage discards a late Streamers response after changing to Characters',async()=>{
   let finish;const p=page('board',()=>new Promise(resolve=>{finish=resolve;}));
   p.modes[1].listeners.click();
