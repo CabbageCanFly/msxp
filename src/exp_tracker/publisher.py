@@ -420,8 +420,8 @@ class Publisher:
                 value = tracked_statistics(card['player'], entry['public']['tracked'], now=now,
                     pace_as_of=datetime.fromisoformat(entry['card']['recent_as_of']))
                 value['activity'] = public(value['activity'])
-                # The row's mini chart: tracked EXP per 30 min over 24 h, None where nothing was tracked (not zero).
-                value['day_buckets'] = [None if b['value'] is None else round(b['value']['approximate']) for b in entry['public']['tracked']['buckets']]
+                # Same chart-only buckets as the profile; long-gap gains remain in the 24h total.
+                value['day_buckets'] = [None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in entry['public']['tracked']['buckets']]
                 if entry.get('restored'):
                     warming.append(head['login'])
                     value['publication']=dict(state='restored',computed_at=entry['built_at'],updating=True)

@@ -21,7 +21,7 @@ history chart. Its preview and copied URL follow the EXP history panel's interva
 aggregate buckets. Standalone URLs without chart settings default to 1-minute
 bars over the last hour. After changing settings, copy the updated URL into OBS;
 an existing OBS source keeps the settings in its URL.
-Profile and linked overlay chart bars omit gains whose observation endpoints are more than 60 minutes apart;
+Profile, linked overlay and homepage mini-chart bars omit gains whose observation endpoints are more than 60 minutes apart;
 exactly 60 minutes remains eligible. This removes unlocated gains on returning
 after a long tracking gap while retaining short intervals in the same bucket.
 The API's chart-only `chart_value` is separate from bucket `value`: saved readings

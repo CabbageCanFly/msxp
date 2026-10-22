@@ -187,8 +187,27 @@ def test_background_publication_matches_reference_through_rotation_restart_loss_
         home=json.loads(server.publisher.homepage())
         assert home['players'][0]['tracked_as_of']==clock.at.isoformat() and 'warming' not in home
         buckets=server.publisher.entry('alpha')['public']['tracked']['buckets']
-        assert len(buckets)==48 and home['players'][0]['day_buckets']==[None if b['value'] is None else round(b['value']['approximate']) for b in buckets]
+        assert len(buckets)==48 and home['players'][0]['day_buckets']==[None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in buckets]
     assert compared>20
+
+
+@pytest.mark.parametrize('gap', [3600, 3601, 7200])
+def test_homepage_mini_chart_omits_long_gap_gain_but_keeps_recent_gain_and_daily_total(tracking,clock,gap):
+    path,_,d=tracking
+    d.begin('one','alpha',config('one',interval=20))
+    save(d,'one',1,20,3300)
+    save(d,'one',2,20+gap,3400)
+    save(d,'one',3,35+gap,3401)
+    clock.at=NOW+timedelta(seconds=35+gap)
+    with server_module.create_server(path,port=0,public_only=True) as server:
+        server.publisher.settle()
+        player=json.loads(server.publisher.homepage())['players'][0]
+        tracked=server.publisher.entry('alpha')['public']['tracked']
+        assert player['day_buckets']==[None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in tracked['buckets']]
+        chart=sum(v for v in player['day_buckets'] if v is not None)
+        total=sum(round(b['value']['approximate']) for b in tracked['buckets'] if b['value'] is not None)
+        assert chart>0 and (chart==total if gap==3600 else chart<total)
+        assert player['tracked_windows']['1440']['gain']==tracked['tracked_exp']
 
 
 @pytest.mark.parametrize('channel',['emmies','niru','telfer1'])
