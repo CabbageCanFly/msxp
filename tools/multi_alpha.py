@@ -256,9 +256,25 @@ def options(row, database, output):
     return shadow.parser().parse_args(argv)
 
 
+def category_gate(lanes, availability=None, *, seconds=30):
+    """Twitch lanes live outside MapleStory start no capture. Checked in the background so scheduling never waits on Twitch;
+    unknown or blank categories never pause (fail open)."""
+    from exp_tracker.twitch_auth import AppTokens
+    from exp_tracker.twitch_probe import StreamAvailability, outside_maplestory
+    availability=availability or StreamAvailability(enabled=True,auth=AppTokens(maintain=True))
+    statuses={}
+    def refresh():
+        while True:
+            try:statuses.update(availability.snapshot(sorted({l['channel'] for l in list(lanes) if l['source'].kind=='twitch'})))
+            except (OSError,ValueError):pass
+            time.sleep(seconds)
+    threading.Thread(target=refresh,name='twitch-category',daemon=True).start()
+    return lambda lane:lane['source'].kind=='twitch' and outside_maplestory(statuses.get(lane['channel']))
+
+
 def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
              continuous=False, max_attempts=None, stop_after_seconds=None, rotate=None,
-             activity=None, active_runs=None, simulated=False, maintain=None, workers=1, reconcile=None, stagger=False):
+             activity=None, active_runs=None, simulated=False, maintain=None, workers=1, reconcile=None, stagger=False, gate=None):
     """No queue: one due-time per lane, rotating ties, elapsed slots skipped.
 
     workers>1 runs that many lanes' attempts at once, never two for one lane. Rotation,
@@ -267,6 +283,7 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
     lane i at i/len(batch) of ITS OWN interval; a lane added beside active lanes (roster add,
     resume or change) takes the middle of the widest gap in their upcoming due times, so
     their cadence is untouched and new work does not cluster.
+    gate(lane) True holds a lane (e.g. live outside MapleStory); it resumes on time, without counting held slots as skipped.
     """
     started, wall = clock(), datetime.now(timezone.utc)
     totals={}
@@ -414,13 +431,18 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
                 reconcile(set(running),clock())
                 place([lane for lane in lanes if not lane.get('_scheduled')])
             if maintain:maintain()
+            if gate:
+                for lane in lanes:
+                    held=gate(lane)
+                    if lane.get('gated') and not held:lane['due']=max(lane['due'],clock())
+                    lane['gated']=held
             pending = [] if stopping or len(running) >= workers else [
-                i for i,lane in enumerate(lanes) if not lane['stopped'] and not lane.get('paused') and lane['channel'] not in running and
+                i for i,lane in enumerate(lanes) if not lane['stopped'] and not lane.get('paused') and not lane.get('gated') and lane['channel'] not in running and
                 (lane['attempts'] < (max_attempts if continuous else lane['args'].count)
                  if not continuous or max_attempts is not None else True)]
             if not pending:
                 if not running:
-                    if reconcile and not stopping and max_attempts is None:
+                    if (reconcile or gate and any(l.get('gated') for l in lanes)) and not stopping and max_attempts is None:
                         sleep(1);continue
                     break
                 collect(1 if reconcile else math.inf)
@@ -476,6 +498,7 @@ def main(argv=None):
     cli.add_argument('--public-only',action='store_true',help='Serve only the public homepage, character pages and OBS overlay; developer routes return 404')
     cli.add_argument('--cors-origin',action='append',default=[],metavar='ORIGIN',help='Exact frontend origin allowed to read the API, e.g. https://msxp.pages.dev; repeatable')
     cli.add_argument('--twitch-status',action='store_true',help='Opt in to cached official live status; requires local Twitch API environment credentials')
+    cli.add_argument('--any-category',action='store_true',help='Keep capturing Twitch streams live in any category; by default continuous capture pauses outside MapleStory')
     cli.add_argument('--max-attempts',type=int,help='Continuous-mode stop condition, per channel (not per run)')
     cli.add_argument('--stop-after-seconds',type=float,help='Stop scheduling new work after real monotonic elapsed time')
     cli.add_argument('--offline-fast-test',action='store_true',help='Explicit local-video-only interval floor of 3 seconds')
@@ -778,6 +801,10 @@ def main(argv=None):
                                 httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(following)
                                 print(f"{lane['channel']}: scheduled rotation after 60 committed attempts; session {lane['session_id']} retained",flush=True)
                             scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate,maintain=maintain) if args.continuous else {}
+                            # Continuous Twitch capture always pauses outside MapleStory; without credentials nothing pauses.
+                            if args.continuous and not args.any_category and (db_mode or any(row['source']=='twitch' for row in streams)):
+                                scheduler_options['gate']=category_gate(lanes)
+                                print('Twitch captures pause while a stream is live outside the MapleStory category.',flush=True)
                             def lane_options(lane):
                                 lane['options']={'resident':resident} if resident else {}
                                 if tesseract:lane['options']['tesseract']=tesseract  # Shared bounded pool; never shares a reply.

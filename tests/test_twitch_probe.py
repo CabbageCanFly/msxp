@@ -6,7 +6,7 @@ import os
 from PIL import Image
 import pytest
 
-from exp_tracker.twitch_probe import inspect_thumbnail, main, thumbnail_url
+from exp_tracker.twitch_probe import outside_maplestory, inspect_thumbnail, main, thumbnail_url
 from exp_tracker.twitch_probe import MAX_STREAM_PAGES,StreamAvailability,helix
 
 
@@ -219,3 +219,15 @@ def test_rate_limit_backoff_does_not_extend_partial_live_freshness(monkeypatch):
     expired=cache.snapshot(['alpha','beta'],now=now+timedelta(seconds=61))
     assert expired['alpha']['status']=='unknown' and expired['alpha']['last_known_status']=='live'
     assert len(calls)==2
+
+
+def test_live_category_is_kept_and_only_a_named_other_category_is_outside_maplestory(monkeypatch):
+    monkeypatch.setenv('TWITCH_CLIENT_ID','private-client');monkeypatch.setenv('TWITCH_ACCESS_TOKEN','private-token')
+    rows=[dict(user_login='alpha',type='live',game_name='MapleStory'),dict(user_login='beta',type='live',game_name='Just Chatting'),
+          dict(user_login='gamma',type='live',game_name='')]
+    result=StreamAvailability(enabled=True,fetch=lambda *a,**kw:dict(data=rows,pagination={}),clock=lambda:0).snapshot(['alpha','beta','gamma','delta'])
+    channels=('alpha','beta','gamma','delta')
+    assert [result[c]['game_name'] for c in channels]==['MapleStory','Just Chatting','',None]
+    # Only a named non-MapleStory category counts; blank, unknown and offline never pause capture.
+    assert [outside_maplestory(result[c]) for c in channels]==[False,True,False,False]
+    assert not outside_maplestory(dict(status='live',game_name='MapleStory Worlds')) and not outside_maplestory(None)
