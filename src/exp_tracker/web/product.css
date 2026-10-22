@@ -35,7 +35,7 @@
 .character-controls input { width:180px; }
 .toolbar:has(.sort-controls) { align-items:flex-end; }
 .sort-controls { display:grid; gap:5px; }
-.sort-caption { color:var(--text-muted); font-size:9px; font-weight:700; letter-spacing:1px; }
+.sort-caption { color:var(--text-muted); font-size:9px; font-weight:700; letter-spacing:1px; margin-left:2px; }
 .product .character-entry { grid-template-columns:70px minmax(135px,190px) minmax(0,1fr); }  /* Lines up with the level-sorted streamer rows. */
 @media(max-width:650px) {
   .product .board-header:has(.board-modes) { flex-wrap:wrap; align-items:center; }

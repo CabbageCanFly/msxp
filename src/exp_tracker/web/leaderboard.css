@@ -39,7 +39,7 @@ main { position: relative; max-width: 1160px; padding: 36px 24px 32px; margin: a
 h1 { margin: 0; font-family: var(--font-display); font-size: 18px; font-weight: 600; letter-spacing: .2px; }
 h1 span { color: var(--gold); margin-right: 7px; }
 .board-header > span { font-size: 12px; font-weight: 600; color: #f0dcc0; }
-.toolbar { justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 18px 20px 8px; }
+.toolbar { justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 12px 20px 8px; }
 .metrics, .windows { gap: 7px; flex-wrap: wrap; }
 button { font: inherit; cursor: pointer; border: 1px solid var(--line-strong); background: var(--surface-raised); color: var(--text-soft); border-radius: 100px; font-size: 14px; font-weight: 800; padding: 9px 17px; min-height: 40px; transition: background-color .15s, border-color .15s, color .15s; }
 button:hover:not(:disabled) { border-color: var(--gold-deep); color: var(--text); background: #34405a; }
@@ -47,7 +47,7 @@ button:focus-visible { outline: 3px solid #bedbff; outline-offset: 3px; }
 .metrics button[aria-pressed="true"] { background: linear-gradient(#ffd68c, var(--gold-deep)); border-color: #ffdf9f; color: var(--on-gold); box-shadow: inset 0 -3px #b06d1d40, 0 2px 0 #00000040; }
 .windows { gap: 5px; }
 .windows > span { font-size: 12px; font-weight: 700; color: var(--text-muted); margin-right: 3px; }
-.windows button { padding: 5px 12px; min-height: 32px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.windows:not(#streamer-windows) button { padding: 5px 12px; min-height: 32px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .windows button[aria-pressed="true"] { background: var(--wood); border-color: var(--gold); color: #fff3dc; }
 button:disabled { cursor: default; opacity: .35; }
 .ranking-context { justify-content: space-between; gap: 10px; padding: 2px 21px 12px; min-height: 35px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
@@ -109,7 +109,7 @@ progress::-moz-progress-bar { background: var(--green); }
   h1 { font-size: 16px; }
   .toolbar { padding: 14px 12px 8px; gap: 12px; }
   .metrics { gap: 5px; }
-  .metrics button { font-size: 13px; padding: 8px 13px; }
+  .metrics button, #streamer-windows button { font-size: 13px; padding: 8px 13px; }
   .ranking-context { padding: 4px 13px 12px; align-items: flex-start; font-size: 11px; }
   #ranking-count { text-align: right; }
   ol { padding: 0 10px 4px; }
