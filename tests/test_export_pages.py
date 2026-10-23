@@ -21,7 +21,8 @@ API = 'https://api.example.org'  # Illustrative; the real API hostname is suppli
 EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'index.html', 'live-overlay.html', 'player.html',
             'static/fonts/OFL-Fredoka.txt', 'static/fonts/OFL-Nunito.txt', 'static/fonts/fredoka-latin.woff2',
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
-            'static/product.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')}
+            'static/product.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp',
+            'static/kerning.webp', 'static/kerning-sky.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')}
 ROUTES = ['/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
           '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200']
 
@@ -52,7 +53,7 @@ def test_export_contains_exactly_the_public_allowlist_and_is_repeatable(out):
     # Sources are copied byte for byte; only the three pages gain the public attributes.
     web = export_pages.WEB
     assert first['static/product.js'] == (web / 'product.js').read_bytes()
-    for name in ('sleepywood.webp', 'sleepywood-forest.webp'):
+    for name in ('sleepywood.webp', 'sleepywood-forest.webp', 'kerning.webp', 'kerning-sky.webp'):
         assert first[f'static/{name}'] == (web / name).read_bytes()
         assert f'/static/{name}\n  Cache-Control: public, max-age=86400' in first['_headers'].decode()
     assert first['player.html'] == (web / 'player.html').read_bytes().replace(
@@ -135,6 +136,57 @@ def test_preview_serves_nested_routes_with_intact_urls_and_404s_developer_paths(
         status, body, _ = get(preview + path)
         assert status == 404 and b'Page not found' in body, path
     assert get(preview + '/static/fonts/nunito-latin.woff2')[2]['Cache-Control'] == 'public, max-age=86400'
+
+
+def test_live_preview_reads_saved_source_edits_without_export_or_restart(out, tmp_path, monkeypatch):
+    web = tmp_path / 'web'
+    web.mkdir()
+    original = (export_pages.WEB / 'tracker.html').read_bytes()
+    (web / 'tracker.html').write_bytes(original)
+    (web / 'product.css').write_bytes(b'body {color:red}')
+    (web / 'private-notes.txt').write_bytes(b'private')
+    monkeypatch.setattr(export_pages, 'WEB', web)
+    httpd = preview_pages.PreviewServer(('127.0.0.1', 0), preview_pages.handler(out.resolve(), API))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    site = f'http://127.0.0.1:{httpd.server_port}'
+    try:
+        assert get(site + '/static/product.css')[1] == b'body {color:red}'
+        (web / 'product.css').write_bytes(b'body {color:blue}')
+        _, body, headers = get(site + '/static/product.css')
+        assert body == b'body {color:blue}' and headers['Cache-Control'] == 'no-store'
+        (web / 'tracker.html').write_bytes(original.replace(b'Player List', b'Edited heading'))
+        _, body, headers = get(site + '/')
+        assert b'Edited heading' in body and f'data-api="{API}"'.encode() in body
+        assert headers['Cache-Control'] == 'no-store'
+        assert get(site + '/static/private-notes.txt')[0] == 404
+        assert (out / 'static/product.css').read_bytes() != b'body {color:blue}'
+    finally:
+        httpd.shutdown();httpd.server_close()
+
+
+def test_demo_preview_ctrl_c_closes_both_servers_and_removes_temporary_database(tmp_path, monkeypatch, capsys):
+    started, databases = [], []
+    create, with_api = character_demo.create, preview_pages.with_api
+    def demo(**kwargs):
+        databases.append(kwargs['path'])
+        return create(**kwargs)
+    def start(*args, **kwargs):
+        result = with_api(*args, **kwargs)
+        started.extend(result)
+        return result
+    def stop(self):raise KeyboardInterrupt
+    monkeypatch.setattr(character_demo, 'create', demo)
+    monkeypatch.setattr(preview_pages, 'with_api', start)
+    monkeypatch.setattr(preview_pages.PreviewServer, 'serve_forever', stop)
+    assert preview_pages.main(['--demo', '--live', '--dir', str(tmp_path / 'pages')]) == 0
+    assert len(started) == 2 and all(s.socket.fileno() == -1 for s in started)
+    assert len(databases) == 1 and not databases[0].parent.exists()
+    output = capsys.readouterr().out
+    assert 'Ctrl+C' in output and 'refresh' in output and '?background=kerning' in output
+
+
+def test_live_preview_requires_a_local_api():
+    with pytest.raises(SystemExit):preview_pages.main(['--live'])
 
 
 def test_local_preview_uses_os_assigned_ports_and_its_own_api(tmp_path, monkeypatch):

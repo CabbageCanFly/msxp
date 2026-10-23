@@ -55,6 +55,10 @@ setup was checked on Windows with an existing local build backend).
 
 ### Website and overlay
 
+For website styling on Windows, run `.\preview.cmd` from this worktree. It uses
+temporary fictional players, serves saved CSS/HTML/JS edits on browser refresh,
+and stops both local servers with Ctrl+C. See [background preview and tint controls](docs/website-background.md).
+
 Serve an existing database without starting capture ([product preview guide](docs/product-preview.md)):
 
 ```powershell
@@ -192,9 +196,10 @@ Other notes live in [docs/](docs/). The earlier OBS test page is an unverified d
 
 ## Credits
 
-The Sleepywood website background (`src/exp_tracker/web/sleepywood*.webp`) is
+The Sleepywood and Kerning City website backgrounds (`src/exp_tracker/web/sleepywood*.webp`
+and `kerning*.webp`) are
 MapleStory artwork © Nexon, rendered from original GMS v55 game assets by
-[maplestory.io](https://maplestory.io). The town and forest backdrop are preserved
+[maplestory.io](https://maplestory.io). The towns and original forest/sky backdrops are preserved
 as lossless WebP; the navy tint is CSS. See [sources and background checks](docs/website-background.md).
 
 Monster sprites in `src/exp_tracker/web/mobs/` are MapleStory artwork © Nexon, rendered

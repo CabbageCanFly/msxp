@@ -1,13 +1,22 @@
-.product { isolation:isolate; background:var(--bg); }
+.product {
+  /* Extra navy tint: raise this percentage to make either town less distracting. */
+  --background-tint:5%;
+  --background-map:none; --background-sky:none;
+  isolation:isolate; background:var(--bg);
+}
+.product[data-background=sleepywood] { --background-map:url(sleepywood.webp); --background-sky:url(sleepywood-forest.webp); }
+/* The original sunset sky is much brighter than Sleepywood's forest. */
+.product[data-background=kerning] { --background-tint:35%; --background-map:url(kerning.webp); --background-sky:url(kerning-sky.webp); }
 .product .sky { display:none; }
 /* The viewport-sized scene stays behind pages of any length; the original pixels are preserved in lossless WebP. */
 .product::before {
   content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
   background:
-    linear-gradient(180deg, #101b3280, #101b3240 40%, #101b3270),
-    linear-gradient(90deg, #101b3220, #101b3290 50%, #101b3220),
-    url(sleepywood.webp) center bottom / cover no-repeat,
-    url(sleepywood-forest.webp) center / cover no-repeat;
+    linear-gradient(rgb(16 27 50 / var(--background-tint)), rgb(16 27 50 / var(--background-tint))),
+    linear-gradient(180deg, rgb(16 27 50 / 50%), rgb(16 27 50 / 25%) 40%, rgb(16 27 50 / 44%)),
+    linear-gradient(90deg, rgb(16 27 50 / 12.5%), rgb(16 27 50 / 56.5%) 50%, rgb(16 27 50 / 12.5%)),
+    var(--background-map) center bottom / cover no-repeat,
+    var(--background-sky) center / cover no-repeat;
 }
 .product .brand { text-decoration:none; color:inherit; }
 /* A fixed line height and an SVG arrow (not a fallback-font glyph) keep the masthead identical on every page. */

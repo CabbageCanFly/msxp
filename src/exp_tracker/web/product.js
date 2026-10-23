@@ -1,6 +1,10 @@
 "use strict";
 
 const view=document.body.dataset.view;
+if(view==='board' || view==='player') {
+  const background=new URLSearchParams(location.search).get('background');
+  document.body.dataset.background=['sleepywood','kerning'].includes(background)?background:Math.random()<.5?'sleepywood':'kerning';
+}
 const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?location.pathname.split('/')[2]:null;
 // The static Pages export names its API origin on <html data-api> (tools/export_pages.py); the Python server
 // leaves it unset, so requests stay same-origin. Same exact-origin rule as the server's --cors-origin.

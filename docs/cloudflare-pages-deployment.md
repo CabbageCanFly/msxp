@@ -28,6 +28,7 @@ on new API fields must wait for that backend to be live.
 | `static/fonts/*.woff2`, `static/fonts/OFL-*.txt` | Self-hosted fonts and their licences |
 | `static/mobs/*.gif`, `*.webp` | Wandering mob sprites (see README credits), copied byte for byte |
 | `static/sleepywood.webp`, `static/sleepywood-forest.webp` | Original town/forest background, lossless WebP (see [sources](website-background.md)) |
+| `static/kerning.webp`, `static/kerning-sky.webp` | Original Kerning City town/sunset background, lossless WebP |
 | `_redirects`, `_headers`, `404.html` | Generated: routes, security headers, not-found page |
 | `.msxp-pages-export` | Marker that lets a rerun replace its own output |
 
@@ -106,6 +107,12 @@ The overlay builder copies `https://msxp.pages.dev/live/overlay/{channel}?…` (
 own origin), and its live preview is a same-origin iframe, allowed by `frame-ancestors 'self'`.
 
 ## Build and preview locally (Windows PowerShell)
+
+For CSS/HTML/JS iteration, run `.\preview.cmd` from the worktree. This uses temporary
+synthetic data and `--live` mode: save and refresh to see source edits, with no
+export/restart needed. Ctrl+C in that terminal closes both servers and removes the
+temporary database. See [town overrides and tint](website-background.md).
+The commands below still check an exported snapshot with production-style caching.
 
 Run with the project's virtual environment active (the local API needs its dependencies):
 
