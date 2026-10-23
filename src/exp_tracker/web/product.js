@@ -42,7 +42,7 @@ function setTimeZone(zone) {
 setTimeZone((()=>{try {return localStorage.getItem('timezone');} catch {return null;}})());
 function zoneLabel() { return new Intl.DateTimeFormat('en-US',{timeZone,timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value ?? 'local time'; }
 // Live updates wait while the visitor has text selected, so re-rendering doesn't clear the selection.
-let deferredRender=false;
+let deferredRender=false,characterFade=false;
 const selecting=()=>{const s=globalThis.getSelection?.();return !!s && s.rangeCount>0 && !s.isCollapsed;};
 const sorts=new Set(['exp_hour','level','day']);
 let data=null,receivedAt=0,failed=false,sort='level',characterSort='level',windowMinutes=view==='player'?15:5,chartMode='exp',bucketSeconds=1800,pollTimer=null,activeController=null;
@@ -701,7 +701,7 @@ async function poll() {
     if(warming){
       data=body.summary?body:null;rollingData=null;rollingRevision=null;failed=false;
       if(Array.isArray(body.roster))roster=body.roster;
-      render();return;
+      fadeSwitch(render);return;
     }
     if(response.status===404 && body.error==='unknown_character'){
       if(view==='player'){selectCharacter(null,'replace');return;}
@@ -716,7 +716,7 @@ async function poll() {
     const swap=view==='board' && shownMode!==requestedMode;shownMode=requestedMode;
     if(view==='player' && Array.isArray(data.roster))roster=data.roster;
     if(view==='player' && data.tracked_history){rollingData=data.tracked_history;rollingReceived=performance.now();rollingFailed=false;}
-    if(selecting())deferredRender=true;else if(swap)crossFade(render);else render();
+    if(selecting())deferredRender=true;else if(swap)crossFade(render);else fadeSwitch(render);
     if(view==='player' && Array.isArray(data.history))pollRolling();
   } catch { if(!unchanged())return;failed=true;if(view==='board')renderBoard();else renderPlayer(); }
   finally { clearTimeout(timeout);activeController=null;delete document.body.dataset.loading;pollTimer=setTimeout(poll,unchanged()?2000:0); }
@@ -807,7 +807,8 @@ function selectCharacter(id,mode='push') {
   }
   // Never show the previous character's numbers while the chosen one loads.
   data=null;rollingData=null;rollingRevision=null;warming=true;
-  renderPlayer();renderRoster();hideTip();
+  crossFade(()=>{renderPlayer();renderRoster();},true);hideTip();
+  characterFade=true;  // The chosen character's first numbers fade in too.
   if(activeController)activeController.abort();else poll();
 }
 
@@ -968,10 +969,17 @@ if(view==='player') {
 }
 function render() { if(view==='board')renderBoard();else {renderPlayer();if(view==='player'){renderRoster();drawHistory();}} }
 // A Streamers/Characters switch lands all at once with a short cross-fade, never seen half rebuilt.
-function crossFade(update) {
-  if(document.startViewTransition && globalThis.matchMedia?.('(prefers-reduced-motion: no-preference)').matches)document.startViewTransition(update);
-  else update();
+let fadeTransition=null;
+function crossFade(update,slow=false) {
+  if(!document.startViewTransition || !globalThis.matchMedia?.('(prefers-reduced-motion: no-preference)').matches){update();return;}
+  const transition=fadeTransition=document.startViewTransition(update),root=document.documentElement;
+  if(slow)root.dataset.fade='slow';else delete root.dataset.fade;
+  // A newer transition skips this one; only the latest may clear the slower timing.
+  transition.finished.finally(()=>{if(fadeTransition===transition)delete root.dataset.fade;});
 }
+// Unchanged panels look identical in both snapshots, so only the text and bars that change visibly fade.
+// Stays armed through "preparing saved history" replies until the character's own numbers arrive.
+function fadeSwitch(update) { if(!characterFade){update();return;}if(data?.player)characterFade=false;crossFade(update,true); }
 const zoneSelect=view==='overlay'?null:el('timezone');
 if(zoneSelect) {
   const local=new Intl.DateTimeFormat().resolvedOptions().timeZone,zones=Intl.supportedValuesOf?.('timeZone') ?? [];

@@ -333,3 +333,5 @@ html, body.product { overflow-x:clip; }
 @media(max-width:650px) { .player-board #player-name { font-size:23px; } }
 
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .1s; }
+/* Switching characters: a gentler fade from the old numbers to the new ones. */
+:root[data-fade=slow]::view-transition-old(root), :root[data-fade=slow]::view-transition-new(root) { animation-duration: .25s; }

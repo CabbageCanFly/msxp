@@ -73,7 +73,7 @@ ol { list-style: none; padding: 0 20px 8px; margin: 0; }
 .status::before { content: ""; display: inline-block; width: 7px; height: 7px; background: #8e97a8; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
 .entry[data-state="tracking"] .status::before { background: var(--green); box-shadow: 0 0 6px #b6e65b99; }
 .entry[data-state="stale"] .status::before { background: var(--gold); }
-.exp-bar { position: relative; height: 24px; border-radius: 7px; background: var(--surface-sunken); border: 1px solid #4a5670; overflow: hidden; box-shadow: inset 0 2px 3px #0006; }
+.exp-bar { position: relative; height: 24px; border-radius: 7px; background: #39445a; border: 1px solid #4a5670; overflow: hidden; box-shadow: inset 0 2px 3px #0006; }
 progress { display: block; appearance: none; width: 100%; height: 100%; border: 0; background: #39445a; accent-color: var(--green); }
 progress::-webkit-progress-bar { background: #39445a; }
 progress::-webkit-progress-value { background: linear-gradient(#d4f584, var(--green) 45%, var(--green-deep)); box-shadow: inset 0 1px #f4ffc4; }
