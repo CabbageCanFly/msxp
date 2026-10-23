@@ -21,7 +21,7 @@ API = 'https://api.example.org'  # Illustrative; the real API hostname is suppli
 EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'index.html', 'live-overlay.html', 'player.html',
             'static/fonts/OFL-Fredoka.txt', 'static/fonts/OFL-Nunito.txt', 'static/fonts/fredoka-latin.woff2',
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
-            'static/product.js', 'static/steely.png'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')}
+            'static/product.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')}
 ROUTES = ['/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
           '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200']
 
@@ -52,6 +52,9 @@ def test_export_contains_exactly_the_public_allowlist_and_is_repeatable(out):
     # Sources are copied byte for byte; only the three pages gain the public attributes.
     web = export_pages.WEB
     assert first['static/product.js'] == (web / 'product.js').read_bytes()
+    for name in ('sleepywood.webp', 'sleepywood-forest.webp'):
+        assert first[f'static/{name}'] == (web / name).read_bytes()
+        assert f'/static/{name}\n  Cache-Control: public, max-age=86400' in first['_headers'].decode()
     assert first['player.html'] == (web / 'player.html').read_bytes().replace(
         b'<html lang="en">', f'<html lang="en" data-site="public" data-api="{API}">'.encode(), 1)
 

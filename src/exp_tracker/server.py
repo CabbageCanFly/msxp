@@ -33,6 +33,8 @@ ASSETS = {
     "/static/leaderboard.js": ("leaderboard.js", "text/javascript"),
     "/static/leaderboard.svg": ("leaderboard.svg", "image/svg+xml"),
     "/static/steely.png": ("steely.png", "image/png"),
+    "/static/sleepywood.webp": ("sleepywood.webp", "image/webp"),
+    "/static/sleepywood-forest.webp": ("sleepywood-forest.webp", "image/webp"),
     "/static/fonts/fredoka-latin.woff2": ("fonts/fredoka-latin.woff2", "font/woff2"),
     "/static/fonts/nunito-latin.woff2": ("fonts/nunito-latin.woff2", "font/woff2"),
 }
@@ -44,9 +46,11 @@ DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
 PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
 # Public-only mode also serves these shared assets; everything else outside the product is refused.
 PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css', '/static/live-overlay.css', '/static/steely.png',
+                 '/static/sleepywood.webp', '/static/sleepywood-forest.webp',
                  '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'} | MOB_ASSETS
 # Unchanging binary assets may be cached briefly so page changes don't re-download them and re-flow text.
-CACHED_ASSETS = {'/static/steely.png', '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'} | MOB_ASSETS
+CACHED_ASSETS = {'/static/steely.png', '/static/sleepywood.webp', '/static/sleepywood-forest.webp',
+                 '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'} | MOB_ASSETS
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 # Exact browser origins allowed to read responses cross-origin (a separately hosted frontend).
 # https only; plain http only for a local development origin. Never a wildcard.

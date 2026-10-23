@@ -1,3 +1,14 @@
+.product { isolation:isolate; background:var(--bg); }
+.product .sky { display:none; }
+/* The viewport-sized scene stays behind pages of any length; the original pixels are preserved in lossless WebP. */
+.product::before {
+  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:
+    linear-gradient(180deg, #101b3280, #101b3240 40%, #101b3270),
+    linear-gradient(90deg, #101b3220, #101b3290 50%, #101b3220),
+    url(sleepywood.webp) center bottom / cover no-repeat,
+    url(sleepywood-forest.webp) center / cover no-repeat;
+}
 .product .brand { text-decoration:none; color:inherit; }
 /* A fixed line height and an SVG arrow (not a fallback-font glyph) keep the masthead identical on every page. */
 .product .brand span { line-height:18px; }
