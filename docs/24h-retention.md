@@ -178,7 +178,9 @@ How a pass works (`python -m exp_tracker.retention --apply`):
   remainder continues on the next pass. Re-running is idempotent; a killed pass loses only its open
   batch (SQLite rolls it back).
 - **One revision bump per pass, only when something changed.** The publisher rebuilds every page
-  when the retention revision changes; per-batch bumps would keep the site rebuilding during catch-up.
+  when the retention revision changes, keeping each old page and Characters-list summary on show
+  until its rebuild (a fold changes no shown value); per-batch bumps would keep it rebuilding during
+  catch-up. Rebuilds resume their checkpoints across the fold ([incremental history](incremental-history.md)).
 - **Files after SQLite, outside any transaction** (only with `--log-root`). A capture log goes only
   when it is older than the cutoff, its folder is owned by this database, it isn't a protected run's
   log, and none of its attempts remain in SQLite. The newest operator log of the newest coordinator

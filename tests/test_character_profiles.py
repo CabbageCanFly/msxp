@@ -474,7 +474,9 @@ def test_saved_summary_slides_its_chart_and_is_withheld_after_a_correction():
     assert p.summary(head, BETA, NOW + timedelta(minutes=31))['day_buckets'] == [None] * 45 + [10, 20, None]
     assert p.summary(head, BETA, NOW + timedelta(hours=24))['day'] is None
     assert p.summary(dict(head, manual_revision=3), BETA, NOW) == {} and p.summary(head, ALPHA, NOW) == {}
-    assert p.summary(dict(head, retention_revision=4), BETA, NOW) == {} and p.summary(head, BETA, NOW-timedelta(seconds=1)) == {}
+    assert p.summary(dict(head, invalidation_revision=3), BETA, NOW) == {} and p.summary(head, BETA, NOW-timedelta(seconds=1)) == {}
+    # A retention fold changes no shown value: the summary stays on show until it is rebuilt.
+    assert p.summary(dict(head, retention_revision=4), BETA, NOW) == p.summary(head, BETA, NOW) != {}
     p.summaries[(CHANNEL, BETA)]['chart_buckets'] = [None] * 46 + [None, 2]
     shown = p.summary(head, BETA, NOW)
     assert shown['day'] == 30 and shown['day_buckets'][-2:] == [None, 2]

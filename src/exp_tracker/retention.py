@@ -350,7 +350,7 @@ def maintenance_pass(database, *, log_root=None, batch_runs=BATCH_RUNS, max_seco
                 summary['complete']=True;break
             time.sleep(pause_seconds)  # Leaves CPU to capture/OCR between batches.
         if changed:
-            # Once per pass: the publisher rebuilds every page when this revision changes.
+            # Once per pass: the publisher rebuilds every page (keeping old ones on show) when this changes.
             with store._transaction():store.db.execute('UPDATE retention_meta SET revision=revision+1 WHERE id=1')
             summary['revision_bumped']=True
         if log_root:
