@@ -178,10 +178,10 @@
 .site-footer select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 
 /* Live content fades in once the first update arrives instead of jumping as it fills; shown anyway after 2s. */
-.product :is(.board,.site-footer) { transition:opacity .18s ease; }
-.product[data-loading] :is(.board,.site-footer) { opacity:0; animation:reveal 0s 2s forwards; }
+.product :is(.board,.site-footer,.history-overlay-link) { transition:opacity .18s ease; }
+.product[data-loading] :is(.board,.site-footer,.history-overlay-link) { opacity:0; animation:reveal 0s 2s forwards; }
 /* Once its first data arrives the board fades in rather than popping in. */
-.product :is(.board,.site-footer) { transition:opacity .2s ease-out; }
+.product :is(.board,.site-footer,.history-overlay-link) { transition:opacity .2s ease-out; }
 /* Switching lists keeps the current one (dimmed only if the other takes a moment) until the other can swap in whole. */
 .product #entries[aria-busy="true"] { opacity:.6; transition:opacity .2s .15s; }
 @keyframes reveal { to { opacity:1; } }

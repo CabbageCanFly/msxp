@@ -118,6 +118,14 @@ function expTitle(r) {
 }
 function percentageText(r) { return r?.percentage!=null?`${r.estimated_percentage?'~':''}${r.percentage}%`:'—'; }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
+function sourceLink(p) {
+  const source=node(p.source_kind==='twitch'?'a':'span','channel',sourceText(p));
+  if(p.source_kind==='twitch') {
+    source.href=`https://www.twitch.tv/${encodeURIComponent(p.channel)}`;source.target='_blank';source.rel='noopener noreferrer';
+    source.title=`Watch ${p.channel} on Twitch`;
+  }
+  return source;
+}
 function lastSeenReading(p) { return p.last_seen?.reading ?? p.last_seen?.full_exp ?? null; }
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
 function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l.age_seconds+(performance.now()-receivedAt)/1000>p.stale_after_seconds); }
@@ -290,12 +298,7 @@ function entry({player:p,value,rank}) {
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
-  const source=node(p.source_kind==='twitch'?'a':'span','channel',sourceText(p));
-  if(p.source_kind==='twitch') {
-    source.href=`https://www.twitch.tv/${encodeURIComponent(p.channel)}`;source.target='_blank';source.rel='noopener noreferrer';
-    source.title=`Watch ${p.channel} on Twitch`;
-  }
-  identity.append(name,source);
+  identity.append(name,sourceLink(p));
   // Retain dated durations within the selected window; never turn them into a countdown.
   const saved=publicETA(p),eta=saved && saved.age>=0 && saved.age<=windowMinutes*60 && etaText(saved.estimate)!=='—'
     ?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes,age:saved.age}:null;
@@ -355,7 +358,7 @@ function renderCharacters() {
     const badge=node('span','rank',index+1);badge.dataset.medal=order==='level' && index<3?index+1:'';badge.setAttribute('aria-label',`Rank ${index+1}`);
     const level=levelPill(r.level ?? '—',!!r.online,r.online?'Online':r.current?'Offline':'Not currently tracked');
     const identity=node('div','identity'),link=node('a','character',r.label);link.href=`/stream/${encodeURIComponent(r.channel)}?character=${r.id}`;
-    identity.append(link,node('span','channel',r.channel));
+    identity.append(link,sourceLink({...r,source_kind:r.source_kind ?? 'twitch'}));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
     const at=r.reading?.timestamp ?? r.last_seen_at;
     const section=expSection(r.reading ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,empty:r.reading===undefined?'Loading EXP…':'No saved EXP',

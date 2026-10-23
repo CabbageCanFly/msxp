@@ -1058,6 +1058,19 @@ for(const view of ['player','overlay'])test(`${view} renders a validated level f
   assert.equal(p.elements.level.textContent,'Lv. 67');assert.match(p.elements.level.title,/^Last confirmed level for this character\.$/);
 });
 
+test('character Twitch links work with the existing API without source_kind, while explicit video sources remain plain text',async()=>{
+  const characters=['twitch','file',undefined].map((source_kind,index)=>({id:index+1,label:`Hero${index}`,channel:'alpha',...(source_kind?{source_kind}:{})}));
+  const p=page('board',server([{characters}]).fetch,'?mode=characters');await settle();
+  const sources=p.elements.entries.children.map(row=>row.children[1].children[1]);
+  assert.deepEqual(sources.map(s=>s.tag),['a','span','a']);
+  assert.deepEqual(sources.map(s=>s.textContent),['ttv/alpha','Video · alpha','ttv/alpha']);
+  assert.equal(sources[0].href,'https://www.twitch.tv/alpha');
+  assert.equal(sources[0].target,'_blank');assert.equal(sources[0].rel,'noopener noreferrer');
+  assert.equal(sources[0].title,'Watch alpha on Twitch');
+  assert.equal(sources[2].href,'https://www.twitch.tv/alpha');
+  assert.equal(sources[2].target,'_blank');assert.equal(sources[2].rel,'noopener noreferrer');
+});
+
 test('homepage Characters uses compact records, scoped links and no stale pace rankings',async()=>{
   const characters=[{...ALPHA,channel:'alpha',online:true},{...BETA,channel:'alpha',online:false},
     {...BETA,id:9,channel:'other',label:'Alpha',level:99,last_seen_at:null}];
