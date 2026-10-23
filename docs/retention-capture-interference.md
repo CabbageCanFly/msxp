@@ -85,7 +85,7 @@ The `read / no HUD / unclear / no frame / offline` columns say what each capture
 
 - **Entry point:** the existing `python -m exp_tracker.retention` (it never took the coordinator's
   writer lease), now with bounded `--apply` passes, `--log-root`, `--every-minutes`, its own
-  `<db>.retention.lock`, and no schema migration. On the VPS: a systemd oneshot + hourly timer.
+  `<db>.retention.lock`, and no schema migration. On the VPS: a systemd oneshot + daily timer.
 - **Unfinished runs:** the `--runtime-state` heartbeat was rejected. Only capture-only mode writes it,
   and its reader returns an empty active set when the file is missing or stale, which is
   indistinguishable from "nothing running". Instead, `live_runs()` protects each streamer's newest
@@ -115,7 +115,10 @@ The `read / no HUD / unclear / no frame / offline` columns say what each capture
   slower, and the write lock may be somewhat longer. Nothing guarantees zero missed captures there
   until the validation below passes.
 - **Each revision bump makes the publisher rebuild every page** (existing behaviour). Now once per pass
-  with changes, hourly on the VPS; before, every inline call, even with nothing pruned.
+  with changes; before, every inline call, even with nothing pruned. Also, each batch that advances a
+  character's `through_run` changes the publisher's replay key, so that streamer is replayed from
+  scratch: on the VPS, site updates slowed from ~90 s to 2–4 min during the pass. Hence a daily timer
+  at a quiet hour, until the publisher can resume across a fold.
 - **Trusted-tracking anchors** (`_trusted`, the `observations` table) still replay inside a write
   transaction. The roster coordinator writes no observations (local DB: 0). Check the VPS count in
   the inventory below before enabling.
@@ -123,7 +126,21 @@ The `read / no HUD / unclear / no frame / offline` columns say what each capture
 - **Local state:** catch-up stopped part-way (oldest data 71.3 h); retention off. Pre-retention backup:
   `private/manual-backups/live-telfer-shiphtur-pre-retention-20261022.sqlite3` (410 MB).
 
-## VPS validation plan (nothing here has been run)
+## VPS results (measured 2026-10-23, 4 vCPU, 27–28 streamers, ~13 live)
+
+| | Copy rehearsal (`nice -n 10` from SSH) | Live pass (`msxp-retention.service`) |
+|---|---|---|
+| Wall / CPU | 695 s / 507 s | 905 s (hit `--max-seconds 900`) / 329 s |
+| Folded | 1,757 runs, 86,741 attempts; oldest 121 h → 24.5 h | oldest 121 h → 59 h (incomplete) |
+| Lock | max 166 ms, 0 busy, 0 stale | no `locked`/`persistence` errors in the tracker journal |
+| Captures per 10 min | −28% (all streamers) | live ~15 before and during; offline 30 → 28–30 |
+
+Live MapleStory lanes were already capped at about every other 20 s slot (`behind` = missed) before
+retention; offline lanes poll at full rate. `nice` from an SSH session did not protect capture,
+probably because CPU is shared between cgroups first; the unit's `CPUWeight=20` did. Integrity check
+of the rehearsal copy: `ok`, no FK rows.
+
+## VPS validation plan
 
 **1. Read-only inventory** (no writes, no restarts). Paste the output back:
 

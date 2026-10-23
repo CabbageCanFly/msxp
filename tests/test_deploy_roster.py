@@ -82,7 +82,8 @@ def test_retention_is_a_separate_opt_in_bounded_pass():
     assert start[start.index('--log-root')+1]=='${MSXP_LOG_ROOT}' and float(start[start.index('--max-seconds')+1])<=900
     assert 'Type=oneshot' in service and 'User=msxp' in service and 'ProtectSystem=strict' in service
     assert 'PYTHONPATH=/opt/msxp/app/src' in service  # Like msxp-api: `-m exp_tracker...` needs this checkout's src.
-    assert 'OnUnitInactiveSec=1h' in timer  # Counted from the end of a pass: passes never overlap.
+    # Once a day at a fixed quiet hour: every pass makes the site rebuild its pages.
+    assert 'OnCalendar=*-*-* 04:45:00 America/Toronto' in timer and 'OnUnitInactiveSec' not in timer
     assert 'msxp-retention' not in (DEPLOY/'install-ubuntu.sh').read_text()  # Enabling stays a deliberate step.
 
 
