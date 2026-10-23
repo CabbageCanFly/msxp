@@ -222,8 +222,12 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
     result['frame_size'] = image.size
     try:
         candidates = locator(image)
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError) as error:
         result['reasons'].append('localization_failed')
+        if isinstance(error,CaptureError) and str(error) in {
+                'tesseract_worker_request_timeout','tesseract_worker_start_timeout',
+                'tesseract_worker_failed','tesseract_worker_unavailable','tesseract_worker_closed'}:
+            result['reasons'].append(str(error))
         result['timings']['localization_seconds'] = clock() - started
         fresh()
         return finish()

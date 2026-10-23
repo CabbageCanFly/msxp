@@ -103,6 +103,28 @@ def test_stale_frame_never_runs_locator(shadow, frame):
     assert result['status'] == 'stale_local_frame' and not result['current']
 
 
+@pytest.mark.parametrize('failure,safe_reason',[
+    (CaptureError('tesseract_worker_request_timeout'),'tesseract_worker_request_timeout'),
+    (CaptureError('tesseract_worker_start_timeout'),'tesseract_worker_start_timeout'),
+    (CaptureError('tesseract_worker_failed'),'tesseract_worker_failed'),
+    (CaptureError('tesseract_worker_unavailable'),'tesseract_worker_unavailable'),
+    (CaptureError('tesseract_worker_closed'),'tesseract_worker_closed'),
+    (CaptureError('https://private.example/?token=secret'),None),
+    (RuntimeError('private detail'),None),
+    (OSError('private path'),None),
+])
+def test_localization_failure_retains_only_allowlisted_worker_reason(shadow,frame,failure,safe_reason):
+    from exp_tracker.shadow_view import observation
+    def broken(image):raise failure
+    result=analyze(shadow,frame,locator=broken)
+    assert result['status']=='unavailable' and not result['current']
+    assert result['candidate'] is None and result['localization'] is None
+    assert result['reasons']==['localization_failed']+([safe_reason] if safe_reason else [])
+    assert observation(result)['reasons']==result['reasons']
+    assert result['neural'] is None and result['visual_status']=='not_run'
+    assert 'private' not in str(result) and 'secret' not in str(result)
+
+
 def test_stale_completed_work_is_never_current(shadow, frame):
     now = [101]
     def slow_level(image):

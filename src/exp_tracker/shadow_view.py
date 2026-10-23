@@ -25,7 +25,9 @@ REASONS = {'missing_hud', 'multiple_huds', 'local_receipt_age_exceeded', 'strict
            'neural_failed', 'invalid_neural_response', 'exp_crop_exceeds_limit', 'recognition_failed',
            'offline_or_unavailable', 'access_denied', 'network_unavailable', 'source_ended',
            'decoder_failed', 'frame_timeout', 'capture_process_failed', 'frame_exceeds_byte_limit',
-           'frame_exceeds_pixel_limit', 'invalid_decoder_output', 'invalid_png_header', 'operator_interrupted'}
+           'frame_exceeds_pixel_limit', 'invalid_decoder_output', 'invalid_png_header', 'operator_interrupted',
+           'tesseract_worker_request_timeout','tesseract_worker_start_timeout',
+           'tesseract_worker_failed','tesseract_worker_unavailable','tesseract_worker_closed'}
 RELATIONS = {'visual_unavailable', 'unsupported_visual_level', 'pair_unavailable', 'conflict',
              'agreement_not_verification', 'compatible_but_ambiguous'}
 
