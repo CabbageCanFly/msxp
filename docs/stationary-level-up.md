@@ -221,8 +221,10 @@ guard subset (217 tests). The final full Python run passed 3,047 tests, with
 expected failure (the recorded-stream tiny-font 9/8 misread).
 This improves diagnosis, not throughput. Timeouts,
 freshness limits, scan scales and completeness checks remain unchanged. A failed
-attempt still clears pending level confirmation: recovering the crop alone cannot
-guarantee two qualifying captures arrive in time under the observed failure rate.
+attempt originally cleared pending level confirmation: recovering the crop alone
+could not guarantee confirmation under the observed failure rate. The later
+missing-HUD fix below retains a narrowly bounded normal-level-up vote; other
+failed captures still clear it.
 Do not increase timeouts or accept stale readings to force confirmation.
 
 The relevant locator/capture/guard files at `e43c299`
@@ -247,3 +249,62 @@ change on the VPS would require a controlled restart of the capture tracker.
   the existing negative cases. Do not relax freshness or confidence to force it.
 - Review and explicitly authorize any eventual deployment and tracker restart
   separately. No production history backfill is part of this TODO.
+
+## Normal level-up interrupted by missing HUDs
+
+The second supplied case has a visible native HUD. Five screenshots in the ignored
+`samples/important-level-up-sample-reference-2/` show level 65, 1,087 EXP / 0.07%,
+while the supplied website screenshot retains level 64 / 99.80%. Streamer and
+character names are omitted. The local neural reader returns 65 on all five game
+screenshots, at scores 0.99386–0.99836. Three EXP strings are strict full pairs;
+two use the existing punctuation recovery for `1.08710.07%]`. No new OCR rule is
+needed for these images.
+
+The operator's twelve production records from checkout `5f072a3` establish the
+confirmation failure. Seven have no localized HUD; three become stale during
+localization. The remaining two read 65 at scores 0.97259 and 0.95321, with the
+recoverable full EXP pair, at 10:40:21.813230 and 10:42:04.636059 UTC on
+2026-10-23. They are 102.822829 seconds apart, within the 120-second confirmation
+window, but both are held as `level_confirmation_pending` against floor 64.
+Two fresh missing-HUD captures between them clear the first pending vote.
+
+The persistent guard now keeps that unchanged vote only for a normal one-level
+increase across a fresh `missing_hud` capture: no HUD candidate, no OCR values,
+a valid frame hash, delivery age at most 15 seconds, no known identity risk,
+and receipt time strictly after the original vote and within its 120-second
+window. A gap supplies no vote, does not advance the floor and does not refresh
+the original timestamp. Initialization and multi-level jumps retain their old
+reset behavior. Capture failures, stale frames, ambiguous HUDs, conflicting
+readings and identity holds still clear pending confirmation. Duplicate support,
+weak neural evidence and expired support still cannot confirm a level.
+
+The public projection also uses the database's dated, validated level floor as
+context after its proof timestamp. Incoming payloads cannot supply this field,
+and a later proof is not applied to earlier observations. A fresh eligible frame
+still needs a matching `neutral4` neural level at score 0.90 or higher, no visual
+conflict and a nonzero complete EXP/% pair consistent with that level. This avoids
+starting a second independent confirmation wait in the display after the writer
+has already confirmed the level. The confirmed level and current EXP can appear
+together; held or unreadable frames never become numerical endpoints.
+
+A disposable before/after replay uses actual screenshot OCR outputs with an
+explicitly synthetic level-64 baseline and the reported gap timing. The old guard
+retains 64 / 99.80%; the changed writer and projection show 65 / 1,087 / 0.07% on
+the second good capture. This is not a replay of the original VPS pixels or its
+actual level-up boundary. No trusted observations or transition EXP are created.
+
+Synthetic regressions cover the interrupted confirmation, writer recreation,
+the inclusive 120-second limit, duplicate frames, unsafe gaps, identity risk,
+initial/multi-level confirmation, causal public/history projection and rejection
+of weak, invalid or clipped current evidence. The focused writer, diagnostics and
+ETA suites pass 153 tests. The full Python suite passes 3,076 tests, with 68
+missing-private-crop skips, one Windows symlink-permission skip and the known
+tiny-font 9/8 expected failure. The initial restricted run encountered Windows
+temporary-directory access errors; the complete rerun with temporary-file access
+passes. `git diff --check` and the tracked-name audit also pass.
+
+Slow or missing localization remains a separate reliability/performance follow-up;
+this change neither makes failed images readable nor extends freshness limits.
+The three stale production captures remain ineligible. Deployment needs a tracker
+restart for the writer and an API restart for public projection. Nothing has been
+deployed or backfilled, and private evidence remains outside Git.

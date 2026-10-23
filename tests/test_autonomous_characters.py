@@ -484,6 +484,131 @@ def test_stationary_neural_levelup_requires_distinct_frames_within_confirmation_
     assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==56
 
 
+def missing_hud_record(index,at):
+    value=record(index,at=at)
+    value.update(current=False,status='unavailable',reasons=['missing_hud'],
+        localization=dict(count=0,candidates=[]),local_age_seconds=13,
+        candidate=None,visual_level=None,visual_status='not_run',neural=None,neural_status='not_run',
+        character_name=dict(reading_hold_recommended=False,evidence=dict(status='ineligible_frame')))
+    return value
+
+
+@pytest.mark.parametrize('delay,duplicate,restart,confirmed',[
+    (103,False,False,True),(103,False,True,True),(120,False,False,True),
+    (121,False,False,False),(103,True,False,False),
+])
+def test_normal_levelup_survives_unreadable_huds_without_extending_confirmation(auto,delay,duplicate,restart,confirmed):
+    _,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[64,64],bps=[9900,9980])
+    def new_level(index,seconds):
+        value=record(index,level=65,at=AT+timedelta(seconds=seconds))
+        value.update(status='malformed_or_unavailable',candidate=None,neural=dict(text='1.08710.07%]'),
+            visual_level=None,visual_status='unavailable',
+            neural_level=dict(level=65,text='65',status='numeric_candidate',score=.95321,preprocessing='neutral4'))
+        return value
+    first=new_level(3,45)
+    policy.append('first',first,'unused3',config('unused3'))
+    pending=store.db.execute('SELECT pending_json FROM character_level_guard').fetchone()[0]
+    for index,seconds in ((4,85),(5,125)):
+        gap=policy.append('first',missing_hud_record(index,AT+timedelta(seconds=seconds)),
+                          f'unused{index}',config(f'unused{index}'))
+        assert not gap['record']['current'] and gap['record']['candidate'] is None
+        assert store.db.execute('SELECT level,pending_json FROM character_level_guard').fetchone()[:]==(64,pending)
+    if restart:policy=AutonomousCharacters(store)
+    after=new_level(6,45+delay)
+    if duplicate:
+        after['frame_sha256']=first['frame_sha256']
+        after['character_name']['evidence']['pixel_sha256']=first['character_name']['evidence']['pixel_sha256']
+    result=policy.append('first',after,'unused6',config('unused6'))
+    assert result['record']['current'] is confirmed
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==(65 if confirmed else 64)
+    if confirmed:
+        proof=json.loads(store.db.execute('SELECT proof_json FROM character_level_guard').fetchone()[0])
+        assert proof['support']['received_at']==first['received_at']
+        snapshot=Diagnostics(store).snapshot('alpha',now=AT+timedelta(seconds=45+delay+1),run_id='first')
+        assert all('validated_level_floor' not in row for row in snapshot['observations'][:-1])
+        assert snapshot['observations'][-1]['experimental_level']['reason']=='persistent_level_guard'
+        card=Diagnostics(store).directory({},now=AT+timedelta(seconds=45+delay+1))['streams'][0]['player']
+        assert card['display_level']['value']==65
+        assert card['reading']['exp']=='1087' and card['reading']['percentage']=='0.07'
+    else:assert result['record']['level_hold']['reason']=='level_confirmation_pending'
+    assert store.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==0
+
+
+@pytest.mark.parametrize('changes',[
+    dict(status='capture_failed',reasons=['frame_timeout'],localization=None),
+    dict(status='stale_local_frame',reasons=['local_receipt_age_exceeded'],local_age_seconds=16),
+    dict(reasons=['localization_failed']),
+    dict(reasons=['multiple_huds'],localization=dict(count=2)),
+    dict(local_age_seconds=16),dict(local_age_seconds=None),dict(frame_sha256=None),
+    dict(received_at=None),
+    dict(received_at=(AT+timedelta(seconds=45)).isoformat()),
+    dict(received_at=(AT+timedelta(seconds=166)).isoformat()),
+    dict(neural=dict(text='1,437[0.14%]')),dict(candidate=[1437,.14]),
+    dict(visual_level=57),dict(neural_level=dict(level=57)),
+    dict(character_name=dict(reading_hold_recommended=False,evidence=dict(status='ineligible_frame',name='Beta'))),
+    dict(character_name=dict(reading_hold_recommended=True,hold_reasons=['pending_switch'])),
+])
+def test_only_fresh_unreadable_huds_can_preserve_a_normal_levelup_vote(auto,changes):
+    _,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[56,56],bps=[9900,9985])
+    policy.append('first',stationary_levelup_record(3),'unused3',config('unused3'))
+    gap=missing_hud_record(4,AT+timedelta(seconds=60))
+    gap.update(deepcopy(changes))
+    policy.append('first',gap,'unused4',config('unused4'))
+    assert store.db.execute('SELECT pending_json FROM character_level_guard').fetchone()[0] is None
+    result=policy.append('first',stationary_levelup_record(5),'unused5',config('unused5'))
+    assert result['record']['level_hold']['reason']=='level_confirmation_pending'
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==56
+
+
+@pytest.mark.parametrize('seed_floor',[False,True])
+def test_unreadable_hud_does_not_bridge_initial_or_multiple_level_confirmation(auto,seed_floor):
+    _,store,policy=auto
+    if seed_floor:sequence(auto,['Alpha','Alpha'],levels=[67,67])
+    start=3 if seed_floor else 1
+    policy.append('first',record(start,level=80),f'unused{start}',config(f'unused{start}'))
+    gap=missing_hud_record(start+1,AT+timedelta(seconds=(start+1)*15))
+    policy.append('first',gap,'gap',config('gap'))
+    assert store.db.execute('SELECT pending_json FROM character_level_guard').fetchone()[0] is None
+    result=policy.append('first',record(start+2,level=80),'next',config('next'))
+    assert result['record']['level_hold']['reason']=='level_confirmation_pending'
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==(67 if seed_floor else None)
+
+
+@pytest.mark.parametrize('changes',[
+    dict(score=.89),dict(preprocessing='rgb4'),dict(source_complete=False),
+    dict(text='66'),dict(status='failed'),
+])
+def test_persisted_level_context_never_upgrades_weak_invalid_or_clipped_current_evidence(auto,changes):
+    _,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[65,65])
+    Diagnostics(store).append('first',dict(type='summary',trusted=False,attempts=2,interrupted=False))
+    Diagnostics(store).begin('new','alpha',config('new'))
+    value=record(1,level=65,at=AT+timedelta(seconds=60))
+    value.update(visual_level=None,visual_status='unavailable',candidate=None,neural=dict(text='1.08710.07%]'),
+        neural_level=dict(level=65,text='65',status='numeric_candidate',score=.99,preprocessing='neutral4'))
+    value['neural_level'].update(changes)
+    policy.append('new',value,'unused',config('unused'))
+    row=Diagnostics(store).snapshot('alpha',now=AT+timedelta(seconds=61))['observations'][-1]
+    assert row['experimental_level']['value'] is None
+    assert row['experimental_level']['reason']!='persistent_level_guard'
+
+
+def test_untrusted_payload_cannot_supply_its_own_validated_level_context(auto):
+    from exp_tracker.shadow_view import observation
+    _,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[56,56],bps=[9900,9985])
+    value=stationary_levelup_record(3)
+    value['validated_level_floor']=57
+    assert 'validated_level_floor' not in observation(value)
+    result=policy.append('first',value,'unused',config('unused'))
+    assert result['record']['level_hold']['reason']=='level_confirmation_pending'
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==56
+    row=Diagnostics(store).snapshot('alpha',now=AT+timedelta(seconds=46))['observations'][-1]
+    assert row['validated_level_floor']==56 and row['experimental_level']['value'] is None
+
+
 def test_wider_crop_retry_does_not_count_as_a_second_levelup_frame(auto,monkeypatch):
     import importlib
     from pathlib import Path

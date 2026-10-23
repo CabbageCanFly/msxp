@@ -94,14 +94,29 @@ def guard_level(store, character, record, *, support=None):
     """Persistent monotone floor; two independent arithmetically supported frames advance it."""
     if 'level_hold' in record and record.get('current') is False:
         return record
-    if not record.get('current'):
-        store.db.execute('UPDATE character_level_guard SET pending_json=NULL WHERE character_id=? AND pending_json IS NOT NULL', (character,))
-        return record
-    # A saved policy receipt can predate today's floor; only exact stored retries bypass validation.
-    record = {k:v for k,v in record.items() if k!='level_policy'}
     row = store.db.execute('SELECT * FROM character_level_guard WHERE character_id=?', (character,)).fetchone()
     floor = row['level'] if row else None
     pending = json.loads(row['pending_json']) if row and row['pending_json'] else None
+    if not record.get('current'):
+        gap = observation(record)
+        when = gap['received_at']
+        elapsed = ((datetime.fromisoformat(when)-datetime.fromisoformat(pending['received_at'])).total_seconds()
+                   if pending and when else None)
+        # A fresh unreadable HUD is no vote and must not erase a normal level-up's first vote.
+        unreadable = (record.get('current') is False and floor is not None and pending
+            and pending['level']==floor+1 and elapsed is not None and 0<elapsed<=CONFIRM_GAP_SECONDS
+            and record.get('status')=='unavailable' and record.get('reasons')==['missing_hud']
+            and (record.get('localization') or {}).get('count')==0
+            and gap['frame_sha256'] is not None
+            and gap['local_age_seconds'] is not None and gap['local_age_seconds']<=15
+            and record.get('candidate') is None and record.get('neural') is None
+            and record.get('visual_level') is None and (record.get('neural_level') or {}).get('level') is None
+            and not record.get('automatic_identity_risk'))
+        if not unreadable:
+            store.db.execute('UPDATE character_level_guard SET pending_json=NULL WHERE character_id=? AND pending_json IS NOT NULL', (character,))
+        return record
+    # A saved policy receipt can predate today's floor; only exact stored retries bypass validation.
+    record = {k:v for k,v in record.items() if k!='level_policy'}
     proof = json.loads(row['proof_json']) if row and row['proof_json'] else None
     owner = store.db.execute('SELECT s.login,c.label FROM streamers s JOIN characters c ON c.streamer_id=s.id WHERE c.id=?', (character,)).fetchone()
     login = owner['login']

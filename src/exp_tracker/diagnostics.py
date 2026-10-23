@@ -370,10 +370,12 @@ class Diagnostics:
         from .retention import checkpoint
         frozen=checkpoint(self.store,selected['id'] if selected else None)
         result['retention_display']=frozen.get('display',{})
-        if self.store.schema_version>=10 and not historical and selected:
+        floor=proof=None
+        if self.store.schema_version>=10 and selected:
             floor=self.db.execute('SELECT level,proof_json FROM character_level_guard WHERE character_id=?', (selected['id'],)).fetchone()
             if floor and floor['level'] is not None:
                 proof=json.loads(floor['proof_json'])
+            if proof and not historical:
                 result['retention_display']=deepcopy(result['retention_display'])
                 if ((result['retention_display'].get('display_level') or {}).get('value') or 0)<floor['level']:
                     # Same shape as every display level: the public page reads its evidence.
@@ -445,6 +447,9 @@ class Diagnostics:
             value['requirements'] = dict(visual=requirement(value['visual_level']),
                 neural=requirement((value['neural_level'] or {}).get('level')))
             when = value['received_at'] or value['attempted_at']
+            # Only the stored guard supplies this context, never an incoming payload or a future proof.
+            if proof and value['received_at'] and proof['received_at']<=value['received_at']:
+                value['validated_level_floor']=floor['level']
             value.update(event_id=f"{row['run_id']}:{row['attempt_index']}", run_id=row['run_id'],
                          timestamp_ordered=previous is None or when > previous)
             excluded=validity.get(('diagnostic',row['id']))
