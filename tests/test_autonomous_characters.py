@@ -700,6 +700,22 @@ def test_zero_exp_does_not_arithmetically_validate_a_single_level_reader(auto):
     assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==67
 
 
+def test_percentage_only_hud_needs_both_level_readers_before_a_floor(auto):
+    """No absolute EXP means no arithmetic check, so neural alone never validates a level."""
+    _,store,policy=auto
+    def compact(index,visual):
+        value=record(index,level=71)
+        value.update(status='diagnostic_percentage_only',candidate=None,neural=dict(text='[80.00%]'),
+            percentage_only_candidate=dict(kind='percentage_only',percentage='80.00',percentage_bp=8000,trusted=False),
+            visual_level=visual,visual_status='available' if visual else 'unavailable',
+            neural_level=dict(level=71,text='71',status='numeric_candidate',score=.99,preprocessing='neutral4'))
+        return policy.append('first',value,f'no{index}',config(f'no{index}'))['record']
+    rows=[compact(1,None),compact(2,None),compact(3,71),compact(4,71)]
+    assert [r.get('level_hold',{}).get('reason') for r in rows]==['level_unvalidated']*2+['level_confirmation_pending',None]
+    assert rows[3]['current']
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==71
+
+
 def test_commit_failure_rolls_back_switch_and_can_retry(auto):
     _,store,policy=auto
     sequence(auto,['Alpha','Alpha','Beta'])

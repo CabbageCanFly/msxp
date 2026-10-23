@@ -18,6 +18,7 @@
 | Labelled frames: timestamps and HUD values | committed in [`tests/data/recorded_frames.json`](../tests/data/recorded_frames.json), and the private manifests below | The labels are in Git |
 | Level-up crop set (234 crops, recording 1) | `private/levelup-evaluation/` | `python tools/rebuild_fixture_crops.py private/levelup-evaluation/manifest.json` |
 | Cross-stream crop sets (2 × 90 crops, recordings 2 and 3) | `private/cross-stream/stream2/`, `stream3/` | the same tool with each `manifest.json` |
+| Two-feed screenshots (percentage-only HUD, second gameplay feed), 3 frames | `samples/two-feed/` | Nothing; the source screenshots are private |
 | Saved capture logs for replay tests | `private/test-fixtures/runs/` | A frozen copy of tracker logs. Tests read an anonymized copy built from it using the private `names.json` |
 
 `tools/rebuild_fixture_crops.py --check` regenerates every crop from its recording and compares pixels
@@ -66,6 +67,24 @@ What anyone can run instead:
 
 A shareable real-world set would need permission from the streamers in it, or a recording of your own
 gameplay. That is the one way to publish real frames.
+
+## Adding new private test data
+
+1. **Where it goes.** Lossless frames (PNG or WebP) in `samples/<neutral-name>/`, crop sets under
+   `private/`. Folder and file names describe the layout, not the person: `samples/two-feed/`, not a
+   streamer's login. Both locations are ignored by Git.
+2. **Where labels go.** Expected values live in the test itself or in a committed label file such as
+   `tests/data/recorded_frames.json`, never in folder or file names. Code and docs use placeholders
+   (`streamer_a`, `CharA`); real names stay in the private `names.json`.
+3. **Back it up.** Copy every new private fixture into your private test-data repository and add a row
+   to the table above saying where it lives and how to recreate it.
+4. **Check before committing.** Search the staged diff for real names, including any new ones not yet in
+   `names.json`:
+
+   ```sh
+   python -c "import json,re,subprocess;n=[v for k,v in json.load(open('private/test-fixtures/names.json')).items() if not k.startswith('_')];d=subprocess.run(['git','diff','--cached'],capture_output=True,text=True,encoding='utf-8').stdout;print([x for x in n if re.search(re.escape(x),d,re.I)] or 'no real names')"
+   git diff --cached | grep -i "<any new name>"
+   ```
 
 ## Lost on 2026-10-23
 

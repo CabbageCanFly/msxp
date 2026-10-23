@@ -132,7 +132,7 @@ def observation(row):
                 neural_level=neural_level_view(row.get('neural_level'),visual if type(visual) is int and 1<=visual<=200 else None),
                 visual_status=row.get('visual_status') if row.get('visual_status') in ('available', 'unavailable', 'failed', 'not_run') else 'unknown',
                 neural_status=row.get('neural_status') if row.get('neural_status') in ('single_line', 'no_single_line', 'failed', 'not_run') else 'unknown',
-                visual_attempts=[raw_text(a.get('text')) for a in attempts[:6] if isinstance(a, dict)],
+                visual_attempts=[raw_text(a.get('text')) for a in attempts[:8] if isinstance(a, dict)],
                 hypotheses={mode: hypothesis(hypotheses.get(mode)) for mode in ('nearest_half_up', 'truncate')},
                 relation=evidence.get('relation') if evidence.get('relation') in RELATIONS else 'unavailable',
                 local_age_seconds=number(row.get('local_age_seconds'), 86400),

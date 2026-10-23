@@ -267,17 +267,24 @@ def level_reading(crop):
     gray = gray.crop(box)
     gray = gray.resize((gray.width*5,gray.height*5),Image.Resampling.BICUBIC)
     attempts=[]
-    for threshold in (160,180,200):
-        processed=ImageOps.expand(gray.point(lambda p:0 if p>threshold else 255),10,fill=255)
-        tokens=_ocr(processed,7,"0123456789")
-        attempts.append(dict(variant=f"neutral{threshold}",text="".join(t['text'] for t in tokens),
-                             confidence=min((t['confidence'] for t in tokens),default=0)))
+    def neutral(*thresholds):
+        for threshold in thresholds:
+            processed=ImageOps.expand(gray.point(lambda p:0 if p>threshold else 255),10,fill=255)
+            tokens=_ocr(processed,7,"0123456789")
+            attempts.append(dict(variant=f"neutral{threshold}",text="".join(t['text'] for t in tokens),
+                                 confidence=min((t['confidence'] for t in tokens),default=0)))
     def options():
         return [(v,a['confidence']) for a in attempts
                 if a['confidence']>=.4 and (v:=parse_level(a['text'])) is not None]
+    neutral(160,180,200)
     confident=options()
     if len(confident)<2:
         attempts.extend(_read_field(crop,'level',None))
+        confident=options()
+    if len(confident)<2:
+        # Last resort: compression can dim thin strokes (a 7's bar) below 160, dropping that digit.
+        # Readings that already reach consensus never get here; any confident disagreement still vetoes.
+        neutral(140,120)
         confident=options()
     if len(confident)<2 or len({v for v,c in confident})!=1:
         return None,attempts

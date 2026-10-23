@@ -250,6 +250,69 @@ def test_level_needs_agreement_and_rejects_conflict(monkeypatch):
     assert hud.level_reading(image)[0] is None
 
 
+def scripted_level_passes(monkeypatch,neutral):
+    """Neutral passes answer in order 160, 180, 200, then the last-resort 140, 120; luma passes read nothing."""
+    answers=iter(neutral);calls=[]
+    def ocr(*args):
+        calls.append(args)
+        text,confidence=next(answers)
+        return [dict(text=text,confidence=confidence)] if text else []
+    monkeypatch.setattr(hud,'_ocr',ocr)
+    monkeypatch.setattr(hud,'_read_field',lambda *args:[dict(variant='luma',text='',confidence=0)]*3)
+    return calls
+
+
+# A compressed 7 loses its thin bar at 160+, so those passes read '1' (or nothing) without confidence.
+@pytest.mark.parametrize('last_resort,expected',[
+    ([('71',.67),('71',.87)],71),  # two agreeing confident reads
+    ([('71',.67),('',0)],None),  # one confident read is not consensus
+    ([('71',.67),('7',.9)],None),  # a confident disagreement still vetoes
+])
+def test_dim_strokes_use_lower_thresholds_only_as_a_consensus_last_resort(monkeypatch,last_resort,expected):
+    calls=scripted_level_passes(monkeypatch,[('1',0),('1',0),('',0),*last_resort])
+    assert hud.level_reading(Image.new('RGB',(12,12),(250,140,40)))[0]==expected
+    assert len(calls)==5
+
+
+def test_existing_consensus_never_runs_the_lower_thresholds(monkeypatch):
+    calls=scripted_level_passes(monkeypatch,[('63',.9),('63',.9),('',0)])
+    level,attempts=hud.level_reading(Image.new('RGB',(12,12),(250,140,40)))
+    assert level==63 and len(calls)==3
+    assert [a['variant'] for a in attempts]==['neutral160','neutral180','neutral200']
+
+
+def test_monster_level_tags_and_damage_numbers_do_not_become_the_level_anchor():
+    status_bar=anchors(700,1040,150)
+    # Monster name tags, damage numbers and a small picture-in-picture feed's label share the frame.
+    clutter=[dict(text=text,x=x,y=y,width=30,height=12,confidence=.9) for text,x,y in
+             [('Lv.63',950,780),('Lv.57',600,790),('1592',1030,520),('71',1000,700),('LV.',150,990)]]
+    alone=hud.layouts(status_bar,(1920,1080))
+    found=hud.layouts(status_bar+clutter,(1920,1080))
+    assert len(found)==1 and found[0]['regions']==alone[0]['regions']
+    assert found[0]['anchors']['lv'] is status_bar[3]
+    # Another Lv. tag inside the status bar's own LV window disputes the level: no level crop, never a choice.
+    disputed=hud.layouts(status_bar+[dict(text='Lv.',x=435,y=1052,width=20,height=10,confidence=.9)],(1920,1080))
+    assert len(disputed)==1 and disputed[0]['regions']['level'] is None and disputed[0]['level_ambiguous']
+    assert disputed[0]['regions']['exp']==alone[0]['regions']['exp']
+
+
+@pytest.mark.samples
+@pytest.mark.parametrize('name,level',[('1.png',None),('2.png',71),('10.png',71)])
+def test_private_two_feed_frame_reads_only_the_main_status_bar(name,level):
+    """LV 71 with a percentage-only EXP field; a second, smaller gameplay feed, monster Lv. tags and damage
+    numbers share the frame. Frame 1's dim 7 stays unread: abstaining, never another number."""
+    path=Path(__file__).parents[1]/'samples/two-feed'/name
+    if not path.is_file():pytest.skip('Private two-feed frames are absent; see docs/private-test-data.md')
+    image=Image.open(path).convert('RGB')
+    found=hud.locate(image)
+    assert len(found)==1
+    box=found[0]['regions']['level'].pixels(*image.size)
+    hp,step=found[0]['anchors']['hp'],found[0]['anchor_step']
+    # The main status bar's own LV tiles: left of its HP label, on its row.
+    assert hp['x']-2.2*step<box[0]<box[2]<hp['x'] and abs(box[1]-hp['y'])<.1*step
+    assert hud.level_reading(image.crop(box))[0]==level
+
+
 def test_missing_profile_or_failed_match_never_uses_tesseract_exp(monkeypatch):
     monkeypatch.setattr(hud,'level_reading',lambda crop:(10,[]))
     image=Image.new('RGB',(50,10))

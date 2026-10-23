@@ -162,3 +162,42 @@ was visually inspected. The two sampled API requests took 5.4/4.1ms and V8 repor
 about 1.05 MiB used JS heap (not total browser memory or a VPS measurement).
 All **107 fingerprinted frozen evidence files** remain byte-identical, as does
 the tested native-level profile. No public deployment, commits or pushes.
+
+## Follow-up (2026-10-23): dim level strokes held a whole stream
+
+A stream with a percentage-only EXP field (`EXP. [78.63%]`), level 71, a second smaller
+gameplay feed in the corner and monster `Lv.` tags never showed a level or reading.
+
+**Measured** on 21 private screenshots and a local-video replay of them through
+`multi_alpha` with automatic characters (the admin default):
+
+- Localization found exactly one HUD, the main status bar, on all 21. The second feed's HUD is
+  too small to read and monster `Lv.` tags fall outside the LV anchor window, so neither was bound.
+- RapidOCR read 71 (score ≥0.99) and the name OCR read the character on every frame.
+- Tesseract read 0/21: after min-RGB the 7's thin top bar is only 119–162, so every
+  160/180/200 pass erased it and read `1` without confidence. Same mechanism as the level-51 crops above.
+- With no absolute EXP, arithmetic is always indeterminate, so the level guard can only qualify a
+  level when Tesseract and RapidOCR agree. Every attempt was held `level_unvalidated` and the
+  player card stayed empty. Without the guard (manually assigned character), the evidence layer
+  already accepted 71 after three RapidOCR frames.
+
+**Change:** `level_reading` adds min-RGB passes at 140 and 120 only when its six existing passes
+have not reached consensus, so readings that already agree are unchanged by construction. Two
+agreeing confident passes are still required and any confident disagreement still vetoes.
+The guard is unchanged: Tesseract and RapidOCR must agree on two independent frames.
+Threshold 100 was rejected: it produced a confident wrong `7`.
+
+| Labeled level crops (correct / wrong / unavailable) | Before | After |
+|---|---|---|
+| Recording 1 (117) | 68 / 2 / 47 | 86 / 2 / 29 |
+| Recording 2, manual / automatic crops (45 / 36) | 32/0/13 · 25/0/11 | 35/0/10 · 28/0/8 |
+| Recording 3, manual / automatic crops (45 / 41) | 45/0/0 · 41/0/0 | unchanged |
+| Two-feed screenshots (21) | 0 / 0 / 21 | 19 / 0 / 2 |
+
+All 43 changed crops went from unavailable to correct; the two wrong readings are the same
+pre-existing ones. On the replay, the floor reached 71 on the fourth attempt and every later reading
+was public. The two extra passes cost about 0.26 s (Tesseract CLI on Windows) and run only when a
+level read would otherwise abstain.
+
+**Untested:** live Twitch capture on the VPS, resident-Tesseract timing there, other HUD fonts or
+scales, and the level-51 crops above (not available locally).
