@@ -12,7 +12,7 @@ WorkingDirectory=/opt/msxp/app
 # MSXP_DATABASE: the same reviewed database the coordinator uses.
 EnvironmentFile=/etc/msxp/roster.env
 # The coordinator's default --db-roster log root under this WorkingDirectory; override in retention.env.
-Environment=MSXP_LOG_ROOT=/opt/msxp/app/private/multi-alpha/runs PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+Environment=MSXP_LOG_ROOT=/opt/msxp/app/private/multi-alpha/runs PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/opt/msxp/app/src
 EnvironmentFile=-/etc/msxp/retention.env
 # A first catch-up can exceed one pass; the remainder continues on the next timer run.
 ExecStart=/opt/msxp/app/.venv/bin/python -m exp_tracker.retention --db ${MSXP_DATABASE} --apply --log-root ${MSXP_LOG_ROOT} --max-seconds 900
