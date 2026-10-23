@@ -98,4 +98,16 @@ def checked_level(value):
         return empty_level('invalid_response')
     if any(value.get(key)!=expected[key] for key in ('text','level','score','status')):
         return empty_level('invalid_response')
+    if 'tile_attempt' in value:
+        from exp_tracker.diagnostic_evidence import NEURAL_SEED_SCORE
+        tile=value['tile_attempt']
+        if not isinstance(tile,dict) or 'tile_attempt' in tile:
+            return empty_level('invalid_response')
+        tile=checked_level(tile)
+        if (tile['level'] is None or tile['level']!=expected['level'] or tile['score'] is None
+                or tile['score']>=NEURAL_SEED_SCORE or expected['score'] is None
+                or expected['score']<NEURAL_SEED_SCORE
+                or any(tile[key]>expected[key] for key in ('inference_seconds','preprocess_seconds'))):
+            return empty_level('invalid_response')
+        expected['tile_attempt']=tile
     return expected

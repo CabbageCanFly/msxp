@@ -25,8 +25,9 @@ def level(protocol,text='51'):
     return protocol.level_result(dict(txts=[text],scores=[.99],boxes=None),.02,.001)
 
 
-def output(text):
-    return SimpleNamespace(txts=[text],scores=[.99],boxes=None,elapse=.01,elapse_list=None)
+def output(text,score=.99):
+    return SimpleNamespace(txts=[text] if text is not None else None,scores=[score] if score is not None else None,
+                           boxes=None,elapse=.01,elapse_list=None)
 
 
 def test_pair_transport_exact_source_pixels_and_missing_level(modules):
@@ -97,6 +98,103 @@ def test_neural_level_uses_same_tiles_despite_surrounding_hud_pixels(modules):
         assert calls[1].size==expected.size and calls[1].tobytes()==expected.tobytes()
         assert result['neural_level']['level']==71
         assert result['neural_level']['source_complete'] is None
+
+
+@pytest.fixture
+def padded_level():
+    crop=Image.new('RGB',(37,24),(80,80,80))
+    crop.paste(Image.new('RGB',(23,13),(240,120,20)),(2,5))
+    return crop
+
+
+@pytest.mark.parametrize('first,score,retry,retry_score,used,calls',[
+    ('55',.84,'55',.99,True,3), ('55',.89999,'55',.90,True,3),
+    ('55',.90,'54',.99,False,2), ('55',.99,'54',.99,False,2),
+    ('55',.84,'54',.99,False,3), ('55',.84,'55',.89,False,3),
+    ('55',.84,'S5',.99,False,3), ('55',.84,'0',.99,False,3),
+    ('55',.84,None,None,False,3), ('55',None,'55',.99,False,2),
+    ('S5',.84,'55',.99,False,2), ('0',.84,'55',.99,False,2),
+    ('',.84,'55',.99,False,2), (None,None,'55',.99,False,2),
+])
+def test_only_weak_numeric_tile_gets_one_agreeing_wider_retry(modules,padded_level,first,score,retry,retry_score,used,calls):
+    protocol,worker,_=modules
+    preprocessor=importlib.import_module('benchmark_rapidocr_levels').preprocess
+    inputs=[]
+    def engine(image,**kwargs):
+        inputs.append(image.copy())
+        return [output('17[50.00%]'),output(first,score),output(retry,retry_score)][len(inputs)-1]
+    result=worker.recognize_fields(engine,Image.new('RGB',(50,15)),
+                                  protocol.png_bytes(padded_level,protocol.LEVEL_SIZE),experimental=True)
+    assert len(inputs)==calls and result['text']=='17[50.00%]'
+    if calls==3:
+        assert inputs[2].tobytes()==preprocessor(padded_level,'neutral4').tobytes()
+    value=result['neural_level']
+    assert value['text']==first and value['score']==(retry_score if used else score)
+    assert ('tile_attempt' in value)==used
+    if used:
+        assert value['tile_attempt']['score']==score
+        assert value['inference_seconds']>=value['tile_attempt']['inference_seconds']
+    checked=protocol.checked_level(value)
+    assert checked['level']==value['level'] and checked['score']==value['score']
+    assert protocol.checked_level(checked)==checked  # Both bridge and analyze validate it.
+    assert checked['source_complete'] is None and not checked['trusted']
+
+
+@pytest.mark.parametrize('background',[(80,80,80),(240,120,20)])
+def test_no_retry_without_a_different_wider_crop(modules,background):
+    protocol,worker,_=modules
+    crop=Image.new('RGB',(30,15),background)
+    calls=[]
+    def engine(*args,**kwargs):
+        calls.append(1)
+        return output('17[50.00%]' if len(calls)==1 else '55',.84)
+    result=worker.recognize_fields(engine,crop,protocol.png_bytes(crop,protocol.LEVEL_SIZE),experimental=True)
+    assert len(calls)==2 and result['neural_level']['score']==.84
+    assert 'tile_attempt' not in result['neural_level']
+
+
+@pytest.mark.parametrize('offset',[(0,5),(14,5),(2,0),(2,11)])
+def test_no_wider_retry_when_orange_badge_touches_a_crop_edge(modules,offset):
+    protocol,worker,_=modules
+    crop=Image.new('RGB',(37,24),(80,80,80))
+    crop.paste(Image.new('RGB',(23,13),(240,120,20)),offset)
+    calls=[]
+    def engine(*args,**kwargs):
+        calls.append(1)
+        return output('17[50.00%]' if len(calls)==1 else '5',.84)
+    result=worker.recognize_fields(engine,crop,protocol.png_bytes(crop,protocol.LEVEL_SIZE),experimental=True)
+    assert len(calls)==2 and result['neural_level']['score']==.84
+    assert 'tile_attempt' not in result['neural_level']
+
+
+def test_failed_wider_retry_keeps_original_level_and_exp(modules,padded_level):
+    protocol,worker,_=modules
+    calls=[]
+    def engine(*args,**kwargs):
+        calls.append(1)
+        if len(calls)==3: raise RuntimeError('private failure detail')
+        return output('17[50.00%]' if len(calls)==1 else '55',.84)
+    result=worker.recognize_fields(engine,Image.new('RGB',(50,15)),
+                                  protocol.png_bytes(padded_level,protocol.LEVEL_SIZE),experimental=True)
+    assert len(calls)==3 and result['text']=='17[50.00%]'
+    assert result['neural_level']['level']==55 and result['neural_level']['score']==.84
+    assert 'private failure' not in str(result)
+
+
+@pytest.mark.parametrize('change',[
+    {'tile_attempt':None}, {'tile_attempt':{'status':'failed'}},
+    {'tile_attempt':{'level':55}}, {'score':.84}, {'level':54},
+    {'inference_seconds':0}, {'preprocess_seconds':0},
+])
+def test_invalid_retry_provenance_rejected(modules,change):
+    protocol,_,_=modules
+    tile=protocol.level_result(dict(txts=['55'],scores=[.84]),.02,.001)
+    value={**protocol.level_result(dict(txts=['55'],scores=[.99]),.04,.002),'tile_attempt':tile}
+    assert protocol.checked_level(value)['score']==.99
+    assert protocol.checked_level({**value,**change})['status']=='invalid_response'
+    for bad in ({**tile,'tile_attempt':tile},{**tile,'score':.99},
+                protocol.level_result(dict(txts=['54'],scores=[.84]),.02,.001)):
+        assert protocol.checked_level({**value,'tile_attempt':bad})['status']=='invalid_response'
 
 
 @pytest.mark.parametrize('text',['S 1','S1','B3','5I','5 1','0','201','051','日',''])

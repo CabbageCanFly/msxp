@@ -37,7 +37,9 @@ def recognize_fields(engine,image,level_payload=None,*,experimental=False):
                 try:
                     from benchmark_rapidocr_levels import preprocess
                     from exp_tracker.diagnostic_geometry import level_tile_box
+                    from exp_tracker.diagnostic_evidence import NEURAL_SEED_SCORE
                     started=time.perf_counter()
+                    source=level
                     box=level_tile_box(level)
                     if box is not None: level=level.crop(box)
                     level=preprocess(level,'neutral4')
@@ -45,6 +47,24 @@ def recognize_fields(engine,image,level_payload=None,*,experimental=False):
                     output=recognize(engine,level)
                     result['neural_level']=level_result(output['raw'],output['inference_seconds'],prep)
                     result['neural_level']['input_size']=level.size
+                    tile=result['neural_level']
+                    if (box is not None and 0<box[0]<box[2]<source.width and 0<box[1]<box[3]<source.height
+                            and tile['level'] is not None
+                            and tile['score'] is not None and tile['score']<NEURAL_SEED_SCORE):
+                        # Crop agreement improves one frame's evidence; it is not temporal confirmation.
+                        try:
+                            started=time.perf_counter()
+                            wider=preprocess(source,'neutral4')
+                            retry_prep=time.perf_counter()-started
+                            retry_output=recognize(engine,wider)
+                            retry=level_result(retry_output['raw'],retry_output['inference_seconds'],retry_prep)
+                        except Exception:
+                            pass
+                        else:
+                            if retry['level']==tile['level'] and retry['score'] is not None and retry['score']>=NEURAL_SEED_SCORE:
+                                result['neural_level']={**retry, 'tile_attempt':tile, 'input_size':wider.size,
+                                    'inference_seconds':tile['inference_seconds']+retry['inference_seconds'],
+                                    'preprocess_seconds':tile['preprocess_seconds']+retry['preprocess_seconds']}
                 except Exception:
                     result['neural_level']=empty_level('failed')
     return result

@@ -484,6 +484,41 @@ def test_stationary_neural_levelup_requires_distinct_frames_within_confirmation_
     assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==56
 
 
+def test_wider_crop_retry_does_not_count_as_a_second_levelup_frame(auto,monkeypatch):
+    import importlib
+    from pathlib import Path
+    from types import SimpleNamespace
+    from PIL import Image
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[1]/'tools'))
+    protocol=importlib.import_module('shadow_neural')
+    worker=importlib.import_module('shadow_rapidocr')
+    crop=Image.new('RGB',(37,24),(80,80,80))
+    crop.paste(Image.new('RGB',(23,13),(240,120,20)),(2,5))
+    outputs=iter([('1,437[0.14%]',.99),('57',.84),('57',.99)])
+    def engine(*args,**kwargs):
+        text,score=next(outputs)
+        return SimpleNamespace(txts=[text],scores=[score],boxes=None,elapse=.01,elapse_list=None)
+    output=worker.recognize_fields(engine,crop,protocol.png_bytes(crop,protocol.LEVEL_SIZE),experimental=True)
+    neural=protocol.checked_level(output['neural_level'])
+    assert neural['score']==.99 and neural['tile_attempt']['score']==.84
+    _,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[56,56],bps=[9900,9985])
+    first=stationary_levelup_record(3)
+    for i in (3,4,5):
+        value=stationary_levelup_record(i)
+        value['neural_level']=neural
+        if i==4:
+            value['frame_sha256']=first['frame_sha256']
+            value['character_name']['evidence']['pixel_sha256']=first['character_name']['evidence']['pixel_sha256']
+        result=policy.append('first',value,f'noop{i}',config(f'noop{i}'))
+        if i<5:
+            assert result['record']['level_hold']['reason']=='level_confirmation_pending'
+            assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==56
+    assert result['record']['current']
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==57
+    assert store.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==0
+
+
 def test_saved_level_policy_cannot_bypass_a_newer_floor(auto):
     _,store,_=auto
     rows=sequence(auto,['Alpha']*4,levels=[67,67,68,68])

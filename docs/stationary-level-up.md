@@ -69,3 +69,58 @@ targeted cases covering persistent confirmation across a fresh writer object,
 stationary public EXP/level updates, and unchanged zero gained EXP.
 The supplied screenshot was separately run through the local OCR pipeline above.
 No frontend code changed, and no browser test or live VPS replay was performed.
+
+## Weak level crops after a level-up
+
+A subsequent misusingtv incident was different: the first two level-55 reads had
+scores 0.8498 and 0.7927, below the existing 0.90 seed threshold. The level-54 floor
+was retained until a later full EXP/% pair uniquely supported 55. The earlier
+stationary-level fix was running; it does not bypass weak visual evidence.
+
+The recognizer now makes at most one additional `neutral4` pass on the original
+level crop when the trimmed orange badge yields a numeric candidate below 0.90.
+It requires a visible margin on all four sides of the orange badge; touching an
+edge withholds the retry. This prevents boosting the tested clipped-digit cases,
+but a margin is not proof of a complete source image. Nonnumeric, missing-score
+and already strong readings do not trigger a retry.
+
+The wider read can replace the weak one only if both give the same numeric level
+and the wider score reaches 0.90. It cannot change the initial numeric candidate.
+A rejected or failed retry preserves the original level result and independent
+EXP result. Successful replacements retain the original raw evidence under
+`neural_level.tile_attempt`, validated at both capture bridge boundaries. The
+replacement's inference/preprocessing times include both successful passes;
+the existing bridge wall time includes unsuccessful retry work as well.
+
+Both crops belong to one capture and count as one frame. EXP/% consistency,
+freshness, crop checks, identity attribution, the persistent floor and the second
+distinct-frame requirement are unchanged. No schema, API or trusted-accounting
+change is needed. Deployment requires restarting `msxp-tracker` to reload its
+resident OCR worker; the API can keep running. This does not backfill old holds.
+
+### Offline validation and limits
+
+Using the existing pinned recognizer, five supplied VOD screenshots yielded five
+correct level-55 candidates at or above 0.90, compared with two before the retry.
+Across all 116 available older frozen fixtures, correct high-score candidates
+increased from 108 to 109, with none lost and no new high-score incorrect result
+under the existing labels. One older fixture was unavailable. These are familiar
+single-reviewer labels, not a new independent accuracy benchmark.
+
+Twenty-five constructed blank, solid-color and partial-crop controls added no
+high-score numeric results relative to the baseline. Five partial controls already
+produced such results before this change and still do: confidence is not proof of
+a complete or correct reading. The first implementation boosted two additional
+clipped controls; requiring margins around the orange badge prevented that retry.
+
+Eight actual retries across this replay averaged 20.5 ms of additional recognition
+wall time locally (maximum 21.6 ms). This excludes model initialization, is a small
+Windows sample, and is not a VPS CPU or end-to-end capture latency measurement.
+Existing request timeouts and post-OCR freshness checks still bound eligibility.
+
+The full Python suite passed 2,919 tests, with 119 unavailable private-fixture skips
+and one Windows symlink-permission skip. Synthetic regressions cover retry score
+boundaries, disagreement, malformed responses, all four crop edges, failures,
+idempotent bridge validation and duplicate-frame rejection by the persistent floor.
+Screenshots, crops and replay output remain ignored private artifacts. No live
+capture, VPS deployment, API restart or production history rewrite was performed.
