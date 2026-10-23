@@ -18,7 +18,7 @@
 | Labelled frames: timestamps and HUD values | committed in [`tests/data/recorded_frames.json`](../tests/data/recorded_frames.json), and the private manifests below | The labels are in Git |
 | Level-up crop set (234 crops, recording 1) | `private/levelup-evaluation/` | `python tools/rebuild_fixture_crops.py private/levelup-evaluation/manifest.json` |
 | Cross-stream crop sets (2 × 90 crops, recordings 2 and 3) | `private/cross-stream/stream2/`, `stream3/` | the same tool with each `manifest.json` |
-| Two-feed screenshots (percentage-only HUD, second gameplay feed), 3 frames | `samples/two-feed/` | Nothing; the source screenshots are private |
+| Two-feed screenshots (percentage-only HUD, second gameplay feed): 1–21 at level 71, 23–29 at level 72 after a feed swap (70 MB) | `samples/two-feed/` | Nothing; copy `two-feed/` back from the private test-data repository |
 | Saved capture logs for replay tests | `private/test-fixtures/runs/` | A frozen copy of tracker logs. Tests read an anonymized copy built from it using the private `names.json` |
 
 `tools/rebuild_fixture_crops.py --check` regenerates every crop from its recording and compares pixels
