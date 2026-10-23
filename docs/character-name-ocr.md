@@ -765,6 +765,12 @@ arithmetic inconsistency still rejects it. Without sufficient support the tool h
 the uncertain level rather than declaring progress. Existing level inference remains
 in use; this module does not create another anomaly detector or EXP requirement table.
 
+For a complete nonzero EXP/% pair, a validated high-confidence `neutral4` neural
+level can supply each frame's arithmetic check even when the pair alone fits
+multiple levels. The outer guard still requires two distinct captures within
+120 seconds. EXP need not increase between them; see the
+[stationary level-up diagnosis](stationary-level-up.md).
+
 An active explicit manual level assertion can seed/advance the floor immediately.
 Unvalidated historical diagnostic maxima are not imported. Current lower corrections,
 including historical baselines that would carry forward, are rejected for managed
