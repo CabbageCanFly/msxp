@@ -87,6 +87,31 @@ test('a delayed sprite decode cannot spawn in a hidden tab or exceed the three-m
   assert.equal(added.length,0);
 });
 
+test('every accepted mob click shows one damage number for every reaction, including repeated nonlethal hits',async()=>{
+  for(const reaction of [0,.25,.5,.75]) {
+    const p=page('board');
+    p.context.document.createElement=tag=>Object.assign(new Element(tag),{
+      naturalWidth:40,height:24,decode:()=>Promise.resolve(),remove(){this.removed=true;},
+      animate:()=>({finished:new Promise(()=>{}),playState:'running',pause(){this.playState='paused';},updatePlaybackRate(){}}),
+    });
+    const lane=Object.assign(new Element(),{clientWidth:300});p.context.lane=lane;
+    p.run('spawnMob(lane)');await Promise.resolve();
+    const img=lane.children[0].children[0];assert.equal(img.draggable,false);
+    const before=p.timers.filter(delay=>delay===1000).length;
+    for(let i=0;i<3;i++) {
+      const rolls=[.2,reaction];p.context.Math.random=()=>rolls.shift();
+      img.listeners.click();
+      const hits=lane.children.filter(child=>child.className==='mob-hit');
+      assert.equal(hits.length,reaction<.5?i+1:1,'A retiring mob ignores later clicks; other reactions allow repeated hits');
+      for(const hit of hits) {
+        assert.match(hit.textContent,/^\d+$/);
+        assert.equal(hit.style.left,'0px');assert.equal(hit.style.bottom,'28px');
+      }
+    }
+    assert.equal(p.timers.filter(delay=>delay===1000).length-before,reaction<.5?3:1,'Every damage number gets its cleanup timer');
+  }
+});
+
 test('offline last-seen EXP fills the bar and ages its original timestamp',()=>{
   const p=page('player'),reading=player().reading;
   p.render(player({reading:null,stale:true,age_seconds:null,twitch:{status:'offline'},

@@ -246,8 +246,9 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 /* Clip on html too, so body clips falling mobs itself rather than handing a scrollable "hidden" to the viewport. */
 html, body.product { overflow-x:clip; }
 .mob-lane { position:relative; height:0; pointer-events:none; }
+.mob-lane, .mob-lane * { -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
 .mob { position:absolute; left:0; bottom:-1px; }
-.mob img { position:absolute; left:0; bottom:0; translate:-50% 0; pointer-events:auto; cursor:pointer; }
+.mob img { position:absolute; left:0; bottom:0; translate:-50% 0; pointer-events:auto; cursor:pointer; touch-action:manipulation; }
 .mob-hit { position:absolute; translate:-50% 0; color:#ffb340; font:700 22px var(--font-display); text-shadow:0 2px 0 #7a2e00, 0 0 3px #000; animation:mob-hit 1s ease-out forwards; }
 @keyframes mob-hit { to { transform:translateY(-34px); opacity:0; } }
 .boss { position:fixed; top:0; left:0; opacity:.18; pointer-events:none; }

@@ -100,6 +100,9 @@ retain their opaque surfaces. The older abstract cloud decoration is hidden.
 
 This gives pages of any length the same scene without a scroll handler or animation.
 The existing wandering monsters supply movement. Mobile shows a narrower crop.
+Walking mobs and their damage numbers disable touch highlighting, selection and
+image dragging. Each accepted tap/click shows one floating damage number, including
+nonlethal reactions; mobs already dying or falling ignore further input.
 The town scales up on 4K screens: this is original pixel art, not native 4K detail.
 The small forest tile is also enlarged and intentionally subdued by the tint.
 If an image fails, the navy body remains the fallback. The OBS overlay uses its own
@@ -124,7 +127,10 @@ The original background milestone passed 2,985 Python tests with one OS symlink
 skip on the main workstation. This follow-up in the separate worktree passed
 2,869 Python tests, with 119 private-fixture skips and one OS symlink skip;
 the worktree does not copy the original directory's ignored private fixtures.
-The product JavaScript suite passed all 120 tests.
+The product JavaScript suite passed all 121 tests, including repeated mob clicks
+across all four reactions. On 2026-10-23, Chrome touch emulation verified four taps
+and a mouse click each create one damage number, numbers clean up, mob highlighting
+and selection are disabled, and ordinary page text remains selectable.
 Both towns were checked at 1080p, 4K and mobile, on long scrolling lists and the
 character page; only the selected images loaded and OBS remained transparent.
 Tests also change source CSS and HTML while the same live server runs, and verify

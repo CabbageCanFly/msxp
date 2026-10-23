@@ -968,7 +968,7 @@ function spawnBoss() {
   boss.animate([{transform:'translateY(-14px) rotate(-7deg)'},{transform:'translateY(14px) rotate(7deg)'}],{duration:3200,iterations:Infinity,direction:'alternate',easing:'ease-in-out'});
 }
 function spawnMob(lane) {
-  const slug=pick(MOBS),mob=node('div','mob'),img=node('img');img.alt='';img.src=sprite(slug,'move');mob.append(img);
+  const slug=pick(MOBS),mob=node('div','mob'),img=node('img');img.alt='';img.draggable=false;img.src=sprite(slug,'move');mob.append(img);
   img.decode().then(()=>{
     if(document.hidden || lane.querySelectorAll('.mob').length>=3)return;
     lane.append(mob);
@@ -981,8 +981,6 @@ function spawnMob(lane) {
     const fall=()=>{img.src=sprite(slug,'hit');end([{transform:'none'},{transform:`translate(-${half+10}px,260px) rotate(-110deg)`,opacity:0}],900);};
     const die=()=>{
       img.src=sprite(slug,'die');
-      const hit=node('span','mob-hit',String(7+Math.floor(Math.random()*40)));
-      hit.style.left=`${mob.getBoundingClientRect().left-lane.getBoundingClientRect().left}px`;hit.style.bottom=`${img.height+4}px`;lane.append(hit);setTimeout(()=>hit.remove(),1000);
       end([{opacity:1},{opacity:1,offset:.6},{opacity:0}],1100);
     };
     const hop=()=>img.animate([{transform:'none'},{transform:'translateY(-28px)'},{transform:'none'}],{duration:450,easing:'ease-out'});
@@ -993,7 +991,12 @@ function spawnMob(lane) {
       walk.pause();img.src=sprite(slug,'hit');
       setTimeout(()=>{if(!gone){img.src=sprite(slug,'move');walk.play();}},500);
     });
-    img.addEventListener('click',()=>{if(!gone)pick(reactions)();});
+    img.addEventListener('click',()=>{
+      if(gone)return;
+      const hit=node('span','mob-hit',String(7+Math.floor(Math.random()*40)));
+      hit.style.left=`${mob.getBoundingClientRect().left-lane.getBoundingClientRect().left}px`;hit.style.bottom=`${img.height+4}px`;lane.append(hit);setTimeout(()=>hit.remove(),1000);
+      pick(reactions)();
+    });
   },()=>{});  // A sprite that fails to load is simply skipped.
 }
 // Every 10–45 s, whether or not others are still walking: occasionally a boss (one at a time), otherwise a mob, at most 3 at once.
