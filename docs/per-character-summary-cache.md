@@ -106,8 +106,11 @@ served, its chart slides forward by whole 30 min buckets since the build (nothin
 tracked meanwhile); the list's "today" total is the sum of the remaining buckets.
 
 Inactive characters without a usable summary, or seen after it was built, are built in
-the background only when nothing else is due, at most one per `SUMMARY_SECONDS` (5 s),
-never by requests or in inline mode. These builds do not occupy an in-memory view
+the background at most one per `SUMMARY_SECONDS` (5 s), after cold and requested channels
+but before routine refreshes and views, never by requests or in inline mode. They were
+once built only when nothing else was due; with 28 channels refreshing every 30 s on a
+busy VPS something always was, so those rows showed "Loading EXP…" indefinitely
+(`character_demo.py serve --slow 8` reproduces it locally). These builds do not occupy an in-memory view
 slot. With `--publication-cache`, their already-computed full reports are saved as
 inactive views instead of being discarded, and compact summaries are saved separately
 in that same disposable cache database. No tracking schema or writer change is needed.
@@ -128,8 +131,9 @@ reading timestamp; a newer failed capture cannot make old EXP look freshly read.
 
 Full inactive reports restore on the existing worker after a profile is requested,
 including after its memory slot is evicted. They retain the existing 24h age limit,
-revision checks and eight-view memory bound. Background work remains lowest priority
-and rate-limited; an empty cache still needs an initial build for each character.
+revision checks and eight-view memory bound. A retention fold alone keeps an open view
+on show and only makes it due. Background summary work stays rate-limited; an empty cache
+still needs an initial build for each character.
 
 The existing `deploy/msxp-api.service` already supplies `--publication-cache`.
 An operator can check the installed command without changing it:

@@ -202,12 +202,13 @@ class Publisher:
                 cold = pending and (self.entries.get(pending[0]) is None or self.entries[pending[0]].get('restored'))
                 if cold:self.build(diagnostics, store, pending[0], now)
                 elif requested:self.build(diagnostics, store, requested[0], now)
-                elif views and (not pending or self.stats['steps'] % 2):self.build(diagnostics, store, views[0][1][1], now, view=views[0][1:])
-                elif pending:self.build(diagnostics, store, pending[0], now)
                 elif self.background and time.monotonic() >= self.summary_due and (missing := self.missing_summaries(now)):
-                    # Lowest priority and rate-limited: requests never build, and capture keeps the CPU.
+                    # Rate-limited, never by requests, so capture keeps the CPU. Not lowest priority: like views,
+                    # the Characters list stayed "Loading EXP" forever once routine refreshes were always due.
                     self.summary_due = time.monotonic() + SUMMARY_SECONDS
                     self.build(diagnostics, store, missing[0][0], now, view=(('view', *missing[0]), None))
+                elif views and (not pending or self.stats['steps'] % 2):self.build(diagnostics, store, views[0][1][1], now, view=views[0][1:])
+                elif pending:self.build(diagnostics, store, pending[0], now)
                 if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in directory):
                     self.stats['ready_at'] = time.monotonic()
                 return len(pending) + len(requested) + len(views) > 1
@@ -258,7 +259,8 @@ class Publisher:
         """Polled views of unselected characters: cold first, then due, oldest first.
 
         A view whose character became selected, or whose saved data changed, is dropped
-        at once: it is never served in place of the channel entry or a fresh build.
+        at once: it is never served in place of the channel entry or a fresh build. A
+        retention fold changes no shown value, so it only makes the view due.
         """
         heads = {h['login']: h for h in heads}; idle = time.monotonic() - VIEW_IDLE_SECONDS
         kept = time.monotonic() - VIEW_KEEP_SECONDS; cache = getattr(self.server, 'publication_cache', None)
@@ -276,7 +278,8 @@ class Publisher:
             current = (head['manual_revision'], head['rename_revision'], head['invalidation_revision'],
                        head['retention_revision'], row and row['revision'])
             entry = self.views.get(key)
-            if entry is not None and entry['key'] != current:
+            # A retention fold alone ([3]) changes no shown value: that view stays on show and is rebuilt below.
+            if entry is not None and (entry['key'][:3] != current[:3] or entry['key'][4:] != current[4:]):
                 with self.lock:
                     if self.views.pop(key, None):self.generation += 1
                 entry = None
@@ -289,7 +292,7 @@ class Publisher:
                     with self.lock:
                         if key in self.viewed:self.views[key] = entry; self.generation += 1
             if entry is None:rank = (0, '')
-            elif (entry.get('restored') or due(entry['card']['player'], entry['card']['recent_as_of'], now)
+            elif (entry.get('restored') or entry['key'] != current or due(entry['card']['player'], entry['card']['recent_as_of'], now)
                     or not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=TRACKED_SECONDS)):
                 rank = (1, entry['built_at'])
             else:continue
