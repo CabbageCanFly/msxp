@@ -179,9 +179,9 @@ test('offline last-seen EXP fills the bar and ages its original timestamp',()=>{
     last_seen:{reading,age_seconds:7200}}));
   assert.equal(p.elements.progress.hidden,false);assert.equal(p.elements.progress.value,5.9);
   assert.equal(p.elements.exp.textContent,'71,441 EXP');assert.equal(p.elements.percentage.textContent,'5.90%');
-  assert.equal(p.elements.age.textContent,'Last tracked 2h ago');
+  assert.equal(p.elements.age.textContent,'Updated 2h ago');
   p.context.performance.now=()=>3600000;p.run('renderPlayer()');
-  assert.equal(p.elements.age.textContent,'Last tracked 3h ago');
+  assert.equal(p.elements.age.textContent,'Updated 3h ago');
   // Newer percentage-only evidence must not be replaced with an older exact pair.
   p.render(player({stale:true,reading:{...reading,exp:null,bp:600,percentage:'6.00'},
     last_seen:{full_exp:reading,age_seconds:7200}}));
@@ -248,7 +248,7 @@ test('a warming server is described as preparing history, not as unavailable',as
   // A chosen saved character keeps its roster identity while its own history warms.
   p.run(`roster=[{id:7,label:'Saved alt',level:42,last_seen_at:new Date(Date.now()-7200000).toISOString(),current:false}];viewCharacter='7';warming=true;data=null;renderPlayer()`);
   assert.equal(p.elements['player-name'].textContent,'Saved alt');assert.equal(p.elements.level.textContent,'Lv. 42');
-  assert.equal(p.elements.age.textContent,'Last tracked 2h ago');assert.equal(p.elements.exp.textContent,'—');
+  assert.equal(p.elements.age.textContent,'Updated 2h ago');assert.equal(p.elements.exp.textContent,'—');
   const board=page('board',()=>new Promise(()=>{}));board.context.fixture={players:[],warming:['beta']};
   board.run("el('entries').querySelectorAll=()=>[];data=fixture;renderBoard()");assert.match(board.elements['board-count'].textContent,/1 more loading/);
 });
@@ -263,7 +263,7 @@ test('a direct inactive profile shows its dated summary while history warms, wit
   assert.equal(p.elements['player-name'].textContent,'Saved alt');
   assert.equal(p.elements.exp.textContent,'71,441 EXP');assert.equal(p.elements.percentage.textContent,'5.90%');
   assert.equal(p.elements.progress.hidden,false);assert.equal(p.elements.progress.value,5.9);
-  assert.equal(p.elements.age.textContent,'Last tracked 2h ago');
+  assert.equal(p.elements.age.textContent,'Updated 2h ago');
   assert.equal(p.elements.status.textContent,'Preparing saved history…');
   for(const id of ['rate','movement','eta'])assert.equal(p.elements[id].textContent,'—');
   assert.equal(p.elements['tracked-exp'].textContent,'~30');
@@ -1080,7 +1080,7 @@ for(const layout of ['card','bar','rates','chart'])test(`${layout} overlay stays
     tracked_history:{as_of:'2026-01-01T01:00:00Z',chart_intervals:[]}});
   const api=server([saved,{...saved,roster:[{...ALPHA,current:false},{...BETA,current:true}]},{status:404,body:{error:'unknown_character'}}]);
   const p=page('overlay',api.fetch,`?layout=${layout}&character=3`);await settle();
-  assert.equal(p.elements.character.textContent,'Beta');assert.match(p.elements.age.textContent,/^Last tracked/);
+  assert.equal(p.elements.character.textContent,'Beta');assert.match(p.elements.age.textContent,/^Updated/);
   assert.equal(p.run('viewCharacter'),'3');assert.equal(p.run('publicPace(data.player)?.active ?? false'),false);
   await p.run('poll()');assert.equal(p.elements.character.textContent,'Beta');
   await p.run('poll()');assert.equal(p.run('viewCharacter'),'3');assert.equal(p.run('data'),null);
@@ -1127,7 +1127,8 @@ test('choosing an inactive character is view-only, clears old numbers and discar
   await p.run('poll()');
   assert.match(api.urls.at(-1),/character=3/);
   assert.equal(p.elements['player-name'].textContent,'Beta');
-  assert.match(p.elements.status.textContent,/^Not currently tracked · last tracked 2h ago/);
+  assert.match(p.elements.status.textContent,/^Not currently tracked · updated 2h ago/);
+  assert.equal(p.elements.age.textContent,'');  // The age is in the status already; never twice.
   assert.equal(p.elements['segment-note'].textContent,'Saved history');
   assert.equal(p.elements['roster-track'].children[1].attributes['aria-current'],'page');
   assert.equal(p.elements['roster-track'].children[0].attributes['aria-current'],undefined);
@@ -1357,7 +1358,7 @@ test('viewed inactive roster character uses its saved EXP age and tooltip rather
   p.render(player({character:{id:3,label:'Beta'},reading:{timestamp:'2025-12-31T22:00:00Z'}}));
   p.run("data.served_at='2026-01-01T00:00:00Z'");
   assert.equal(p.run('rosterSeenText(person)'),'2h ago');
-  assert.equal(p.run("rosterLink(person,'3','roster-chip').title"),p.run("'Beta · last tracked '+localTime(data.player.reading.timestamp)"));
+  assert.equal(p.run("rosterLink(person,'3','roster-chip').title"),p.run("'Beta · updated '+localTime(data.player.reading.timestamp)"));
   p.run("data.player.reading.timestamp='2025-12-31T23:59:00Z'");
   assert.equal(p.run('rosterSeenText(person)'),'1m ago');
 });

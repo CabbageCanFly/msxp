@@ -232,7 +232,7 @@ function windowNote(p) {
 }
 function statusText(p) {
   // Another character's saved state: never the tracked character's capture or Twitch status.
-  if(inactiveView())return `Not currently tracked · ${p.reading?'last tracked '+ageText(current(p).age):'nothing saved yet'}`;
+  if(inactiveView())return `Not currently tracked · ${p.reading?'updated '+ageText(current(p).age):'nothing saved yet'}`;
   // Public status is deliberately two-state; delays and capture issues still read as Online.
   if(p.twitch?.status==='offline')return 'Offline';
   // Live in another category (e.g. Just Chatting) isn't tracked, so it doesn't read as Online either.
@@ -421,14 +421,14 @@ function renderPlayer() {
       // A chosen saved character keeps its roster name, level and last sighting while its history loads.
       const chosen=view==='player' && roster.find(r=>viewCharacter?String(r.id)===viewCharacter:r.current);
       if(chosen){el('player-name').textContent=chosen.label;el('level').textContent=`Lv. ${chosen.level ?? '—'}`;
-        if(chosen.last_seen_at)el('age').textContent=`Last tracked ${ageText(Math.max(0,(Date.now()-Date.parse(chosen.last_seen_at))/1000))}`;}
+        if(chosen.last_seen_at)el('age').textContent=`Updated ${ageText(Math.max(0,(Date.now()-Date.parse(chosen.last_seen_at))/1000))}`;}
       const saved=chosen && String(data?.summary?.character_id)===String(chosen.id)?data.summary:null,reading=saved?.reading;
       if(reading) {
         const bp=reading.bp ?? (reading.percentage!=null?Math.round(Number(reading.percentage)*100):null);
         el('progress').hidden=bp==null;el('progress').value=bp==null?0:bp/100;
         const exp=displayedExp(reading,true);amount('exp',exp==='—'?'—':`${exp} EXP`,displayedExp(reading));el('exp').title=expTitle(reading);
         el('percentage').textContent=percentageText(reading);
-        el('age').textContent=`Last tracked ${ageText(Math.max(0,(Date.now()-Date.parse(reading.timestamp))/1000))}`;el('age').title=localTime(reading.timestamp);
+        el('age').textContent=`Updated ${ageText(Math.max(0,(Date.now()-Date.parse(reading.timestamp))/1000))}`;el('age').title=localTime(reading.timestamp);
       }
       if(saved?.day!=null) {
         amount('tracked-exp',`~${expText(saved.day,true)}`,`~${expText(saved.day)}`);
@@ -457,10 +457,10 @@ function renderPlayer() {
   amount('exp',absolute==='—'?'—':absolute+' EXP',displayedExp(shown));el('exp').title=expTitle(shown);
   el('percentage').textContent=percentageText(shown);el('percentage').title=shown?.evidence==='manual_admin'?expTitle(shown):'';
   el('status').textContent=statusText(p);el('status').dataset.online=String(statusText(p)==='Online');
-  // Skip "Updated …" when the status already says how long ago, e.g. "Last tracked 13m ago".
+  // Skip "Updated …" when the status already says how long ago, e.g. "Not currently tracked · updated 13m ago".
   const lastAge=p.last_seen?.age_seconds==null?s.age:p.last_seen.age_seconds+(performance.now()-receivedAt)/1000;
-  el('age').textContent=shown && s.stale?`Last tracked ${ageText(lastAge)}`:r && !/\bago\b/.test(el('status').textContent)?`Updated ${ageText(s.age)}`:'';el('age').title=shown?.timestamp?localTime(shown.timestamp):'';
-  if(view==='overlay' && inactiveView())el('age').textContent=r?`Last tracked ${ageText(s.age)}`:'No saved reading';
+  el('age').textContent=/\bago\b/.test(el('status').textContent)?'':shown && s.stale?`Updated ${ageText(lastAge)}`:r?`Updated ${ageText(s.age)}`:'';el('age').title=shown?.timestamp?localTime(shown.timestamp):'';
+  if(view==='overlay' && inactiveView())el('age').textContent=r?`Updated ${ageText(s.age)}`:'No saved reading';
   const observed=observedWindow(p);
   let movement=observed?.difference_percentage_points ?? null;
   if(movement==null && !p.recent_windows && !p.tracked_status)
@@ -748,7 +748,7 @@ function rosterLink(r,viewing,className) {
   const meta=node('span','roster-meta',`Lv. ${r.level ?? '—'} · `);meta.append(seen);
   link.append(node('span','roster-name',r.label),meta);
   const stamp=rosterStamp(r);
-  link.title=`${r.label} · ${r.current?'currently tracked':stamp?'last tracked '+localTime(stamp):'pending'}`;
+  link.title=`${r.label} · ${r.current?'currently tracked':stamp?'updated '+localTime(stamp):'pending'}`;
   link.addEventListener('click',e=>{
     if(e.button!==0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)return;
     e.preventDefault();el('roster-all').open=false;selectCharacter(r.current?null:String(r.id));
