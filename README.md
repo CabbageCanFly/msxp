@@ -6,7 +6,6 @@ and a stream overlay for OBS. It is free, open source (MIT) and runs on your own
 or a small server. **See it live: [msxp.pages.dev](https://msxp.pages.dev)**
 
 Nobody installs anything on the streamer's side: MSXP only watches the public stream.
-Please only track streamers who said yes.
 
 ---
 
