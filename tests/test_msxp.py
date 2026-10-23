@@ -96,10 +96,20 @@ def test_server_commands_run_over_ssh_with_a_tunnel_and_the_service_user():
     ssh, url = msxp.remote(['admin'], s)
     assert ssh == ['ssh', '-t', '-L', '8766:127.0.0.1:8766', 'root@203.0.113.7',
                    'cd /opt/msxp/app && sudo -u msxp ./msxp admin --no-browser'] and url == 'http://127.0.0.1:8766/'
+    # Only the journal needs the login itself; everything else runs as the database's owner.
     assert msxp.remote(['logs', 'api'], s) == (['ssh', '-t', 'root@203.0.113.7', 'cd /opt/msxp/app && ./msxp logs api'], None)
-    assert msxp.remote([], s)[0][-1] == 'cd /opt/msxp/app && ./msxp doctor'
+    assert msxp.remote([], s)[0][-1] == 'cd /opt/msxp/app && sudo -u msxp ./msxp doctor'
     assert msxp.remote(['cleanup', '--apply'], s)[0][-1] == 'cd /opt/msxp/app && sudo -u msxp ./msxp cleanup --apply'
     assert msxp.remote(['health', '--minutes', '10; rm -rf /'], s)[0][-1].endswith("./msxp health --minutes '10; rm -rf /'")
+    assert msxp.remote(['dashboard'], s) == (['ssh', '-t', '-L', '8767:127.0.0.1:8767', 'root@203.0.113.7',
+        'cd /opt/msxp/app && sudo -u msxp ./msxp dashboard --no-browser'], 'http://127.0.0.1:8767/dev/streams')
+
+
+def test_dashboard_is_the_read_only_server_with_operator_pages():
+    command, url = build('dashboard')
+    assert command[1:] == ['-m', 'exp_tracker.server', '--db', str(msxp.ROOT / 'private/msxp/tracker.sqlite3'),
+                           '--port', '8767', '--diagnostic-dashboard'] and url == 'http://127.0.0.1:8767/dev/streams'
+    assert '--public-only' not in command and build('api')[0][-1] == '--public-only'
 
 
 def test_server_without_a_configured_login_explains_what_to_set(monkeypatch, capsys):

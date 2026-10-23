@@ -23,12 +23,13 @@ VENV = ROOT / '.venv' / BIN
 OCR = ROOT / 'private/rapidocr/.venv' / BIN
 OCR_PACKAGES = ['rapidocr==3.10.0', 'onnxruntime==1.31.0', 'psutil==7.2.2', 'Pillow==12.3.0']  # As deploy/install-ubuntu.sh.
 SETTINGS = {'MSXP_DATABASE': 'private/msxp/tracker.sqlite3', 'MSXP_PORT': '8765', 'MSXP_ADMIN_PORT': '8766',
-            'MSXP_DEMO_PORT': '8890', 'MSXP_WORKERS': '2',
+            'MSXP_DEMO_PORT': '8890', 'MSXP_DASHBOARD_PORT': '8767', 'MSXP_WORKERS': '2',
             'MSXP_SERVER': '', 'MSXP_SERVER_DIR': '/opt/msxp/app', 'MSXP_SERVER_USER': 'msxp'}
 TWITCH_KEYS = ('TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET')
 SERVER_ENV = (Path('/etc/msxp/roster.env'), Path('/etc/msxp/msxp.env'))  # Written by deploy/install-ubuntu.sh.
 UNITS = {'tracker': 'msxp-tracker', 'api': 'msxp-api', 'cleanup': 'msxp-retention'}
-WRITES = ('admin', 'setup', 'cleanup')  # On a server these run as the service user, who owns the database.
+PORTS = {'admin': 'MSXP_ADMIN_PORT', 'demo': 'MSXP_DEMO_PORT', 'dashboard': 'MSXP_DASHBOARD_PORT', 'api': 'MSXP_PORT', 'tracker': 'MSXP_PORT'}
+PAGES = {'dashboard': 'dev/streams'}  # The page each command opens; default the homepage.
 INSTALL = {  # Windows, macOS, Linux (Debian/Ubuntu)
     'Tesseract': ('winget install --id UB-Mannheim.TesseractOCR -e', 'brew install tesseract', 'sudo apt install tesseract-ocr'),
     'FFmpeg': ('winget install --id Gyan.FFmpeg -e', 'brew install ffmpeg', 'sudo apt install ffmpeg'),
@@ -44,6 +45,7 @@ msxp: MapleStory Classic EXP tracker
                  msxp admin       add streamers, confirm permission, start/pause tracking
                  msxp tracker     capture the streams + your local website
   More           msxp api         website only, for an existing database
+                 msxp dashboard   operator view: every capture's details per streamer (read-only)
                  msxp health      missed captures in the last hour, and why
                  msxp cleanup     keep only the last 24 h of raw readings (add --apply)
                  msxp test        run the test suite
@@ -53,7 +55,7 @@ msxp: MapleStory Classic EXP tracker
 
 Settings and secrets live in .env (msxp install copies .env.example; never commit .env):
   MSXP_DATABASE   your tracker database   (default private/msxp/tracker.sqlite3)
-  MSXP_PORT / MSXP_ADMIN_PORT / MSXP_DEMO_PORT   website 8765, admin 8766, demo 8890
+  MSXP_PORT / MSXP_ADMIN_PORT / MSXP_DASHBOARD_PORT / MSXP_DEMO_PORT   8765 / 8766 / 8767 / 8890
   MSXP_WORKERS    streams captured at once (default 2)
   MSXP_SERVER     your server's SSH login for msxp server, e.g. root@203.0.113.7
   TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET   optional, shows who is live (docs/twitch-authentication.md)
@@ -110,14 +112,16 @@ def build(name, args, s, extra=()):
     """(command, url to open) for a wrapper subcommand, without running it."""
     py, db = str(VENV), str(path(args.db or s['MSXP_DATABASE'])) if hasattr(args, 'db') else None
     twitch = ['--twitch-status'] if s['twitch'] else []
-    port = str(getattr(args, 'port', None) or s['MSXP_ADMIN_PORT' if name == 'admin' else 'MSXP_DEMO_PORT' if name == 'demo' else 'MSXP_PORT'])
-    url = f'http://127.0.0.1:{port}/'
+    port = str(getattr(args, 'port', None) or s[PORTS.get(name, 'MSXP_PORT')])
+    url = f'http://127.0.0.1:{port}/{PAGES.get(name, "")}'
     command, opens = {
         'demo': ([py, 'tools/preview_pages.py', '--demo', '--live', '--port', port], True),
         'admin': ([py, '-m', 'exp_tracker.admin_server', '--db', db, '--port', port], True),
         'tracker': ([py, 'tools/multi_alpha.py', '--db-roster', db, '--port', port, '--continuous',
                      '--workers', str(getattr(args, 'workers', None) or s['MSXP_WORKERS']), '--ocr-python', str(OCR), *twitch], True),
         'api': ([py, '-m', 'exp_tracker.server', '--db', db, '--port', port, '--public-only', *twitch], True),
+        # The same read-only server with the operator pages instead of --public-only; local connections only.
+        'dashboard': ([py, '-m', 'exp_tracker.server', '--db', db, '--port', port, '--diagnostic-dashboard', *twitch], True),
         'health': ([py, 'tools/tracker_health.py', '--db', db, '--minutes', str(getattr(args, 'minutes', 60))], False),
         'cleanup': ([py, '-m', 'exp_tracker.retention', '--db', db,
                      *(['--apply', '--log-root', 'private/multi-alpha/runs'] if getattr(args, 'apply', False) else [])], False),
@@ -228,7 +232,8 @@ def logs(args):
     """A server's journal for the chosen services; locally, the newest capture log."""
     if services() and shutil.which('journalctl'):
         units = [UNITS[n] for n in args.which or UNITS]
-        return run(['journalctl', *(x for unit in units for x in ('-u', unit)), '-n', str(args.lines),
+        sudo = ['sudo'] if hasattr(os, 'geteuid') and os.geteuid() != 0 else []  # Service logs need root or the journal group.
+        return run([*sudo, 'journalctl', *(x for unit in units for x in ('-u', unit)), '-n', str(args.lines),
                     *([] if args.no_follow else ['-f'])], tool=False)
     newest = max((ROOT / 'private/multi-alpha/runs').glob('*/operator*.jsonl'), key=lambda p: p.stat().st_mtime, default=None)
     if not newest:print('No capture logs yet. A running msxp tracker prints its log in its own window.');return 0
@@ -240,12 +245,13 @@ def logs(args):
 def remote(command, s, no_browser=False):
     """(ssh command, local url) running `msxp COMMAND` in the server's checkout; admin/api come through an SSH tunnel."""
     name = command[0] if command else 'doctor'
-    port = {'admin': s['MSXP_ADMIN_PORT'], 'api': s['MSXP_PORT']}.get(name)
+    port = s[PORTS[name]] if name in ('admin', 'api', 'dashboard') else None
     msxp = ' '.join(shlex.quote(c) for c in ['./msxp', *(command or ['doctor']), *(['--no-browser'] if port else [])])
-    as_owner = f'sudo -u {shlex.quote(s["MSXP_SERVER_USER"])} ' if name in WRITES else ''
+    # As the service user, who owns the database and its WAL files; only reading the journal needs this login.
+    as_owner = '' if name == 'logs' else f'sudo -u {shlex.quote(s["MSXP_SERVER_USER"])} '
     ssh = ['ssh', '-t', *(['-L', f'{port}:127.0.0.1:{port}'] if port else []), s['MSXP_SERVER'],
            f'cd {shlex.quote(s["MSXP_SERVER_DIR"])} && {as_owner}{msxp}']
-    return ssh, (f'http://127.0.0.1:{port}/' if port and not no_browser else None)
+    return ssh, (f'http://127.0.0.1:{port}/{PAGES.get(name, "")}' if port and not no_browser else None)
 
 
 def main(argv=None):
@@ -255,6 +261,7 @@ def main(argv=None):
                        ('doctor', 'check your setup'), ('demo', 'website with fictional players'),
                        ('setup', 'create your tracker database'), ('admin', 'add and manage streamers'),
                        ('tracker', 'capture streams + local website'), ('api', 'website only'),
+                       ('dashboard', 'operator view of every capture'),
                        ('health', 'missed captures and why'), ('cleanup', 'keep only the last 24 h'),
                        ('test', 'run the test suite'), ('where', 'where files are'), ('logs', 'follow the log'),
                        ('server', 'run a command on your server over SSH')):
@@ -265,8 +272,8 @@ def main(argv=None):
         if name == 'server':
             sub.add_argument('--no-browser', action='store_true')
             sub.add_argument('remote', nargs=argparse.REMAINDER, help='the msxp command to run there (default: doctor)')
-        if name in ('setup', 'admin', 'tracker', 'api', 'health', 'cleanup'):sub.add_argument('--db', help='database (default: MSXP_DATABASE)')
-        if name in ('demo', 'admin', 'tracker', 'api'):
+        if name in ('setup', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup'):sub.add_argument('--db', help='database (default: MSXP_DATABASE)')
+        if name in ('demo', 'admin', 'tracker', 'api', 'dashboard'):
             sub.add_argument('--port', type=int);sub.add_argument('--no-browser', action='store_true')
         if name == 'tracker':sub.add_argument('--workers', type=int, help='streams captured at once (default: MSXP_WORKERS)')
         if name == 'health':sub.add_argument('--minutes', type=int, default=60)
@@ -274,7 +281,7 @@ def main(argv=None):
         if name == 'install':sub.add_argument('--no-ocr', action='store_true', help='skip the RapidOCR environment')
     args, extra = parser.parse_known_args(argv)
     name = {'diag': 'doctor', None: 'help'}.get(args.command, args.command)
-    if extra and name not in ('demo', 'admin', 'tracker', 'api', 'health', 'cleanup', 'test'):parser.error(f'unknown option {extra[0]}')
+    if extra and name not in ('demo', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'test'):parser.error(f'unknown option {extra[0]}')
     s = settings()
     if name == 'help':print(HELP, end='');return 0
     if name == 'doctor':return doctor(s)
