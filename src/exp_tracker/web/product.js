@@ -175,11 +175,11 @@ function publicPace(p,minutes=null) {
   return {active,age,label:expired?'Paused':failed?`As of ${ageText(age)}`:active?(pace.tentative?'Early estimate':'Recent pace'):`As of ${ageText(age)}`,
     estimates,source:pace};
 }
-function publicETA(p) {
-  const saved=recentWindow(p)?.eta;
+function publicETA(p,minutes=null) {
+  const recent=minutes==null?recentWindow(p):p.recent_windows?.[String(minutes)],saved=recent?.eta;
   if(!saved)return null;
   const age=saved.age_seconds+(performance.now()-receivedAt)/1000;
-  const pace=recentWindow(p)?.pace;
+  const pace=recent?.pace;
   return {...saved,age,historical:saved.historical || inactiveView() || failed || current(p).stale || !pace?.active || (pace.presentation && pace.presentation.state!=='observed')};
 }
 function current(p) {
@@ -292,6 +292,12 @@ function showPresence() {
   const toggle=el('presence'),{label,title}=PRESENCE[presence];toggle.dataset.presence=presence;toggle.title=title;toggle.setAttribute('aria-label',title);
   if(toggle.textContent!==label)toggle.textContent=label;
 }
+function rowETA(p,minutes=windowMinutes) {
+  // Retain dated durations within the selected window; never turn them into a countdown.
+  const saved=publicETA(p,minutes);
+  return saved && saved.age>=0 && saved.age<=minutes*60 && etaText(saved.estimate)!=='—'
+    ?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes,age:saved.age}:null;
+}
 function entry({player:p,value,rank}) {
   const r=p.reading,s=current(p),row=node('li','entry streamer-entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));
   row.dataset.metric=sort;
@@ -299,10 +305,7 @@ function entry({player:p,value,rank}) {
   const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
   identity.append(name,sourceLink(p));
-  // Retain dated durations within the selected window; never turn them into a countdown.
-  const saved=publicETA(p),eta=saved && saved.age>=0 && saved.age<=windowMinutes*60 && etaText(saved.estimate)!=='—'
-    ?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes,age:saved.age}:null;
-  const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta,age:r?'Updated '+ageText(s.age):'No reading yet'});
+  const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta:rowETA(p),age:r?'Updated '+ageText(s.age):'No reading yet'});
   row.append(badge,level,identity,section);
   if(sort==='level')value=metricValue(p,'exp_hour',5);
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label',sort==='day'?'EXP · 24h':'EXP / hour'));
@@ -361,7 +364,7 @@ function renderCharacters() {
     identity.append(link,sourceLink({...r,source_kind:r.source_kind ?? 'twitch'}));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
     const at=r.reading?.timestamp ?? r.last_seen_at;
-    const section=expSection(r.reading ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
+    const section=expSection(r.reading ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,eta:rowETA(r,5),empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
       age:at?`Updated ${ageText(Math.max(0,(now-Date.parse(at))/1000))}`:'Not seen yet',ageTitle:at?localTime(at):''});
     const value=metricValue(r,'exp_hour',5),score=node('div','score');
     score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label','EXP / hour'));score.title=rateTitle(value);

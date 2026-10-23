@@ -1121,6 +1121,19 @@ test('Last seen orders characters by saved EXP readings, ignoring newer characte
   assert.deepEqual(p.elements.entries.children.map(row=>row.dataset.character),[3,2,9,10]);
 });
 
+test('character rows show the saved five-minute ETA in every sort, without a countdown or extra age label',async()=>{
+  const eta={estimate:{seconds:{approximate:900}},window_minutes:5,age_seconds:299,historical:true};
+  const characters=[{...ALPHA,channel:'alpha',recent_windows:{'5':{eta}}}];
+  const p=page('board',server([{characters}]).fetch,'?mode=characters');await settle();
+  const shown=()=>p.elements.entries.children[0].children[2].children[1].children.find(n=>n.textContent?.startsWith('Next level in'));
+  p.run('windowMinutes=30');
+  for(const button of p.characterSortButtons){button.listeners.click();assert.equal(shown().textContent,'Next level in 15m');}
+  assert.match(shown().title,/5 min pace.*Not a live countdown/);
+  p.context.performance.now=()=>1000;p.run('renderBoard()');assert.equal(shown().textContent,'Next level in 15m');
+  p.context.performance.now=()=>2000;p.run('renderBoard()');assert.equal(shown(),undefined);
+  p.context.performance.now=()=>0;eta.estimate.seconds.approximate=-1;p.run('renderBoard()');assert.equal(shown(),undefined);
+});
+
 test('character rows number every sort and reserve medals for Level, with Updated ages and missing rates dashed',async()=>{
   const characters=[{...ALPHA,channel:'alpha',reading:{timestamp:ALPHA.last_seen_at}},{...BETA,channel:'beta',reading:null}];
   const p=page('board',server([{characters,served_at:'2026-01-01T00:00:00Z'}]).fetch,'?mode=characters');await settle();

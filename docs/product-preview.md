@@ -42,7 +42,10 @@ While a character's summary warms, its EXP timestamp may be unavailable.
 The Streamers Level view and every Characters sort show a five-minute EXP/hour
 estimate on the right, or a dash if unavailable or over five minutes old.
 Character list rates reuse the cached five-minute pace; HTTP requests do not build
-history or fetch individual profiles. Character rows are numbered in every sort,
+history or fetch individual profiles. All Characters sorts also show a saved
+five-minute next-level ETA for up to five minutes after it was estimated, using
+the same static-duration label as Streamers; missing or expired estimates stay hidden.
+Character rows are numbered in every sort,
 with gold/silver/bronze rank badges only when sorted by Level.
 The homepage header search filters both Streamers and Characters by character
 name or channel, keeping the search text when switching views. Both views have

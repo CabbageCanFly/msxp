@@ -339,6 +339,7 @@ class Publisher:
             reading=shown['player']['reading'] or (shown['player'].get('last_seen') or {}).get('reading'),
             display_level=shown['player'].get('display_level'),
             five_minute_pace=recent.get('pace') or recent.get('last_observed_pace'),
+            five_minute_eta=recent.get('eta'),
             chart_buckets=[None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in shown['tracked']['buckets']],
             buckets=[None if b['value'] is None else round(b['value']['approximate']) for b in shown['tracked']['buckets']])
         entry['summary'] = summary
@@ -460,8 +461,12 @@ class Publisher:
         if pace:
             pace['age_seconds'] = max(0, (now - datetime.fromisoformat(pace['end'])).total_seconds())
             if pace['age_seconds'] > 300:pace = None
+        eta = deepcopy(found.get('five_minute_eta'))
+        if eta:
+            eta['age_seconds'] = (now - datetime.fromisoformat(eta['estimated_at'])).total_seconds()
+            if not 0 <= eta['age_seconds'] <= 300:eta = None
         return dict(reading=found['reading'], display_level=found['display_level'],
-            recent_windows={'5': dict(last_observed_pace=pace)},
+            recent_windows={'5': dict(last_observed_pace=pace, eta=eta)},
             as_of=(datetime.fromisoformat(found['as_of'])+timedelta(minutes=30*shift)).isoformat(),
             day_buckets=chart_buckets, day=sum(seen) if seen else None)
 
