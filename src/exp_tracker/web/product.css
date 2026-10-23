@@ -107,7 +107,7 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .button-link:focus-visible { outline:3px solid #bedbff; outline-offset:3px; }
 #copy-status { color:var(--green); font-weight:700; }
 .history-board { margin-top:22px; }
-.history-chart { padding:14px 12px 0; overflow-x:auto; }
+.history-chart { padding:8px 12px 0; overflow-x:auto; }
 .history-chart svg { display:block; width:100%; height:230px; }
 .history-chart text { fill:#bcc4d3; font-family:var(--font-ui); font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; }
 .history-chart .boundary { stroke:#8d98ad; stroke-dasharray:3 4; }
