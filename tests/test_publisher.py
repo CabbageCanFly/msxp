@@ -315,6 +315,23 @@ def test_failed_refresh_keeps_last_entry_with_real_ages_and_retries_with_backoff
         assert 'alpha' not in server.publisher.failures and server.publisher.entry('alpha')['key']!=good['key']
 
 
+def test_retention_fold_keeps_publication_on_show_until_its_rebuild(tracking,clock,monkeypatch):
+    path,store,d=tracking;d.begin('one','alpha',config('one',interval=20))
+    for i in range(1,4):save(d,'one',i,i*20,3300+i*5)
+    clock.at=NOW+timedelta(seconds=60)
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;p.settle();shown=p.entry('alpha')
+        with store._transaction():store.db.execute('UPDATE retention_meta SET revision=revision+1 WHERE id=1')
+        original=Diagnostics.card
+        monkeypatch.setattr(Diagnostics,'card',lambda *a,**k:(_ for _ in ()).throw(OSError('disk')))
+        p.step()
+        # Unlike an operator revision, a fold changes no shown value: the page is never withdrawn.
+        assert p.entry('alpha') is shown and p.character('alpha') is not None and p.failures['alpha'][0]==1
+        monkeypatch.setattr(Diagnostics,'card',original)
+        clock.at+=timedelta(seconds=6);p.settle()  # Past the first retry backoff.
+        assert p.entry('alpha') is not shown and p.entry('alpha')['key'][10]==shown['key'][10]+1
+
+
 def test_presented_bodies_are_reused_until_publication_or_clock_changes(tracking,clock):
     path,store,d=tracking;d.begin('one','alpha',config('one',interval=20))
     for i in range(1,4):save(d,'one',i,i*20,3300+i*5)

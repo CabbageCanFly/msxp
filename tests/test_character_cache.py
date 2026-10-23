@@ -70,6 +70,16 @@ def test_summary_outlives_report_expiry_without_resurrecting_rolling_totals(db, 
         assert due and not server.publisher.views  # A 60-day-old full report must not claim current windows.
 
 
+def test_retention_fold_keeps_the_characters_list_summary_while_it_is_rebuilt(db, clock):
+    with create_server(db, port=0, public_only=True) as server:
+        reading = warm(server, db); p = server.publisher
+        with Store(db) as store:store.db.execute('UPDATE retention_meta SET revision=revision+1 WHERE id=1')
+        p.background = True; p.step()
+        head = next(h for h in p.heads if h['login'] == CHANNEL)
+        with p.lock:assert p.summary(head, BETA, clock.at)['reading'] == reading
+        assert (CHANNEL, BETA) in p.missing_summaries(clock.at)  # Still rebuilt, at the background rate.
+
+
 @pytest.mark.parametrize('change', ['clear', 'invalidation', 'retention', 'source', 'code'])
 def test_changed_source_or_operator_revision_withholds_persisted_summary(db, clock, tmp_path, monkeypatch, change):
     cache = tmp_path/'warm.sqlite3'

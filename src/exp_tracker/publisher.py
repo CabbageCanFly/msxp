@@ -229,8 +229,9 @@ class Publisher:
                 del self.entries[login]; self.generation += 1
             for head in self.heads:
                 entry = self.entries.get(head['login'])
-                if entry and (entry['key'][1:3] != tuple(head)[1:3] or entry['key'][7:]!=tuple(head)[7:]):
-                    # Ownership and operator/retention revisions invalidate old publications immediately.
+                if entry and (entry['key'][1:3] != tuple(head)[1:3] or entry['key'][7:10]!=tuple(head)[7:10]):
+                    # Ownership and operator revisions invalidate old publications immediately. A retention fold
+                    # (revision [10]) changes no shown value, so the old one stays on show until due() rebuilds it.
                     del self.entries[head['login']]; self.generation += 1
                     self.failures.pop(head['login'], None)
             for cache in (self.cards, self.failures, self.presented, self.present_locks, self.views, self.viewed):
@@ -449,9 +450,11 @@ class Publisher:
         return self.present('home-characters', build)
 
     def summary(self, head, character, now):
-        """Called under lock: the character's saved reading and 24 h chart moved on to now; nothing if unknown or outdated."""
+        """Called under lock: the character's saved reading and 24 h chart moved on to now; nothing if unknown or outdated.
+
+        A retention fold alone changes no shown value: the summary stays until missing_summaries() rebuilds it."""
         found = self.summaries.get((head['login'], character))
-        if (not found or found['revision'] != (head['manual_revision'], head['invalidation_revision'], head['retention_revision'])
+        if (not found or tuple(found['revision'][:2]) != (head['manual_revision'], head['invalidation_revision'])
                 or now < datetime.fromisoformat(found['as_of'])):return {}
         # Nothing was tracked since the build, so earlier buckets slide left and the new ones are empty.
         n = len(found['buckets']); shift = max(0, int((now - datetime.fromisoformat(found['as_of'])).total_seconds() // 1800))

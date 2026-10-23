@@ -99,7 +99,9 @@ The homepage Characters list now shows each character's EXP bar and 24 h chart f
 in-memory summary that the publisher records whenever it builds a character: the
 selected character on every channel refresh, and inactive characters as views or as
 summary-only builds. A summary keeps the projected reading and 30 min buckets and is
-withheld once the channel's manual-correction, invalidation or retention revision changes. When
+withheld once the channel's manual-correction or invalidation revision changes. A retention
+revision change (a fold, which changes no shown value) keeps it on show until it is rebuilt;
+restored copies still need every revision to match. When
 served, its chart slides forward by whole 30 min buckets since the build (nothing was
 tracked meanwhile); the list's "today" total is the sum of the remaining buckets.
 

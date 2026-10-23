@@ -67,11 +67,28 @@ def run_rows(diagnostic,channel,run,*,now,receipt):
     if lengths[0]>60 or receipt['context_attempts']>MAX_EVENTS or receipt['source_bytes']>MAX_BYTES:
         raise HistoryLimit('attempt_or_byte_limit')
     rows=diagnostic._snapshot(channel,now=now,session_id=run['session_id'],run_id=run['run_id'],limit=60,_rows_only=True)
-    return (run['run_id'],run['configuration_json'],run['summary_json'],lengths[0],lengths[2]),[
+    return (run['run_id'],run['configuration_json'],run['summary_json'],lengths[0],lengths[2],lengths[1]),[
         r for r in rows if datetime.fromisoformat(r.get('received_at') or r['attempted_at'])<=now]
 
 
 RECEIPT=('run_count','context_attempts','source_bytes')
+
+
+def folded(diagnostic,saved,runs,floor):
+    """How many leading checkpointed runs a retention fold has since absorbed, or None if it cannot resume.
+
+    Retention folds a run prefix by replaying it with these same steps (``_retention_prefix``), so the
+    frozen state equals this checkpoint's state after those runs. The checkpoint still holds when the
+    runs it covered up to the new floor are its leading ones and the rest begin the current sequence;
+    a fold that reached past the checkpoint's last run cannot be told apart, so it replays in full."""
+    current={r['run_id'] for r in runs}
+    skip=next((i for i,f in enumerate(saved['runs']) if f[0] in current),len(saved['runs']))
+    if not skip:return 0
+    if skip==len(saved['runs']):return None
+    ids=[f[0] for f in saved['runs'][:skip]]
+    above=diagnostic.db.execute('SELECT 1 FROM diagnostic_runs WHERE rowid>? AND run_id IN ('+','.join('?'*len(ids))+') LIMIT 1',
+        (floor,*ids)).fetchone()
+    return None if above else skip
 
 
 def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,key=None,keep=lambda state:state,character=None):
@@ -82,6 +99,7 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
     the clock has not regressed, the current full-replay run sequence begins with
     the covered runs, and each covered run keeps its configuration, summary, attempt
     count and last attempt ID. Anything else is a full replay from the first run.
+    A retention fold moves the floor; a checkpoint from the previous floor resumes (see folded()).
     ``step`` mutates ``state`` for one run batch and returns its percentage reviews.
     """
     runs=select_runs(diagnostic,channel,start=start,now=now,character=character)
@@ -91,19 +109,33 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
     if mode in frozen:
         state.clear();state.update(thaw(frozen[mode]))
     if frozen:key=(*key,frozen['through_run'])
-    with LOCK:saved=checkpoints.get(key) if checkpoints is not None else None
+    with LOCK:
+        saved=checkpoints.get(key) if checkpoints is not None else None;source=key
+        if saved is None and checkpoints is not None and mode in frozen:
+            older=[k for k in checkpoints if k[:-1]==key[:-1] and k[-1]<key[-1]]
+            if older:source=max(older,key=lambda k:k[-1]);saved=checkpoints[source]
+    skip=folded(diagnostic,saved,runs,frozen['through_run']) if saved and frozen else 0
     covered=0
-    if saved and now>=saved['now'] and len(saved['runs'])<=len(runs) and all(
-            (r['run_id'],r['configuration_json'],r['summary_json'])==f[:3] for r,f in zip(runs,saved['runs'])):
-        ids=[f[0] for f in saved['runs']]
+    if saved and skip is not None and now>=saved['now'] and len(saved['runs'])-skip<=len(runs) and all(
+            (r['run_id'],r['configuration_json'],r['summary_json'])==f[:3] for r,f in zip(runs,saved['runs'][skip:])):
+        kept=saved['runs'][skip:];ids=[f[0] for f in kept]
         counts={row[0]:(row[1],row[2]) for row in diagnostic.db.execute('SELECT run_id,COUNT(*),MAX(id) FROM diagnostic_attempts WHERE run_id IN ('
             +','.join('?'*len(ids))+') GROUP BY run_id',ids)} if ids else {}
-        if all(counts.get(f[0],(0,None))==f[3:] for f in saved['runs']):
+        if all(counts.get(f[0],(0,None))==f[3:5] for f in kept):
             # In place: a later HistoryLimit leaves the caller with the progress made so far.
             state.clear();state.update(thaw(saved['state']));receipt.update({k:saved['receipt'][k] for k in RECEIPT});covered=len(ids)
+            if skip:
+                # The folded runs now count toward the frozen state, as in a full replay from the new floor.
+                for f in saved['runs'][:skip]:receipt['run_count']-=1;receipt['context_attempts']-=f[3];receipt['source_bytes']-=f[5]
+                for name in ('retained_etas','retained_paces'):  # Written only by retention's fold (recent_snapshot's step).
+                    if name in frozen[mode]:state[name]=thaw(frozen[mode])[name]
+                    else:state.pop(name,None)
+                with LOCK:
+                    checkpoints.pop(source,None)
+                    checkpoints[key]=dict(saved,runs=list(kept),receipt={k:receipt[k] for k in RECEIPT},state=thaw(state))
     if not covered and checkpoints is not None:
-        with LOCK:checkpoints.pop(key,None)
-    fingerprints=list(saved['runs'][:covered]) if covered else []
+        with LOCK:checkpoints.pop(key,None);checkpoints.pop(source,None)
+    fingerprints=list(saved['runs'][skip:skip+covered]) if covered else []
     for i,run in enumerate(runs[covered:],covered):
         fingerprint,rows=run_rows(diagnostic,channel,run,now=now,receipt=receipt)
         decisions=step(state,run,rows)
