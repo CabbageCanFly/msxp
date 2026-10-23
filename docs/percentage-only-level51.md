@@ -182,22 +182,28 @@ gameplay feed in the corner and monster `Lv.` tags never showed a level or readi
   already accepted 71 after three RapidOCR frames.
 
 **Change:** `level_reading` adds min-RGB passes at 140 and 120 only when its six existing passes
-have not reached consensus, so readings that already agree are unchanged by construction. Two
-agreeing confident passes are still required and any confident disagreement still vetoes.
-The guard is unchanged: Tesseract and RapidOCR must agree on two independent frames.
-Threshold 100 was rejected: it produced a confident wrong `7`.
+have not reached consensus, so readings that already agree are unchanged by construction. They run as a
+word read (PSM 8) first, then as a line read (PSM 7) if there is still no consensus. Two agreeing
+confident passes are still required and any confident disagreement still vetoes. The guard is
+unchanged: Tesseract and RapidOCR must agree on two independent frames. Threshold 100 was rejected:
+it produced a confident wrong `7`.
 
-| Labeled level crops (correct / wrong / unavailable) | Before | After |
-|---|---|---|
-| Recording 1 (117) | 68 / 2 / 47 | 86 / 2 / 29 |
-| Recording 2, manual / automatic crops (45 / 36) | 32/0/13 · 25/0/11 | 35/0/10 · 28/0/8 |
-| Recording 3, manual / automatic crops (45 / 41) | 45/0/0 · 41/0/0 | unchanged |
-| Two-feed screenshots (21) | 0 / 0 / 21 | 19 / 0 / 2 |
+The first version used line reads only. It fixed 71 (19/21) but a later feed swap to another
+character at level 72 failed 7/7: there the 7 survives every threshold, yet line reads still
+returned only `2`. Word reads of the same images give `72` at 0.80–0.95 on all seven.
 
-All 43 changed crops went from unavailable to correct; the two wrong readings are the same
+| Labeled level crops (correct / wrong / unavailable) | Before | Line reads only | Word, then line |
+|---|---|---|---|
+| Recording 1 (117) | 68 / 2 / 47 | 86 / 2 / 29 | 87 / 2 / 28 |
+| Recording 2, manual / automatic crops (45 / 36) | 32/0/13 · 25/0/11 | 35/0/10 · 28/0/8 | 35/0/10 · 28/0/8 |
+| Recording 3, manual / automatic crops (45 / 41) | 45/0/0 · 41/0/0 | unchanged | unchanged |
+| Two-feed screenshots, level 71 (21) | 0 / 0 / 21 | 19 / 0 / 2 | 21 / 0 / 0 |
+| Two-feed screenshots after the swap, level 72 (7) | 0 / 0 / 7 | 0 / 0 / 7 | 7 / 0 / 0 |
+
+All 46 changed crops went from unavailable to correct; the two wrong readings are the same
 pre-existing ones. On the replay, the floor reached 71 on the fourth attempt and every later reading
-was public. The two extra passes cost about 0.26 s (Tesseract CLI on Windows) and run only when a
-level read would otherwise abstain.
+was public. Each extra pass costs about 0.13 s (Tesseract CLI on Windows); up to four run, and only
+when a level read would otherwise abstain.
 
 **Untested:** live Twitch capture on the VPS, resident-Tesseract timing there, other HUD fonts or
 scales, and the level-51 crops above (not available locally).

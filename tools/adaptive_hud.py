@@ -267,11 +267,11 @@ def level_reading(crop):
     gray = gray.crop(box)
     gray = gray.resize((gray.width*5,gray.height*5),Image.Resampling.BICUBIC)
     attempts=[]
-    def neutral(*thresholds):
+    def neutral(*thresholds,psm=7):
         for threshold in thresholds:
             processed=ImageOps.expand(gray.point(lambda p:0 if p>threshold else 255),10,fill=255)
-            tokens=_ocr(processed,7,"0123456789")
-            attempts.append(dict(variant=f"neutral{threshold}",text="".join(t['text'] for t in tokens),
+            tokens=_ocr(processed,psm,"0123456789")
+            attempts.append(dict(variant=f"neutral{threshold}"+("-word" if psm==8 else ""),text="".join(t['text'] for t in tokens),
                                  confidence=min((t['confidence'] for t in tokens),default=0)))
     def options():
         return [(v,a['confidence']) for a in attempts
@@ -281,11 +281,13 @@ def level_reading(crop):
     if len(confident)<2:
         attempts.extend(_read_field(crop,'level',None))
         confident=options()
-    if len(confident)<2:
-        # Last resort: compression can dim thin strokes (a 7's bar) below 160, dropping that digit.
-        # Readings that already reach consensus never get here; any confident disagreement still vetoes.
-        neutral(140,120)
-        confident=options()
+    # Last resort: compression can dim thin strokes (a 7's bar) below 160, dropping that digit, and a line
+    # read (PSM 7) can still miss a clean two-tile 7 that a word read (PSM 8) gets. Readings that already
+    # reach consensus never get here; any confident disagreement still vetoes.
+    for psm in (8,7):
+        if len(confident)<2:
+            neutral(140,120,psm=psm)
+            confident=options()
     if len(confident)<2 or len({v for v,c in confident})!=1:
         return None,attempts
     return confident[0][0],attempts
