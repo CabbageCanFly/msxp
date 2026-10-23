@@ -733,9 +733,10 @@ function rosterSeenText(r) {
   const reading=rosterReading(r);
   const stamp=rosterStamp(r),now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
   const age=(now-Date.parse(stamp))/1000;
-  if(!Number.isFinite(age))return 'Not seen yet';
+  if(!Number.isFinite(age))return 'Pending';
   if(r.current && reading && age>=0 && age<=300)return 'Current';
-  if(age>=365*86400)return `${Math.floor(age/(365*86400))}y ago`;
+  // Capped so the chip never outgrows its fixed width (sized for "Lv. 200 · 59m ago").
+  if(age>=365*86400)return `${Math.min(99,Math.floor(age/(365*86400)))}y ago`;
   if(age>=7*86400)return `${Math.floor(age/(7*86400))}w ago`;
   return ageText(Math.max(0,age));
 }
@@ -747,7 +748,7 @@ function rosterLink(r,viewing,className) {
   const meta=node('span','roster-meta',`Lv. ${r.level ?? '—'} · `);meta.append(seen);
   link.append(node('span','roster-name',r.label),meta);
   const stamp=rosterStamp(r);
-  link.title=`${r.label} · ${r.current?'currently tracked':stamp?'last tracked '+localTime(stamp):'not seen yet'}`;
+  link.title=`${r.label} · ${r.current?'currently tracked':stamp?'last tracked '+localTime(stamp):'pending'}`;
   link.addEventListener('click',e=>{
     if(e.button!==0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)return;
     e.preventDefault();el('roster-all').open=false;selectCharacter(r.current?null:String(r.id));

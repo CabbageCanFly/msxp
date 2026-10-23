@@ -184,7 +184,10 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .roster-track[data-more="start"] { mask-image:linear-gradient(to left,#000 88%,transparent); }
 .roster-track[data-more="both"] { mask-image:linear-gradient(to right,transparent,#000 10%,#000 90%,transparent); }
 .roster-chip, .roster-option { display:flex; flex-direction:column; gap:1px; text-decoration:none; color:var(--text) !important; border:1px solid var(--line); border-radius:10px; background:var(--surface-raised); font-size:13px; line-height:1.3; }
-.roster-chip { flex:none; max-width:160px; padding:6px 12px; }
+/* Every chip is as wide as its longest possible second line; longer names end in an ellipsis. */
+.roster-chip { flex:none; padding:6px 12px; }
+.roster-chip::after { content:"Lv. 200 · 59m ago"; height:0; margin-top:-1px; overflow:hidden; visibility:hidden; font-size:11px; font-weight:600; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.roster-chip :is(.roster-name,.roster-meta) { contain:inline-size; overflow:hidden; text-overflow:ellipsis; }
 .roster-chip:hover, .roster-option:hover { border-color:var(--line-strong); background:#34405a; }
 .roster-chip:focus-visible, .roster-option:focus-visible, .roster-all summary:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 .roster [aria-current="page"] { background:var(--wood); border-color:var(--gold); color:#fff3dc !important; }

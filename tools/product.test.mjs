@@ -1342,14 +1342,14 @@ test('roster Current requires a confirmed EXP reading within five minutes and ol
   p.render(player({character:{id:2,label:'Alpha'}}));p.run("data.served_at='2026-01-01T00:00:00Z'");
   assert.equal(p.run('rosterSeenText(person)'),'Current');
   p.context.performance.now=()=>300000;assert.equal(p.run('rosterSeenText(person)'),'Current');
-  for(const [seconds,label] of [[600,'10m ago'],[36000,'10h ago'],[3*86400,'3d ago'],[70*86400,'10w ago'],[3650*86400,'10y ago']]){
+  for(const [seconds,label] of [[600,'10m ago'],[36000,'10h ago'],[3*86400,'3d ago'],[70*86400,'10w ago'],[3650*86400,'10y ago'],[200*365*86400,'99y ago']]){
     p.context.performance.now=()=>seconds*1000;assert.equal(p.run('rosterSeenText(person)'),label);
   }
   p.context.performance.now=()=>0;p.context.person.last_seen_at='2026-01-01T00:00:00Z';
   p.run("data.player.reading.timestamp='2025-12-31T23:50:00Z'");
   assert.equal(p.run('rosterSeenText(person)'),'10m ago');  // A newer HUD sighting cannot refresh an old EXP reading.
   p.run("data.player.character.id=3");assert.equal(p.run('rosterSeenText(person)'),'0s ago');
-  p.context.person.last_seen_at=null;assert.equal(p.run('rosterSeenText(person)'),'Not seen yet');
+  p.context.person.last_seen_at=null;assert.equal(p.run('rosterSeenText(person)'),'Pending');
 });
 
 test('viewed inactive roster character uses its saved EXP age and tooltip rather than its newer sighting',()=>{
@@ -1366,7 +1366,7 @@ test('unviewed roster characters use published EXP timestamps and never fall bac
   const p=page('player');p.context.person={...BETA,last_seen_at:'2026-01-01T00:00:00Z',last_exp_at:'2025-12-31T22:00:00Z'};
   p.render(player({character:{id:2,label:'Alpha'}}));p.run("data.served_at='2026-01-01T00:00:00Z'");
   assert.equal(p.run('rosterSeenText(person)'),'2h ago');
-  p.context.person.last_exp_at=null;assert.equal(p.run('rosterSeenText(person)'),'Not seen yet');
+  p.context.person.last_exp_at=null;assert.equal(p.run('rosterSeenText(person)'),'Pending');
   p.context.person={...ALPHA,last_exp_at:'2025-12-31T23:59:00Z'};
   p.run('data.player.character.id=3');assert.equal(p.run('rosterSeenText(person)'),'Current');
 });
