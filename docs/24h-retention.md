@@ -41,7 +41,8 @@ Retention never infers identity or changes OCR recognition rules.
 | Capture/operator JSONL and saved OCR crops | Owned, inactive, expired files only |
 
 The cutoff is **24h + 5m**, allowing existing causal warmup. A run crossing it stays
-intact (at most 60 attempts); maintenance runs hourly. At the usual 20s cadence the
+intact (at most 60 attempts). The VPS timer runs maintenance once a day, so expired data can wait
+up to a further day before it is folded. At the usual 20s cadence the
 allowance is approximately 25h25m; at the supported 300s maximum it can approach
 30h05m. Active runs are always protected. Backlogs advance at most 200 runs per
 transaction; batch-limited sweeps repeat after 60 seconds. Reports identify each batch. Late/misordered runs can hold
@@ -202,7 +203,8 @@ Output: one JSON line per batch (`runs`, `attempts`, `compute_s`, `lock_ms`, `st
 ```
 
 On the VPS: `deploy/msxp-retention.service` (oneshot, low CPU/IO priority) and
-`deploy/msxp-retention.timer` (hourly, counted from the end of the previous pass). Neither is
+`deploy/msxp-retention.timer` (daily at 04:45 Toronto time, the quietest hour: each pass slows site
+updates for a few minutes and ends with one full page rebuild). Neither is
 installed by `install-ubuntu.sh`. Not enabling the timer disables retention completely. The
 coordinator units no longer pass any retention option, and `MSXP_RETENTION` is unused.
 

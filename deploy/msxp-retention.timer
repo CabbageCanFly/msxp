@@ -1,12 +1,12 @@
 # OPT-IN: enable only after the copy rehearsal in docs/24h-retention.md. Disabling it disables retention.
 [Unit]
-Description=Hourly MS XP retention pass
+Description=Daily MS XP retention pass
 
 [Timer]
-OnBootSec=15min
-# Measured from the end of the previous pass, so passes never overlap.
-OnUnitInactiveSec=1h
-RandomizedDelaySec=5min
+# Once a day at the quietest hour for a mostly North American audience (Toronto time follows DST):
+# each pass slows site updates for a few minutes and ends with one full page rebuild.
+# systemd never starts a pass while the previous one is still running.
+OnCalendar=*-*-* 04:45:00 America/Toronto
 
 [Install]
 WantedBy=timers.target
