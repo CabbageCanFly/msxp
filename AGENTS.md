@@ -4,7 +4,10 @@ This is an independent MapleStory Classic EXP tracker proof of concept.
 Keep modules small and explicit. Python, Pillow, Tesseract and SQLite are sufficient
 until measurements establish a need for more infrastructure.
 
-- Read README.md and docs/ before changing acquisition or tracking assumptions.
+- Read README.md, the docs index (docs/README.md) and the relevant docs before changing
+  acquisition or tracking assumptions; docs/legacy-readme.md keeps the detailed developer notes.
+- `msxp` (src/exp_tracker/msxp.py) is the user-facing entry point: keep its commands, the README
+  command table and `msxp help` in step when a tool's options or defaults change.
 - Run `python -m pytest` after code changes. Report sample skips separately from passes.
 - Never hardcode expected sample readings in production code or infer character identity
   from level/EXP alone. Reject uncertain readings and preserve the last accepted state.

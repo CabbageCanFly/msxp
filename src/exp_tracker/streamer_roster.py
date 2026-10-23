@@ -8,7 +8,7 @@ import sqlite3
 import tempfile
 import uuid
 
-from .automatic_adoption import ownership, marker, states, state as adopted_state
+from .automatic_adoption import APP, ownership, marker, states, state as adopted_state
 from .floor_repair import database_digest, digest
 from .schema import MIGRATION_10, MIGRATION_11
 from .store import Store, utc
@@ -22,6 +22,19 @@ DEFAULTS = dict(interval=20, quality='best', timeout=20, max_age=15, ocr_timeout
 
 def ready(store):
     return store.schema_version>=11 and bool(store.db.execute('SELECT 1 FROM streamer_roster_bootstrap').fetchone())
+
+
+def create(path):
+    """A NEW, empty database roster: its ownership marker, the current schema and an empty bootstrap.
+
+    Streamers are then added in the admin portal; existing JSON databases keep bootstrap_preview/apply."""
+    path=Path(path).absolute()
+    if path.exists() or marker(path).exists():raise ValueError(f'{path} already exists; choose a new database path')
+    path.parent.mkdir(parents=True,exist_ok=True)
+    with marker(path).open('x',encoding='utf-8') as f:json.dump(dict(application=APP),f)
+    with Store(path) as store, store._transaction():
+        store.db.execute('INSERT INTO streamer_roster_bootstrap VALUES(1,?,?)',('empty:'+uuid.uuid4().hex,utc()))
+    return path
 
 
 def entry(store, channel):
