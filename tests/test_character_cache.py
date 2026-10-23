@@ -74,10 +74,37 @@ def test_retention_fold_keeps_the_characters_list_summary_while_it_is_rebuilt(db
     with create_server(db, port=0, public_only=True) as server:
         reading = warm(server, db); p = server.publisher
         with Store(db) as store:store.db.execute('UPDATE retention_meta SET revision=revision+1 WHERE id=1')
-        p.background = True; p.step()
+        p.background = True; p.summary_due = float('inf'); p.step()  # Its rebuild has not come round yet.
         head = next(h for h in p.heads if h['login'] == CHANNEL)
         with p.lock:assert p.summary(head, BETA, clock.at)['reading'] == reading
         assert (CHANNEL, BETA) in p.missing_summaries(clock.at)  # Still rebuilt, at the background rate.
+
+
+def test_routine_refreshes_cannot_starve_inactive_character_summaries(db, clock):
+    with create_server(db, port=0, public_only=True) as server:
+        p = server.publisher; p.background = True
+        for _ in range(4):
+            p.summary_due = 0  # Its rate limit has passed every time.
+            clock.at += timedelta(seconds=31)  # Like a busy VPS: some channel is always due for a refresh.
+            p.step()
+        assert p.summaries.get((CHANNEL, BETA), {}).get('reading')
+        assert json.loads(p.characters())['characters'][-1]['reading']  # The Characters list, not "Loading EXP…".
+
+
+def test_retention_fold_keeps_an_open_character_page_on_show_until_rebuilt(db, clock, monkeypatch):
+    key = ('view', CHANNEL, BETA)
+    with create_server(db, port=0, public_only=True) as server:
+        p = server.publisher; p.background = True; p.summary_due = float('inf'); p.step()
+        p.character(CHANNEL, view=BETA); p.step()  # A visitor opens the inactive character's page.
+        shown = p.views[key]
+        with Store(db) as store:store.db.execute('UPDATE retention_meta SET revision=revision+1 WHERE id=1')
+        original = Diagnostics.card
+        monkeypatch.setattr(Diagnostics, 'card', lambda *a, **k: (_ for _ in ()).throw(OSError('disk')))
+        p.character(CHANNEL, view=BETA); p.step()
+        assert p.views[key] is shown and p.character(CHANNEL, view=BETA) is not None and p.failures[key][0] == 1
+        monkeypatch.setattr(Diagnostics, 'card', original)
+        clock.at += timedelta(seconds=6); p.character(CHANNEL, view=BETA); p.settle()  # Past the retry backoff.
+        assert p.views[key] is not shown and p.views[key]['key'][3] == shown['key'][3] + 1
 
 
 @pytest.mark.parametrize('change', ['clear', 'invalidation', 'retention', 'source', 'code'])

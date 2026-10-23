@@ -1,7 +1,7 @@
 """SYNTHETIC multi-character demo: a fictional streamer, a disposable SQLite and no network.
 
     python tools/character_demo.py create [--replace] [--characters 1|2|12] [--streamers 1-5] [--no-day]
-    python tools/character_demo.py serve [--port 8890] [--live] [--offline [CHANNEL ...]]  # public-only local website
+    python tools/character_demo.py serve [--port 8890] [--live] [--offline [CHANNEL ...]] [--slow SECONDS]  # public-only local website
     python tools/character_demo.py switch               # two-frame switch to the next saved character
 
 Readings go through the real automatic attribution path (two-frame name confirmation,
@@ -226,6 +226,7 @@ def main(argv=None):
     serve_cli.add_argument('--port', type=int, default=8890)
     serve_cli.add_argument('--live', action='store_true', help=f'Keep demo streams updating every {LIVE_SECONDS}s (writes only the demo database)')
     serve_cli.add_argument('--offline', nargs='*', metavar='CHANNEL', help=f'Show these demo streams as offline on Twitch, with no live updates (default: {" ".join(OFFLINE)})')
+    serve_cli.add_argument('--slow', type=float, default=0, metavar='SECONDS', help='Add this delay to every page build, like a busy server (0-60, e.g. 8)')
     commands.add_parser('switch')
     args = cli.parse_args(argv)
     try:
@@ -248,6 +249,11 @@ def main(argv=None):
         else:
             if not MARKER.is_file():raise ValueError('Create the synthetic demo first')
             if args.port == 8765 or not 0 <= args.port <= 65535:raise ValueError('Choose a free port other than the main tracker 8765')
+            if not 0 <= args.slow <= 60:raise ValueError('--slow takes 0 to 60 seconds')
+            if args.slow:
+                card = Diagnostics.card
+                Diagnostics.card = lambda self, *a, **k: time.sleep(args.slow) or card(self, *a, **k)
+                print(f'Every page build takes {args.slow:g}s longer (a simulated busy server)', flush=True)
             offline = set()
             if args.offline is not None:
                 with Store(DATABASE, read_only=True) as store:known = {row[0] for row in store.db.execute('SELECT login FROM streamers')}
