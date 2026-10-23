@@ -96,8 +96,8 @@ real automatic attribution path with generated frames: `PendingOCR` discovers Al
 (Lv. 67), switches to Beta (Lv. 43), returns to Alpha, keeping Alpha's ID.
 
 ```powershell
-Set-Location 'H:\Desktop\codex\msclassic-character-name-ocr'
-$python = 'H:\Desktop\codex\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe'
+Set-Location '<branch checkout>'
+$python = '<your msxp folder>\.venv\Scripts\python.exe'
 $env:PYTHONPATH = (Resolve-Path src).Path
 & $python tools/character_demo.py create --replace   # --replace only for a previous demo
 & $python tools/character_demo.py serve --port 8890   # Ctrl+C stops; 8765 is refused

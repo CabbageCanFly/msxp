@@ -378,8 +378,8 @@ The final harness was rerun: both streams' raw texts and scoring were identical
 at both scales. **23 benchmark tests pass. Full suite: 529 passed, 9 failed,
 zero skips** with loopback access and the current `src` on `PYTHONPATH`. All nine
 failures occur while loading unchanged private banks that still reference
-`H:/Desktop/msclassic-twitch-exp-tracker/private/adaptive-ocr/native-profile.json`,
-before the workspace moved under `H:/Desktop/codex/`. The frozen calibration
+`private/adaptive-ocr/native-profile.json` at the checkout's absolute path from before the
+workspace moved to another folder. The frozen calibration
 artifacts were preserved rather than rewritten. Without loopback permission one
 HTTP test skips; without the current `PYTHONPATH` the moved editable installation
 also fails its subprocess import test. The public synthetic benchmark tests need

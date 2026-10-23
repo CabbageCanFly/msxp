@@ -47,7 +47,7 @@ Run from this worktree. Its optional environments and footage remain at their
 existing paths in the original checkout; nothing needs copying or installing:
 
 ```powershell
-$repo = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+$repo = '<your msxp folder>'
 $python = "$repo\.venv\Scripts\python.exe"
 $rapid = "$repo\private\rapidocr\.venv\Scripts\python.exe"
 
@@ -256,7 +256,7 @@ worker, cache interfaces and bounded capture operation. Nothing was merged or co
 From this worktree, with the existing environments in the original checkout:
 
 ```powershell
-$repo = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+$repo = '<your msxp folder>'
 $python = "$repo\.venv\Scripts\python.exe"
 $rapid = "$repo\private\rapidocr\.venv\Scripts\python.exe"
 
@@ -478,7 +478,7 @@ retention like all other diagnostic evidence.
 one, link the original checkout's ignored environment (read-only use):
 
 ```powershell
-$repo = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+$repo = '<your msxp folder>'
 $python = "$repo\.venv\Scripts\python.exe"
 New-Item -ItemType Junction -Path private\rapidocr -Target "$repo\private\rapidocr"
 
@@ -658,7 +658,7 @@ choose a fresh database filename each independent experiment:
     "channel": "offline-demo",
     "character": "Unknown",
     "source": "file",
-    "file": "H:/Desktop/codex/msclassic-twitch-exp-tracker/samples/sample-stream2.mp4",
+    "file": "<your msxp folder>/samples/sample-stream2.mp4",
     "start": 3120,
     "interval": 15,
     "count": 4
@@ -667,7 +667,7 @@ choose a fresh database filename each independent experiment:
 ```
 
 ```powershell
-$repo = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+$repo = '<your msxp folder>'
 & "$repo\.venv\Scripts\python.exe" tools/multi_alpha.py --config private/character-name/auto-demo.json --automatic-characters --workers 2 --exit-after-capture
 # Existing private two-channel saved-frame splice used for the measured switch:
 & "$repo\.venv\Scripts\python.exe" tools/multi_alpha.py --config private/character-name/autonomous/video-config-v2.json --automatic-characters --workers 2 --exit-after-capture

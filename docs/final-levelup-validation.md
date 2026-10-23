@@ -86,8 +86,8 @@ clock on exit. Its terminal accepts offsets, `next`, or `all`, forward only.
 Run from PowerShell, using a **new** output directory on each launch:
 
 ```powershell
-Set-Location H:\Desktop\codex\msclassic-level-inference
-& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe tools/product_updates_fixture.py `
+Set-Location <branch checkout>
+& <your msxp folder>\.venv\Scripts\python.exe tools/product_updates_fixture.py `
   --directory private/levelup-final/preview-user-01 --port 8788 `
   --replay-log private/levelup-final/capture.jsonl
 ```

@@ -71,9 +71,9 @@ the original checkout. These commands are for the operator after review; they ar
 not run against the user's database during development.
 
 ```powershell
-$repo = 'H:\Desktop\codex\msclassic-auto-existing-tracker' # Copy rehearsal before merge.
+$repo = '<branch checkout>' # Copy rehearsal before merge.
 Set-Location $repo
-$main = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+$main = '<your msxp folder>'
 $python = "$main\.venv\Scripts\python.exe"
 $ocr = "$main\private\rapidocr\.venv\Scripts\python.exe"
 $env:PYTHONPATH = "$PWD\src"

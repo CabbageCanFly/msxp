@@ -77,8 +77,8 @@ wait for an authorized stop rather than bypassing the lease. Copying a live SQLi
 file with `Copy-Item` omits committed WAL data and is not a safe backup.
 
 ```powershell
-Set-Location H:\Desktop\codex\msclassic-auto-existing-tracker
-$main = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+Set-Location <branch checkout>
+$main = '<your msxp folder>'
 $python = "$main\.venv\Scripts\python.exe"
 $ocr = "$main\private\rapidocr\.venv\Scripts\python.exe"
 $env:PYTHONPATH = "$PWD\src"

@@ -68,8 +68,8 @@ Open a **new PowerShell terminal** and reuse the existing environments read-only
 Do not install into or edit them. Replace `AUTHORIZED_LOGIN` with a permitted channel.
 
 ```powershell
-Set-Location 'H:\Desktop\codex\msclassic-character-name-ocr'
-$original = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
+Set-Location '<branch checkout>'
+$original = '<your msxp folder>'
 $python = Join-Path $original '.venv\Scripts\python.exe'
 $rapid = Join-Path $original 'private\rapidocr\.venv\Scripts\python.exe'
 $env:PYTHONPATH = (Resolve-Path src).Path

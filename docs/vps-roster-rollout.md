@@ -53,8 +53,8 @@ authorizing a single-writer cutover. Nothing here changes an installed service.
 Windows PowerShell, from this reviewed checkout (adjust only explicitly chosen paths):
 
 ```powershell
-Set-Location H:\Desktop\codex\msclassic-vps-rollout
-$python = 'H:\Desktop\codex\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe'
+Set-Location <branch checkout>
+$python = '<your msxp folder>\.venv\Scripts\python.exe'
 $env:PYTHONPATH = "$PWD\src"
 $source = Read-Host 'Absolute path of authoritative Windows database to inspect'
 $config = Read-Host 'Absolute path of its current JSON config (if not already roster-managed)'
@@ -393,7 +393,7 @@ $returnDb = Join-Path $returned 'tracker.sqlite3'
 Get-FileHash -Algorithm SHA256 $returnDb,"$returnDb.multi-alpha.json"
 & $python tools/adopt_automatic.py --db $returnDb inspect
 & $python tools/db_streamer_roster.py --db $returnDb inspect
-$ocr = 'H:\Desktop\codex\msclassic-twitch-exp-tracker\private\rapidocr\.venv\Scripts\python.exe'
+$ocr = '<your msxp folder>\private\rapidocr\.venv\Scripts\python.exe'
 $resume = @('--db-roster',$returnDb,'--port','8765','--continuous','--public-only',
   '--cors-origin','https://msxp.pages.dev','--ocr-python',$ocr,'--workers','6',
   '--stagger-capture','--resident-neural','--resident-tesseract',

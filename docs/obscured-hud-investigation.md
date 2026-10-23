@@ -179,11 +179,11 @@ coordinator configuration, connect to SQLite or append to existing archives.
 From this feature worktree, using the existing sibling capture environment:
 
 ```powershell
-Set-Location H:\Desktop\codex\msclassic-level-inference
+Set-Location <branch checkout>
 # Run only after confirming streamer permission for this specific Twitch trial.
 # The timestamp makes a new directory; existing output is always refused.
 $hudCollection = 'private/obscured-hud/streamer_c-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
-& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe tools/collect_hud_frames.py --channel Streamer_C --authorized --quality best --count 3 --interval 5 --timeout 10 --output $hudCollection
+& <your msxp folder>\.venv\Scripts\python.exe tools/collect_hud_frames.py --channel Streamer_C --authorized --quality best --count 3 --interval 5 --timeout 10 --output $hudCollection
 ```
 
 `--authorized` is an explicit operator assertion of permission for **this** trial,
@@ -198,7 +198,7 @@ For an authorized existing local video, with another new output directory:
 
 ```powershell
 $hudCollection = 'private/obscured-hud/local-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
-& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe tools/collect_hud_frames.py --file private/obscured-hud/authorized-recording.mp4 --start 60 --count 3 --interval 5 --timeout 10 --output $hudCollection
+& <your msxp folder>\.venv\Scripts\python.exe tools/collect_hud_frames.py --file private/obscured-hud/authorized-recording.mp4 --start 60 --count 3 --interval 5 --timeout 10 --output $hudCollection
 ```
 
 The local video must already exist. `--start` is a seek request, not confirmed
@@ -459,9 +459,9 @@ single-layout-family recognizer, not character authentication.
 
 Verified environments (read-only checks plus an actual offline EXP worker call):
 
-- Capture Python: `H:\Desktop\codex\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe`;
+- Capture Python: `<your msxp folder>\.venv\Scripts\python.exe`;
   Python 3.14.7, Streamlink 8.6.2, Pillow 12.3.0, pytesseract 0.3.13, psutil 7.2.2.
-- OCR Python: `H:\Desktop\codex\msclassic-twitch-exp-tracker\private\rapidocr\.venv\Scripts\python.exe`;
+- OCR Python: `<your msxp folder>\private\rapidocr\.venv\Scripts\python.exe`;
   RapidOCR 3.10.0, ONNX Runtime 1.31.0. Existing models loaded successfully with
   worker downloads disabled. The saved first CharC EXP crop again returned
   `45,257[11.57%]`, with neural level `missing_crop`.
@@ -475,9 +475,9 @@ Verified environments (read-only checks plus an actual offline EXP worker call):
 Run **only after confirming permission for this specific Twitch trial**:
 
 ```powershell
-Set-Location 'H:\Desktop\codex\msclassic-level-inference'
-$capturePython = 'H:\Desktop\codex\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe'
-$ocrPython = 'H:\Desktop\codex\msclassic-twitch-exp-tracker\private\rapidocr\.venv\Scripts\python.exe'
+Set-Location '<branch checkout>'
+$capturePython = '<your msxp folder>\.venv\Scripts\python.exe'
+$ocrPython = '<your msxp folder>\private\rapidocr\.venv\Scripts\python.exe'
 $trial = Join-Path (Get-Location) ('private\obscured-hud\streamer_c-validation-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 Write-Host "Private trial: $trial"
 & $capturePython tools/shadow_capture.py --channel streamer_c --authorized `
