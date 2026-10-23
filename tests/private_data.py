@@ -26,7 +26,7 @@ def require_live_crops():
     """Skip, like other private-sample tests, when the crops these labels and banks were built from are absent."""
     missing = [path.name for path in LIVE_CROPS if not path.is_dir()]
     if missing:
-        pytest.skip(f'Private live crops are absent ({", ".join(missing)}); the manifest and digit bank load them')
+        pytest.skip(f'Private live crops are absent ({", ".join(missing)}); see docs/private-test-data.md')
 
 
 @cache

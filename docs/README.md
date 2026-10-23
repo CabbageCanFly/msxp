@@ -89,5 +89,5 @@ grouped so you can find one without opening a hundred files.
 
 ## Development
 
-- [Parallel test audit](parallel-tests.md) · Run everything with `msxp test` (private sample tests skip
+- [Test data: public, private and recreatable](private-test-data.md) · [Parallel test audit](parallel-tests.md) · Run everything with `msxp test` (private sample tests skip
   when their files are absent).
