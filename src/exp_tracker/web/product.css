@@ -263,6 +263,11 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 /* Matching the overlay page's light scheme keeps the frame transparent instead of painting it white. */
 .overlay-stage iframe { display:block; border:0; transform-origin:0 0; background:transparent; color-scheme:light; }
 .overlay-builder .overlay-actions { grid-column:1 / -1; padding:0; }
+.obs-help { grid-column:1 / -1; color:var(--text-soft); font-size:13px; line-height:1.6; }
+.obs-help summary { cursor:pointer; width:fit-content; color:var(--gold); font-weight:700; }
+.obs-help ol { margin:10px 0 8px; padding-left:22px; }
+.obs-help strong { color:var(--text); }
+.obs-help p { margin:0; color:var(--text-muted); }
 #overlay-url { flex:1 1 280px; min-width:0; padding:9px 12px; color:var(--text-soft); background:var(--surface-sunken); border:1px solid var(--line-strong); border-radius:var(--radius-sm); font:600 13px var(--font-ui); }
 #overlay-url:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 @media(max-width:1100px) { .overlay-builder { grid-template-columns:minmax(0,1fr); } }
