@@ -1,3 +1,7 @@
+/* Let the scene reach the edge when a public page has no scrollbar. */
+html { scrollbar-gutter:auto; overflow-x:clip; }
+/* Center against the full viewport so scrollbars do not nudge the panels. */
+main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .product {
   /* Extra navy tint: raise this percentage to make either town less distracting. */
   --background-tint:15%;
@@ -10,7 +14,7 @@
 .product .sky { display:none; }
 /* The viewport-sized scene stays behind pages of any length; the original pixels are preserved in lossless WebP. */
 .product::before {
-  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  content:""; position:fixed; inset:0; width:100vw; z-index:-1; pointer-events:none;
   background:
     linear-gradient(rgb(16 27 50 / var(--background-tint)), rgb(16 27 50 / var(--background-tint))),
     linear-gradient(180deg, rgb(16 27 50 / 50%), rgb(16 27 50 / 25%) 40%, rgb(16 27 50 / 44%)),
@@ -19,7 +23,7 @@
     var(--background-sky) center / cover no-repeat;
 }
 /* Overscan hides the town render's uneven transparent bottom edge. */
-.product[data-background=kerning]::before { inset:-3%; }
+.product[data-background=kerning]::before { inset:-3%; left:-3vw; width:106vw; }
 .product[data-background-state]::before { opacity:0; }
 .product[data-background-state=ready]::before { opacity:1; }
 @media (prefers-reduced-motion:no-preference) {

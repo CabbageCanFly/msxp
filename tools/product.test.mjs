@@ -14,7 +14,7 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,
   const elements={},timers=[],events={},visits=[],images=[];
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const bucketButtons=[60,300,1800].map(seconds=>Object.assign(new Element(),{dataset:{bucket:String(seconds)}}));
-  const chartButtons=[15,30,60].map(minutes=>Object.assign(new Element(),{dataset:{chartWindow:String(minutes)}}));
+  const chartButtons=[15,30,60,720,1440].map(minutes=>Object.assign(new Element(),{dataset:{chartWindow:String(minutes)}}));
   const characterSortButtons=['name','level','recent'].map(value=>Object.assign(new Element(),{dataset:{characterSort:value}}));
   const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
   const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
@@ -1495,6 +1495,8 @@ test('overlay URL options fall back on unknown values and accept only six-digit 
   assert.equal(p.run('overlayOptions("?layout=unknown").layout'),'card');
   assert.equal(p.run('overlayOptions("?interval=1800&range=15").range'),'1440');
   assert.equal(p.run('overlayOptions("?interval=60&range=1440").range'),'60');
+  assert.equal(p.run('overlayOptions("?interval=1800&range=720").range'),'720');
+  assert.equal(p.run('overlayOptions("?interval=300&range=720").range'),'60');
   assert.equal(p.run('overlayOptions("?interval=bad&range=bad").interval'),'60');
 });
 
@@ -1511,6 +1513,39 @@ test('EXP history controls update the General preview and copied URL with the se
   p.bucketButtons[2].listeners.click();
   assert.equal(options().interval,'1800');assert.equal(options().range,'1440');
   assert.equal(updates.at(-1).range,'1440');
+  assert.deepEqual(p.chartButtons.map(b=>b.disabled),[true,true,true,false,false]);
+  p.chartButtons[3].listeners.click();
+  assert.equal(options().range,'720');assert.equal(updates.at(-1).range,'720');
+  assert.equal(p.chartButtons[3].attributes['aria-pressed'],'true');
+  p.chartButtons[0].listeners.click();assert.equal(options().range,'720'); // Disabled short window cannot change the long view.
+  p.bucketButtons[0].listeners.click();
+  assert.deepEqual(p.chartButtons.map(b=>b.disabled),[false,false,false,true,true]);
+  assert.equal(options().range,'30'); // Keep the previous short-window selection.
+  p.chartButtons[4].listeners.click();assert.equal(options().range,'30');
+  p.bucketButtons[2].listeners.click();assert.equal(options().range,'720');
+  p.chartButtons[4].listeners.click();assert.equal(options().range,'1440');
+});
+
+test('12h profile bars select the latest 24 half-hour buckets from live, saved or unavailable history',()=>{
+  for(const source of ['live','saved','unavailable']) {
+    const p=page('player',undefined,'?defaults'),end=Date.parse('2026-01-02T00:00:00Z');
+    const values=Array.from({length:48},(_,i)=>i<24?99999:i===24?0:i===25?null:i);
+    p.context.packet={served_at:new Date(end).toISOString(),player:player({character:{id:1,label:'Main'},level_events:[{timestamp:'2026-01-01T06:00:00Z',level:60}]})};
+    p.context.rolling={character_id:1,start:new Date(end-86400000).toISOString(),end:new Date(end).toISOString(),as_of:new Date(end).toISOString(),
+      buckets:values.map((v,i)=>({start:new Date(end-(48-i)*1800000).toISOString(),end:new Date(end-(47-i)*1800000).toISOString(),value:v==null?null:{approximate:v},state:v==null?'missing':'covered',covered:{approximate:1800}}))};
+    p.context.summary={character_id:1,as_of:new Date(end).toISOString(),day_buckets:values};
+    p.run(`data=packet;rollingData=${source==='live'?'rolling':'null'};if(rollingData)data.tracked_history=rollingData;${source==='saved'?"data={summary};viewCharacter='1';":''}drawHistory()`);
+    assert.equal(p.elements['history-chart'].children.filter(n=>n.attributes.class?.startsWith('exp-column')).length,48);
+    p.chartButtons[3].listeners.click();
+    const svg=p.elements['history-chart'];
+    assert.equal(svg.dataset.start,'2026-01-01T12:00:00.000Z');assert.equal(svg.dataset.end,'2026-01-02T00:00:00.000Z');
+    assert.equal(svg.children.filter(n=>n.attributes.class?.startsWith('exp-column')).length,24);
+    assert.equal(svg.children.filter(n=>n.attributes.class==='exp-column missing').length,source==='unavailable'?24:1);
+    assert.match(p.elements['history-note'].textContent,/last 12 hours/);
+    assert.equal(p.elements['level-event'].hidden,true);
+    p.chartButtons[4].listeners.click();assert.equal(svg.children.filter(n=>n.attributes.class?.startsWith('exp-column')).length,48);
+    if(source==='live')assert.equal(p.elements['level-event'].hidden,false);
+  }
 });
 
 test('General overlay shows minute history, preserves missing and zero bins, and switches to the EXP bar layout',()=>{
@@ -1536,13 +1571,17 @@ test('General history respects saved chart intervals and uses the same 24h aggre
   const p=page('overlay');p.render(player());
   p.context.tracked={as_of:'2026-01-01T01:00:00Z',chart_intervals:[],buckets:Array.from({length:48},(_,i)=>({value:i===47?{approximate:700}:null}))};
   p.run('data.tracked_history=tracked');
-  for(const [interval,range,bins,label] of [['60','15',15,'1 min · last 15 min'],['300','60',12,'5 min · last hour'],['1800','1440',48,'30 min · 24h']]){
+  for(const [interval,range,bins,label] of [['60','15',15,'1 min · last 15 min'],['300','60',12,'5 min · last hour'],['1800','720',24,'30 min · 12h'],['1800','1440',48,'30 min · 24h']]){
     p.run(`applyOverlay(overlayOptions('?interval=${interval}&range=${range}'))`);
     assert.equal(p.elements['general-chart'].children.length,bins);
     assert.equal(p.elements['general-history-caption'].textContent,label);
   }
   assert.equal(p.elements['general-chart'].children.filter(b=>b.attributes.class==='bar').length,1);
   assert.equal(p.elements['hour-total'].textContent,'~700 EXP');
+  p.run('tracked.buckets[0].value={approximate:100};applyOverlay(overlayOptions("?interval=1800&range=720"))');
+  assert.equal(p.elements['general-chart'].children.length,24);assert.equal(p.elements['hour-total'].textContent,'~700 EXP');
+  p.run('applyOverlay(overlayOptions("?interval=1800&range=1440"))');
+  assert.equal(p.elements['general-chart'].children.length,48);assert.equal(p.elements['hour-total'].textContent,'~800 EXP');
 });
 
 test('profile and linked overlay use chart-only bucket values while preserving the tracked total',()=>{

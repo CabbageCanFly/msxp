@@ -47,9 +47,9 @@ const selecting=()=>{const s=globalThis.getSelection?.();return !!s && s.rangeCo
 const sorts=new Set(['exp_hour','level','day']);
 let data=null,receivedAt=0,failed=false,sort='level',characterSort='level',windowMinutes=view==='player'?15:5,chartMode='exp',bucketSeconds=1800,pollTimer=null,activeController=null;
 // The character page's charts keep their own time windows, separate from the stat cards above them.
-let chartWindow=60,lineWindow=15;
+let chartWindow=60,longChartWindow=1440,lineWindow=15;
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
-const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],name:['both','character','twitch','none'],theme:['night','day'],interval:['60','300','1800'],range:['60','15','30','1440']};
+const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],name:['both','character','twitch','none'],theme:['night','day'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
 const OVERLAY_COLORS=['header','bar','accent'];
 const THEME_COLORS={night:{header:'705035',bar:'a6ef2e',accent:'ffc56b'},day:{header:'8a6440',bar:'7fcc12',accent:'a8520a'}};
 function headerInk(hex) {
@@ -62,8 +62,8 @@ function faded(age) { return failed || age==null || age>FADE_AFTER_SECONDS; }
 function overlayOptions(search) {
   const q=new URLSearchParams(search),options={};
   for(const [key,allowed] of Object.entries(OVERLAY_CHOICES))options[key]=allowed.includes(q.get(key))?q.get(key):allowed[0];
-  if(options.interval==='1800')options.range='1440';
-  else if(options.range==='1440')options.range='60';
+  if(options.interval==='1800'){if(!['720','1440'].includes(options.range))options.range='1440';}
+  else if(['720','1440'].includes(options.range))options.range='60';
   for(const key of OVERLAY_COLORS)if(/^[0-9a-f]{6}$/i.test(q.get(key) ?? ''))options[key]=q.get(key).toLowerCase();
   return options;
 }
@@ -71,7 +71,7 @@ function overlayOptions(search) {
 function applyOverlay(o) {
   Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon,interval:o.interval,range:o.range});
   document.body.dataset.headerInk=headerInk(o.header ?? THEME_COLORS[o.theme].header);
-  const historyLabel=`${Number(o.interval)/60} min · ${o.range==='1440'?'24h':o.range==='60'?'last hour':`last ${o.range} min`}`;
+  const historyLabel=`${Number(o.interval)/60} min · ${o.range==='1440'?'24h':o.range==='720'?'12h':o.range==='60'?'last hour':`last ${o.range} min`}`;
   if(view==='overlay'){
     el('general-history-caption').textContent=historyLabel;
     el('general-chart').setAttribute('aria-label',`EXP history: ${historyLabel}; dashes mean no data`);
@@ -561,6 +561,7 @@ function drawExpHistory() {
     bins:rolling.buckets.map(b=>({...b,start:Date.parse(b.start),end:Date.parse(b.end),value:chartBucketValue(b),state:chartBucketValue(b)==null?'missing':b.state,covered:b.covered.approximate}))
   }:bucketHistory(bucketSeconds===1800?[]:rows,bucketSeconds===1800?Date.parse(data?.served_at):anchor,bucketSeconds,bucketSeconds===1800?null:chartWindow*60);
   if(!chart || !Number.isFinite(chart.start) || !Number.isFinite(chart.end)){el('history-note').textContent='';return;}
+  if(bucketSeconds===1800 && longChartWindow===720){chart.bins=chart.bins.slice(-24);chart.range=43200;chart.start=chart.end-43200000;}
   const width=Math.max(300,Math.min(960,svg.clientWidth||960)),plotWidth=width-76;
   svg.setAttribute('viewBox',`0 0 ${width} 250`);svg.setAttribute('aria-label','EXP gained over time; dashes mean no data');
   svg.dataset.start=new Date(chart.start).toISOString();svg.dataset.end=new Date(chart.end).toISOString();
@@ -585,7 +586,7 @@ function drawExpHistory() {
     const tick=new Date(chart.start+(chart.end-chart.start)*i/(ticks-1)).toISOString();
     const attrs={x:54+plotWidth*i/(ticks-1),'text-anchor':i===0?'start':i===ticks-1?'end':'middle'};
     shape('text',{...attrs,y:232}).textContent=clockMinutes.format(new Date(tick));
-    if(chart.range===86400)shape('text',{...attrs,y:248}).textContent=monthDay.format(new Date(tick));
+    if(chart.range>=43200)shape('text',{...attrs,y:248}).textContent=monthDay.format(new Date(tick));
   }
   const count=chart.bins.filter(b=>b.value!=null).length;
   el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?chart.range/60+' min':chart.range/3600+' hours'} · times in ${zoneLabel()}${count?'':' · no data in this period'}`;
@@ -594,7 +595,7 @@ function drawExpHistory() {
 // Overlay history uses the same minute intervals and 24h buckets as the player chart.
 function drawHourChart(svg=el('overlay-chart'),seconds=300,range=3600) {
   const tracked=data?.tracked_history;svg.replaceChildren();
-  const chart=seconds===1800?(tracked?.buckets?.length===48?{bins:tracked.buckets.map(b=>({value:chartBucketValue(b)}))}:null)
+  const chart=seconds===1800?(tracked?.buckets?.length===48?{bins:tracked.buckets.slice(range===43200?-24:0).map(b=>({value:chartBucketValue(b)}))}:null)
     :bucketHistory((tracked?.chart_intervals ?? []).map(g=>({gain:g,connect_previous:true})),Date.parse(tracked?.as_of),seconds,range);
   if(!chart){el('hour-total').textContent='—';return;}
   const top=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),step=462/chart.bins.length,gap=Math.min(6,step/4);
@@ -610,13 +611,12 @@ function drawHistory() {
   const focus=document.activeElement?.dataset?.tipKey,openKey=tipKey,position=tipPosition;
   document.querySelectorAll('[data-chart]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chart===chartMode)));
   document.querySelectorAll('[data-bucket]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.bucket)===bucketSeconds)));
-  // The 30 min interval always covers 24 hours, so its time window buttons don't apply.
-  document.querySelectorAll('[data-chart-window]').forEach(b=>{b.setAttribute('aria-pressed',String(bucketSeconds!==1800 && Number(b.dataset.chartWindow)===chartWindow));b.disabled=bucketSeconds===1800;});
+  document.querySelectorAll('[data-chart-window]').forEach(b=>{const minutes=Number(b.dataset.chartWindow);b.disabled=(minutes>=720)!==(bucketSeconds===1800);b.setAttribute('aria-pressed',String(!b.disabled && minutes===(bucketSeconds===1800?longChartWindow:chartWindow)));});
   document.querySelectorAll('[data-line-window]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.lineWindow)===lineWindow)));
   el('bucket-controls').hidden=chartMode!=='exp';el('line-controls').hidden=chartMode==='exp';
   if(chartMode==='exp')drawExpHistory();else drawPercentageHistory();
   const all=data?.history ?? [],anchor=Date.parse(data?.tracked_history?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end ?? data?.player?.latest_attempt_at ?? all.at(-1)?.timestamp);
-  const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-(chartMode!=='exp'?lineWindow:bucketSeconds===1800?1440:chartWindow)*60000).at(-1);
+  const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-(chartMode!=='exp'?lineWindow:bucketSeconds===1800?longChartWindow:chartWindow)*60000).at(-1);
   const label=!event?'':event.inferred?`Level ${event.level} reached`:`Level ${event.level} reached!`;
   if(el('level-event').textContent!==label)el('level-event').textContent=label;
   el('level-event').hidden=!event;
@@ -877,7 +877,7 @@ if(view==='player') {
   globalThis.addEventListener?.('scroll',hideTip,true);
   document.querySelectorAll('[data-chart]').forEach(b=>b.addEventListener('click',()=>{if(!['exp','percentage'].includes(b.dataset.chart))return;chartMode=b.dataset.chart;drawHistory();}));
   document.querySelectorAll('[data-bucket]').forEach(b=>b.addEventListener('click',()=>{if(![60,300,1800].includes(Number(b.dataset.bucket)))return;bucketSeconds=Number(b.dataset.bucket);drawHistory();updateBuilder();}));
-  document.querySelectorAll('[data-chart-window]').forEach(b=>b.addEventListener('click',()=>{if(![15,30,60].includes(Number(b.dataset.chartWindow)))return;chartWindow=Number(b.dataset.chartWindow);drawHistory();updateBuilder();}));
+  document.querySelectorAll('[data-chart-window]').forEach(b=>b.addEventListener('click',()=>{const minutes=Number(b.dataset.chartWindow);if(![15,30,60,720,1440].includes(minutes) || (minutes>=720)!==(bucketSeconds===1800))return;if(bucketSeconds===1800)longChartWindow=minutes;else chartWindow=minutes;drawHistory();updateBuilder();}));
   document.querySelectorAll('[data-line-window]').forEach(b=>b.addEventListener('click',()=>{if(![5,10,15,30,60].includes(Number(b.dataset.lineWindow)))return;lineWindow=Number(b.dataset.lineWindow);drawHistory();}));
   globalThis.addEventListener?.('resize',()=>{renderPlayer();drawHistory();rosterEdges();scalePreview();});
   const builder=overlayOptions(''),SIZES={card:[500,160],bar:[500,160],rates:[500,110],chart:[500,180]};
@@ -894,7 +894,7 @@ if(view==='player') {
     frame.style.transform=`scale(${scale})`;el('overlay-stage').style.height=`${Math.ceil(frame.height*scale)+26}px`;
   }
   function updateBuilder() {
-    builder.interval=String(bucketSeconds);builder.range=String(bucketSeconds===1800?1440:chartWindow);
+    builder.interval=String(bucketSeconds);builder.range=String(bucketSeconds===1800?longChartWindow:chartWindow);
     const url=overlayURL(),[width,height]=SIZES[builder.layout];
     el('overlay-url').value=url;el('overlay-link').href=url;el('overlay-size').textContent=`OBS size · ${width} × ${height}`;el('copy-status').textContent='';
     document.querySelectorAll('[data-option] button').forEach(b=>b.setAttribute('aria-pressed',String(builder[b.closest('[data-option]').dataset.option]===b.dataset.value)));

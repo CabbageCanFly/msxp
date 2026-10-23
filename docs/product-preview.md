@@ -17,8 +17,14 @@ dependency, database schema, capture path or OCR rule was added.
 The OBS builder offers **General**, **EXP bar**, **EXP rates** and **Last hour**.
 General replaces the progress bar and current EXP numbers with a miniature EXP
 history chart. Its preview and copied URL follow the EXP history panel's interval
-(1/5/30 minutes) and time window; 30-minute bars show 24 hours using the same
-aggregate buckets. Standalone URLs without chart settings default to 1-minute
+(1/5/30 minutes) and time window. The 30-minute interval enables 12h/24h windows
+and disables 15/30/60-minute windows; 1- and 5-minute intervals reverse those
+choices. The 24h view remains the default. The 12h view uses the newest 24 of the
+existing 48 aggregate buckets, including their missing/zero states, with no API
+change. Short and long window selections are remembered independently while the
+page stays open. The General overlay caption, preview, bars and chart total follow
+the selection (`interval=1800&range=720` for 12h, `range=1440` for 24h).
+Standalone URLs without chart settings default to 1-minute
 bars over the last hour. After changing settings, copy the updated URL into OBS;
 an existing OBS source keeps the settings in its URL.
 Profile, linked overlay and homepage mini-chart bars omit gains whose observation endpoints are more than 60 minutes apart;
