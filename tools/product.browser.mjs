@@ -132,7 +132,7 @@ try {
       }
       if(action==='gap'){
         assert.equal(actual.player.reading.percentage,'77.36');
-        assert.equal((await api('/api/players/telfer1')).player.reading.percentage,'56.97');
+        assert.equal((await api('/api/players/streamer_a')).player.reading.percentage,'56.97');
       }
       if(action==='recover')assert.equal(actual.player.reading.percentage,'77.54');
       if(action==='gap' || action==='recover' || action==='expire'){
@@ -218,8 +218,8 @@ try {
       await screenshot(overlay,`resilience-${action}-overlay`,500,160);
     }
     const cards=await api('/api/players');
-    assert.equal(cards.players.find(p=>p.channel==='shiphtur').twitch.status,'offline');
-    assert.equal(cards.players.find(p=>p.channel==='shiphtur').reading,null);
+    assert.equal(cards.players.find(p=>p.channel==='streamer_b').twitch.status,'offline');
+    assert.equal(cards.players.find(p=>p.channel==='streamer_b').reading,null);
     await screenshot(board,'resilience-homepage',1440,1050);
     for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
   }else if(verifyHistorical){
@@ -284,9 +284,9 @@ try {
     await detail.evaluate('document.querySelector("[data-chart=exp]").click();document.querySelector("[data-bucket=\\"60\\"]").click()');
     assert.match(await tooltip('.bar-hit[data-tip-text$=" EXP"]',true),/ EXP$/);
     await screenshot(detail,'bar-tooltip-mobile',390,1200);
-    const other=await tab('/stream/telfer1',1440,1100);await other.wait("typeof data!=='undefined' && data?.player?.capture_lifecycle==='completed'");
+    const other=await tab('/stream/streamer_a',1440,1100);await other.wait("typeof data!=='undefined' && data?.player?.capture_lifecycle==='completed'");
     assert.match(await other.evaluate('document.getElementById("exp").textContent'),/EXP|K/);
-    await screenshot(other,'telfer-historical-desktop',1440,1100);
+    await screenshot(other,'streamer_a-historical-desktop',1440,1100);
     await overlay.wait("data?.player?.capture_lifecycle==='completed'");await screenshot(overlay,'historical-overlay',500,160);
     for(const page of [board,detail,overlay])assert.equal(await page.evaluate('performance.getEntriesByType("navigation").length'),1);
     writeFileSync(join(output,'historical-stages.json'),JSON.stringify(stages,null,2));observed.push(...stages);

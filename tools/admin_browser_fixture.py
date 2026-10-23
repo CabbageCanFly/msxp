@@ -20,7 +20,7 @@ def main():
     if path.exists():parser.error('synthetic database already exists; choose a new output directory')
     start = (datetime.now(timezone.utc)-timedelta(minutes=10)).replace(microsecond=123456)
     with Store(path) as store:
-        store.add_channel('alpha'); cid = store.add_character('alpha', 'Tricia')
+        store.add_channel('alpha'); cid = store.add_character('alpha', 'CharC')
         store.add_character('alpha', 'Other')
         store.add_channel('beta'); foreign = store.add_character('beta', 'Beta')
         store.select_character('beta', foreign, at=start)

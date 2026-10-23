@@ -59,7 +59,7 @@ Run from the installed virtual environment (use its Python executable):
 # Set these locally; do not paste their values into chat, Git or an overlay URL.
 $env:TWITCH_CLIENT_ID = '<your application client ID>'
 $env:TWITCH_ACCESS_TOKEN = '<your app access token>'
-.\.venv\Scripts\python -m exp_tracker.twitch_probe telfer1 --count 15 --interval 60 --width 1920 --height 1080 --config configs/stream1.json
+.\.venv\Scripts\python -m exp_tracker.twitch_probe streamer_a --count 15 --interval 60 --width 1920 --height 1080 --config configs/stream1.json
 ```
 
 Use a live channel you control or have consent to test. The existing config is

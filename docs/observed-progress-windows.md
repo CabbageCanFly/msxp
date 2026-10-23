@@ -8,7 +8,7 @@ progress nor that short pace is substituted into completed-window ranks.
 ## What the saved trial actually shows
 
 Replay source: `private/multi-alpha/runs/20261018T005419Z-6d0af805/`.
-Its three logs per channel contain 172 Telfer1 and 171 Shiphtur attempts, including
+Its three logs per channel contain 172 Streamer_A and 171 CharB attempts, including
 failures. Each prefix was inspected against a fresh SQLite database as of its
 original receipt timestamp (attempt timestamp for a failed acquisition). No frame
 or timestamp was recreated, and no new OCR or Twitch acquisition was run.
@@ -24,7 +24,7 @@ left edge, and the latest attempt as endpoint. Thus 90% span alone is insufficie
 This trial requests 13 seconds; an initial endpoint 54 seconds after a ten-minute
 boundary fails even if its 546-second span exceeds 90%.
 
-Telfer1's first run loses numerical availability at attempts 14, 16, 30 and 43.
+Streamer_A's first run loses numerical availability at attempts 14, 16, 30 and 43.
 The first three strict segment lengths are 156.15s, 0s and 156.03s. Attempt 30
 (`162,285[9.74%`) has no closing boundary. Attempts 16/43 have no HUD. Attempt 14
 also has conflicting level evidence (visual 66, neural 56), so it remains a hard
@@ -70,8 +70,8 @@ Across all causal prefixes (availability counts, **not accuracy or independence*
 
 | Channel | Attempts | Complete 5m available (unchanged) | Observed 5m available | Complete 10/15/30m | Observed 10/15/30m |
 |---|---:|---:|---:|---:|---:|
-| Telfer1 | 172 | 35 | 157 | 0 each | 157 each |
-| Shiphtur | 171 | 21 | 56 | 0 each | 56 each |
+| Streamer_A | 172 | 35 | 157 | 0 each | 157 each |
+| CharB | 171 | 21 | 56 | 0 each | 56 each |
 
 ## Separate endpoint policy
 
@@ -125,14 +125,14 @@ was changed, and this work establishes no new OCR accuracy claim.
 
 ```powershell
 # Serve the existing actual database; this does not start capture.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --port 8766
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --port 8766
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
 
 # Real saved two-stream SQLite replay, causal as-of clock, all window buttons,
 # rotation, live DOM polling, stale states and desktop/mobile screenshots.
 # Choose a NEW private output directory each time.
-node tools/product.browser.mjs http://127.0.0.1:8781 private/observed-windows/review-new --verify-windows telfer1
-node tools/product.browser.mjs http://127.0.0.1:8782 private/observed-windows/quarantine-new --verify-quarantine telfer1
+node tools/product.browser.mjs http://127.0.0.1:8781 private/observed-windows/review-new --verify-windows streamer_a
+node tools/product.browser.mjs http://127.0.0.1:8782 private/observed-windows/quarantine-new --verify-quarantine streamer_a
 .\.venv\Scripts\python -m pytest -q -rs
 node --test tools/*.test.mjs
 ```

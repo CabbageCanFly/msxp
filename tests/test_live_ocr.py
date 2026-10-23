@@ -10,6 +10,7 @@ from exp_tracker.glyphs import GlyphProfile, match_exp
 from exp_tracker.models import Reading
 from exp_tracker.parsing import parse_exp
 from exp_tracker.recognition import recognize
+from private_data import require_live_crops
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -22,6 +23,7 @@ pytestmark = pytest.mark.samples
 
 @pytest.fixture(scope="module")
 def dataset():
+    require_live_crops()
     if not MANIFEST.exists() or not PROFILE.exists():
         pytest.skip("Private live crops/labels/profile are intentionally excluded from Git")
     return json.loads(MANIFEST.read_text(encoding="utf-8")), GlyphProfile.load(PROFILE)
@@ -74,6 +76,7 @@ def test_saved_green_trial_preserves_recorded_outcomes(index):
     from PIL import Image
     from exp_tracker.capture import _guard_unverified_exp
     from exp_tracker.models import Region
+    require_live_crops()
     trial = "green-test-20261015-215403"
     records_path = ROOT / f"artifacts/{trial}.jsonl"
     profile_path = ROOT / "private/ocr-evaluation/glyph-profile-green-experimental.json"
@@ -101,6 +104,7 @@ def test_saved_green_trial_preserves_recorded_outcomes(index):
 
 def test_green_calibration_reproduces_experimental_glyphs(tmp_path):
     from tools.train_glyph_profile import train
+    require_live_crops()
     annotation = ROOT / "private/ocr-evaluation/training-green.json"
     experiment = ROOT / "private/ocr-evaluation/glyph-profile-green-experimental.json"
     if not annotation.exists() or not experiment.exists():

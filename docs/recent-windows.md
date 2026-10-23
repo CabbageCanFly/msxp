@@ -54,7 +54,7 @@ their unchanged raw table. Their range selector also offers 10/15/30 minutes and
 
 ## Saved crop investigation
 
-Native crops from `telfer1-20261017T210323Z-6ef8ae46` visibly clip leading EXP in
+Native crops from `streamer_a-20261017T210323Z-6ef8ae46` visibly clip leading EXP in
 attempts 9, 10 and 29. HP's detected left edge moves about 11 pixels, while LV/EXP
 remain stable and MP shifts about two pixels. The previous independent spacing
 comparison misses its 3% agreement test; this is geometry evidence, not a new OCR label.
@@ -99,7 +99,7 @@ The interrupted log's summary says seven attempts, but only **six attempt record
 exist and are persisted. No seventh observation is invented. Its visual level context
 does not establish a comparable level under the unchanged policy.
 
-The actual shared Telfer1 database contains 66 attempts. Default five-minute graphs
+The actual shared Streamer_A database contains 66 attempts. Default five-minute graphs
 now show nine attempts from **21:06:34 to 21:11:27 UTC**, with one real sampling gap,
 instead of stretching back to the morning capture. Fifteen/thirty-minute views and
 All loaded history deliberately retain older points and gaps. Saved timestamps are
@@ -128,10 +128,10 @@ These are small saved-history measurements, not capture throughput or VPS foreca
 From the repository root, using the existing private database:
 
 ```powershell
-.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/telfer1.sqlite3 --diagnostic-dashboard
+.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/streamer_a.sqlite3 --diagnostic-dashboard
 Start-Process 'http://127.0.0.1:8765/'
-Start-Process 'http://127.0.0.1:8765/stream/telfer1'
-Start-Process 'http://127.0.0.1:8765/dashboard/telfer1'
+Start-Process 'http://127.0.0.1:8765/stream/streamer_a'
+Start-Process 'http://127.0.0.1:8765/dashboard/streamer_a'
 ```
 
 Serving the database is read-only and does not start Twitch capture. Stop another
@@ -142,8 +142,8 @@ server first if its port is occupied, or use `--port 8784` and adjust URLs.
 .\.venv\Scripts\python -m pytest tests/test_recent_windows.py tests/test_product.py tests/test_adaptive_hud.py -q
 node --test tools/*.test.mjs
 # Existing server; choose new private output directories:
-node tools/product.browser.mjs http://127.0.0.1:8765 private/recent-windows/browser-new - telfer1
-node tools/shadow.browser.mjs http://127.0.0.1:8765/dashboard/telfer1 private/recent-windows/advanced-new
+node tools/product.browser.mjs http://127.0.0.1:8765 private/recent-windows/browser-new - streamer_a
+node tools/shadow.browser.mjs http://127.0.0.1:8765/dashboard/streamer_a private/recent-windows/advanced-new
 .\.venv\Scripts\python -m pytest -q
 ```
 

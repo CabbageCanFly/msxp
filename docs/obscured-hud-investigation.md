@@ -1,4 +1,4 @@
-# Tricia obscured-HUD investigation
+# CharC obscured-HUD investigation
 
 Investigation on 2026-10-19, feature worktree `msclassic-level-inference` at
 `8f5e86b`. Localization is the observed failure stage. Webcam obstruction is a
@@ -27,7 +27,7 @@ webcam is on the right. An EXP-only localization improvement is now implemented.
    crop. Strict complete-pair and whole percentage-only parsers retain separate
    candidates. Visual Tesseract level evidence is read separately. Failed level
    OCR already permits EXP/percentage diagnostics; successful localization is the
-   prerequisite that currently prevents this for Tricia.
+   prerequisite that currently prevents this for CharC.
 5. Freshness is rechecked after stages. `multi_alpha.emit` flushes the private
    JSONL, then `Diagnostics.append` persists bound experimental attempts. This
    does not call trusted Store ingestion. `Diagnostics` decodes/project rows via
@@ -42,7 +42,7 @@ describe its subsequent use by shadow capture.
 ## Saved evidence
 
 Inspected existing private JSONL files read-only under the sibling main worktree:
-`private/multi-alpha/runs/20261019T025444Z-0fbaad78/triciaisabirdy/`.
+`private/multi-alpha/runs/20261019T025444Z-0fbaad78/streamer_c/`.
 No SQLite database was opened or changed. This archive was still growing during
 inspection: an initial read contained 359 attempts across six runs, a subsequent
 read 361 across seven. These are observations at read time, not final run totals.
@@ -66,7 +66,7 @@ the described symptom, not a claim that it is the exact original snapshot.
 Only JSONL files exist in this channel's capture directory. There are no saved
 frames/crops, and failed localization does not persist OCR tokens. Frame hashes
 cannot reconstruct pixels. Other private reference files have no established
-Tricia provenance. Changed hashes do not prove live gameplay or source freshness.
+CharC provenance. Changed hashes do not prove live gameplay or source freshness.
 
 `--save-crops` alone cannot supply the missing evidence: `analyze` saves EXP/level
 crops only **after** unique localization. Missing-HUD attempts return before that.
@@ -80,7 +80,7 @@ unrecognized HP/MP/EXP, different spacing/scale, a scene change, or another layo
 Keep all material under ignored `private/obscured-hud/` in this feature worktree;
 use new filenames. Do not attach credentials, signed playback URLs, or databases.
 
-- Save 3-5 native full-frame PNGs of Tricia's normal scene with the webcam in its
+- Save 3-5 native full-frame PNGs of CharC's normal scene with the webcam in its
   usual position and visibly changing EXP. Preserve the delivered 1920x1080
   geometry, overlays and all possible secondary HUDs. A tight EXP crop alone
   cannot establish anchor geometry or uniqueness.
@@ -104,10 +104,10 @@ a known relevant offset (repeat for other offsets with new output filenames):
 
 ```powershell
 New-Item -ItemType Directory -Force private/obscured-hud | Out-Null
-ffmpeg -hide_banner -loglevel error -nostdin -n -ss 00:01:00 -i private/obscured-hud/authorized-recording.mp4 -frames:v 1 private/obscured-hud/tricia-0060.png
+ffmpeg -hide_banner -loglevel error -nostdin -n -ss 00:01:00 -i private/obscured-hud/authorized-recording.mp4 -frames:v 1 private/obscured-hud/streamer_c-0060.png
 ```
 
-This example was not run; no Tricia recording is available here. Do not start a
+This example was not run; no CharC recording is available here. Do not start a
 new remote trial without the existing capture authorization. No OBS credentials
 or browser security changes are needed for local recording extraction.
 
@@ -143,20 +143,20 @@ ambiguous EXP anchors, competing complete/obscured HUDs, false label groups,
 out-of-frame crops and stale frames. Exercise both strict pairs and whole
 percentage-only fields through capture/persistence into the existing inference
 system with level readers unavailable. Synthetic geometry tests establish these
-contracts; independently labeled Tricia frames must establish actual recovery.
+contracts; independently labeled CharC frames must establish actual recovery.
 
 No locator change or new regression suite was added without the missing image
 evidence.
 
 ## Verification
 
-- Actual evidence: inspected the saved attempt metadata above; no Tricia image
+- Actual evidence: inspected the saved attempt metadata above; no CharC image
   localization/EXP accuracy test was possible and no new remote capture was run.
 - Existing synthetic focused tests: **108 passed**, zero skipped, covering
   adaptive HUD geometry, shadow capture, EXP-derived levels and their public
   projection. Missing LV is explicitly rejected by the current locator tests;
   missing level OCR is already tolerated after localization. These passing tests
-  do not establish recovery on Tricia's layout.
+  do not establish recovery on CharC's layout.
 - Full `python -m pytest -q -rs --basetemp=artifacts/pytest-obscured-hud`:
   **1,561 passed, 101 skipped** in 88.61 seconds. Separately: **100 private-fixture
   skips**, **1 loopback-policy skip**. This feature checkout has no private fixtures;
@@ -167,7 +167,7 @@ evidence.
 At the original investigation milestone only this document changed. No production
 code, tests, trusted accounting, live database, main-worktree files or performance
 work was changed. No commit or push was made. Suggested commit at that point:
-`docs: investigate Tricia HUD localization failures`.
+`docs: investigate CharC HUD localization failures`.
 
 ## Opt-in full-frame collector
 
@@ -182,8 +182,8 @@ From this feature worktree, using the existing sibling capture environment:
 Set-Location H:\Desktop\codex\msclassic-level-inference
 # Run only after confirming streamer permission for this specific Twitch trial.
 # The timestamp makes a new directory; existing output is always refused.
-$hudCollection = 'private/obscured-hud/tricia-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
-& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe tools/collect_hud_frames.py --channel TriciaIsABirdy --authorized --quality best --count 3 --interval 5 --timeout 10 --output $hudCollection
+$hudCollection = 'private/obscured-hud/streamer_c-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe tools/collect_hud_frames.py --channel Streamer_C --authorized --quality best --count 3 --interval 5 --timeout 10 --output $hudCollection
 ```
 
 `--authorized` is an explicit operator assertion of permission for **this** trial,
@@ -275,8 +275,8 @@ Collector validation on this Windows feature worktree:
 - Final full `python -m pytest`: **1,600 passed, 102 skipped** in 100.22 seconds.
   Separately: **100 private-fixture skips**, **1 loopback-policy skip** and
   **1 symlink-permission skip**. CLI help and whitespace checks passed.
-- No real Tricia frame, remote Twitch trial or CPU/RSS/bandwidth benchmark was
-  performed. These tests validate collection behavior, not Tricia localization.
+- No real CharC frame, remote Twitch trial or CPU/RSS/bandwidth benchmark was
+  performed. These tests validate collection behavior, not CharC localization.
 
 Changed files: `tools/collect_hud_frames.py`, `tests/test_collect_hud_frames.py`
 and this guide. Coordinator, locator, OCR, SQLite and tracking policies are
@@ -285,7 +285,7 @@ unchanged. No commit or push was made. Suggested commit:
 
 ## Real-frame diagnosis and EXP-only recovery
 
-Source: `private/obscured-hud/tricia-20261019-015257/`, five native 1920x1080
+Source: `private/obscured-hud/streamer_c-20261019-015257/`, five native 1920x1080
 PNGs received on 2026-10-19 at 05:53:05.699 through 05:53:23.886 UTC. All five
 manifest hashes/dimensions were verified. The five PNGs and manifest remain
 byte-identical. No Twitch connection or existing database/archive was used.
@@ -414,7 +414,7 @@ competing complete/partial HUDs across scales, invalid bounds and stale work.
 - Final full Python suite: **1,623 passed, 102 skipped**, 104.72 seconds.
   Skips: **100 unavailable private fixtures**, **1 loopback policy** and
   **1 Windows symlink permission**. Available sibling reference screenshots and
-  the new Tricia images were evaluated explicitly offline as described above.
+  the new CharC images were evaluated explicitly offline as described above.
 - Relevant `product.test.mjs` / `shadow.test.mjs`: **59 passed**, zero skipped.
   Existing HTTP/public-provenance tests passed in Python; no frontend change was
   needed.
@@ -434,7 +434,7 @@ accuracy or correctness of the provisional EXP table. Frame 4's punctuation
 failure remains. No new remote capture was started here and no active coordinator
 was restarted or modified.
 
-Private evidence is in `private/obscured-hud/tricia-analysis-01/`: original locator
+Private evidence is in `private/obscured-hud/streamer_c-analysis-01/`: original locator
 snapshot, input hashes, `before.json` / `after.json` (all sparse tokens, boxes,
 scores and candidates), `geometry-audit.json`, `visual-review.json`, manual/after
 EXP crops, `controls.json`, `control-ocr.json` and `public-projection.json` plus the
@@ -463,7 +463,7 @@ Verified environments (read-only checks plus an actual offline EXP worker call):
   Python 3.14.7, Streamlink 8.6.2, Pillow 12.3.0, pytesseract 0.3.13, psutil 7.2.2.
 - OCR Python: `H:\Desktop\codex\msclassic-twitch-exp-tracker\private\rapidocr\.venv\Scripts\python.exe`;
   RapidOCR 3.10.0, ONNX Runtime 1.31.0. Existing models loaded successfully with
-  worker downloads disabled. The saved first Tricia EXP crop again returned
+  worker downloads disabled. The saved first CharC EXP crop again returned
   `45,257[11.57%]`, with neural level `missing_crop`.
 - Tesseract: `C:\Program Files\Tesseract-OCR\tesseract.exe`.
   FFmpeg: `C:\Shortcuts\exe\ffmpeg.EXE`.
@@ -478,9 +478,9 @@ Run **only after confirming permission for this specific Twitch trial**:
 Set-Location 'H:\Desktop\codex\msclassic-level-inference'
 $capturePython = 'H:\Desktop\codex\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe'
 $ocrPython = 'H:\Desktop\codex\msclassic-twitch-exp-tracker\private\rapidocr\.venv\Scripts\python.exe'
-$trial = Join-Path (Get-Location) ('private\obscured-hud\tricia-validation-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$trial = Join-Path (Get-Location) ('private\obscured-hud\streamer_c-validation-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 Write-Host "Private trial: $trial"
-& $capturePython tools/shadow_capture.py --channel triciaisabirdy --authorized `
+& $capturePython tools/shadow_capture.py --channel streamer_c --authorized `
   --quality best --count 24 --interval 20 --timeout 15 --max-age 15 --ocr-timeout 10 `
   --experimental-neural-level --save-crops --ocr-python $ocrPython `
   --output (Join-Path $trial 'capture.jsonl')
@@ -510,16 +510,16 @@ if ((Test-Path $reviewConfig) -or (Test-Path $reviewDb)) { throw 'Use new review
 @{
   database = $reviewDb
   port = 8787
-  streams = @(@{ channel = 'triciaisabirdy'; character = 'Isolated validation'; source = 'twitch' })
+  streams = @(@{ channel = 'streamer_c'; character = 'Isolated validation'; source = 'twitch' })
 } | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $reviewConfig
 & $capturePython tools/multi_alpha.py --config $reviewConfig `
-  --replay ('triciaisabirdy=' + (Join-Path $trial 'capture.jsonl'))
+  --replay ('streamer_c=' + (Join-Path $trial 'capture.jsonl'))
 ```
 
 `--replay` bypasses acquisition; no `--twitch-status` is enabled. This is a new
 offline viewer process on port 8787, not the active coordinator. Use another free
-port if necessary. Open `http://127.0.0.1:8787/stream/triciaisabirdy` and
-`http://127.0.0.1:8787/dashboard/triciaisabirdy`. Ctrl+C closes the review viewer.
+port if necessary. Open `http://127.0.0.1:8787/stream/streamer_c` and
+`http://127.0.0.1:8787/dashboard/streamer_c`. Ctrl+C closes the review viewer.
 The original JSONL/timestamps remain unchanged. A normal or Ctrl+C summary is
 needed for replay of this no-DB log; preserve/review incomplete logs after a hard
 termination rather than inventing a completion.
@@ -562,13 +562,13 @@ one symlink permission), plus **59 frontend tests passed**. No production code
 changed during wrap-up, so that full run was not repeated. No remote trial,
 active database write, coordinator restart, merge or push was performed.
 
-## Telfer duplicate level interpretations (2026-10-19)
+## CharA duplicate level interpretations (2026-10-19)
 
 This follow-up supersedes the earlier requirement that disputed level crops make
 the entire EXP HUD ambiguous. Conflicting EXP geometry still rejects field OCR.
 
-Only the three requested Telfer JSONL files were frozen and replayed, under ignored
-`private/telfer-hud-dedup-20261019/`. The latest log had grown from the reported 36
+Only the three requested CharA JSONL files were frozen and replayed, under ignored
+`private/streamer_a-hud-dedup-20261019/`. The latest log had grown from the reported 36
 attempts to 49 at snapshot time; both the original first 36 and all 49 were checked.
 Original logs/crops were read-only. The two earlier input hashes remain identical;
 the latest original continued appending and retains the exact frozen byte prefix.
@@ -617,9 +617,9 @@ Paths below are relative to `private/multi-alpha/runs/`:
 
 | Recording | Attempts | Unique before -> after | Multiple before -> after | New EXP OCR opportunities |
 | --- | ---: | ---: | ---: | ---: |
-| `20261019T092547Z-0e1bd0f9/telfer1/capture.jsonl` | 60 | 43 -> 54 | 17 -> 6 | 11 |
+| `20261019T092547Z-0e1bd0f9/streamer_a/capture.jsonl` | 60 | 43 -> 54 | 17 -> 6 | 11 |
 | Same folder, `b84401fd96444d2582dc724ee8310584/capture.jsonl` | 11 | 9 -> 11 | 2 -> 0 | 2 |
-| `20261019T095936Z-ef8a3750/telfer1/capture.jsonl` (frozen snapshot) | 49 | 35 -> 48 | 14 -> 1 | 13 |
+| `20261019T095936Z-ef8a3750/streamer_a/capture.jsonl` (frozen snapshot) | 49 | 35 -> 48 | 14 -> 1 | 13 |
 | Latest recording, reported first 36 only | 36 | 23 -> 35 | 13 -> 1 | 12 |
 
 Across the non-overlapping 120 attempts, 26 of 33 multiple-HUD failures collapse
@@ -663,7 +663,7 @@ by this acquisition-only fix.
 
 ### Verification and limits
 
-New regressions use the actual Telfer anchor coordinates, optional private-log
+New regressions use the actual CharA anchor coordinates, optional private-log
 replays and synthetic distinct HUDs/conflicting EXP regions. They cover ordinary
 full layouts, level ambiguity in either order, sticky ambiguity, non-mutating
 merges, EXP/MP/step conflicts, near-duplicate chains, joint cross-scale uniqueness,

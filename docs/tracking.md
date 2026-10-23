@@ -122,14 +122,14 @@ The demo never deletes existing history.
 Create a separate real local tracking database:
 
 ```powershell
-.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel telfer1 init
-.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel telfer1 character "Main character"
+.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel streamer_a init
+.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel streamer_a character "Main character"
 # Use the character_id returned above, not an assumed ID in an existing database.
-.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel telfer1 select 1
-.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel telfer1 start
-.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel telfer1 state
+.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel streamer_a select 1
+.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel streamer_a start
+.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel streamer_a state
 # End explicitly; restarting a worker alone leaves the session open.
-.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel telfer1 end
+.\.venv\Scripts\python -m exp_tracker.tracking --db data/tracker.sqlite3 --channel streamer_a end
 ```
 
 On Linux use `.venv/bin/python`. Linux execution has not been checked here.
@@ -139,7 +139,7 @@ one. Selection alone does not start tracking or infer identity from the HUD.
 The optional capture integration adds `--database data/tracker.sqlite3` to the
 existing capture command, with a calibrated `--glyph-profile`. It requires a
 previously selected character/open session and restores those on restart. For
-file/HLS inputs, supply `--tracking-channel telfer1`; Twitch defaults to `--channel`.
+file/HLS inputs, supply `--tracking-channel streamer_a`; Twitch defaults to `--channel`.
 `--character` belongs to the old in-memory mode; database mode uses its persisted
 selection. Each printed record includes its stable `event_id`, bound session and
 `tracking` outcome. Trust `tracking.outcome`, not raw recognition status. On a
@@ -150,9 +150,9 @@ Programmatic producer entry point:
 
 ```python
 with Store("data/tracker.sqlite3") as store:
-    snapshot = store.state("telfer1")
+    snapshot = store.state("streamer_a")
     session_id = snapshot["session"]["id"]  # bind before capture/OCR
-    attempt = store.ingest("telfer1", stable_event_id, aware_receipt_time,
+    attempt = store.ingest("streamer_a", stable_event_id, aware_receipt_time,
                            ocr_result, profile=loaded_profile,
                            session_id=session_id, source="twitch")
 ```

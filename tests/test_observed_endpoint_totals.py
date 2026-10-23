@@ -181,10 +181,10 @@ def test_public_gain_and_pace_share_selected_character_segments(tracking,switch_
 def test_saved_windows_and_public_api_share_numeric_totals(tracking,monkeypatch,as_of,folders,expected,strict_expected,first_exp,last_exp):
     import exp_tracker.server as server_module
     from tests.test_server import request
-    path,store,_=tracking;now=datetime.fromisoformat(as_of);d,_=replay(store,'telfer1',folders,as_of=now)
+    path,store,_=tracking;now=datetime.fromisoformat(as_of);d,_=replay(store,'streamer_a',folders,as_of=now)
     raw=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
-    recent=d.recent_snapshot('telfer1',now=now);rolling=d.rolling_history('telfer1',now=now)
-    p=tracked_statistics(player(d.snapshot('telfer1',now=now),now=now,recent_snapshot=recent),rolling,now=now)
+    recent=d.recent_snapshot('streamer_a',now=now);rolling=d.rolling_history('streamer_a',now=now)
+    p=tracked_statistics(player(d.snapshot('streamer_a',now=now),now=now,recent_snapshot=recent),rolling,now=now)
     cutoff=now-timedelta(minutes=5)
     strict=[exp_interval(e) for e in collect(recent,now=now,read=reading,max_interval_seconds=300)['intervals']]
     assert tracked_window(strict,start=cutoff,end=now)['gain']['approximate']==strict_expected
@@ -205,11 +205,11 @@ def test_saved_windows_and_public_api_share_numeric_totals(tracking,monkeypatch,
     monkeypatch.setattr(server_module,'datetime',Clock)
     with server_module.create_server(path,port=0,diagnostic_dashboard=True,background=True) as server:
         server.publisher.settle()
-        card=json.loads(request((server,None),'/api/players/telfer1')[2])['player']
+        card=json.loads(request((server,None),'/api/players/streamer_a')[2])['player']
         home=json.loads(request((server,None),'/api/players')[2])['players']
-        chart=json.loads(request((server,None),'/api/players/telfer1/history')[2])
+        chart=json.loads(request((server,None),'/api/players/streamer_a/history')[2])
         assert card['recent_windows']['5']['gain']['approximate']==expected
-        assert next(p for p in home if p['channel']=='telfer1')['recent_windows']['5']['gain']['approximate']==expected
+        assert next(p for p in home if p['channel']=='streamer_a')['recent_windows']['5']['gain']['approximate']==expected
         assert chart['windows']['5']['gain']['approximate']==expected
     assert raw==[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     assert not store.db.execute('select 1 from observations').fetchone()

@@ -16,6 +16,7 @@ from tests.test_endpoint_pace import point,snapshot,missing
 from tests.test_product import tracking,NOW
 from tests.test_diagnostics import attempt
 from tests.test_diagnostic_history import config
+from private_data import recorded
 
 
 def false_pair():
@@ -26,7 +27,7 @@ def false_pair():
     return rows
 
 
-def test_telfer_wrong_pair_is_vetoed_before_percentage_baseline_and_public_history():
+def test_streamer_a_wrong_pair_is_vetoed_before_percentage_baseline_and_public_history():
     rows=false_pair();before=deepcopy(rows);snap=snapshot(rows,45)
     bad=snap['observations'][-1]
     assert bad['exp_validity']['whole_pair_rejected']
@@ -257,27 +258,27 @@ def test_recent_window_replays_old_rotation_quarantine_before_retaining_one_hour
     assert result['gain']['approximate']==(7520*1497832//10000)-(7510*1497832//10000)
 
 
-@pytest.mark.parametrize('channel',['telfer1','shiphtur'])
+@pytest.mark.parametrize('channel',['streamer_a','streamer_b'])
 def test_saved_live_failure_checkpoints_are_causal_read_only_regressions(tmp_path,channel):
-    source=(Path('private/test-fixtures/runs/20261018T185429Z-fdb644c0/telfer1/096543bcaabb45f18f07f30eebc4111e/capture.jsonl')
-        if channel=='telfer1' else Path('private/test-fixtures/runs/20261018T195958Z-eee70469/shiphtur/capture.jsonl'))
+    source=recorded('private/test-fixtures/runs/20261018T185429Z-fdb644c0/streamer_a/096543bcaabb45f18f07f30eebc4111e/capture.jsonl'
+        if channel=='streamer_a' else 'private/test-fixtures/runs/20261018T195958Z-eee70469/streamer_b/capture.jsonl')
     if not source.exists():pytest.skip('Private live-capture fixture unavailable')
     db=tmp_path/'saved.sqlite3'
     with Store(db) as s:
         s.add_channel(channel);c=s.add_character(channel,'Saved review');s.select_character(channel,c);s.start_session(channel,at=NOW)
         d=Diagnostics(s)
-        if channel=='telfer1':d.replay(channel,source.parent.parent/'capture.jsonl')
+        if channel=='streamer_a':d.replay(channel,source.parent.parent/'capture.jsonl')
         d.replay(channel,source)
     with Store(db,read_only=True) as s:
         d=Diagnostics(s);raw=d.snapshot(channel,limit=640)['observations']
         run=json.loads(source.read_text().splitlines()[0])['run_id']
         raw=[dict(r,run_interrupted=False) for r in raw if r['run_id']==run]
-        stop=24 if channel=='telfer1' else 42
+        stop=24 if channel=='streamer_a' else 42
         raw=raw[:stop];end=datetime.fromisoformat(raw[-1]['received_at'])
         from exp_tracker.diagnostic_progress import progress
         rows=project(raw);data=progress(rows,now=end,stale_after_seconds=60,current_run_id=run)
         for r,decision in zip(rows,data['percentage_reviews']):r['percentage_review']=decision
-        if channel=='telfer1':
+        if channel=='streamer_a':
             assert rows[20]['exp_validity']['whole_pair_rejected']
             assert reading(rows[20]) is None and reading(rows[21])['percentage']=='37.69'
             assert all(rows[i]['percentage_review']['progress_eligible'] for i in (17,18,19,21,22,23))

@@ -18,6 +18,7 @@ from exp_tracker.models import Reading, Recognition
 from exp_tracker.schema import STATEMENTS, VERSION
 from exp_tracker.store import Store
 from tools.demo_tracking import main as demo
+from private_data import private_name
 
 
 @pytest.fixture
@@ -543,10 +544,10 @@ def test_existing_real_ocr_replay_database_can_feed_overlay(tmp_path):
         pass
     path = working
     with server.create_server(path, port=0) as httpd:
-        status, _, body = request((httpd, None), "/api/streams/telfer1/state")
+        status, _, body = request((httpd, None), f"/api/streams/{private_name('streamer_a')}/state")
     assert status == 200
     result = json.loads(body)
-    assert result["channel"] == "telfer1"
+    assert result["channel"] == private_name("streamer_a")
     assert result["last_trusted"]["level"] == 60
     assert result["last_trusted"]["current_exp"] == 879217
     assert result["last_trusted"]["percentage_bp"] == 7266

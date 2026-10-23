@@ -81,7 +81,7 @@ Source completeness is otherwise unknown. Text cannot detect all clipping or
 distinguish an actual numeral 1/pipe from a misrecognized bracket. Missing boundary
 cases remain unavailable rather than being reconstructed from neighbors.
 
-## Saved Telfer1 replay: every attempt retained
+## Saved Streamer_A replay: every attempt retained
 
 James captured 30 attempts seven seconds apart. Native crop review/labels are
 Codex-assisted provisional evidence after OCR exposure, not blinded accuracy;
@@ -187,17 +187,17 @@ EXP/hour, ETA, ranks and automatic level-ups remain unavailable for these diagno
 
 ```powershell
 # View the EXISTING saved live database. HTTP does not start capture.
-.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/telfer1.sqlite3 --diagnostic-dashboard --port 8766
+.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/streamer_a.sqlite3 --diagnostic-dashboard --port 8766
 # Another terminal:
-Start-Process 'http://127.0.0.1:8766/dashboard/telfer1'
+Start-Process 'http://127.0.0.1:8766/dashboard/streamer_a'
 # Enable the optional recovered chart layer to inspect proposals.
 
 # Reproduce the offline evaluation; always use a NEW output directory.
-.\.venv\Scripts\python tools/evaluate_extended_grammar.py --log private/local-alpha/runs/telfer1-20261017T073930Z-986495bd/capture.jsonl --reviews private/live-grammar-review-01/visual-review.json --reported-level 64 --output private/extended-coverage-repeat-01
+.\.venv\Scripts\python tools/evaluate_extended_grammar.py --log private/local-alpha/runs/streamer_a-20261017T073930Z-986495bd/capture.jsonl --reviews private/live-grammar-review-01/visual-review.json --reported-level 64 --output private/extended-coverage-repeat-01
 .\.venv\Scripts\python -m pytest tests/test_extended_diagnostics.py tests/test_shadow_grammar.py tests/test_diagnostics.py tests/test_shadow_capture.py tests/test_server.py -q
 .\.venv\Scripts\python -m pytest -q
 node --test tools/shadow.test.mjs tools/overlay.test.mjs tools/leaderboard.test.mjs
-node tools/shadow.browser.mjs http://127.0.0.1:8766/dashboard/telfer1 private/extended-browser-repeat-01
+node tools/shadow.browser.mjs http://127.0.0.1:8766/dashboard/streamer_a private/extended-browser-repeat-01
 ```
 
 Private evidence: `private/extended-coverage-02/report.json` and

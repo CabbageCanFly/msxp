@@ -80,7 +80,7 @@ Same-level eligible segment lengths change from `3,3,3,1,1,4` to `3,2,3,1,1,4`.
 Neither policy produces an eligible five-minute window. The shorter segment excludes
 the false rebound; coverage has **not** improved artificially. Most later percentages
 still lack qualifying level context, so display recovery is not pace recovery.
-Shiphtur: **41/41** public readings retained, same 40-point eligible segment after
+CharB: **41/41** public readings retained, same 40-point eligible segment after
 the level-confirmation baseline, zero new quarantine or geometry changes.
 
 ## Narrow crop correction
@@ -123,10 +123,10 @@ data. No new Twitch connection, model training, threshold search or OCR inferenc
 ```powershell
 .\.venv\Scripts\python -m exp_tracker.server --db private/percentage-quarantine/saved-review-final.sqlite3 --diagnostic-dashboard
 # In another terminal:
-Start-Process 'http://127.0.0.1:8765/stream/telfer1'
-Start-Process 'http://127.0.0.1:8765/dashboard/telfer1'
+Start-Process 'http://127.0.0.1:8765/stream/streamer_a'
+Start-Process 'http://127.0.0.1:8765/dashboard/streamer_a'
 # Self-contained SQLite/browser regression: use NEW output directory and free port.
-node tools/product.browser.mjs http://127.0.0.1:8787 private/percentage-quarantine/browser-new --verify-quarantine telfer1
+node tools/product.browser.mjs http://127.0.0.1:8787 private/percentage-quarantine/browser-new --verify-quarantine streamer_a
 .\.venv\Scripts\python -m pytest tests/test_percentage_quarantine.py tests/test_adaptive_hud.py -q
 node --test tools/*.test.mjs
 .\.venv\Scripts\python -m pytest -q

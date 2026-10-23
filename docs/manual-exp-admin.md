@@ -196,10 +196,10 @@ or its Advanced ISO input, with a separate current-time choice.
 
 ```powershell
 $db = 'private/offline-test/tracker.sqlite3'
-python -m exp_tracker.manual_admin --db $db --channel telfer1 inspect
-python -m exp_tracker.manual_admin --db $db --channel telfer1 inspect --character 'Tricia' --session 7
-python -m exp_tracker.manual_admin --db $db --channel telfer1 history
-python -m exp_tracker.manual_admin --db $db --channel telfer1 history --correction-id 12
+python -m exp_tracker.manual_admin --db $db --channel streamer_a inspect
+python -m exp_tracker.manual_admin --db $db --channel streamer_a inspect --character 'CharC' --session 7
+python -m exp_tracker.manual_admin --db $db --channel streamer_a history
+python -m exp_tracker.manual_admin --db $db --channel streamer_a history --correction-id 12
 ```
 
 `inspect` returns character IDs/names, session choices, exact UTC reading timestamps
@@ -222,8 +222,8 @@ Older characters and closed sessions are supported without changing live selecti
 
 ```powershell
 # Preview the complete write on a disposable snapshot; source SQLite is not migrated.
-python -m exp_tracker.manual_admin --db $db --channel telfer1 set --character 'Tricia' --level 42 --percentage 99.40 --now --dry-run
-python -m exp_tracker.manual_admin --db $db --channel telfer1 set --character 'Tricia' --level 42 --percentage 99.40 --now --reason 'Known starting level'
+python -m exp_tracker.manual_admin --db $db --channel streamer_a set --character 'CharC' --level 42 --percentage 99.40 --now --dry-run
+python -m exp_tracker.manual_admin --db $db --channel streamer_a set --character 'CharC' --level 42 --percentage 99.40 --now --reason 'Known starting level'
 ```
 
 `correct` changes one historical point's **presentation**, retaining the original
@@ -234,7 +234,7 @@ matching source reading is rejected; specify its identity. Use the timestamp fro
 
 ```powershell
 # Replace RUN_UUID:2 and the timestamp with the values printed by inspect.
-python -m exp_tracker.manual_admin --db $db --channel telfer1 correct --character 'Tricia' --session 7 --reading 'RUN_UUID:2' --level 49 --exp 12345 --percentage 2.10 --effective-at '2026-10-19T15:20:30.123456Z' --reason 'Level was 49, not 50'
+python -m exp_tracker.manual_admin --db $db --channel streamer_a correct --character 'CharC' --session 7 --reading 'RUN_UUID:2' --level 49 --exp 12345 --percentage 2.10 --effective-at '2026-10-19T15:20:30.123456Z' --reason 'Level was 49, not 50'
 # Alternatively use --observation-id 123 for a trusted SQLite OCR observation.
 ```
 
@@ -254,9 +254,9 @@ and reason. It can move a correction to another time, session or character in th
 same channel. Point amendments identify the replacement point at that time.
 
 ```powershell
-python -m exp_tracker.manual_admin --db $db --channel telfer1 amend --correction-id 12 --character 'Tricia' --session 7 --level 49 --exp 12345 --effective-at '2026-10-19T15:20:00Z' --reason 'Correct earlier level/time' --dry-run
-python -m exp_tracker.manual_admin --db $db --channel telfer1 undo --correction-id 13 --reason 'Entry was applied to the wrong character'
-python -m exp_tracker.manual_admin --db $db --channel telfer1 clear --character 'Tricia' --now --reason 'Stop supplying manual context'
+python -m exp_tracker.manual_admin --db $db --channel streamer_a amend --correction-id 12 --character 'CharC' --session 7 --level 49 --exp 12345 --effective-at '2026-10-19T15:20:00Z' --reason 'Correct earlier level/time' --dry-run
+python -m exp_tracker.manual_admin --db $db --channel streamer_a undo --correction-id 13 --reason 'Entry was applied to the wrong character'
+python -m exp_tracker.manual_admin --db $db --channel streamer_a clear --character 'CharC' --now --reason 'Stop supplying manual context'
 ```
 
 `undo` retracts an active revision and its superseded lineage; it does not revive an
@@ -318,8 +318,8 @@ older processes can reject the new schema. No active installation is upgraded he
 ## Rename a character without changing its identity
 
 ```powershell
-python -m exp_tracker.manual_admin --db $db --channel telfer1 rename --character-id 7 --new-name 'Tricia' --reason 'Replace Main placeholder' --dry-run
-python -m exp_tracker.manual_admin --db $db --channel telfer1 rename --character-id 7 --new-name 'Tricia' --reason 'Replace Main placeholder'
+python -m exp_tracker.manual_admin --db $db --channel streamer_a rename --character-id 7 --new-name 'CharC' --reason 'Replace Main placeholder' --dry-run
+python -m exp_tracker.manual_admin --db $db --channel streamer_a rename --character-id 7 --new-name 'CharC' --reason 'Replace Main placeholder'
 ```
 
 Rename updates the existing label, audits old/new names and invalidates publication.
@@ -333,7 +333,7 @@ character. For a configured assignment, perform this workflow at a controlled pa
 1. Stop your coordinator normally in its own terminal when you choose; this CLI
    never stops/restarts it or edits its configuration.
 2. Preview/apply the database rename. In the matching private roster JSON, change
-   only that channel's `character` string from `Main` to `Tricia`, retaining its
+   only that channel's `character` string from `Main` to `CharC`, retaining its
    source, authorization, enabled flag and other settings. Do not add a character
    or remove/re-add the roster assignment. The two files are not one atomic transaction.
 3. Run `python tools/stream_roster.py --config YOUR_ROSTER.json list`, then your

@@ -71,11 +71,11 @@ fixing the cause. Review incomplete trailing lines rather than inventing events.
 Otherwise preserve the interrupted evidence and restart with a new run identity.
 No automatic crash repair, retry storm or historical retiming is performed.
 
-For saved evidence, prepare a separate private configuration with `telfer1` and
-`niru`, explicit matching character labels and a **new** shared DB, then:
+For saved evidence, prepare a separate private configuration with `streamer_a` and
+`streamer_e`, explicit matching character labels and a **new** shared DB, then:
 
 ```powershell
-.\.venv\Scripts\python tools/multi_alpha.py --config private/multi-alpha/replay-config.json --replay 'telfer1=private/local-alpha/runs/telfer1-20261017T073930Z-986495bd/capture.jsonl' --replay 'niru=private/shadow-neural-level/replay-02/viewer-stream-b.jsonl'
+.\.venv\Scripts\python tools/multi_alpha.py --config private/multi-alpha/replay-config.json --replay 'streamer_a=private/local-alpha/runs/streamer_a-20261017T073930Z-986495bd/capture.jsonl' --replay 'streamer_e=private/shadow-neural-level/replay-02/viewer-stream-b.jsonl'
 ```
 
 Exactly one log per enabled configured channel is required. Replay does not connect or
@@ -176,7 +176,7 @@ These workstation measurements do not validate a 1-vCPU/1-GB VPS. Two channels
 use much of a 15s sequential budget; five may require slower capture.
 
 The fresh three-reading segment spans **29.999820s**, so correctly lacks pace.
-Saved Telfer1 history contains one qualifying **seven-reading / 41.947711s /
+Saved Streamer_A history contains one qualifying **seven-reading / 41.947711s /
 +0.17 percentage-point** segment (two strict and five recovered). Its final two
 readings lack sufficient history and current values are stale. Source B's missing
 visual levels prevent eligible segments; neural levels do not fill them.
@@ -217,7 +217,7 @@ No new Twitch connection, commit, push or deployment occurred.
 node --test tools/overlay.test.mjs tools/shadow.test.mjs tools/streams.test.mjs tools/leaderboard.test.mjs
 # With the validation replay server running on port 8765; use new private output directories:
 node tools/shadow.browser.mjs http://127.0.0.1:8765/dev/streams private/multi-alpha/browser-directory
-node tools/shadow.browser.mjs http://127.0.0.1:8765/dashboard/telfer1 private/multi-alpha/browser-dashboard
+node tools/shadow.browser.mjs http://127.0.0.1:8765/dashboard/streamer_a private/multi-alpha/browser-dashboard
 ```
 
 Exact public changed-file scope:

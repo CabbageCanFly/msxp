@@ -201,7 +201,7 @@ Output: one JSON line per batch (`runs`, `attempts`, `compute_s`, `lock_ms`, `st
 # One pass, SQLite and owned log files:
 .venv/bin/python -m exp_tracker.retention --db private/vps/tracker.sqlite3 --apply --log-root private/multi-alpha/runs
 # Windows: repeat hourly in a separate terminal (Ctrl+C stops between statements):
-.\.venv\Scripts\python -m exp_tracker.retention --db private\multi-alpha\live-telfer-shiphtur.sqlite3 --apply --log-root private\multi-alpha\runs --every-minutes 60
+.\.venv\Scripts\python -m exp_tracker.retention --db private\multi-alpha\live-local.sqlite3 --apply --log-root private\multi-alpha\runs --every-minutes 60
 ```
 
 On the VPS: `deploy/msxp-retention.service` (oneshot, low CPU/IO priority) and

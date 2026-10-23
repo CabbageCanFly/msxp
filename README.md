@@ -1,211 +1,137 @@
-# MapleStory Classic EXP tracker
+# MSXP: MapleStory Classic EXP tracker
 
-Independent, free, MIT-licensed feasibility prototype: local OCR, Streamlink/FFmpeg
-acquisition, SQLite tracking, a read-only player website and a localhost OBS overlay.
-It is not a hosted service. Offline tests need no accounts, cloud resources or secrets.
+MSXP watches MapleStory Classic streams on Twitch, reads the EXP bar straight from the video,
+and turns it into a live leaderboard: EXP per hour, time to the next level, 24-hour history
+and a stream overlay for OBS. It is free, open source (MIT) and runs on your own computer
+or a small server. **See it live: [msxp.pages.dev](https://msxp.pages.dev)**
 
-## Setup
+Nobody installs anything on the streamer's side: MSXP only watches the public stream.
+Please only track streamers who said yes.
 
-Python 3.11+ and Tesseract 5 with English language data are required on the
-development machine or OCR server. Streamers never install Python or Tesseract.
+---
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -e ".[dev]"
-New-Item -ItemType Directory -Force artifacts | Out-Null
-winget install --id UB-Mannheim.TesseractOCR -e
-# If the executable is not on PATH:
-$env:TESSERACT_CMD = 'C:\Program Files\Tesseract-OCR\tesseract.exe'
-.\.venv\Scripts\python -m pytest --basetemp=artifacts/pytest-tmp
-```
+## Try it in 5 minutes
 
-On Debian/Ubuntu:
+You need **[Python 3.11 or newer](https://www.python.org/downloads/)** (on Windows, tick
+"Add python.exe to PATH" in the installer) and **[Git](https://git-scm.com/downloads)**.
 
 ```sh
-sudo apt-get install python3-venv tesseract-ocr tesseract-ocr-eng
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-mkdir -p artifacts
-.venv/bin/python -m pytest --basetemp=artifacts/pytest-tmp
+git clone https://github.com/CabbageCanFly/msxp.git
+cd msxp
 ```
 
-Live capture needs the optional dependencies: `pip install -e '.[capture]'`.
-For source-only execution after installing dependencies, set `$env:PYTHONPATH = 'src'`.
-
-### Tests
-
-- Private screenshots in `samples/` are excluded from Git (see [samples/README.md](samples/README.md)).
-  Sample tests skip when they are absent. A missing OCR engine is a failure when samples are present.
-- Optional video tests skip without FFmpeg or the capture dependencies. No test downloads data.
-- `--basetemp` keeps temporary files under ignored `artifacts/`; pytest clears it on the next run.
-- A public checkout needs no private profile, annotations or screenshots. The core subset
-  also needs no Tesseract executable:
-
-```powershell
-.\.venv\Scripts\python -m pytest -q -m "not ocr and not samples" --basetemp=artifacts/pytest-public
-.\.venv\Scripts\python tools/evaluate_samples.py
-# Optional, with Node.js 20+ (no npm packages needed):
-node --test tools/obs-client.test.mjs
-```
-
-Not verified: fresh dependency downloads and the Linux steps above (the original
-setup was checked on Windows with an existing local build backend).
-
-## Run it
-
-### Website and overlay
-
-For website styling on Windows, run `.\preview.cmd` from this worktree. It uses
-temporary fictional players, serves saved CSS/HTML/JS edits on browser refresh,
-and stops both local servers with Ctrl+C. See [background preview and tint controls](docs/website-background.md).
-
-Serve an existing database without starting capture ([product preview guide](docs/product-preview.md)):
-
-```powershell
-.\.venv\Scripts\python -m exp_tracker.server --db private/product-preview/preview-01/tracker.sqlite3 --diagnostic-dashboard
-Start-Process 'http://127.0.0.1:8765/'
-```
-
-| Path | What it shows |
+| Windows (PowerShell) | macOS / Linux |
 | --- | --- |
-| `/`, `/streams` | Progress leaderboard |
-| `/stream/CHANNEL` | Character page |
-| `/live/overlay/CHANNEL` | Experimental transparent **500 × 160** OBS overlay |
-| `/overlay/CHANNEL` | Original trusted overlay ([overlay guide](docs/overlay.md)) |
-| `/dev/streams`, `/dashboard/CHANNEL` | Advanced diagnostics |
-| `/demo/leaderboard` | Simulated leaderboard with fictional data |
+| `.\msxp install` | `./msxp install` |
+| `.\msxp demo` | `./msxp demo` |
 
-The read-only server supports schemas 3–10; writer initialization migrates to 10.
-HTTP never creates or migrates databases or writes tracking state.
+`install` sets everything up and tells you if anything is still missing. `demo` opens your
+browser on a leaderboard with made-up players. Press **Ctrl+C** in the terminal to stop it.
 
-### Synthetic demos
+> Below, commands are written as `msxp ...`. Type `.\msxp ...` on Windows or `./msxp ...` on
+> macOS/Linux, from the project folder.
 
-```powershell
-.\.venv\Scripts\python tools/demo_tracking.py artifacts/sqlite-demo.sqlite3
-.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/sqlite-demo.sqlite3 --channel demo state
-.\.venv\Scripts\python tools/demo_statistics.py artifacts/statistics-preview.sqlite3
-.\.venv\Scripts\python -m exp_tracker.server --db artifacts/sqlite-demo.sqlite3
-Start-Process 'http://127.0.0.1:8765/overlay/demo'
-```
+## Track real streams
 
-### Capture
+1. **Check your setup:** `msxp doctor`. Fix anything marked `[!!]`; it prints the exact command.
+   Capturing needs **Tesseract** and **FFmpeg** besides Python.
+2. **Create your tracker:** `msxp setup` (once).
+3. **Add a streamer:** `msxp admin` opens the admin page. Choose **Add streamer**, type their
+   Twitch name, tick **I have permission to capture this stream** and **Enable tracking**, then
+   **Confirm settings**.
+4. **Start tracking:** `msxp tracker`. Keep it running; your leaderboard is at
+   <http://127.0.0.1:8765/>. Characters are recognized from the name shown in game, and readings
+   appear while the streamer is live and playing MapleStory Classic.
+5. **Add the overlay to OBS:** open the streamer's page on your leaderboard, pick a style under
+   the overlay builder, click **Copy URL**, and follow **How do I add this to OBS?** right there.
 
-- [Multi-stream alpha](docs/multi-alpha.md): explicit assignments, sequential by default.
-  Opt-in `--workers 2..8` ([capture performance](docs/capture-performance.md)),
-  `--stagger-capture` and `--resident-tesseract` ([performance integration](docs/performance-integration.md)).
-  Start with the offline two-video example.
-- [Single-stream local alpha](docs/local-alpha.md): start with saved-log replay. For a
-  permitted live trial:
-  `python tools/local_alpha.py --channel CHANNEL --character "Main" --authorized --experimental-neural-level`
-- Neural and grammar candidates are experimental and never count toward trusted EXP totals.
-  With a profile, capture refuses to promote unverified Tesseract EXP fallbacks to trusted state.
-  Trusted game tracking requires your own calibrated v2 profile; none is bundled.
+Want the leaderboard to show who is live? Add free Twitch app keys to `.env` (next section).
 
-### Administration
+## Commands
 
-- [Manual admin](docs/manual-exp-admin.md): a loopback-only dashboard for baselines, fixes,
-  invalidation, undo and renames. Corrections never count as earned EXP, and time never
-  defaults silently. It does not start or restart capture.
-  `python -m exp_tracker.admin_server --db YOUR_DATABASE.sqlite3 --port 8766`
-- Rosters: [private roster CLI](docs/streamer-roster.md), [database-managed roster](docs/database-streamer-roster.md)
-  and [automatic adoption](docs/existing-tracker-auto-adoption.md) for existing databases.
-- Twitch status: put `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` in the ignored root `.env`
-  and pass `--twitch-status`. App tokens are managed automatically ([guide](docs/twitch-authentication.md)).
-  Twitch credentials stay on the developer/server machine, never in the website or an overlay URL.
+| Command | What it does |
+| --- | --- |
+| `msxp install` | Installs the Python packages and the OCR engine, then checks your setup |
+| `msxp doctor` | Shows what is installed, missing or misconfigured, with the fix (alias `diag`) |
+| `msxp demo` | The website with fictional players; nothing else needed |
+| `msxp setup` | Creates your tracker database |
+| `msxp admin` | Add streamers, confirm permission, start or pause tracking |
+| `msxp tracker` | Captures the streams and serves your leaderboard |
+| `msxp api` | Only the website, from an existing database, without capturing |
+| `msxp health` | Missed captures in the last hour, and why |
+| `msxp cleanup` | Keeps only the last 24 hours of raw readings (`--apply` to actually delete) |
+| `msxp test` | Runs the test suite |
+| `msxp where` | Where your settings, database, logs and backups are |
+| `msxp logs` | Shows the log (on a server: `tracker`, `api` or `cleanup`) |
+| `msxp server ...` | Runs any command on your server over SSH (see [Put it online](#put-it-online)) |
+| `msxp help` | This list, plus where your settings live |
 
-### Inspect a screenshot
+Every command prints the tool it runs underneath, and passes any extra options through
+(for example `msxp tracker --check` only checks, without capturing).
 
-```powershell
-.\.venv\Scripts\ms-exp.exe inspect samples/maplestory-classic-stream1.png --config configs/stream1.json --debug-dir artifacts/stream1
-# Automatic discovery currently returns correct but low-confidence candidates (exit 2):
-.\.venv\Scripts\python -m exp_tracker inspect samples/maplestory-classic-stream1.png
-```
+## Settings and secrets
 
-- The output is JSON: parsed values, raw OCR, confidence, ROI and reasons. Exit codes: 0 accepted,
-  2 uncertain/missing/invalid, 1 setup/input error.
-- `--debug-dir` is opt-in and writes only field crops. `--search x0,y0,x1,y1` restricts
-  discovery (fractions of the frame; default: lower 30%). Config ROIs use the same normalized
-  coordinates. Recalibrate when the layout changes.
-- This needs the in-game HP/MP/EXP HUD. It is a limited baseline, not universal HUD recognition.
-  Scores are Tesseract engine scores, not probabilities (default threshold 0.40). Live tracking
-  must apply the [capture trust gate](docs/ocr-consolidation.md). See [results](docs/results.md).
+Everything personal lives in **`.env`** in the project folder. `msxp install` creates it from
+[`.env.example`](.env.example). Git ignores it, so it is never committed.
 
-## Local data
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `MSXP_DATABASE` | `private/msxp/tracker.sqlite3` | Your tracker database |
+| `MSXP_PORT` | `8765` | Your leaderboard website |
+| `MSXP_ADMIN_PORT` | `8766` | The admin page (only reachable from your computer) |
+| `MSXP_WORKERS` | `2` | Streams captured at the same time |
+| `MSXP_SERVER` | none | Your server's SSH login, for `msxp server` (e.g. `root@203.0.113.7`) |
+| `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | none | Optional. Shows who is live. Create a free app at [dev.twitch.tv/console/apps](https://dev.twitch.tv/console/apps) |
 
-All of this is ignored by Git:
+Your data stays in the ignored `private/` folder. Keys never appear on the website or in overlay links.
 
-- `private/multi-alpha/`: the local tracker's database and capture logs. Tests never read
-  its `runs/`. Real-log replays use a frozen copy.
-- `private/rapidocr/`: the OCR environment. `private/manual-backups/`: backups.
-- Test fixtures: `private/test-fixtures/runs/` (a frozen ~43 MB copy of the capture logs, of which
-  replays use each channel's oldest 25), `private/ocr-evaluation/`, `adaptive-ocr/`,
-  `exp-digits/`, `level-digits/`, `numeric-classifier/`, `levelup-evaluation/`,
-  `samples/maplestory-classic-stream1.png` and `-stream2.png`, and in `artifacts/`:
-  `accounting-bridge.sqlite3`, `green-test-20261015-215403/` and its `.jsonl`,
-  `live-benchmark/` and `live-validation-20261015-203121/` (some manifests use relative paths).
+## Put it online
 
-Everything else under `private/`, `samples/` and `artifacts/` is experiment output and safe to archive.
+The live site runs the tracker on a small Ubuntu server, around the clock, and the website on
+Cloudflare Pages. To set one up, start with [`deploy/install-ubuntu.sh`](deploy/install-ubuntu.sh)
+and the [server guide](docs/vps-deployment.md). On the server, the project lives in `/opt/msxp/app`,
+runs as the `msxp` user, and keeps its settings in `/etc/msxp/` (msxp reads them there too).
 
-## Documentation
+**Manage it from your own computer.** Put your server's SSH login in your local `.env`
+(`MSXP_SERVER=root@203.0.113.7`), then:
 
-**Start here:** [design](docs/design.md), [acquisition](docs/acquisition.md),
-[results](docs/results.md), [player experience principles](docs/product-experience-principles.md),
-[agent setup](docs/agent-setup.md).
+| From your computer | What it does |
+| --- | --- |
+| `msxp server admin` | Opens the server's admin page in your browser through a private SSH tunnel; Ctrl+C closes it |
+| `msxp server logs` | Follows the server's logs (`msxp server logs api` for just the website) |
+| `msxp server health` | Missed captures on the server in the last hour |
+| `msxp server where` | Where everything lives on the server |
+| `msxp server doctor` | Checks the server's setup |
 
-**Capture and OCR**
-- [Live capture](docs/live-capture.md): Streamlink/FFmpeg remote acquisition (passed an authorized live trial).
-- [OCR consolidation](docs/ocr-consolidation.md), [OCR reliability](docs/ocr-reliability.md),
-  [OCR → SQLite verification](docs/ocr-sqlite-verification.md): trust rules, measurements, profile setup.
-- [Shadow capture](docs/shadow-capture.md), [shadow viewer](docs/shadow-viewer.md),
-  [blinded review](docs/shadow-reliability-review.md): diagnostic only, never trusted state.
-- Experiments outside production: [adaptive HUD](docs/adaptive-ocr.md),
-  [character-name OCR](docs/character-name-ocr.md), [level digits](docs/level-digits.md),
-  [EXP digits](docs/exp-digits.md), [grayscale hybrid](docs/grayscale-ocr.md),
-  [cross-stream evaluation](docs/cross-stream-evaluation.md), [RapidOCR benchmark](docs/rapidocr-benchmark.md),
-  [level-up evaluation](docs/level-up-evaluation.md), [shadow findings](docs/test-shadow-diagnostic.md),
-  [extended diagnostics](docs/extended-diagnostics.md).
+The admin page is never exposed to the internet: it only listens on the server itself, and the
+tunnel brings it to your computer. **Updating the server** after you push changes:
+`ssh root@your-server "cd /opt/msxp/app && git pull --ff-only && systemctl restart msxp-api msxp-tracker"`.
+The [docs index](docs/README.md) lists the deeper server guides.
 
-**Tracking and accounting**
-- [Tracking engine](docs/tracking.md), [gap accounting](docs/accounting.md),
-  [endpoint pace](docs/endpoint-exp-pace.md), [rolling-window gaps](docs/rolling-window-gaps.md).
-- Validity: [EXP validity and level policy](docs/exp-validity-level-policy.md),
-  [percentage quarantine](docs/percentage-quarantine.md), [MVP level evidence](docs/mvp-level-evidence.md),
-  [Telfer level-up](docs/telfer-levelup-and-window-gaps.md).
-- History and ETA: [numerical windows](docs/numerical-windows-eta.md),
-  [cross-level history](docs/cross-level-history.md), [tracked-EXP consistency](docs/tracked-exp-consistency.md),
-  [gap and level resilience](docs/gap-level-resilience.md), [ETA and short gaps](docs/eta-and-short-gap-followup.md).
+## When something is off
 
-**Player UI**
-- [Statistics](docs/statistics.md), [recent windows](docs/recent-windows.md),
-  [observed windows](docs/observed-progress-windows.md), [live updates](docs/live-player-updates.md),
-  [live usability](docs/live-usability.md), [responsive experience](docs/responsive-player-experience.md),
-  [pace pooling](docs/responsive-pace-pooling.md), [companion statistics](docs/gaming-companion-statistics.md),
-  [rolling history](docs/rolling-exp-history.md), [completed captures](docs/historical-player-usability.md),
-  [HUD resilience and Twitch status](docs/hud-resilience-and-twitch-status.md),
-  [multi-character profiles](docs/multi-character-profiles.md), [demo leaderboard](docs/demo-leaderboard.md).
+- **`msxp` is not recognized:** run it from the project folder as `.\msxp` (Windows) or `./msxp`.
+- **Tesseract or FFmpeg not found right after installing:** open a new terminal so it sees them.
+- **"Port ... is in use":** it is probably already running. Or pick another port in `.env`.
+- **A streamer shows no EXP:** they must be live *in the MapleStory Classic category* with the
+  game's EXP bar visible. `msxp health` shows what each capture saw.
+- **"Loading EXP…" right after a restart:** the website rebuilds every page; give it a few minutes.
 
-**Operations and performance**
-- [Continuous mode](docs/continuous-alpha.md), [24-hour retention](docs/24h-retention.md),
-  [restart recovery](docs/restart-recovery.md), [background publishing](docs/background-publishing.md).
-- [Homepage performance](docs/homepage-performance.md), [incremental history](docs/incremental-history.md),
-  [card projection](docs/card-projection.md), [EXP-derived level search](docs/exp-inference-performance.md),
-  [HUD localization performance](docs/hud-localization-performance.md).
-- [VPS readiness](docs/vps-readiness.md), [VPS deployment](docs/vps-deployment.md).
+## How it works
 
-Other notes live in [docs/](docs/). The earlier OBS test page is an unverified developer experiment.
+Every 20 seconds per stream: grab one video frame with Streamlink and FFmpeg, find the game's
+status bar, read level and EXP with Tesseract and RapidOCR, and accept the reading only when the
+numbers pass its checks. Readings go into SQLite, and a read-only web server turns them into the
+leaderboard, history charts and overlays. When a reading is uncertain, MSXP rejects it and keeps
+the last good one rather than guessing. The [docs index](docs/README.md) covers the design, accuracy tests and operations;
+the previous, longer README is [here](docs/legacy-readme.md).
 
-## Credits
+## Credits and license
 
-The Sleepywood and Kerning City website backgrounds (`src/exp_tracker/web/sleepywood*.webp`
-and `kerning*.webp`) are
-MapleStory artwork © Nexon, rendered from original GMS v55 game assets by
-[maplestory.io](https://maplestory.io). The towns and original forest/sky backdrops are preserved
-as lossless WebP; the navy tint is CSS. See [sources and background checks](docs/website-background.md).
+MIT licensed ([LICENSE](LICENSE)). A non-commercial fan project, **not affiliated with Nexon**.
 
-Monster sprites in `src/exp_tracker/web/mobs/` are MapleStory artwork © Nexon, rendered
-from game data by [maplestory.io](https://maplestory.io)
-(`https://maplestory.io/api/GMS/83/mob/{id}/render/{move|hit1|die1|stand}`), with empty margins
-trimmed losslessly so the feet touch the bottom edge. The Slime is the animated WebP from
-[meowdb.com](https://meowdb.com/msclassic/es/monsters/7), because maplestory.io's GIF dithers its soft edges. They decorate this non-commercial fan site, which is
-not affiliated with Nexon. These decorative assets and the website background are intentional exceptions to "nothing game-derived in Git",
-a rule that covers OCR screenshots, crops and templates.
+The Sleepywood and Kerning City backgrounds (`src/exp_tracker/web/sleepywood*.webp`, `kerning*.webp`)
+and the monster sprites in `src/exp_tracker/web/mobs/` are MapleStory artwork © Nexon, rendered from
+game data by [maplestory.io](https://maplestory.io) (GMS v55 and v83); the Slime is the animated WebP
+from [meowdb.com](https://meowdb.com/msclassic/es/monsters/7). They only decorate the website.
+Details: [website background sources](docs/website-background.md).

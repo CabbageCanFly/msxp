@@ -189,7 +189,7 @@ native rendition/profile and save only opt-in field crops:
 
 ```powershell
 # Only while the already authorized channel is live and testing is permitted.
-.\.venv\Scripts\python -m exp_tracker.capture --channel telfer1 --mode periodic --interval 15 --count 61 --config configs/telfer1-live.json --glyph-profile private/ocr-evaluation/glyph-profile.json --debug-dir artifacts/live-hybrid-15 > artifacts/live-hybrid-15.jsonl
+.\.venv\Scripts\python -m exp_tracker.capture --channel streamer_a --mode periodic --interval 15 --count 61 --config configs/streamer-live.json --glyph-profile private/ocr-evaluation/glyph-profile.json --debug-dir artifacts/live-hybrid-15 > artifacts/live-hybrid-15.jsonl
 ```
 
 This is about 15 minutes. No trial was started during this offline milestone.

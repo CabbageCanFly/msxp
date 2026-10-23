@@ -66,7 +66,7 @@ next interval's baseline. Independent reader evidence and explicit character/man
 boundaries keep their existing rules. No OCR digit is repaired or substituted.
 
 This prevents a circular arithmetic dip from creating a fictitious rebound gain.
-Saved Telfer reading `3f38932535654a45b6767472793b134f:7` at
+Saved CharA reading `3f38932535654a45b6767472793b134f:7` at
 `2026-10-21T02:56:35.297019Z` contains `2632 / 0.35%`, deriving level 51 between
 level-71 endpoints. The old 51-to-71 interval added 26,052,025 EXP. Read-only replay
 with the guard changes the affected 30-minute bar from 26,080,498 to 33,704 EXP,

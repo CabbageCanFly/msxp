@@ -1,4 +1,4 @@
-"""Saved Telfer anchor coordinates and synthetic competing-geometry controls."""
+"""Saved CharA anchor coordinates and synthetic competing-geometry controls."""
 from copy import deepcopy
 from datetime import timedelta
 import hashlib
@@ -15,12 +15,13 @@ from exp_tracker.video import Frame
 from tests.test_adaptive_hud import hud,anchors
 from tests.test_obscured_hud import modules,forbidden  # noqa: F401 (pytest fixture)
 from tests.test_product import tracking,NOW,get  # noqa: F401 (pytest fixture)
+from private_data import recorded
 
 SIZE=(1920,1080)
 
 
-def telfer_tokens():
-    # Native coordinates from 20261019T095936Z-ef8a3750, Telfer attempt 2, 2x/3x OCR.
+def streamer_a_tokens():
+    # Native coordinates from 20261019T095936Z-ef8a3750, CharA attempt 2, 2x/3x OCR.
     return [[dict(text=text,confidence=c,x=x,y=y,width=w,height=h) for text,c,x,y,w,h in probe]
         for probe in [
             [('HP:',.32,779.5,1049.5,15.5,9.5),('MP:',0,888.5,1049.5,17.5,9.5),
@@ -30,11 +31,11 @@ def telfer_tokens():
 
 
 def candidates():
-    return [hud.layouts(tokens,SIZE)[0] for tokens in telfer_tokens()]
+    return [hud.layouts(tokens,SIZE)[0] for tokens in streamer_a_tokens()]
 
 
 @pytest.mark.parametrize('reverse',[False,True])
-def test_saved_telfer_exp_is_unique_while_displaced_level_is_unavailable(reverse):
+def test_saved_streamer_a_exp_is_unique_while_displaced_level_is_unavailable(reverse):
     group=candidates()[::(-1 if reverse else 1)];original=deepcopy(group)
     merged=hud.merge_layouts(group,SIZE)
     assert len(merged)==1 and merged[0]['level_ambiguous']
@@ -63,7 +64,7 @@ def test_exp_disagreements_remain_multiple_even_when_levels_also_disagree(confli
 
 
 def test_real_distinct_hud_rows_survive_duplicate_level_interpretations():
-    tokens=telfer_tokens()[0]
+    tokens=streamer_a_tokens()[0]
     second=[{**t,'y':t['y']-200} for t in tokens]
     merged=hud.merge_layouts(candidates()+hud.layouts(second,SIZE),SIZE)
     assert len(merged)==2
@@ -95,7 +96,7 @@ def test_live_locator_merges_once_after_collecting_both_scales(monkeypatch):
     assert len(found)==1 and found[0]['regions']['level'] is None
 
 
-def test_deduplicated_telfer_geometry_flows_to_existing_inference_without_level_ocr(modules,tracking,tmp_path):
+def test_deduplicated_streamer_a_geometry_flows_to_existing_inference_without_level_ocr(modules,tracking,tmp_path):
     _,shadow=modules;_,store,d=tracking
     geometry=hud.merge_layouts(candidates(),SIZE)
     texts=('82,330[21.05%]','82,338[21.05%]','[21.06%]')  # Synthetic EXP; no saved pixels/digits reused.
@@ -138,8 +139,8 @@ def test_competing_or_stale_geometry_never_runs_field_ocr(modules,stale):
     ('20261019T092547Z-0e1bd0f9','b84401fd96444d2582dc724ee8310584',11,9,11),
     ('20261019T095936Z-ef8a3750','',36,23,35)])
 def test_private_saved_candidate_replay_keeps_exp_disagreements_rejected(folder,suffix,count,before,after):
-    path=Path('private/test-fixtures/runs')/folder/'telfer1'/suffix/'capture.jsonl'
-    if not path.is_file():pytest.skip('private Telfer capture unavailable')
+    path=recorded('private/test-fixtures/runs')/folder/'streamer_a'/suffix/'capture.jsonl'
+    if not path.is_file():pytest.skip('private CharA capture unavailable')
     rows=[json.loads(s) for s in path.read_text().splitlines() if json.loads(s).get('type')=='attempt'][:count]
     original_counts=[];merged_counts=[]
     for row in rows:

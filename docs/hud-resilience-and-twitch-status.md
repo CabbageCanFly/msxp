@@ -56,7 +56,7 @@ and rotations from `20261018T043432Z-c0b93f52`. Six source-log SHA-256 hashes we
 checked unchanged. These are comparisons of existing experimental outputs, not
 new human accuracy labels or verified earned-EXP rates.
 
-| Telfer1 checkpoint | Previous presentation | New presentation |
+| Streamer_A checkpoint | Previous presentation | New presentation |
 | --- | --- | --- |
 | 10 | ~187,115 EXP/h, 10 readings / 180s | Same sampled trend |
 | 11–13, unreadable percentage strings | Held ~187,115 as a dated value | Gradual no-new-gain aging; ~152,859 at frame 13's timestamp |
@@ -66,12 +66,12 @@ new human accuracy labels or verified earned-EXP rates.
 | 19 | ~155,884, six readings / 100s | ~174,520, 13 readings / 220 captured seconds within 300s |
 
 The latest saved trial is marked **interrupted** in its original summary, not
-normally completed. That provenance is preserved. Shiphtur's 19 failed captures
+normally completed. That provenance is preserved. CharB's 19 failed captures
 remain failed; the saved `offline_or_unavailable` / `source_ended` reasons cannot
 independently establish its historical Twitch status.
 
 The earlier 90-attempt browser replay retains identical historical window objects
-and Shiphtur's ~88,864 EXP/h saved trend, including its completed-capture label.
+and CharB's ~88,864 EXP/h saved trend, including its completed-capture label.
 The causal audit made 224 checkpoint projections in 3.946s, sampled 3.656 CPU
 seconds and 38.38 MiB peak tree RSS. This measures local replay, not capture/model
 cost or low-end server capacity.
@@ -143,17 +143,17 @@ implemented here.
 ```powershell
 # Existing read-only data; this command starts no capture. Optional Helix needs
 # TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET in ignored .env, never shared.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --twitch-status
-Start-Process 'http://127.0.0.1:8765/stream/telfer1'
-Start-Process 'http://127.0.0.1:8765/live/overlay/telfer1'
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --twitch-status
+Start-Process 'http://127.0.0.1:8765/stream/streamer_a'
+Start-Process 'http://127.0.0.1:8765/live/overlay/streamer_a'
 
 # A preflight does not contact Twitch. Only start capture later with permission.
 .\.venv\Scripts\python tools/multi_alpha.py --config private/multi-alpha/config.json --check --twitch-status
 
 # New output directories; browser fixture uses saved outputs and mocked
 # Helix/simulated worker activity, never a real Twitch request or new capture.
-node tools/product.browser.mjs http://127.0.0.1:8789 private/hud-resilience/browser-new --verify-resilience telfer1
-node tools/product.browser.mjs http://127.0.0.1:8790 private/hud-resilience/historical-new --verify-historical shiphtur
+node tools/product.browser.mjs http://127.0.0.1:8789 private/hud-resilience/browser-new --verify-resilience streamer_a
+node tools/product.browser.mjs http://127.0.0.1:8790 private/hud-resilience/historical-new --verify-historical streamer_b
 .\.venv\Scripts\python -m pytest -q -rs --basetemp private/hud-resilience/tests-new
 node --test tools/*.test.mjs
 ```

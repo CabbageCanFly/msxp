@@ -253,14 +253,14 @@ def test_rename_keeps_ids_and_invalidates_publisher_and_is_audited(tracking):
                for table in ('sessions','observations','diagnostic_attempts','manual_corrections')}
     with create_server(path,port=0,diagnostic_dashboard=True) as server:
         before=tuple(d.heads()[0]);request((server,None),'/api/players')
-        rename=store.rename_character('alpha',cid,'Tricia',reason='Replace placeholder')
+        rename=store.rename_character('alpha',cid,'CharC',reason='Replace placeholder')
         assert tuple(d.heads()[0])!=before
         value=json.loads(request((server,None),'/api/players/alpha')[2])['player']
-        assert value['character']==dict(id=cid,label='Tricia')
+        assert value['character']==dict(id=cid,label='CharC')
         assert json.loads(request((server,None),'/api/players')[2])['players'][0]['character']==value['character']
         assert rename['previous_label']=='Test character'
     for table,rows in originals.items():assert [tuple(r) for r in store.db.execute('SELECT * FROM '+table)]==rows
-    for label in ('',' Bad ','x\ny','x'*101,'Tricia'):
+    for label in ('',' Bad ','x\ny','x'*101,'CharC'):
         with pytest.raises(ValueError):store.rename_character('alpha',cid,label)
     store.add_character('alpha','Other')
     with pytest.raises(ValueError,match='already exists'):store.rename_character('alpha',cid,'Other')
@@ -279,9 +279,9 @@ def test_cli_required_input_preview_history_amend_undo_and_rename(tracking,capsy
     assert main(base+['amend']+scope+['--correction-id',str(event['id']),'--level','49','--percentage','0.00','--effective-at',at(10).isoformat(),'--reason','Wrong level/time'])==0
     amended=json.loads(capsys.readouterr().out)
     assert main(base+['undo','--correction-id',str(amended['id']),'--reason','Restore OCR'])==0;capsys.readouterr()
-    assert main(base+['rename','--character-id',str(event['character_id']),'--new-name','Tricia','--dry-run'])==0;capsys.readouterr()
+    assert main(base+['rename','--character-id',str(event['character_id']),'--new-name','CharC','--dry-run'])==0;capsys.readouterr()
     assert store.state('alpha')['characters'][0]['label']=='Test character'
-    assert main(base+['rename','--character-id',str(event['character_id']),'--new-name','Tricia'])==0;capsys.readouterr()
+    assert main(base+['rename','--character-id',str(event['character_id']),'--new-name','CharC'])==0;capsys.readouterr()
     assert main(base+['history'])==0
     audit=json.loads(capsys.readouterr().out)
     assert len(audit['corrections'])==3 and len(audit['renames'])==1

@@ -77,7 +77,7 @@ This needs review first, because it changes how history is cached.
    24h start. Fall back to a full replay on a character/session change, a non-append
    revision (lower ID, summary rewrite), a clock regression or any limit.
 2. Let `recent_snapshot` reuse the same checkpoint instead of replaying the chain.
-3. Add a parity test: for every prefix of the saved Emmies/Telfer/Niru replays and the
+3. Add a parity test: for every prefix of the saved Streamer_F/CharA/CharE replays and the
    rotation/restart/quarantine fixtures, incremental totals, buckets, windows and ETA
    inputs must equal a full replay exactly.
 4. Then, if still needed, serve the last completed `/api/players` body with its real

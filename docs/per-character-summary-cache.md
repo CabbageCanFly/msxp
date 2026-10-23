@@ -35,7 +35,7 @@ character, separate from the lifetime and cost of a complete publication.
 
 ## Observed example
 
-In the local database, Jakers' saved reading was available at **68.35%**, with a
+In the local database, CharF' saved reading was available at **68.35%**, with a
 percentage-derived estimate of approximately **1.41 million EXP**. A standalone
 read-only rolling-history calculation took approximately **0.19 seconds** on this
 Windows machine. That measurement excludes publisher queueing, network time and
@@ -154,7 +154,7 @@ and broader checkpoint work remain outside this change.
 
 ## Missing EXP after long capture failures (2026-10-22)
 
-Janet's VPS response had nonempty 24h totals but no reading, with
+CharG's VPS response had nonempty 24h totals but no reading, with
 `recent_history.eta_status = "history_limit"` after 4,486 attempts. The historical
 ETA replay exceeded its 4,096 retained-row limit and returned no compact display.
 The publication cache could only preserve that empty result; caching was not the

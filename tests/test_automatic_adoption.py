@@ -32,7 +32,7 @@ def legacy(multi,request):
         for i in range(13):
             login, label, name = f'channel{i}', f'Main {i}', f'Hero{i}'
             correct_names = getattr(request,'param',None)=='correctly_named'
-            if correct_names and i==0:login,label,name='telfer1','Telfer','Telfer'
+            if correct_names and i==0:login,label,name='streamer_a','CharA','CharA'
             elif correct_names and i==1:label=name
             row = dict(channel=login, character=label, source='twitch', authorized=True, interval=20, count=7)
             rows.append(row)
@@ -117,10 +117,10 @@ def test_inspected_correct_names_are_approved_without_rename_or_history_changes(
     with Store(db,read_only=True) as store:before=adoption.database_digest(store)
     assert cli.main(['--db',str(db),'inspect'])==0
     inspected=json.loads(capsys.readouterr().out)
-    selected=next(r for r in inspected['channels'] if r['channel']=='telfer1')
-    assert selected['character']=='Telfer' and selected['character_id']!=1
+    selected=next(r for r in inspected['channels'] if r['channel']=='streamer_a')
+    assert selected['character']=='CharA' and selected['character_id']!=1
     mappings=[dict(channel=r['channel'],character_id=r['character_id'],character=r['character'],name=r['character'])
-              for r in inspected['channels'] if r['channel'] in ('telfer1','channel1')]
+              for r in inspected['channels'] if r['channel'] in ('streamer_a','channel1')]
     preserved=['characters','character_renames','streamers','sessions','diagnostic_runs','diagnostic_attempts',
                'observations','manual_corrections','tracking_state','character_level_guard','reading_validity',
                'reading_batches','reading_events','reading_commits','retention_state','daily_character_exp']
@@ -133,8 +133,8 @@ def test_inspected_correct_names_are_approved_without_rename_or_history_changes(
     assert not result['duplicate'] and dump_tables(db,preserved)==saved
     assert dump_tables(db.parent/'correct-name-backup.sqlite3',preserved)==saved
     with Store(db,read_only=True) as store:
-        assert set(adoption.states(store))=={'telfer1','channel1'}
-        assert store._channel('telfer1')['selected_character_id']==selected['character_id']
+        assert set(adoption.states(store))=={'streamer_a','channel1'}
+        assert store._channel('streamer_a')['selected_character_id']==selected['character_id']
 
 
 def test_rejected_mappings_stale_confirmation_and_backup_fail_without_changes(legacy):
@@ -296,35 +296,35 @@ def run_existing(legacy,channels,*extra):
 
 
 @pytest.mark.parametrize('legacy',['correctly_named'],indirect=True)
-def test_actual_telfer1_login_activation_expansion_and_disable(existing_capture):
+def test_actual_streamer_a_login_activation_expansion_and_disable(existing_capture):
     legacy,scripts,counters,_,seen=existing_capture
     _,_,config,db,mappings=legacy
     saved=dump_tables(db,['characters','character_renames','sessions','manual_corrections'])
     for row in config['streams']:row['count']=2
     for m in mappings:scripts[m['channel']]=[m['name']]
     with Store(db,read_only=True) as store:before=adoption.database_digest(store)
-    assert run_existing(legacy,['telfer'],'--existing-tracker','--check')==1
+    assert run_existing(legacy,['streamer'],'--existing-tracker','--check')==1  # A near-miss login is refused.
     assert not seen
-    assert run_existing(legacy,['telfer1'],'--existing-tracker','--check')==0
+    assert run_existing(legacy,['streamer_a'],'--existing-tracker','--check')==0
     with Store(db,read_only=True) as store:assert adoption.database_digest(store)==before
-    assert run_existing(legacy,['telfer1'],'--existing-tracker','--workers','3')==0
-    assert all(a==b==(login=='telfer1') for login,a,b,_ in seen)
+    assert run_existing(legacy,['streamer_a'],'--existing-tracker','--workers','3')==0
+    assert all(a==b==(login=='streamer_a') for login,a,b,_ in seen)
     assert dump_tables(db,list(saved))==saved
     seen.clear()
-    assert run_existing(legacy,['telfer1','channel1'],'--existing-tracker','--workers','3')==0
-    assert all(a==b==(login in ('telfer1','channel1')) for login,a,b,_ in seen)
+    assert run_existing(legacy,['streamer_a','channel1'],'--existing-tracker','--workers','3')==0
+    assert all(a==b==(login in ('streamer_a','channel1')) for login,a,b,_ in seen)
     assert dump_tables(db,list(saved))==saved
     assert all(row['interval']==20 for row in config['streams'])
-    # A later switch and disable must preserve the selected ID despite config's Telfer label.
-    scripts['telfer1']=['Other']
-    assert run_existing(legacy,['telfer1','channel1'],'--existing-tracker','--workers','3')==0
+    # A later switch and disable must preserve the selected ID despite config's CharA label.
+    scripts['streamer_a']=['Other']
+    assert run_existing(legacy,['streamer_a','channel1'],'--existing-tracker','--workers','3')==0
     with Store(db,read_only=True) as store:
-        selected=store._channel('telfer1')['selected_character_id']
+        selected=store._channel('streamer_a')['selected_character_id']
         assert store.db.execute('SELECT label FROM characters WHERE id=?',(selected,)).fetchone()[0]=='Other'
     seen.clear()
     assert run_existing(legacy,[],'--existing-tracker','--workers','3')==0
     assert all(not auto and not names for _,auto,names,_ in seen)
-    with Store(db,read_only=True) as store:assert store._channel('telfer1')['selected_character_id']==selected
+    with Store(db,read_only=True) as store:assert store._channel('streamer_a')['selected_character_id']==selected
 
 
 def test_thirteen_channels_mixed_workers_restart_expand_and_disable(existing_capture):

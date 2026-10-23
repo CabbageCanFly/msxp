@@ -133,7 +133,7 @@ Use new private output/base-temp names:
 .\.venv\Scripts\python private/unattended-reliability/integration.py
 .\.venv\Scripts\python -m pytest -q -rs --basetemp private/unattended-reliability/full-new
 node --test tools/*.test.mjs
-node tools/product.browser.mjs http://127.0.0.1:8788 private/unattended-reliability/browser-new --verify-historical shiphtur
+node tools/product.browser.mjs http://127.0.0.1:8788 private/unattended-reliability/browser-new --verify-historical streamer_b
 ```
 
 Next: a manually authorized, bounded two-channel trial at 20–30s with saved crops.

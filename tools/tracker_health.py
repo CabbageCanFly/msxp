@@ -2,7 +2,7 @@
 
 Read-only (opens the database in SQLite read-only mode); safe while the tracker runs, locally or on the VPS.
 Run it before and after a change and compare. Example:
-    python tools/tracker_health.py --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --minutes 60
+    python tools/tracker_health.py --db private/multi-alpha/live-local.sqlite3 --minutes 60
 """
 import argparse
 from collections import Counter

@@ -21,10 +21,10 @@ private config, explicit character assignments and capture authorization.
 
 ```powershell
 # Read-only verification: OAuth + Helix only; no Streamlink, video or thumbnails.
-.\.venv\Scripts\python -m exp_tracker.twitch_probe --status-only telfer1 shiphtur
+.\.venv\Scripts\python -m exp_tracker.twitch_probe --status-only streamer_a streamer_b
 
 # Read-only website over the existing DB; this starts no capture.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --twitch-status
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --twitch-status
 
 # Preflight your existing multi-stream config; no Twitch connections.
 .\.venv\Scripts\python tools/multi_alpha.py --config private/multi-alpha/config.json --check --twitch-status
@@ -122,7 +122,7 @@ Full suite: **1,381 passed, zero skips**, in 95.34s; **70 Node tests passed**.
 `git diff --check` passed. An earlier restricted focused
 run passed 157 with one existing loopback-policy skip; the full run used normal
 localhost permissions. The read-only real check at **2026-10-18 08:40:38 UTC**
-succeeded with managed app credentials: Telfer1 live, Shiphtur offline. The entire
+succeeded with managed app credentials: Streamer_A live, CharB offline. The entire
 command took 0.81s on this workstation; this is one observation, not a latency
 guarantee. Expiry, revocation and 401/429 behavior used mocks, not forced live faults.
 

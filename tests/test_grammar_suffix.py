@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image
 import pytest
 
+from private_data import require_live_crops
 from test_exp_digits import exp
 from test_glyphs import synthetic_profile, render
 
@@ -114,6 +115,7 @@ def test_bad_decimal_structure_is_not_rescued(exp, suffix_profile):
     (142500, 0.00, 'candidate'), (1770000, 0.06, 'candidate'), (599000, None, 'unavailable')])
 def test_private_percent_recoveries_do_not_rescue_bad_numbers(exp, milliseconds, percentage, status):
     root = Path(__file__).parents[1]
+    require_live_crops()  # The digit bank loads them.
     bank = root/'private/exp-digits/bank.json'
     crop = root/f'private/levelup-evaluation/evaluation-crops/recording-crops/{milliseconds:04d}/exp-crop.png'
     if not bank.exists() or not crop.exists():

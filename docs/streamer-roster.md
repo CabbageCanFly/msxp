@@ -16,12 +16,12 @@ Run from the repository root in PowerShell. These examples use the existing
 two-stream config; substitute your actual config path if different.
 
 ```powershell
-$roster = 'private/multi-alpha/live-telfer-shiphtur.json'
+$roster = 'private/multi-alpha/live-local.json'
 .\.venv\Scripts\python tools/stream_roster.py --config $roster list
-.\.venv\Scripts\python tools/stream_roster.py --config $roster inspect telfer1
-.\.venv\Scripts\python tools/stream_roster.py --config $roster disable shiphtur --dry-run
-.\.venv\Scripts\python tools/stream_roster.py --config $roster disable shiphtur
-.\.venv\Scripts\python tools/stream_roster.py --config $roster enable shiphtur
+.\.venv\Scripts\python tools/stream_roster.py --config $roster inspect streamer_a
+.\.venv\Scripts\python tools/stream_roster.py --config $roster disable streamer_b --dry-run
+.\.venv\Scripts\python tools/stream_roster.py --config $roster disable streamer_b
+.\.venv\Scripts\python tools/stream_roster.py --config $roster enable streamer_b
 ```
 
 Disabling preserves every assignment setting, authorization choice, selected
@@ -78,7 +78,7 @@ For historical viewing, launch only the existing read-only server with the
 **same `database` path shown in your config**, e.g.:
 
 ```powershell
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard
 ```
 
 `list` separates `configured`, `disabled` and `historical_only`, with saved run and
@@ -142,8 +142,8 @@ passed. Existing live-roster `list` and capture `--check` passed without network
 connections or database writes.
 
 A separate real localhost HTTP check reopened the saved two-stream database with
-two fresh server instances. Telfer1's supported level 66 and 394 history points,
-and Shiphtur's level 57 and 393 points, returned identically before new capture.
+two fresh server instances. Streamer_A's supported level 66 and 394 history points,
+and CharB's level 57 and 393 points, returned identically before new capture.
 Private reproduction script/results: `private/roster-tests/check_saved_history.py`
 and `saved-history-check.json` (the script writes its result exclusively; use a new
 output filename for a repeat). No Twitch request or new capture was made. No new

@@ -180,18 +180,18 @@ def test_percentage_only_label_recovery_retains_level_and_reaches_public_project
 def saved_replay(store):
     from tests.test_cross_level_product import replay,SAVED
     folders=['20261019T095936Z-ef8a3750','20261019T103818Z-62816188']
-    if not (SAVED/folders[1]/'telfer1/capture.jsonl').is_file():pytest.skip('private Telfer capture unavailable')
+    if not (SAVED/folders[1]/'streamer_a/capture.jsonl').is_file():pytest.skip('private CharA capture unavailable')
     now=datetime.fromisoformat('2026-10-19T10:40:56.881611+00:00')
-    return replay(store,'telfer1',folders,as_of=now)
+    return replay(store,'streamer_a',folders,as_of=now)
 
 
-def test_saved_telfer_boundary_and_recovered_gains_and_unchanged_source_records(tracking,monkeypatch):
+def test_saved_streamer_a_boundary_and_recovered_gains_and_unchanged_source_records(tracking,monkeypatch):
     import exp_tracker.server as server_module
     from tests.test_server import request
     path,store,_=tracking;d,now=saved_replay(store)
     raw=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
-    snap=d.snapshot('telfer1',now=now,limit=640);recent=d.recent_snapshot('telfer1',now=now)
-    rolling=d.rolling_history('telfer1',now=now);p=tracked_statistics(player(snap,now=now,recent_snapshot=recent),rolling,now=now)
+    snap=d.snapshot('streamer_a',now=now,limit=640);recent=d.recent_snapshot('streamer_a',now=now)
+    rolling=d.rolling_history('streamer_a',now=now);p=tracked_statistics(player(snap,now=now,recent_snapshot=recent),rolling,now=now)
     window=rolling['windows']['5'];assert window['gain']['approximate']==17175+987
     assert p['recent_windows']['5']['gain']==window['gain']
     gains=[g for g in rolling['chart_intervals'] if g['start']>=window['window_start']]
@@ -215,11 +215,11 @@ def test_saved_telfer_boundary_and_recovered_gains_and_unchanged_source_records(
     monkeypatch.setattr(server_module,'datetime',Clock)
     with server_module.create_server(path,port=0,diagnostic_dashboard=True,background=True) as server:
         server.publisher.settle()
-        card=json.loads(request((server,None),'/api/players/telfer1')[2])
+        card=json.loads(request((server,None),'/api/players/streamer_a')[2])
         home=json.loads(request((server,None),'/api/players')[2])
-        chart=json.loads(request((server,None),'/api/players/telfer1/history')[2])
+        chart=json.loads(request((server,None),'/api/players/streamer_a/history')[2])
         assert card['player']['recent_windows']['5']['gain']==window['gain']
-        assert next(r for r in home['players'] if r['channel']=='telfer1')['recent_windows']['5']['gain']==window['gain']
+        assert next(r for r in home['players'] if r['channel']=='streamer_a')['recent_windows']['5']['gain']==window['gain']
         assert chart['windows']['5']['gain']==window['gain']
     assert raw==[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     assert not store.db.execute('select 1 from observations').fetchone()

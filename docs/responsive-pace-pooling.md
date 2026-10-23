@@ -52,7 +52,7 @@ current sample or become eligible window measurements.
 Directory caching also rebuilds a card when its oldest contributing interval
 expires, even without a new SQLite revision; unchanged polls otherwise reuse it.
 
-## Saved Niru checkpoint
+## Saved CharE checkpoint
 
 Read-only SQLite replay at **2026-10-18 10:01:43.587889 UTC**, rotated-run attempt
 43, exactly reproduces the investigation's predicted result:
@@ -83,8 +83,8 @@ strict window objects and historical chart data compared with the pre-change cod
 
 The source SQLite connection used read-only mode and closed before in-memory
 checkpoint processing. Original JSONL hashes were checked unchanged. Private
-audit: `private/pace-pooling/niru-audit-final.json`; script:
-`private/pace-pooling/audit_niru.py` (choose a new result filename to repeat).
+audit: `private/pace-pooling/streamer_e-audit-final.json`; script:
+`private/pace-pooling/audit_streamer_e.py` (choose a new result filename to repeat).
 Twenty 109-observation in-memory projections, including snapshot copying, measured
 18.20ms median / 19.55ms p95 on this workstation. This excludes OCR/acquisition and
 does not establish deployment capacity.
@@ -98,7 +98,7 @@ extent containing holes. Aging/paused/saved statuses remain distinct.
 
 The level-percentage chart still plots every original gap and guarded connection.
 Its caption now counts visible numerical points, with unavailable attempts
-separate. The Niru screenshot changes from **44 readings / 860s** to
+separate. The CharE screenshot changes from **44 readings / 860s** to
 **38 readings · 6 unavailable · 860s displayed**; no points were removed.
 
 ## Verification and reproduction
@@ -110,11 +110,11 @@ node --test tools/*.test.mjs
 
 # Saved-data browser resilience fixture; creates its own NEW private test DB.
 # Use a new output name and an unused localhost port on each run.
-node tools/product.browser.mjs http://127.0.0.1:18967 private/pace-pooling/browser-new --verify-resilience telfer1
+node tools/product.browser.mjs http://127.0.0.1:18967 private/pace-pooling/browser-new --verify-resilience streamer_a
 
 # View existing saved data independently; does not start capture or mutate SQLite.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --port 8766
-Start-Process 'http://127.0.0.1:8766/stream/niru'
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --port 8766
+Start-Process 'http://127.0.0.1:8766/stream/streamer_e'
 ```
 
 The focused suite includes missing-HUD/reacquisition, exact integer and percentage
@@ -136,9 +136,9 @@ with an explicitly simulated as-of clock and coordinator activity, plus the
 existing two-stream resilience fixture. No Twitch capture/status request occurred.
 Desktop/mobile, 500x160 overlay, repeated polling, gap/aging/recovery/paused/restart
 states, chart counts and no horizontal overflow passed. Representative screenshots
-were inspected under `private/pace-pooling/browser-niru-final/`; polling/recovery
+were inspected under `private/pace-pooling/browser-streamer_e-final/`; polling/recovery
 evidence is under `browser-resilience-final/` (five update stages / 20 screenshots;
-Niru: seven screenshots). A sandbox loopback separation initially
+CharE: seven screenshots). A sandbox loopback separation initially
 blocked the private replay browser; running that isolated server and Chrome with
 localhost access resolved it. The active coordinator was not stopped or modified.
 

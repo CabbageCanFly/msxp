@@ -88,7 +88,7 @@ unobserved character switch is outside scope.
   expectations, now updated to endpoint net arithmetic. The fifth was the existing
   synthetic worker-timeout cleanup check; it passed alone without capture changes.
 - Final affected regression group: **130 passed**, including all five initial
-  failures, the three exact Telfer windows, multi-level resets, current-level
+  failures, the three exact CharA windows, multi-level resets, current-level
   filtering, loss handling and incremental/full replay parity. The complete suite
   was not repeated after these test-only expectation updates.
 - Frontend Node suite: **90 passed**. Four existing localhost browser checks passed:
@@ -105,15 +105,15 @@ no OCR, grammar or acquisition implementation was changed in this task.
 grammar. HUD deduplication, acquisition, level-inference rules, strict parsers,
 trusted accounting and UI layout are unchanged.
 
-## Reproduced Telfer discrepancy
+## Reproduced CharA discrepancy
 
-Inputs are the Telfer logs under `private/multi-alpha/runs/`:
+Inputs are the CharA logs under `private/multi-alpha/runs/`:
 
-- `20261019T095936Z-ef8a3750/telfer1/8ef13934cb28485ab432854b161f2a4c/capture.jsonl`
-- `20261019T103818Z-62816188/telfer1/capture.jsonl`
+- `20261019T095936Z-ef8a3750/streamer_a/8ef13934cb28485ab432854b161f2a4c/capture.jsonl`
+- `20261019T103818Z-62816188/streamer_a/capture.jsonl`
 - The first run's finalized predecessor supplies its existing rotation context.
 
-Input bytes were frozen under ignored `private/telfer-gap-followup/`, with SHA-256
+Input bytes were frozen under ignored `private/streamer_a-gap-followup/`, with SHA-256
 recorded. The replay uses a new isolated store, explicit character/session
 assignment and original receipt times, stopping at **10:40:56.881611 UTC**.
 
@@ -130,8 +130,8 @@ both at level 69. The new shared projection returns exactly **17,175 EXP**.
 **9,769 + 1,703 + 2,284 + 3,419 = 17,175 = 388,651 - 371,476.**
 
 A bounded **read-only SELECT** of the two persisted run bindings confirmed
-character ID 1, session ID 1 and the same Telfer source identity in
-`private/multi-alpha/live-telfer-shiphtur.sqlite3`. No SQL writes, migrations or
+character ID 1, session ID 1 and the same CharA source identity in
+`private/multi-alpha/live-local.sqlite3`. No SQL writes, migrations or
 administrative actions were performed. Saved JSONL headers do not contain these
 database IDs; matching values were not inferred from level/EXP. The ordinary
 configuration pointed to another database containing neither run, so the check
@@ -158,7 +158,7 @@ when saved candidates describe one narrowly overlapping anchor group:
 - It has a delivered frame/hash, ordered receipt and local age within 15 seconds.
 
 The wider crop tolerance is **only for skipping an unreadable frame**. It does not
-choose a crop or declare localization unique. The second Telfer failure still
+choose a crop or declare localization unique. The second CharA failure still
 has conflicting EXP rectangles and remains rejected by the active locator.
 Separate HUDs, disjoint crops, displaced anchors, missing geometry, invalid
 records and stale frames remain barriers. Each candidate pair is checked.
@@ -190,7 +190,7 @@ interval. Its internal evidence records `restart=interrupted_same_assignment`.
 
 The same intervals feed recent totals, pace, rolling history and chart bars.
 5/10/15/30/60-minute totals stay nested; strict completed-window/ranking eligibility
-is unchanged. All elapsed gap time belongs in the pace denominator: this Telfer
+is unchanged. All elapsed gap time belongs in the pace denominator: this CharA
 example spans 283.853815 eligible seconds. No synthetic intermediate observations
 are added. Existing chart allocation within a supported interval is an explicitly
 estimated visualization; missing-frame points and percentage-line gaps stay missing.
@@ -200,7 +200,7 @@ The five-minute rate changes from 222,639.11 to 217,823.39 EXP/hour because its
 eligible elapsed time increases from 157.961463 to 283.853815 seconds. More
 supported total EXP need not imply a higher rate when missing time is restored too.
 
-One earlier Emmies regression now retains an additional **698 EXP**:
+One earlier Streamer_F regression now retains an additional **698 EXP**:
 31,271 -> 31,969 over 42.447188 seconds, across the same explicitly interrupted
 restart pattern. Its 60-minute total becomes 41,926 rather than 41,228; shorter
 windows are unchanged. Those source numbers and bindings were checked in the
@@ -248,7 +248,7 @@ EXP loss, stale/duplicate captures, distinct HUDs, malformed geometry, full labe
 recovery and independent public percentage fallback.
 
 Artifacts, frozen inputs, replay JSON, read-only binding evidence, test logs and
-seven localhost browser screenshots are under `private/telfer-gap-followup/`.
+seven localhost browser screenshots are under `private/streamer_a-gap-followup/`.
 The existing browser tool used only a new private replay database, with remote
 capture disabled. It confirmed the homepage, character page, transparent OBS
 overlay and chart render coherently. No existing database or capture archive was

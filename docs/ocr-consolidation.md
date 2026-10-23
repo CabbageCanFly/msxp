@@ -92,7 +92,7 @@ Version 2 must explicitly select green-excess; numeric masks stay unchanged.
 ```powershell
 .\.venv\Scripts\python tools/train_glyph_profile.py private/calibration/training.json private/calibration/glyph-profile.json
 # Offline screenshot inspection; capture's trust guard is a separate step.
-.\.venv\Scripts\python -m exp_tracker inspect private/calibration/frame.png --config configs/telfer1-live.json --glyph-profile private/calibration/glyph-profile.json
+.\.venv\Scripts\python -m exp_tracker inspect private/calibration/frame.png --config configs/streamer-live.json --glyph-profile private/calibration/glyph-profile.json
 ```
 
 Choose/calibrate ROIs for the actual layout; the channel-specific example config

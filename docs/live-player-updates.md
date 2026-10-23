@@ -17,13 +17,13 @@ process's capture activity. Network failure does not establish Twitch offline st
 
 ## Million-plus investigation
 
-The saved 2026-10-17 21:46 Shiphtur run retains **41/41 fresh strict full pairs and
+The saved 2026-10-17 21:46 CharB run retains **41/41 fresh strict full pairs and
 unique HUDs**. Neural level is 57 throughout; the unchanged read-time policy selects
 57 on 40 frames after its first pending baseline. Its first-to-last receipt span is
 280.131 seconds; the roughly 287-second interrupted process is not a complete
 five-minute comparison. No window rule was relaxed.
 
-The 21:45 Telfer1 run retains **0/5 strict full pairs, 3/5 strict percentages and
+The 21:45 Streamer_A run retains **0/5 strict full pairs, 3/5 strict percentages and
 5/5 unique HUDs**. Native crops #3–#5 start with a visible opening bracket and leave
 unused space after the closing bracket. Compared with earlier six-digit fields,
 this supports an actual percentage-only HUD presentation, rather than a right crop
@@ -35,7 +35,7 @@ Attempt #2 also has the earlier right-shift pattern. Replaying its anchors shows
 that it **still fails** the existing narrow MP-residual checks. It remains unresolved;
 no tolerance was widened just to fit this example. No crop geometry, locator,
 recognition model, grammar or level-confidence policy changes were justified here.
-Shiphtur's 41 crop geometries, normal six-digit controls and cross-stream localization
+CharB's 41 crop geometries, normal six-digit controls and cross-stream localization
 therefore remain untouched. Seven-digit grouped integers already parse (tested with
 `1,069,917[67.72%]`); the new fallback does not manufacture such an OCR reading.
 
@@ -56,7 +56,7 @@ provenance in the tooltip. The ranges describe display precision, not OCR/table 
 Direct integers keep their normal full numerical formatting. Stale values retain
 their age/status and do not acquire current pace.
 
-**Telfer1 limitation:** its four numeric level-65 predictions score 0.68623–0.84812,
+**Streamer_A limitation:** its four numeric level-65 predictions score 0.68623–0.84812,
 with no accepted Tesseract level or qualifying neural seed. The unchanged policy
 leaves level unresolved on all five frames. Therefore this particular run correctly
 shows percentages but **no percentage-derived EXP estimate**. The user-observed level
@@ -65,10 +65,10 @@ also leave derived EXP unavailable.
 
 ## Actual HTTP/SQLite/browser verification
 
-The browser regression opens `/`, `/stream/telfer1` and `/live/overlay/telfer1` against
+The browser regression opens `/`, `/stream/streamer_a` and `/live/overlay/streamer_a` against
 a fresh read-only localhost server, with a separate SQLite writer. It inserts the
-remaining **unchanged saved** Telfer1 and Shiphtur attempts while pages are open:
-Telfer1 moves **67.68 → 67.72%**, and Shiphtur's 41st saved reading becomes visible.
+remaining **unchanged saved** Streamer_A and CharB attempts while pages are open:
+Streamer_A moves **67.68 → 67.72%**, and CharB's 41st saved reading becomes visible.
 Source timestamps, UUIDs, indices and raw outputs are not retimed/repaired. These
 historical readings remain stale. All pages keep one navigation; background polling
 works and no console exceptions or external requests occur. One measured update
@@ -99,26 +99,26 @@ test-owned HTTP process shut down cleanly.
 
 ## Try it
 
-Existing actual Telfer1 data (no capture starts):
+Existing actual Streamer_A data (no capture starts):
 
 ```powershell
-.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/telfer1.sqlite3 --diagnostic-dashboard
+.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/streamer_a.sqlite3 --diagnostic-dashboard
 # In another terminal:
 Start-Process 'http://127.0.0.1:8765/'
-Start-Process 'http://127.0.0.1:8765/stream/telfer1'
-Start-Process 'http://127.0.0.1:8765/live/overlay/telfer1'
+Start-Process 'http://127.0.0.1:8765/stream/streamer_a'
+Start-Process 'http://127.0.0.1:8765/live/overlay/streamer_a'
 ```
 
 A fresh actual-data-only combined replay is prepared at
-`private/live-updates/saved-review.sqlite3` (46 unchanged attempts; `telfer1` and
-`shiphtur`, separate explicit Main characters/sessions). Serve that database instead
+`private/live-updates/saved-review.sqlite3` (46 unchanged attempts; `streamer_a` and
+`streamer_b`, separate explicit Main characters/sessions). Serve that database instead
 to inspect both saved runs together. The private preparation script refuses overwrite.
 Restart the launcher/server and reload old browser assets once after applying code
 changes; Python workers do not hot-reload. Later observations update automatically.
 
 ```powershell
 # Self-contained bounded browser regression; NEW output directory and unused port:
-node tools/product.browser.mjs http://127.0.0.1:8787 private/live-updates/browser-new --verify-updates telfer1
+node tools/product.browser.mjs http://127.0.0.1:8787 private/live-updates/browser-new --verify-updates streamer_a
 .\.venv\Scripts\python -m pytest tests/test_product.py tests/test_local_alpha.py tests/test_shadow_capture.py -q
 node --test tools/*.test.mjs
 .\.venv\Scripts\python -m pytest -q

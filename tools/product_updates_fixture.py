@@ -78,7 +78,7 @@ def window_trial(database,port):
     """Actual rotation logs, causal prefix clock; never retimes or recaptures sources."""
     root=Path('private/multi-alpha/runs/20261018T005419Z-6d0af805')
     logs={}
-    for channel in ('telfer1','shiphtur'):
+    for channel in ('streamer_a','streamer_b'):
         paths=list((root/channel).rglob('capture.jsonl'))
         logs[channel]=sorted(([json.loads(s) for s in p.read_text().splitlines()] for p in paths),
             key=lambda records:next(r['attempted_at'] for r in records if r['type']=='attempt'))[:2]
@@ -128,8 +128,8 @@ def window_trial(database,port):
 
 def rolling_trial(database,port):
     """Actual existing character/session payloads, two causal replay stages."""
-    with Store('private/local-alpha/live/telfer1.sqlite3',read_only=True) as source:
-        streamer=source._channel('telfer1')
+    with Store('private/local-alpha/live/streamer_a.sqlite3',read_only=True) as source:
+        streamer=source._channel('streamer_a')
         character=source.db.execute('select * from characters where id=?',(streamer['selected_character_id'],)).fetchone()
         runs=[dict(r) for r in source.db.execute('select * from diagnostic_runs where character_id=? order by rowid',(character['id'],))]
         assert len({r['session_id'] for r in runs})==1
@@ -144,11 +144,11 @@ def rolling_trial(database,port):
         def now(cls,tz=None):return cls.at
     server_module.datetime=diagnostic_module.datetime=ReviewClock
     with Store(database) as store:
-        store.add_channel('telfer1');cid=store.add_character('telfer1',character['label'])
-        store.select_character('telfer1',cid);store.start_session('telfer1')
+        store.add_channel('streamer_a');cid=store.add_character('streamer_a',character['label'])
+        store.select_character('streamer_a',cid);store.start_session('streamer_a')
         d=Diagnostics(store)
         def load(run):
-            rid=run['run_id'];d.begin(rid,'telfer1',json.loads(run['configuration_json']))
+            rid=run['run_id'];d.begin(rid,'streamer_a',json.loads(run['configuration_json']))
             for record in records[rid]:d.append(rid,record)
             if run['summary_json']:d.append(rid,json.loads(run['summary_json']))
             ReviewClock.at=max(datetime.fromisoformat(r.get('received_at') or r['attempted_at']) for r in records[rid])+timedelta(seconds=4)
@@ -168,7 +168,7 @@ def rolling_trial(database,port):
 
 def historical_trial(database,port):
     root=Path('private/multi-alpha/runs/20261018T043432Z-c0b93f52')
-    records={c:[[json.loads(s) for s in p.read_text().splitlines()] for p in sorted((root/c).rglob('capture.jsonl'),key=lambda p:len(p.parts))] for c in ('telfer1','shiphtur')}
+    records={c:[[json.loads(s) for s in p.read_text().splitlines()] for p in sorted((root/c).rglob('capture.jsonl'),key=lambda p:len(p.parts))] for c in ('streamer_a','streamer_b')}
     import exp_tracker.server as server_module
     import exp_tracker.diagnostics as diagnostic_module
     class ReviewClock(datetime):
@@ -213,7 +213,7 @@ def resilience_trial(database,port):
     from exp_tracker.twitch_probe import StreamAvailability
     from exp_tracker.twitch_auth import AppTokens
     root=Path('private/multi-alpha/runs/20261018T070644Z-33a2d9e1')
-    records={c:[json.loads(s) for s in (root/c/'capture.jsonl').read_text().splitlines()] for c in ('telfer1','shiphtur')}
+    records={c:[json.loads(s) for s in (root/c/'capture.jsonl').read_text().splitlines()] for c in ('streamer_a','streamer_b')}
     class ReviewClock(datetime):
         at=None
         @classmethod
@@ -237,7 +237,7 @@ def resilience_trial(database,port):
         with create_server(database,port=port,diagnostic_dashboard=True) as http:
             http.quiet=True
             http.twitch_availability=StreamAvailability(enabled=True,
-                fetch=lambda *a,**kw:dict(data=[dict(user_login='telfer1',type='live')]),clock=lambda:ReviewClock.at.timestamp(),
+                fetch=lambda *a,**kw:dict(data=[dict(user_login='streamer_a',type='live')]),clock=lambda:ReviewClock.at.timestamp(),
                 auth=AppTokens(env_file=database.parent/'absent.env',environ=dict(TWITCH_CLIENT_ID='synthetic',TWITCH_ACCESS_TOKEN='synthetic'),
                     request=lambda request:dict(client_id='synthetic',expires_in=7200),clock=lambda:ReviewClock.at.timestamp()))
             def running():
@@ -267,8 +267,8 @@ def numerical_window_trial(database,port):
     """Saved #21 failure, causal SQLite commits and an explicitly simulated clock."""
     root=Path('private/multi-alpha/runs/20261018T185429Z-fdb644c0')
     saved={c:sorted(([json.loads(s) for s in p.read_text().splitlines()] for p in (root/c).rglob('capture.jsonl')),
-        key=lambda records:next(r['attempted_at'] for r in records if r['type']=='attempt')) for c in ('telfer1','shiphtur')}
-    target=next(records for records in saved['telfer1'] if records[0]['run_id']=='096543bcaabb45f18f07f30eebc4111e')
+        key=lambda records:next(r['attempted_at'] for r in records if r['type']=='attempt')) for c in ('streamer_a','streamer_b')}
+    target=next(records for records in saved['streamer_a'] if records[0]['run_id']=='096543bcaabb45f18f07f30eebc4111e')
     import exp_tracker.server as server_module
     import exp_tracker.diagnostics as diagnostic_module
     class Clock(datetime):
@@ -320,11 +320,11 @@ def numerical_window_trial(database,port):
 def eta_followup_trial(database,port):
     """Saved source prefixes; explicitly simulated lifecycle/clock, no retiming."""
     root=Path('private/multi-alpha/runs')
-    target=root/'20261018T195958Z-eee70469/telfer1/93dddb3313a5445e86d7d12dd3fb9917/capture.jsonl'
-    niru=root/'20261018T211439Z-794bf39d/niru/capture.jsonl'
+    target=root/'20261018T195958Z-eee70469/streamer_a/93dddb3313a5445e86d7d12dd3fb9917/capture.jsonl'
+    streamer_e=root/'20261018T211439Z-794bf39d/streamer_e/capture.jsonl'
     paths=sorted(target.parent.parent.rglob('capture.jsonl'),key=lambda p:next(
         json.loads(s)['attempted_at'] for s in p.read_text().splitlines() if json.loads(s)['type']=='attempt'))
-    saved={c:[json.loads(s) for s in p.read_text().splitlines()] for c,p in (('niru',niru),('telfer1',target))}
+    saved={c:[json.loads(s) for s in p.read_text().splitlines()] for c,p in (('streamer_e',streamer_e),('streamer_a',target))}
     import exp_tracker.server as server_module
     import exp_tracker.diagnostics as diagnostic_module
     class Clock(datetime):
@@ -338,17 +338,17 @@ def eta_followup_trial(database,port):
             store.add_channel(channel);cid=store.add_character(channel,'Saved review');store.select_character(channel,cid)
             store.start_session(channel,at=datetime.fromisoformat(records[1]['attempted_at']))
         for path in paths:
-            if path!=target:d.replay('telfer1',path)
+            if path!=target:d.replay('streamer_a',path)
         for channel,records in saved.items():
             d.begin(records[0]['run_id'],channel,records[0])
-        last={'niru':0,'telfer1':0}
+        last={'streamer_e':0,'streamer_a':0}
         def stage(n,t):
-            for channel,stop in (('niru',n),('telfer1',t)):
+            for channel,stop in (('streamer_e',n),('streamer_a',t)):
                 records=saved[channel]
                 for r in records:
                     if r['type']=='attempt' and last[channel]<r['index']<=stop:d.append(records[0]['run_id'],r)
                 last[channel]=stop
-            Clock.at=datetime.fromisoformat(next(r['received_at'] for r in saved['niru'] if r.get('index')==n and r['type']=='attempt'))
+            Clock.at=datetime.fromisoformat(next(r['received_at'] for r in saved['streamer_e'] if r.get('index')==n and r['type']=='attempt'))
         stage(3,4)
         with create_server(database,port=port,diagnostic_dashboard=True) as http:
             http.quiet=True
@@ -367,9 +367,9 @@ def eta_followup_trial(database,port):
                     if action in ('gap','recover','next'):
                         n,t={'gap':(4,5),'recover':(5,6),'next':(7,7)}[action];stage(n,t);activity()
                     elif action=='restart':
-                        configuration=dict(saved['niru'][0],run_id='eta-fixture-restart',start_reason='process_start',
+                        configuration=dict(saved['streamer_e'][0],run_id='eta-fixture-restart',start_reason='process_start',
                             previous_run_id=None,coordinator_instance='f'*32)
-                        d.begin('eta-fixture-restart','niru',configuration)
+                        d.begin('eta-fixture-restart','streamer_e',configuration)
                         http.active_run_ids.clear();http.coordinator_status.clear()
                     else:Clock.at+=timedelta(hours=2 if action=='expire' else 1)
                     assert not store.db.execute('select 1 from observations').fetchone()
@@ -382,7 +382,7 @@ def cross_level_trial(database,port):
     """Original 67/68 and 57 crops/logs, isolated SQLite with an explicit as-of clock."""
     root=Path('private/multi-alpha/runs')
     saved={c:[json.loads(s) for s in (root/'20261019T003226Z-cbe9ba29'/c/'capture.jsonl').read_text().splitlines()]
-        for c in ('telfer1','niru')}
+        for c in ('streamer_a','streamer_e')}
     import exp_tracker.server as server_module
     import exp_tracker.diagnostics as diagnostic_module
     class Clock(datetime):
@@ -417,9 +417,9 @@ def cross_level_trial(database,port):
                     if command.strip()!=action:raise ValueError('Ordered saved replay only')
                     if action=='advance':stage(10)
                     elif action=='restart':
-                        configuration=dict(saved['telfer1'][0],run_id='cross-level-fixture-restart',
+                        configuration=dict(saved['streamer_a'][0],run_id='cross-level-fixture-restart',
                             start_reason='process_start',previous_run_id=None,coordinator_instance='f'*32)
-                        d.begin(configuration['run_id'],'telfer1',configuration)
+                        d.begin(configuration['run_id'],'streamer_a',configuration)
                     else:Clock.at+=timedelta(hours=2)
                     assert not store.db.execute('select 1 from observations').fetchone()
                     print(json.dumps(dict(stage=action,as_of=Clock.at.isoformat())),flush=True)
@@ -428,10 +428,10 @@ def cross_level_trial(database,port):
 
 
 def tracked_exp_trial(database,port):
-    """Saved Emmies discrepancy, causal prefixes and explicit replay time only."""
+    """Saved Streamer_F discrepancy, causal prefixes and explicit replay time only."""
     root=Path('private/multi-alpha/runs')
     paths=sorted([p for folder in ('20261019T001842Z-5817cb05','20261019T001945Z-65cc75a7','20261019T003226Z-cbe9ba29')
-        for p in (root/folder/'emmies').rglob('capture.jsonl')],key=lambda p:json.loads(p.read_text().splitlines()[1])['attempted_at'])
+        for p in (root/folder/'streamer_f').rglob('capture.jsonl')],key=lambda p:json.loads(p.read_text().splitlines()[1])['attempted_at'])
     import exp_tracker.server as server_module
     import exp_tracker.diagnostics as diagnostic_module
     class Clock(datetime):
@@ -440,13 +440,13 @@ def tracked_exp_trial(database,port):
         def now(cls,tz=None):return cls.at
     server_module.datetime=diagnostic_module.datetime=Clock
     with Store(database) as store:
-        store.add_channel('emmies');cid=store.add_character('emmies','Saved review');store.select_character('emmies',cid)
-        store.start_session('emmies',at=datetime.fromisoformat('2026-10-19T00:18:00+00:00'))
+        store.add_channel('streamer_f');cid=store.add_character('streamer_f','Saved review');store.select_character('streamer_f',cid)
+        store.start_session('streamer_f',at=datetime.fromisoformat('2026-10-19T00:18:00+00:00'))
         d=Diagnostics(store);tail=None
         for path in paths:
             records=[json.loads(s) for s in path.read_text().splitlines()];rid=records[0]['run_id']
             if datetime.fromisoformat(records[1]['attempted_at'])>Clock.at:continue
-            d.begin(rid,'emmies',records[0])
+            d.begin(rid,'streamer_f',records[0])
             attempts=[r for r in records if r['type']=='attempt']
             for r in attempts:
                 if datetime.fromisoformat(r.get('received_at') or r['attempted_at'])<=Clock.at:d.append(rid,r)
@@ -482,13 +482,13 @@ def main():
     cli.add_argument('--usability',action='store_true',help='Saved two-stream trial, explicitly as-of replay clock')
     cli.add_argument('--level-up',action='store_true',help='Saved level-up trial; as-of replay, no source retiming')
     cli.add_argument('--windows',action='store_true',help='Saved fixed-window/60-attempt rotation review')
-    cli.add_argument('--rolling',action='store_true',help='Actual new Telfer1 runs and existing character history, as-of replay')
+    cli.add_argument('--rolling',action='store_true',help='Actual new Streamer_A runs and existing character history, as-of replay')
     cli.add_argument('--historical',action='store_true',help='Actual completed 90-attempt two-stream trial, as-of clock')
     cli.add_argument('--resilience',action='store_true',help='Actual unreadable-HUD replay, mocked Helix and coordinator activity')
     cli.add_argument('--numerical-windows',action='store_true',help='Saved wrong-pair veto and selected-window card replay')
     cli.add_argument('--eta-followup',action='store_true',help='Saved short HUD gap, token recovery and dated ETA restoration')
     cli.add_argument('--cross-level',action='store_true',help='Saved 67/68 level reset and preceding run, as-of clock')
-    cli.add_argument('--tracked-exp',action='store_true',help='Saved Emmies nested-window discrepancy, as-of clock')
+    cli.add_argument('--tracked-exp',action='store_true',help='Saved Streamer_F nested-window discrepancy, as-of clock')
     args=cli.parse_args()
     directory=args.directory.resolve()
     if not any(directory.is_relative_to(Path(p).resolve()) for p in ('private','artifacts')):
@@ -523,7 +523,7 @@ def main():
         window_trial(database,args.port)
         return
     logs={channel:Path('private/local-alpha/runs')/run/'capture.jsonl' for channel,run in (
-        ('telfer1','telfer1-20261017T214539Z-620539d6'),('shiphtur','shiphtur-20261017T214659Z-eba94e1c'))}
+        ('streamer_a','streamer_a-20261017T214539Z-620539d6'),('streamer_b','streamer_b-20261017T214659Z-eba94e1c'))}
     saved={c:[json.loads(s) for s in p.read_text().splitlines()] for c,p in logs.items()}
     saved_trial=args.usability or args.level_up
     initial=13 if args.level_up else 7
@@ -551,7 +551,7 @@ def main():
         for channel,records in saved.items():
             d.begin(records[0]['run_id'],channel,records[0])
             for record in records[1:]:
-                if record['type']=='attempt' and record['index']<=(initial if saved_trial else 3 if channel=='telfer1' else 40):d.append(records[0]['run_id'],record)
+                if record['type']=='attempt' and record['index']<=(initial if saved_trial else 3 if channel=='streamer_a' else 40):d.append(records[0]['run_id'],record)
         if not saved_trial:d.begin('synthetic-window','synthetic_window',dict(type='configuration',trusted=False,interval=15,source_kind='file'))
         def synthetic(index):
             # Test-generated historical timestamps, not a capture throughput/accuracy claim.
@@ -593,7 +593,7 @@ def main():
                     if command.strip()!='advance' or advanced:raise ValueError('One bounded advance only')
                     for channel,records in saved.items():
                         for record in records[1:]:
-                            if record['type']=='attempt' and record['index']>(3 if channel=='telfer1' else 40):d.append(records[0]['run_id'],record)
+                            if record['type']=='attempt' and record['index']>(3 if channel=='streamer_a' else 40):d.append(records[0]['run_id'],record)
                         d.append(records[0]['run_id'],records[-1])
                     for i in (20,21):d.append('synthetic-window',synthetic(i))
                     assert not store.db.execute('SELECT 1 FROM observations').fetchone()

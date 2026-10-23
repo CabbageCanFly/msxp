@@ -82,8 +82,8 @@ $main = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
 $python = "$main\.venv\Scripts\python.exe"
 $ocr = "$main\private\rapidocr\.venv\Scripts\python.exe"
 $env:PYTHONPATH = "$PWD\src"
-$db = "$main\private\multi-alpha\live-telfer-shiphtur.sqlite3"
-$config = "$main\private\multi-alpha\live-telfer-shiphtur.json"
+$db = "$main\private\multi-alpha\live-local.sqlite3"
+$config = "$main\private\multi-alpha\live-local.json"
 $trial = Join-Path $PWD "private\db-roster-rehearsal-$(Get-Date -Format yyyyMMdd-HHmmss)"
 New-Item -ItemType Directory $trial | Out-Null
 $copy = Join-Path $trial 'rehearsal.sqlite3'
@@ -93,9 +93,9 @@ $copy = Join-Path $trial 'rehearsal.sqlite3'
 
 # Reads JSON settings, including disabled assignments; does not edit the JSON.
 # Explicitly choose existing automatic channels whose historical identity was adopted.
-# misusingtv/Uryu is an example from the successful live trial, not inferred identity.
+# streamer_d/CharD is an example from the successful live trial, not inferred identity.
 & $python tools/db_streamer_roster.py --db $copy preview --config $config `
-  --automatic-channel misusingtv --reason 'Reviewed current thirteen-channel settings and adopted identities' `
+  --automatic-channel streamer_d --reason 'Reviewed current thirteen-channel settings and adopted identities' `
   --preview "$trial\preview-copy.json"
 ```
 
@@ -103,10 +103,10 @@ Review all imported settings and the `identities` list read from SQLite. The num
 IDs are not guessed. An automatic subset is optional: omitting `--automatic-channel`
 imports all existing channels with automatic recognition **off**. Include each desired
 automatic channel once during bootstrap; startup flags are not needed afterward.
-The example requires an actual adoption receipt for `misusingtv`. Inspect and use the
+The example requires an actual adoption receipt for `streamer_d`. Inspect and use the
 [existing identity adoption workflow](existing-tracker-auto-adoption.md) first if it
 is missing. A previously observed name or matching level is not historical approval.
-Existing `telfer1` / `Telfer` can be approved without renaming; never use `telfer` or
+Existing `streamer_a` / `CharA` can be approved without renaming; never use `streamer_a` or
 assume its numeric ID. Ambiguous legacy aliases retain the prior review requirements.
 
 ```powershell
@@ -147,7 +147,7 @@ another path. Never bypass a busy writer lease or change the original WAL files.
 
 ```powershell
 & $python tools/db_streamer_roster.py --db $db preview --config $config `
-  --automatic-channel misusingtv --reason 'Approved database-owned roster and existing adopted automatic subset' `
+  --automatic-channel streamer_d --reason 'Approved database-owned roster and existing adopted automatic subset' `
   --preview "$trial\preview-original.json"
 
 $review = Get-Content "$trial\preview-original.json" -Raw | ConvertFrom-Json

@@ -106,11 +106,11 @@ Do not start another server on its port. For a later permitted Twitch trial,
 explicitly configure the channel/character, `authorized:true`, neural-level
 diagnostics and a bounded attempt count for each source, then use the same
 coordinator without `--continuous`. No Twitch connection was made for this milestone.
-The original saved Telfer1 database is also viewable without modifying it:
+The original saved Streamer_A database is also viewable without modifying it:
 
 ```powershell
-.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/telfer1.sqlite3 --diagnostic-dashboard --port 8766
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
+.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/streamer_a.sqlite3 --diagnostic-dashboard --port 8766
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
 ```
 
 ## Observations and estimates
@@ -217,7 +217,7 @@ HTTP server. The earlier three-attempt run also succeeded, but its browser check
 failed because the homepage tab was hidden and intentionally paused polling.
 The corrected harness keeps it visible; the failed evidence remains preserved.
 
-Read-only inspection of the untouched Telfer1 capture returned its last recovered
+Read-only inspection of the untouched Streamer_A capture returned its last recovered
 `498,337[33.27%]`, level evidence 64/64, stale with no current estimates. The
 two-video source DB and historical logs were not rewritten; only its new copy
 received six fresh attempts from the two bounded checks. Trusted observations

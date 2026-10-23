@@ -15,6 +15,7 @@ from exp_tracker.store import Store
 from tests.test_endpoint_pace import point,snapshot,missing
 from tests.test_diagnostic_progress import NOW
 from tests.test_product import tracking
+from private_data import recordings
 
 
 def levels():
@@ -140,7 +141,7 @@ def test_acquisition_and_process_boundaries_do_not_exclude_level_up_gain(boundar
     assert not w['complete_window']
 
 
-SAVED=Path('private/test-fixtures/runs')
+SAVED=recordings()  # Placeholder names; see tests/private_data.py.
 REPLAY_LOGS=25  # Full-replay checks cost more than linearly per log; the oldest 25 per channel keep each under ~90 s.
 
 
@@ -170,8 +171,8 @@ def replay(store,channel,folders,stop=None,as_of=None):
 def test_saved_level68_checkpoint_includes_old_level_and_restores_after_restart(tmp_path):
     db=tmp_path/'saved.sqlite3'
     with Store(db) as store:
-        d,now=replay(store,'telfer1',['20261019T001945Z-65cc75a7','20261019T003226Z-cbe9ba29'],10)
-        snap=d.snapshot('telfer1',now=now,limit=640);recent=d.recent_snapshot('telfer1',now=now)
+        d,now=replay(store,'streamer_a',['20261019T001945Z-65cc75a7','20261019T003226Z-cbe9ba29'],10)
+        snap=d.snapshot('streamer_a',now=now,limit=640);recent=d.recent_snapshot('streamer_a',now=now)
         before=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts')]
         p=player(snap,now=now,recent_snapshot=recent)
         assert p['recent_windows']['5']['gain']['approximate']==expected_net(recent,now,5)
@@ -184,40 +185,40 @@ def test_saved_level68_checkpoint_includes_old_level_and_restores_after_restart(
         assert not store.db.execute('select 1 from observations').fetchone()
     with Store(db,read_only=True) as store:
         d=Diagnostics(store)
-        assert player(d.snapshot('telfer1',now=now,limit=640),now=now,recent_snapshot=d.recent_snapshot('telfer1',now=now))['recent_windows']==p['recent_windows']
+        assert player(d.snapshot('streamer_a',now=now,limit=640),now=now,recent_snapshot=d.recent_snapshot('streamer_a',now=now))['recent_windows']==p['recent_windows']
 
 
-def test_saved_65_to_66_and_unobserved_niru_advancement(tmp_path):
+def test_saved_65_to_66_and_unobserved_streamer_e_advancement(tmp_path):
     with Store(tmp_path/'saved.sqlite3') as store:
-        d,now=replay(store,'telfer1',['20261018T001050Z-b970792e'])
-        snap=d.recent_snapshot('telfer1',now=now);w=recent_windows(snap,None,now=now)['60']
+        d,now=replay(store,'streamer_a',['20261018T001050Z-b970792e'])
+        snap=d.recent_snapshot('streamer_a',now=now);w=recent_windows(snap,None,now=now)['60']
         assert w['pace']['levels']==[65,66] and w['gain']['approximate']==expected_net(snap,now,60)
         assert w['pace']['coverage_seconds']==w['pace']['span_seconds']
-        d,now=replay(store,'niru',['20261018T211439Z-794bf39d','20261019T000710Z-bda4f628'],34)
-        snap=d.recent_snapshot('niru',now=now);w=recent_windows(snap,None,now=now)['60']
+        d,now=replay(store,'streamer_e',['20261018T211439Z-794bf39d','20261019T000710Z-bda4f628'],34)
+        snap=d.recent_snapshot('streamer_e',now=now);w=recent_windows(snap,None,now=now)['60']
         assert w['pace']['levels']==[57]  # level 56 was hours earlier, outside the actual window
         # The crossing 64,808 -> 65,705 interval adds 897 to the old contained total.
         # Numeric endpoints also retain the 875s timeout gap (+34,537) and restart (+806).
         assert w['gain']['approximate']==91765+34537+806+897==192813-64808
-        old=d.rolling_history('niru',now=now)
+        old=d.rolling_history('streamer_e',now=now)
         assert old['tracked_exp']['approximate']>w['gain']['approximate']
 
 
-def test_unobserved_niru_level_advance_retains_both_sides_but_no_transition_gain(tmp_path):
-    with Store(tmp_path/'niru.sqlite3') as store:
-        d,_=replay(store,'niru',['20261018T211439Z-794bf39d'],as_of=datetime.fromisoformat('2026-10-18T23:02:00+00:00'))
+def test_unobserved_streamer_e_level_advance_retains_both_sides_but_no_transition_gain(tmp_path):
+    with Store(tmp_path/'streamer_e.sqlite3') as store:
+        d,_=replay(store,'streamer_e',['20261018T211439Z-794bf39d'],as_of=datetime.fromisoformat('2026-10-18T23:02:00+00:00'))
         now=datetime.fromisoformat('2026-10-18T23:02:00+00:00')
-        snap=d.snapshot('niru',now=now,limit=640)
-        p=player(snap,now=now,recent_snapshot=d.recent_snapshot('niru',now=now))
+        snap=d.snapshot('streamer_e',now=now,limit=640)
+        p=player(snap,now=now,recent_snapshot=d.recent_snapshot('streamer_e',now=now))
         assert p['recent_windows']['5']['gain']['approximate']==9330
         old=p['current_level_windows']['60']['gain']['approximate']
         w=p['recent_windows']['60'];assert old==9330
-        assert w['gain']['approximate']==expected_net(d.recent_snapshot('niru',now=now),now,60)
+        assert w['gain']['approximate']==expected_net(d.recent_snapshot('streamer_e',now=now),now,60)
         assert w['pace']['levels']==[56,57] and w['pace']['readings']>=127
         assert w['pace']['coverage_seconds']==w['pace']['span_seconds']
         assert fraction(w['pace']['estimates']['exp_per_hour']['value'])==fraction(w['gain'])  # Selected 60m denominator.
         by_id={r['event_id']:r for r in snap['observations']}
-        pace=responsive_pace(d.recent_snapshot('niru',now=now),dict(value=57),now=now,minutes=60,pool_history=True,retain_history=False)
+        pace=responsive_pace(d.recent_snapshot('streamer_e',now=now),dict(value=57),now=now,minutes=60,pool_history=True,retain_history=False)
         for edge in pace['intervals']:
             a,b=(by_id[edge[k]] for k in ('first_event_id','last_event_id'))
             assert a['experimental_level']['value']<=b['experimental_level']['value']

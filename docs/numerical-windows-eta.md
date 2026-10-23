@@ -4,7 +4,7 @@ This is a read-time product update. Original captures, OCR strings, parser
 candidates, requirements, SQLite schema and trusted accounting are unchanged.
 No Twitch connection or active-coordinator restart was performed.
 
-## Wrong Telfer1 pair
+## Wrong Streamer_A pair
 
 The causal replay confirms that rotated-run attempt 21 at
 2026-10-18 19:25:17.685004 UTC reached the public display incorrectly. Grammar
@@ -59,7 +59,7 @@ string. No OCR preprocessing or model change was adopted. Recognition of 21 took
 about 21ms and 20ms respectively; model initialization after imports was 50ms.
 This familiar-sample comparison supplies no new accuracy benchmark.
 
-## Shiphtur level confirmation
+## CharB level confirmation
 
 Level evidence adjacency previously required elapsed time <=1.5 times the nominal
 interval: only 30 seconds for a requested 20-second cadence. Actual 35–41-second
@@ -70,7 +70,7 @@ source/character/session. Stale, duplicate, incomplete, conflicting and suspect
 frames still break confirmation. Neural confidence thresholds are unchanged;
 arithmetic only corroborates reader evidence, never chooses the level.
 
-| Shiphtur attempts 31–42 | Before | After |
+| CharB attempts 31–42 | Before | After |
 |---|---|---|
 | 31, 32 | Supported 58 | Supported 58 |
 | 33 | Stale; excluded | Still excluded |
@@ -87,7 +87,7 @@ levels. At 42 the recent five-minute projection has 8 readings over 249.309s,
 12,315 EXP in supported intervals, ~177,828 EXP/hour and ~3h10m to next level.
 Strict chart connections, 24h interval rules and completed windows still enforce
 their existing cadence/gap gates; this does not relabel late sampling as contiguous.
-The cadence-independent level fix also applies to Telfer1 and Niru. Regression
+The cadence-independent level fix also applies to Streamer_A and CharE. Regression
 tests cover actual separations 20, 35, 40, 60 and 90 seconds, including reacquisition
 after stale frames and known high-confidence wrong level-50/51 controls.
 
@@ -128,7 +128,7 @@ between unrelated intervals. Strict completed-window/ranking rules are unchanged
 
 A read-only SQLite backup was used for cross-restart checks. At 20:28:48.740 UTC:
 
-| Telfer1 card | Previous latest-sequence window projection | New saved-window sum |
+| Streamer_A card | Previous latest-sequence window projection | New saved-window sum |
 |---|---:|---:|
 | 30 min | ~65,742 EXP | **~106,801 EXP / 1,756.264s** |
 | 60 min | No selection | **~205,503 EXP / 3,342.330s** |
@@ -136,7 +136,7 @@ A read-only SQLite backup was used for cross-restart checks. At 20:28:48.740 UTC
 The earlier window projection is compared with corrected shared validation held
 constant, isolating the window-policy change. Restart timestamps are preserved;
 there is no subtraction over the process-start gap. At the later 20:40 checkpoint,
-the sums are ~112,767 and ~212,300 EXP. Niru and Shiphtur are included in the private
+the sums are ~112,767 and ~212,300 EXP. CharE and CharB are included in the private
 SQLite audit. A 720-attempt fast-video synthetic history proves the new query is
 not truncated to the browser's 640-row chart limit. Closing/reopening the database
 reproduces the same sums and leaves trusted observations empty.
@@ -173,7 +173,7 @@ Run existing tests and the actual SQLite/Chrome replay without contacting Twitch
 ```powershell
 .\.venv\Scripts\python -m pytest
 node --test tools/*.test.mjs
-node tools/product.browser.mjs http://127.0.0.1:18262 private/numerical-windows/browser-NEW --verify-numerical-windows telfer1
+node tools/product.browser.mjs http://127.0.0.1:18262 private/numerical-windows/browser-NEW --verify-numerical-windows streamer_a
 ```
 
 Use a new ignored output directory for each browser run. The fixture starts its
@@ -181,17 +181,17 @@ own server/database, commits unchanged saved attempts in causal order and marks
 its as-of clock/runtime activity as simulated. Chrome checks five window
 selections, wrong-pair rejection, recovery, polling without navigation, stale ETA
 suppression, stable cards and 500x160 OBS. Screenshots inspected under
-`private/numerical-windows/browser-final/` and `browser-shiphtur-02/` show the rejected
-Telfer1 value held safely, recovery, supported Shiphtur 58 and populated ETA.
+`private/numerical-windows/browser-final/` and `browser-streamer_b-02/` show the rejected
+Streamer_A value held safely, recovery, supported CharB 58 and populated ETA.
 One initial standalone browser connection failed because its server and client
 were in different sandbox contexts; the reachable isolated replay passed.
 
 To inspect the current database without changing or restarting capture:
 
 ```powershell
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --port 8766
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
-Start-Process 'http://127.0.0.1:8766/dashboard/telfer1'
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --port 8766
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
+Start-Process 'http://127.0.0.1:8766/dashboard/streamer_a'
 ```
 
 This separate server cannot claim ownership of the existing capture worker;
@@ -205,7 +205,7 @@ therefore include more supported data than the raw graph. No new holdout labels,
 source identity authentication or numerical-trust promotion were established.
 
 Five uncached full player/history projections per channel on the private SQLite
-copy measured median **290ms Telfer1 / 448ms Shiphtur / 413ms Niru**, including
+copy measured median **290ms Streamer_A / 448ms CharB / 413ms CharE**, including
 recent-query decoding and all five window summaries, excluding capture/OCR and
 HTTP transport. Work receipts were 242/241/240 source attempts across five runs,
 including older causal rotation context. Separate `tracemalloc` calls peaked at
@@ -245,7 +245,7 @@ Final validation: **1,500 Python passes in 166.94s, zero skips; 76 Node passes,
 zero skips**. The new focused numerical/window module has 25 cases, including
 optional real-source regressions; both private inputs were present. Chrome passed
 the five causal polling stages and all five selections (19 screenshots), plus
-the separate Shiphtur checkpoint (7 screenshots). Representative desktop/mobile,
+the separate CharB checkpoint (7 screenshots). Representative desktop/mobile,
 stale and OBS images were inspected; no overflow, navigation reload or console
 failure was found. All test servers were closed. `git diff --check` passed and
 the new private outputs are ignored. JSONL and compared EXP-crop hashes remained

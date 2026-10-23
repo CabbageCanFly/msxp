@@ -244,18 +244,18 @@ def test_rebuilding_one_published_channel_keeps_the_other_channels_entry(trackin
         assert server.publisher.entry('beta') is beta and server.publisher.entry('alpha')['tracked']['intervals']==2
 
 
-def test_saved_emmies_exact_discrepancy_is_fixed_and_nested_after_sqlite_restart(tmp_path):
-    db=tmp_path/'emmies.sqlite3';as_of=datetime.fromisoformat('2026-10-19T01:03:54.273738+00:00')
+def test_saved_streamer_f_exact_discrepancy_is_fixed_and_nested_after_sqlite_restart(tmp_path):
+    db=tmp_path/'streamer_f.sqlite3';as_of=datetime.fromisoformat('2026-10-19T01:03:54.273738+00:00')
     with Store(db) as store:
-        d,_=replay(store,'emmies',['20261019T001842Z-5817cb05','20261019T001945Z-65cc75a7','20261019T003226Z-cbe9ba29'],as_of=as_of)
+        d,_=replay(store,'streamer_f',['20261019T001842Z-5817cb05','20261019T001945Z-65cc75a7','20261019T003226Z-cbe9ba29'],as_of=as_of)
         before=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
-        result=d.rolling_history('emmies',now=as_of)
+        result=d.rolling_history('streamer_f',now=as_of)
         # Both same-assignment restarts count: +698, and 18,800 -> 19,577 (+777).
         # Whole intervals crossing the 5/10/15/30m starts add 455/307/427/528 EXP.
         assert [float(v) for v in nested(result)]==[4757+455,9994+307,14696+427,27764+528,42703,42703]
-        snap=d.snapshot('emmies',now=as_of,limit=640)
-        p=tracked_statistics(player(snap,now=as_of,recent_snapshot=d.recent_snapshot('emmies',now=as_of)),result,now=as_of)
+        snap=d.snapshot('streamer_f',now=as_of,limit=640)
+        p=tracked_statistics(player(snap,now=as_of,recent_snapshot=d.recent_snapshot('streamer_f',now=as_of)),result,now=as_of)
         assert p['recent_windows']['60']['gain']==result['tracked_exp']
         assert [r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]==before
         assert not store.db.execute('select 1 from observations').fetchone()
-    with Store(db,read_only=True) as store:assert Diagnostics(store).rolling_history('emmies',now=as_of)==result
+    with Store(db,read_only=True) as store:assert Diagnostics(store).rolling_history('streamer_f',now=as_of)==result

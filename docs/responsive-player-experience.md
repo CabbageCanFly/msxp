@@ -72,7 +72,7 @@ Native RGB/nearest-neighbor review supports 65 at #13, then 66 at #14/#15;
 this is AI-assisted inspection of familiar material, not new blinded ground truth.
 All 42 attempts per stream and original log hashes are preserved.
 
-| As-of each committed attempt, before final interruption | Telfer1 | Shiphtur |
+| As-of each committed attempt, before final interruption | Streamer_A | CharB |
 |---|---:|---:|
 | First old ≥3 / ≥30s active pace | #18 | #13 |
 | First responsive pace | #15 | #4 |
@@ -85,7 +85,7 @@ These are causal availability comparisons, not OCR accuracy or independent sampl
 Interrupted historical values remain available when no rate is active. The final
 interruption suppresses active pace; it does not erase the last estimate.
 
-Telfer1 #14 contains `103[0.01%]`, #15 `435[0.03%]`. The badge shows 66 at #14;
+Streamer_A #14 contains `103[0.01%]`, #15 `435[0.03%]`. The badge shows 66 at #14;
 the level event is confirmed at #15. Their strict consistent integer difference
 supplies the first rate. By #18, five eligible endpoints span about 37.6s and support
 a recent trend around 220K EXP/h. Short estimates remain noisy: #42's two-reading
@@ -109,15 +109,15 @@ this workstation. No new SQL query, capture process, model or dependency is adde
 
 ```powershell
 # Existing actual database, read-only. Serving does not initiate capture.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --port 8766
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --port 8766
 Start-Process 'http://127.0.0.1:8766/'
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
-Start-Process 'http://127.0.0.1:8766/live/overlay/telfer1'
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
+Start-Process 'http://127.0.0.1:8766/live/overlay/streamer_a'
 
 # Unchanged saved events, fresh private DB, explicit as-of clock, no OCR or Twitch.
 # Choose a NEW output directory for each run.
-node tools/product.browser.mjs http://127.0.0.1:8778 private/player-experience/review-new --verify-level-up telfer1
-node tools/product.browser.mjs http://127.0.0.1:8779 private/player-experience/quarantine-new --verify-quarantine telfer1
+node tools/product.browser.mjs http://127.0.0.1:8778 private/player-experience/review-new --verify-level-up streamer_a
+node tools/product.browser.mjs http://127.0.0.1:8779 private/player-experience/quarantine-new --verify-quarantine streamer_a
 .\.venv\Scripts\python -m pytest -q -rs
 node --test tools/*.test.mjs
 ```

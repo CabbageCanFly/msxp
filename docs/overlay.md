@@ -113,8 +113,8 @@ port. It is read directly; no new footage or replay is required:
 ```powershell
 .\.venv\Scripts\python -m exp_tracker.server --db artifacts/accounting-bridge.sqlite3 --port 8766
 # In another terminal:
-Start-Process 'http://127.0.0.1:8766/overlay/telfer1'
-Invoke-RestMethod 'http://127.0.0.1:8766/api/streams/telfer1/state' | ConvertTo-Json -Depth 6
+Start-Process 'http://127.0.0.1:8766/overlay/streamer_a'
+Invoke-RestMethod 'http://127.0.0.1:8766/api/streams/streamer_a/state' | ConvertTo-Json -Depth 6
 ```
 
 Expected saved values: **60 / 879,217 / 72.66%**, session net **6,121**, bridged

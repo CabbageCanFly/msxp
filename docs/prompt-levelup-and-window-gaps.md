@@ -3,15 +3,15 @@
 2026-10-19, focused MVP follow-up to [public level evidence](mvp-level-evidence.md).
 Acquisition, OCR models, identity assignment and trusted accounting are unchanged.
 
-## Saved Telfer level-up
+## Saved CharA level-up
 
-Read-only input is the `telfer1` directory in
+Read-only input is the `streamer_a` directory in
 `private/multi-alpha/runs/20261019T080326Z-f4f3d659/`, including preceding
 rotations. Target run: `764dc5b622f54861bfb90a43168330c4`.
 All 60 target prefixes were projected causally at their original receipt times
 in an isolated in-memory store. Input hashes match before/after; no live database,
 coordinator or Twitch source was accessed. Artifacts are ignored under
-`private/telfer-mvp-wrap/`.
+`private/streamer_a-mvp-wrap/`.
 
 Three independent exclusions delayed useful public progress:
 
@@ -105,7 +105,7 @@ selected card says five minutes. It is not 60,000 EXP/hour unless the eligible
 denominator is 300 seconds. Partial-history durations remain exposed separately;
 complete-window comparisons/rankings keep their existing eligibility rules.
 
-For a concrete saved example, Telfer prefix 13 shows 11,080.4006 EXP over
+For a concrete saved example, CharA prefix 13 shows 11,080.4006 EXP over
 172.039297 eligible seconds (eight readings in two sequences): 231,862.3876
 EXP/hour. The localhost screenshot's rounded +11,080 and ~231,862/hour are
 consistent. Multiplying the five-minute gain by 12 would use an unsupported
@@ -124,7 +124,7 @@ clipped fields, malformed grouping, missing digits, extra/competing fields, edit
 limits, first-frame agreement, single-reader conflicts, capture/identity barriers,
 unknown reset gains, public projection and rolling history. Gap regressions cover
 the exact timeline, microsecond cutoff, nested windows and the inclusive endpoint
-duration limit. A private-fixture test replays the real Telfer prefix through
+duration limit. A private-fixture test replays the real CharA prefix through
 diagnostics, public projection, the background publisher and HTTP API; it skips
 when that private log is unavailable.
 

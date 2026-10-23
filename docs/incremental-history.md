@@ -76,7 +76,7 @@ publisher calls at the fold time and 90 s later): live channels replayed 2 runs
 Readings before the 24h start are pruned when saved, except the last usable endpoint
 before it. A later window's boundary-crossing pair begins there, and
 `boundary_intervals_excluded` counts that pair. Until the parity fix described in
-[VPS readiness](vps-readiness.md#saved-telfer1-log-failures), a checkpoint saved at
+[VPS readiness](vps-readiness.md#saved-streamer_a-log-failures), a checkpoint saved at
 the comparison clock dropped that reading. Pairs ending earlier never re-enter a
 window's gains. Duplicate-detection sets, quarantine anchors and level context
 are kept exactly, bounded by the existing 1,024-run and 65,536-attempt limits.
@@ -109,9 +109,9 @@ receipts, historical ETA inputs) and the resulting `player()` output.
 
 | Saved log (private) | Streamed steps | Full comparisons | Result |
 |---|---:|---:|---|
-| Emmies | 418 | 97 | exact |
-| Niru | 1,458 | 195 | exact |
-| Telfer1 | 1,874 | 250 | exact |
+| Streamer_F | 418 | 97 | exact |
+| CharE | 1,458 | 195 | exact |
+| Streamer_A | 1,874 | 250 | exact |
 
 Each sweep then advances the clock by 1 s, 10 min, 65 min, 2 h and 25 h without new
 captures, then regresses it. The logs contain missing and malformed OCR, level-ups,

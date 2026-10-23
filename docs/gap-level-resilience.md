@@ -8,7 +8,7 @@ This update changes read-time experimental interpretation and public presentatio
 It does not change capture, models, strict parsers, SQLite payloads/schema,
 requirements, character assignment or trusted accounting.
 
-## Saved Telfer1 reproduction
+## Saved Streamer_A reproduction
 
 The source is the `20261018T181128Z-26a1d13b` multi-stream run. Its coordinator
 was still appending during inspection, so the audit freezes attempts **1–55**,
@@ -122,11 +122,11 @@ dated pace communicate the available evidence without changing window semantics.
 node --test tools/*.test.mjs
 
 # New output name + unused localhost port; no Twitch request or capture.
-node tools/product.browser.mjs http://127.0.0.1:18972 private/gap-level-resilience/browser-new --verify-resilience telfer1
+node tools/product.browser.mjs http://127.0.0.1:18972 private/gap-level-resilience/browser-new --verify-resilience streamer_a
 
 # View persisted history read-only on a separate port; does not start capture.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --port 8766
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --port 8766
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
 ```
 
 Private evidence is in `private/gap-level-resilience/`: frozen prefix, its SHA-256,

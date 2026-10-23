@@ -324,7 +324,7 @@ and banner/chart labels. Strict windows still exclude every derived status;
 `level_events` from readers and trusted SQLite accounting are unchanged.
 
 **Measured on real saved captures (read-only, in memory):**
-- TriciaIsABirdy, 4 runs / 237 attempts: all `missing_hud`, 0 HUD candidates. No EXP
+- Streamer_C, 4 runs / 237 attempts: all `missing_hud`, 0 HUD candidates. No EXP
   text was read, so inference cannot help yet. `tools/adaptive_hud.py:layouts` requires
   an `LV` label token. If her overlay covers it, localization, not level inference, is
   the blocker. No frames or crops were saved to confirm this.
@@ -332,7 +332,7 @@ and banner/chart labels. Strict windows still exclude every derived status;
   frames get a level (2,861 `exp_derived`, 734 `retained_level`). All 3,561 frames
   where the readers also had a level agree (0 mismatches); 34 frames gain a level the
   readers lacked. Four idle runs (constant EXP) never confirm, by design.
-- Niru 56→57 (264 attempts, 5 runs): masked levels match the readers on 215/215
+- CharE 56→57 (264 attempts, 5 runs): masked levels match the readers on 215/215
   frames. The real wrap fell inside a capture gap, so 57 was re-confirmed from fresh
   pairs; the wrap path was not exercised by real data.
 

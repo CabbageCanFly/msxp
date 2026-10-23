@@ -38,7 +38,7 @@ Source: ignored `private/multi-alpha/runs/20261017T232522Z-d1ee1838/`.
 Both streams have 25 acquired frames and 23 uniquely localized HUDs. All attempts
 are retained. These are familiar development captures, not a new blinded benchmark.
 
-| Result | Telfer1 | Shiphtur |
+| Result | Streamer_A | CharB |
 |---|---:|---:|
 | Strict full pairs (unchanged) | 0 | 23 |
 | Strict percentage-only (unchanged) | 16 | 0 |
@@ -48,12 +48,12 @@ are retained. These are familiar development captures, not a new blinded benchma
 | First early numerical estimate | approximately 157K EXP/h | approximately 123K EXP/h |
 | Eligible five-minute comparison | none | none |
 
-Telfer1's eligible segments remain 5 readings / 79.93s and 6 / 99.93s;
-Shiphtur's remain 3 / 39.22s, 10 / 181.57s and 7 / 119.39s.
+Streamer_A's eligible segments remain 5 readings / 79.93s and 6 / 99.93s;
+CharB's remain 3 / 39.22s, 10 / 181.57s and 7 / 119.39s.
 The recovery does not artificially extend them: #14 has no qualifying level context.
-Telfer1 finishes with last-known level 65 from #19, about 120 seconds old at #25;
+Streamer_A finishes with last-known level 65 from #19, about 120 seconds old at #25;
 the latest percentage's actual level evidence remains unavailable. No numerical
-EXP estimate is supplied from that carried badge. Shiphtur finishes with supported
+EXP estimate is supplied from that carried badge. CharB finishes with supported
 57 and an eligible short segment; these become stale naturally when served now.
 
 ### `P[90.78%]`
@@ -78,12 +78,12 @@ identity: known wrong `74,050` and damaged/truncated digit controls remain relev
 
 The same bounded rule also exposes the older 55-attempt run's #26 `P[75.24%]`.
 That run has 40 public updates instead of 39; suspicious #10, #17 and #42 remain
-withheld. The earlier 41-frame Shiphtur trial retains all 41 public updates.
+withheld. The earlier 41-frame CharB trial retains all 41 public updates.
 No newly proven numerical correctness is claimed from any grammar proposal.
 
 ### Scheduling status
 
-Recorded maximum start delay: Telfer1 0.007s, Shiphtur 5.536s. Longest actual receipt
+Recorded maximum start delay: Streamer_A 0.007s, CharB 5.536s. Longest actual receipt
 interval: 20.006s / 21.694s, with zero skipped deadlines. Waiting status now tolerates
 half a requested interval, bounded to 2–15s (10s at this cadence). Beyond that it
 still reports delayed capture. Running-job timeouts and capture failures remain
@@ -108,14 +108,14 @@ checks pending decrease, confirmation and recovery using clearly synthetic contr
 
 ```powershell
 # View the real saved database; no capture begins. Old readings are correctly stale.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --port 8766
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --port 8766
 Start-Process 'http://127.0.0.1:8766/'
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
-Start-Process 'http://127.0.0.1:8766/live/overlay/telfer1'
-Start-Process 'http://127.0.0.1:8766/dashboard/telfer1'
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
+Start-Process 'http://127.0.0.1:8766/live/overlay/streamer_a'
+Start-Process 'http://127.0.0.1:8766/dashboard/streamer_a'
 
 # Reproduce the private as-of replay; choose a NEW output directory each time.
-node tools/product.browser.mjs http://127.0.0.1:8778 private/live-usability/review-new --verify-usability telfer1
+node tools/product.browser.mjs http://127.0.0.1:8778 private/live-usability/review-new --verify-usability streamer_a
 node --test tools/*.test.mjs
 .\.venv\Scripts\python -m pytest -q -rs
 ```
