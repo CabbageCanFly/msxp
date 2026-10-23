@@ -121,7 +121,7 @@ ignored under `private/windows-worker-timeout-20261019/`. Only the test and this
 audit document changed. No production subprocess/OCR cleanup defect was
 demonstrated, and none was modified. No full-suite or parallel rerun was needed.
 
-## Niru publisher parity follow-up
+## CharE publisher parity follow-up
 
 The reported sequential failure retained 66 runs and 3,055 attempts, ending at
 replay step 3,120 (`7bb8ee75528c4a2899ea7cfb21607a0a:10`,
@@ -145,17 +145,17 @@ tests read each JSONL once at the start and retain the full comparison; failures
 write the first differing path/values, replay context, revision keys and publisher
 error status to `publication-mismatch.json` under that test's temporary directory.
 Private snapshots, hashes and detailed results stay under
-`private/niru-publisher-parity/`.
+`private/streamer_e-publisher-parity/`.
 
 Verification: the forced-expiry retained-prefix replay failed before the clock fix
-and passed afterward in 78.59 s, with all 17 comparisons equal. The normal Niru
+and passed afterward in 78.59 s, with all 17 comparisons equal. The normal CharE
 publisher test passed in 98.16 s. The focused publisher, checkpoint, ETA and mocked
 Twitch-status run passed 95 tests (six saved-log sweep cases deselected). No skips
 occurred. Retained input/database hashes stayed unchanged. No full-suite rerun or
-repeat of the already-passing expensive Niru incremental replay was needed.
+repeat of the already-passing expensive CharE incremental replay was needed.
 
 A global 120-second pytest-timeout is too short for some legitimate saved-history
-replays: the operator measured the passing Niru incremental replay at 265.54 s.
+replays: the operator measured the passing CharE incremental replay at 265.54 s.
 Use `--timeout=0` for these parity investigations; no timeout configuration or
 passing incremental-history test was changed.
 
@@ -169,7 +169,7 @@ Operator-reported approximate elapsed times:
 | Two (`-n 2`) | 9 min |
 | Eight (`-n 8 --dist=load`) | 5-6 min in a prior successful run |
 
-Later eight-worker testing exposed the Niru publisher test-clock race described
+Later eight-worker testing exposed the CharE publisher test-clock race described
 above. It also reproduced sequentially, so it was not an xdist-only failure. The
 fix was verified with focused regressions and saved-history replays; these timings
 are not a new full-suite benchmark after that fix. Saved inputs, machine load and
@@ -248,6 +248,6 @@ To benchmark other worker counts, repeat this workflow sequentially with fresh
 temporary/cache roots, adding `-n 0`, `-n 2` or another explicit count to the first
 invocation. Keep the three process cases separate, use the same stable inputs,
 and compare passing runs with matching test counts and skips. Do not introduce a
-global 120-second timeout: the Niru incremental-history replay legitimately took
+global 120-second timeout: the CharE incremental-history replay legitimately took
 265.54 seconds. If a local pytest-timeout setting imposes such a limit, override it
 with `--timeout=0` for these runs.

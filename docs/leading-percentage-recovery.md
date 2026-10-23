@@ -1,6 +1,6 @@
 # Leading `1` in percentage-only fields
 
-The saved 35-attempt Telfer1 run `20261019T000710Z-bda4f628` contains three
+The saved 35-attempt Streamer_A run `20261019T000710Z-bda4f628` contains three
 instances of the same punctuation confusion:
 
 | Attempt | Original OCR | Provisional crop inspection | Prior strict context |
@@ -57,8 +57,8 @@ causal gate; there is no general `I`/digit substitution. Previously rejected
 
 ### Interrupted 2026-10-20 run
 
-Read-only projection of the complete 60-attempt saved Telfer1 log under
-`20261020T214039Z-1781b4bb/telfer1/01f9f3a2328e42128e182408ffae84ff/`:
+Read-only projection of the complete 60-attempt saved Streamer_A log under
+`20261020T214039Z-1781b4bb/streamer_a/01f9f3a2328e42128e182408ffae84ff/`:
 
 | Attempt | UTC receipt | Evidence / result |
 |---|---|---|
@@ -116,8 +116,8 @@ for the narrow grammar/continuity regressions; private-log cases skip when absen
 | Original strict full EXP pairs | 0 | 0 |
 
 Prefix-only replay at attempts 4, 12 and 24 gives the same decision as the full
-run; later percentages are never consulted. Telfer1's earlier wrong whole pair
-at #21 remains vetoed. Existing Shiphtur stale-frame/reacquisition and numerical
+run; later percentages are never consulted. Streamer_A's earlier wrong whole pair
+at #21 remains vetoed. Existing CharB stale-frame/reacquisition and numerical
 replay assertions remain unchanged. No trusted observations were inserted.
 
 Syntactic coverage is not verified accuracy. A plausible wrong percentage can

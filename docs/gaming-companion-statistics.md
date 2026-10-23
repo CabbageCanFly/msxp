@@ -100,13 +100,13 @@ periods and never establishes exact all-day earnings, daily totals or session av
 
 ## Actual saved evidence and validation
 
-Replayed all 172 Telfer1 / 171 Shiphtur attempts from
+Replayed all 172 Streamer_A / 171 CharB attempts from
 `private/multi-alpha/runs/20261018T005419Z-6d0af805/` without new inference/capture.
 All six input hashes match the prior audit. Strict five-minute availability remains
 35 / 21 checkpoints; strict ten/fifteen/thirty remain unavailable. These are
 availability counts on familiar data, not independent OCR accuracy measurements.
 
-| Telfer1 UTC | Five-minute recent EXP | Previous short pace | New sampled pace |
+| Streamer_A UTC | Five-minute recent EXP | Previous short pace | New sampled pace |
 |---|---|---:|---:|
 | 01:03:14 | +1.02 pp → ~16,998 EXP (`+17K`) | ~220K/h | ~209K/h; 273 captured seconds in 299s, 23 readings |
 | 01:04:58 | +1.04 pp → ~17,332 EXP | ~216K/h | ~211K/h; short gaps excluded |
@@ -120,14 +120,14 @@ display and first estimates without cross-level gain intervals.
 
 ```powershell
 # Serve existing actual data. Starting HTTP does not initiate Twitch capture.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --port 8766
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
-Start-Process 'http://127.0.0.1:8766/live/overlay/telfer1'
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --port 8766
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
+Start-Process 'http://127.0.0.1:8766/live/overlay/streamer_a'
 
 # Choose new private output directories. Actual SQLite + HTTP polling, no API mocks.
-node tools/product.browser.mjs http://127.0.0.1:8781 private/gaming-companion/review-new --verify-windows telfer1
-node tools/product.browser.mjs http://127.0.0.1:8782 private/gaming-companion/loss-new --verify-quarantine telfer1
-node tools/product.browser.mjs http://127.0.0.1:8783 private/gaming-companion/level-up-new --verify-level-up telfer1
+node tools/product.browser.mjs http://127.0.0.1:8781 private/gaming-companion/review-new --verify-windows streamer_a
+node tools/product.browser.mjs http://127.0.0.1:8782 private/gaming-companion/loss-new --verify-quarantine streamer_a
+node tools/product.browser.mjs http://127.0.0.1:8783 private/gaming-companion/level-up-new --verify-level-up streamer_a
 .\.venv\Scripts\python -m pytest -q -rs
 node --test tools/*.test.mjs
 ```

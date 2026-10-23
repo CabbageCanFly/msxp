@@ -59,7 +59,7 @@ command writes at most 20 seconds of playback into ignored private storage. Pick
 currently live channel whose capture is authorized. It does not start a coordinator:
 
 ```powershell
-New-Item -ItemType Directory -Force private/streamlink | Out-Null; .\.venv\Scripts\python -m exp_tracker.streamlink_playback --no-config --no-plugin-cache --no-plugin-sideloading --webbrowser false --loglevel error --http-timeout 10 --stream-timeout 15 --stream-segment-timeout 10 --stream-segment-attempts 2 --stream-segment-threads 1 --stream-segmented-duration 20 --output private/streamlink/turbo-trial.ts https://www.twitch.tv/2ndsequence worst
+New-Item -ItemType Directory -Force private/streamlink | Out-Null; .\.venv\Scripts\python -m exp_tracker.streamlink_playback --no-config --no-plugin-cache --no-plugin-sideloading --webbrowser false --loglevel error --http-timeout 10 --stream-timeout 15 --stream-segment-timeout 10 --stream-segment-attempts 2 --stream-segment-threads 1 --stream-segmented-duration 20 --output private/streamlink/turbo-trial.ts https://www.twitch.tv/streamer_g worst
 ```
 
 Do not add `--force`; use a new output filename for another trial. If it stalls,

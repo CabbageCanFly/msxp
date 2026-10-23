@@ -74,14 +74,14 @@ from the VPS. From the repository root, start the API in one PowerShell terminal
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-& .\.venv\Scripts\python.exe -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --port 8765 --public-only --cors-origin https://msxp.pages.dev --publication-cache private/multi-alpha/publication-cache/publications.sqlite3 --runtime-state private/multi-alpha/publication-cache/capture-runtime.json
+& .\.venv\Scripts\python.exe -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --port 8765 --public-only --cors-origin https://msxp.pages.dev --publication-cache private/multi-alpha/publication-cache/publications.sqlite3 --runtime-state private/multi-alpha/publication-cache/capture-runtime.json
 ```
 
 In another terminal, start the sole capture coordinator. This opens live Twitch
 connections; use it only for the already reviewed local roster:
 
 ```powershell
-& .\.venv\Scripts\python.exe tools/multi_alpha.py --db-roster private/multi-alpha/live-telfer-shiphtur.sqlite3 --continuous --capture-only --runtime-state private/multi-alpha/publication-cache/capture-runtime.json --ocr-python private/rapidocr/.venv/Scripts/python.exe --workers 6 --stagger-capture --resident-neural --resident-tesseract
+& .\.venv\Scripts\python.exe tools/multi_alpha.py --db-roster private/multi-alpha/live-local.sqlite3 --continuous --capture-only --runtime-state private/multi-alpha/publication-cache/capture-runtime.json --ocr-python private/rapidocr/.venv/Scripts/python.exe --workers 6 --stagger-capture --resident-neural --resident-tesseract
 ```
 
 Append `--check` to that capture command for preflight only. Ctrl+C in capture's

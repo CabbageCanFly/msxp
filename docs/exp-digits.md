@@ -2,7 +2,7 @@
 
 **A modest accuracy improvement, still an isolated experiment.** Complete EXP +
 percentage recognition rises from 41 to 50 on the 117 saved recording crops,
-and from 14 to 15 on the original 17-frame Telfer trial. No incorrect EXP,
+and from 14 to 15 on the original 17-frame CharA trial. No incorrect EXP,
 percentage or complete readings were accepted in these evaluations.
 
 ## What changed
@@ -28,7 +28,7 @@ Scores are geometric distances, not calibrated probabilities.
 
 No additional calibration images were introduced. The private bank contains
 128 visually reviewed character boxes from the existing labeled development
-material: 89 native recording characters and 39 Telfer characters, including
+material: 89 native recording characters and 39 CharA characters, including
 punctuation. These reuse two native geometries, not a larger collection of whole
 field profiles. Bracket templates are reused unchanged. The public loader accepts
 relative image/profile paths and requires development labels and a complete
@@ -54,7 +54,7 @@ results and detailed evidence were repeated identically after that safety fix.
 
 **These are same-recording/same-stream development comparisons.** The eleven
 recording development timestamps remain disjoint from the frozen 117 labels,
-but share font, encoder and often nearly identical rasters. The Telfer trial
+but share font, encoder and often nearly identical rasters. The CharA trial
 was not used for calibration; it shares the streamer/rendering geometry of its
 older development captures. Its 14 accepted values had been reviewed by the
 user; all available crops were visually reviewed here before evaluation,
@@ -82,16 +82,16 @@ with pixel levels, 23 to 27. Locator failures remain unavailable. The existing
 locator was not changed or rerun on the recording. Cached level-only outputs
 were joined for scoring; EXP rejection is never evidence that a level is correct.
 
-On **Telfer**, both new modes yield **15 / 0 / 2** for numeric EXP, percentage,
+On **CharA**, both new modes yield **15 / 0 / 2** for numeric EXP, percentage,
 complete EXP and complete readings with the unchanged adaptive Tesseract level
 helper, versus baseline **14 / 0 / 3**. All 14 old successes are retained. The
-recording-only pixel level profile rejects every Telfer level crop; combining it
+recording-only pixel level profile rejects every CharA level crop; combining it
 would yield zero full readings. No new level calibration was performed.
 
 Recording gains are not monotonic: 14 new complete successes and five losses.
 By EXP digit count, default complete results are **21/36** (one digit), **10/29**
 (two), **19/41** (three), and **0/10** (four); all other cases are unavailable.
-Telfer's six-digit values work in its supported smaller raster. Width alone is
+CharA's six-digit values work in its supported smaller raster. Width alone is
 therefore not the cause: rendering variation, punctuation and ambiguity interact.
 
 Concrete examples, pictured in `private/exp-digits/results-examples.png`:
@@ -107,7 +107,7 @@ Concrete examples, pictured in `private/exp-digits/results-examples.png`:
   percent glyph differs too much. The known wrong Tesseract level remains unsafe.
 - 1740 s: **1,169 / 94.12%** remains unavailable. Several glyphs exceed distance
   limits. Near 1769.5 s, a bracket cannot be verified either.
-- Telfer frame 16: newly correct **879,440 / 72.68%**, including both verified
+- CharA frame 16: newly correct **879,440 / 72.68%**, including both verified
   brackets. Frame 3 remains rejected; frame 6 has no EXP evidence.
 
 `samples/maplestory-classic-stream4.png` exists and was tested without calibration.
@@ -127,7 +127,7 @@ the earlier 3.18 ms baseline used tighter EXP crops and is not this comparison.
 | EXP + percentage only | Baseline mean / p95 | Default mean / p95 | Default total Python CPU | Default peak RSS |
 | --- | --- | --- | --- | --- |
 | Recording, 117 | 18.62 / 24.46 ms | **20.09 / 26.23 ms** | 2.266 s | 32.24 MiB |
-| Telfer, 17 | 2.12 / 2.79 ms | **6.10 / 9.57 ms** | 0.094 s | 30.21 MiB |
+| CharA, 17 | 2.12 / 2.79 ms | **6.10 / 9.57 ms** | 0.094 s | 30.21 MiB |
 
 Baseline peak RSS was 31.32 and 29.86 MiB respectively. The initial automatic-ROI
 run averaged 14.44 ms, peak 35.14 MiB. RSS includes interpreter, prepared crops
@@ -143,7 +143,7 @@ The private bank and evaluation files are intentionally absent from public Git.
 .\.venv\Scripts\python tools/exp_digits.py artifacts/green-test-20261015-215403/0016/exp-crop.png --bank private/exp-digits/bank.json
 .\.venv\Scripts\python tools/evaluate_exp_digits.py private/levelup-evaluation/manifest.json --engine valleys --bank private/exp-digits/bank.json --levels private/exp-digits/levels-fixed.json --output private/exp-digits/recording-repeat.json
 .\.venv\Scripts\python tools/evaluate_exp_digits.py private/levelup-evaluation/manifest.json --engine baseline --profile private/adaptive-ocr/native-profile.json --levels private/exp-digits/levels-fixed.json --output private/exp-digits/baseline-repeat.json
-.\.venv\Scripts\python tools/evaluate_exp_digits.py private/exp-digits/telfer-manifest.json --engine valleys --bank private/exp-digits/bank.json --levels private/exp-digits/levels-telfer.json --output private/exp-digits/telfer-repeat.json
+.\.venv\Scripts\python tools/evaluate_exp_digits.py private/exp-digits/streamer_a-manifest.json --engine valleys --bank private/exp-digits/bank.json --levels private/exp-digits/levels-streamer_a.json --output private/exp-digits/streamer_a-repeat.json
 # Use --engine columns for the first segmentation method.
 # For automatic recording regions, replace --levels with levels-adaptive.json
 # and add --adaptive-results private/adaptive-ocr/benchmark-final.json (requires FFmpeg).
@@ -199,7 +199,7 @@ digit-like components are rejected. Attempt diagnostics explicitly mark inferred
 symbols; these candidates do not enter production trust or persistence.
 
 One rule was fixed using synthetic positive/negative tests before the frozen
-recording/Telfer runs; no threshold sweep or new templates were used. All figures
+recording/CharA runs; no threshold sweep or new templates were used. All figures
 below have **zero incorrect numeric, percentage or complete outputs**.
 
 | Correct readings | Strict per-character mode | Grammar-assisted mode |
@@ -210,12 +210,12 @@ below have **zero incorrect numeric, percentage or complete outputs**.
 | Complete with unchanged pixel level recognizer | 31 | **32** |
 | Percentage, previous automatic regions | 55 | **59** |
 | Complete EXP + percentage, automatic regions | 46 | **50** |
-| Telfer percentage and complete EXP, 17 frames | 15 | **15** |
+| CharA percentage and complete EXP, 17 frames | 15 | **15** |
 
 No old successes were lost. The four fixed-crop recoveries are 142.5/142.75 s
 (`0 / 0.00%`), 145 s (`4 / 7.02%`) and 1770 s (`1 / 0.06%`). Their percent
 symbols differ by four or five pixels. **All four recoveries infer `%`; none
-requires inferred `]`.** Telfer gains none and retains its prior 15 readings.
+requires inferred `]`.** CharA gains none and retains its prior 15 readings.
 
 Of 53 still-unavailable recording percentages, **47 cannot verify the numeric
 prefix/decimal/segmentation**, five lack usable bracket/field boundaries, and
@@ -228,18 +228,18 @@ remain unavailable rather than exposing the known incorrect Tesseract levels.
 
 Mean EXP processing increases from 20.28 to **51.48 ms** on the recording, p95
 70.90 ms, sampled CPU 5.578 s across 117 attempts. Peak RSS is **32.12 MiB**.
-Telfer averages 25.16 ms, peak 30.40 MiB. Acquisition, localization, level OCR,
+CharA averages 25.16 ms, peak 30.40 MiB. Acquisition, localization, level OCR,
 image loading and bank setup are excluded. No Linux/live performance was tested.
 
 ```powershell
 .\.venv\Scripts\python tools/exp_digits.py private/levelup-evaluation/evaluation-crops/recording-crops/142500/exp-crop.png --bank private/exp-digits/bank.json --grammar-suffix --localized
 .\.venv\Scripts\python tools/evaluate_exp_digits.py private/levelup-evaluation/manifest.json --engine grammar --bank private/exp-digits/bank.json --levels private/exp-digits/levels-fixed.json --output private/grammar-suffix/repeat-recording.json
-.\.venv\Scripts\python tools/evaluate_exp_digits.py private/exp-digits/telfer-manifest.json --engine grammar --bank private/exp-digits/bank.json --levels private/exp-digits/levels-telfer.json --output private/grammar-suffix/repeat-telfer.json
+.\.venv\Scripts\python tools/evaluate_exp_digits.py private/exp-digits/streamer_a-manifest.json --engine grammar --bank private/exp-digits/bank.json --levels private/exp-digits/levels-streamer_a.json --output private/grammar-suffix/repeat-streamer_a.json
 # Compare using --engine valleys; use the same inputs and a separate output file.
 ```
 
 Private evidence under `private/grammar-suffix/` includes `freeze.json`,
-`recording.json`, `recording-adaptive.json`, `telfer.json` and
+`recording.json`, `recording-adaptive.json`, `streamer_a.json` and
 `remaining-failures.json`. Frozen labels, development bank and original profiles
 are unchanged. This remains a correlated same-recording comparison.
 
@@ -250,6 +250,6 @@ unknown digits, and all ten digits substituted for `%` or for a white/green `]`.
 Default strict recognition and production source remain unchanged.
 
 The improvement is small: four extra complete pairs and no transfer gain on
-Telfer. Keep the optional experiment; proceed with the proposed small grayscale
+CharA. Keep the optional experiment; proceed with the proposed small grayscale
 classifier experiment to address numerical glyph variation, retaining suffix
 evidence and strict unknown rejection. Do not keep relaxing punctuation bounds.

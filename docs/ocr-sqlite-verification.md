@@ -66,12 +66,12 @@ UTC timestamp. On a new database the character ID below is 1; otherwise use the
 ID returned by `character`.
 
 ```powershell
-.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel telfer1 init
-.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel telfer1 character "Saved trial character"
-.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel telfer1 select 1
-.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel telfer1 start --at 2026-10-16T01:54:04Z
-.\.venv\Scripts\python tools/replay_capture_crops.py artifacts/green-test-20261015-215403.jsonl artifacts/green-test-20261015-215403 --glyph-profile private/ocr-evaluation/glyph-profile-green-experimental.json --database artifacts/ocr-integration.sqlite3 --tracking-channel telfer1
-.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel telfer1 state
+.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel streamer_a init
+.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel streamer_a character "Saved trial character"
+.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel streamer_a select 1
+.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel streamer_a start --at 2026-10-16T01:54:04Z
+.\.venv\Scripts\python tools/replay_capture_crops.py artifacts/green-test-20261015-215403.jsonl artifacts/green-test-20261015-215403 --glyph-profile private/ocr-evaluation/glyph-profile-green-experimental.json --database artifacts/ocr-integration.sqlite3 --tracking-channel streamer_a
+.\.venv\Scripts\python -m exp_tracker.tracking --db artifacts/ocr-integration.sqlite3 --channel streamer_a state
 ```
 
 These exact commands were run. Historical state is correctly stale now. Rerunning
@@ -109,7 +109,7 @@ For actual game tracking:
 
 4. Inspect consented screenshots with normalized ROIs and `--glyph-profile`.
    Require accepted **pixel** EXP evidence, not merely an accepted Tesseract
-   candidate. Calibrate ROIs for the actual layout; the supplied telfer1 config
+   candidate. Calibrate ROIs for the actual layout; the supplied streamer_a config
    only matches the existing saved layout. Do not weaken thresholds for coverage.
 5. Select a character/start a session and pass the model explicitly to capture.
    Missing, inaccessible, incompatible-version or incomplete profiles fail setup.

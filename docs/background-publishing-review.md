@@ -33,7 +33,7 @@ background argument and wait for cold publication before checking live activity.
 - Concurrent responses share per-key serialization. Registration, cache reads/writes
   and cleanup now use the same publication lock; expensive presentation stays outside it.
 - The existing background rotation/restart/loss/level/source test and exact saved
-  Emmies, Niru and Telfer1 reference comparisons remain in the regression suite.
+  Streamer_F, CharE and Streamer_A reference comparisons remain in the regression suite.
 - No numerical policy, inference, quarantine, checkpoint, historical ETA, trusted
   accounting, source evidence or database schema was changed.
 
@@ -62,7 +62,7 @@ directory.
   run: **113 passed, 3 deliberately deselected** (the saved publisher sweeps already
   passed in the full run), 55.52 s. No sample skips in either run.
 - Node: **87 passed, 0 skipped**, including both warming/replacement identity cases.
-- Actual Chrome/SQLite: `--verify-tracked-exp emmies` passed, **13 screenshots**,
+- Actual Chrome/SQLite: `--verify-tracked-exp streamer_f` passed, **13 screenshots**,
   desktop/mobile, polling and transparent 500×160 OBS, under
   `private/publisher-review-browser-03`. The 20-viewer benchmark uses background mode;
   this browser replay uses the existing deterministic inline fixture.
@@ -70,7 +70,7 @@ directory.
   `Not complete yet`; the no-coordinator fixture returns historical `Paused` instead.
   No assertion was weakened. That older harness's activity-state assumption remains
   to be reconciled; the current saved-log browser mode above passes. An initial
-  invocation also used the wrong fixture channel and was rerun with `telfer1`.
+  invocation also used the wrong fixture channel and was rerun with `streamer_a`.
 - `git diff --check` passes. No Twitch capture, evidence mutation, commit or push.
 
 Commands:
@@ -79,7 +79,7 @@ Commands:
 .\.venv\Scripts\python -m pytest -q
 .\.venv\Scripts\python -m pytest tests/test_publisher.py tests/test_server.py tests/test_local_alpha.py tests/test_multi_alpha.py -q -k "not saved_publications"
 node --test tools/*.test.mjs
-node tools/product.browser.mjs http://127.0.0.1:8879 private/publisher-review-browser-03 --verify-tracked-exp emmies
+node tools/product.browser.mjs http://127.0.0.1:8879 private/publisher-review-browser-03 --verify-tracked-exp streamer_f
 ```
 
 Use a fresh ignored browser/benchmark output directory when repeating commands.

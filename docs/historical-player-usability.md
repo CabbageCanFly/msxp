@@ -11,12 +11,12 @@ paired with a newer percentage. Retention checkpoints preserve this display afte
 raw attempts expire. Missing source data or a replay safety limit cannot be bypassed
 to reconstruct an unavailable reading.
 
-## Why Shiphtur showed dashes
+## Why CharB showed dashes
 
 The 90-attempt two-stream capture under
 `private/multi-alpha/runs/20261018T043432Z-c0b93f52/` completed a clean 60-attempt
 rotation. It did not fail acquisition. However, recognition/level evidence still
-has gaps: the final Shiphtur attempt has no numeric reading, and attempt 27 of
+has gaps: the final CharB attempt has no numeric reading, and attempt 27 of
 the second run has no supported level. The latest observed sequence therefore
 contains only attempts 28–29: **two readings / 20.622s**, insufficient for the
 existing three-reading / 30s observed-window summary. Staleness was not the
@@ -34,12 +34,12 @@ At capture completion, +5m and +78m:
 
 | Channel | Selected period | Saved comparison | Actual span |
 |---|---|---|---|
-| Shiphtur | 5/10/15/30 min | ~3,506 EXP, 8 readings | 139.684s |
-| Telfer1 | 5 min | ~17,998 EXP | 280.203s |
-| Telfer1 | 10 min | ~37,829 EXP | 580.045s |
-| Telfer1 | 15/30 min | ~40,162 EXP | 639.955s |
+| CharB | 5/10/15/30 min | ~3,506 EXP, 8 readings | 139.684s |
+| Streamer_A | 5 min | ~17,998 EXP | 280.203s |
+| Streamer_A | 10 min | ~37,829 EXP | 580.045s |
+| Streamer_A | 15/30 min | ~40,162 EXP | 639.955s |
 
-Shiphtur's retained interval is **05:00:18.250966–05:02:37.934711 UTC**.
+CharB's retained interval is **05:00:18.250966–05:02:37.934711 UTC**.
 All four selections show that same latest eligible piece; there is no supported
 longer comparison across the late resets. None of these completed captures gains
 strict full-window/ranking eligibility. It is not a new accuracy benchmark.
@@ -47,10 +47,10 @@ strict full-window/ranking eligibility. It is not a new accuracy benchmark.
 When the final completed-capture tail is too short, saved pace likewise retains
 the latest earlier eligible trend within five minutes, from the same supported
 level and rotation chain. It uses the existing captured-interval mathematics,
-excluding missing intervals from gain and time. Shiphtur now shows approximately
+excluding missing intervals from gain and time. CharB now shows approximately
 **88,864 EXP/hour / 8 readings / 139.684s**, dated at 05:02:37 UTC. This is a
 broader saved sample, not a claim of improved numerical correctness or a live rate.
-Telfer1 retains its existing ~230,833 EXP/hour trend over 200.124 captured seconds
+Streamer_A retains its existing ~230,833 EXP/hour trend over 200.124 captured seconds
 within 280.203s. Completed/interrupted trends are inactive and expose no live ETA.
 
 Standalone HTTP can report **Capture finished** from a recorded completion summary,
@@ -83,7 +83,7 @@ The existing native SVG titles/aria descriptions remain available.
 Private `private/historical-usability/audit.json` compares the committed pre-task
 projection with the new one at completion, +5m and +78m, asserting unchanged strict
 eligibility. All six input hashes are preserved. Projection cost was ~32–33ms for
-Shiphtur and ~55–59ms for Telfer1 on this workstation. Ten measured 30-bar redraws
+CharB and ~55–59ms for Streamer_A on this workstation. Ten measured 30-bar redraws
 were ~1.3–3.4ms in the final browser check; not an estimate of device/VPS capacity.
 
 SQLite-backed Chrome checks replay all 180 original attempts into a fresh private
@@ -96,12 +96,12 @@ The offline fixture's explicit character label is “Saved review”.
 
 ```powershell
 # Serve existing real data; does not start Twitch capture.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --port 8766
-Start-Process 'http://127.0.0.1:8766/stream/shiphtur'
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --port 8766
+Start-Process 'http://127.0.0.1:8766/stream/streamer_b'
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
 
 # Choose a NEW private output directory.
-node tools/product.browser.mjs http://127.0.0.1:8781 private/historical-usability/review-new --verify-historical shiphtur
+node tools/product.browser.mjs http://127.0.0.1:8781 private/historical-usability/review-new --verify-historical streamer_b
 .\.venv\Scripts\python -m pytest -q -rs
 node --test tools/*.test.mjs
 ```
@@ -109,7 +109,7 @@ node --test tools/*.test.mjs
 Screenshots are private under `private/historical-usability/browser-validated/`:
 `historical-desktop.png`, `historical-mobile.png`, `historical-homepage.png`,
 `bar-tooltip-desktop.png`, `bar-tooltip-mobile.png`, `point-tooltip-desktop.png`,
-`telfer-historical-desktop.png` and `historical-overlay.png`.
+`streamer_a-historical-desktop.png` and `historical-overlay.png`.
 
 Changed files: `src/exp_tracker/product.py`, `diagnostics.py`,
 `web/product.js`, `web/product.css`; `tests/test_historical_product.py`;

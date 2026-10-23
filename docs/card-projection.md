@@ -35,7 +35,7 @@ comparisons, early and responsive pace, level-up events, quarantine state and th
 - Synthetic: after **every** append across rotation, manual restart, duplicate frame,
   loss and recovery, level-up and source change, then +1 s, 11 s, 5 min, 1 h, 65 min and
   24 h without new captures. Exact.
-- Saved Emmies, Niru and Telfer1 logs: every 80 streamed records and at +0 s, 11 s,
+- Saved Streamer_F, CharE and Streamer_A logs: every 80 streamed records and at +0 s, 11 s,
   65 min and 25 h. Exact. (A 40-record stride was also run once, exact.)
 - The grammar memo equals the parser for strict, recovered, symbol, empty, None, over-long
   and unhashable inputs under every completeness value.

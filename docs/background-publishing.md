@@ -113,7 +113,7 @@ clock. It is composed exactly as the removed request path did.
   (attempts 44–46), source change, then time-only expiry at +11 s, 31 s, 65 min and
   25 h. The card is rebuilt while windows can age and reused once they cannot. Exact,
   >20 comparisons.
-- **Saved Emmies, Niru and Telfer1 logs**, streamed with publications every 60 records:
+- **Saved Streamer_F, CharE and Streamer_A logs**, streamed with publications every 60 records:
   exact every 240 records and after +0 s, 11 s, 65 min and 25 h, with nested totals
   checked.
 - **Concurrency:** 40 HTTP requests from 20 simultaneous clients during a deliberately

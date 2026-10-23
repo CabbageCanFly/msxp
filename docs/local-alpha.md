@@ -21,12 +21,12 @@ Restart the server to inspect existing observations; no recapture or migration.
 From the repository root, with the existing capture dependencies/private models:
 
 ```powershell
-.\.venv\Scripts\python tools/local_alpha.py --channel telfer1 --character "Main" --authorized --experimental-neural-level --count 3 --interval 15 --save-crops
+.\.venv\Scripts\python tools/local_alpha.py --channel streamer_a --character "Main" --authorized --experimental-neural-level --count 3 --interval 15 --save-crops
 ```
 
 Run this only for a permitted trial. Open the **exact dashboard URL printed by the
-launcher**, normally `http://127.0.0.1:8765/dashboard/telfer1`. It initializes
-`private/local-alpha/live/telfer1.sqlite3` when absent, explicitly selects `Main`,
+launcher**, normally `http://127.0.0.1:8765/dashboard/streamer_a`. It initializes
+`private/local-alpha/live/streamer_a.sqlite3` when absent, explicitly selects `Main`,
 starts/reuses its session, starts localhost HTTP and then requests bounded capture.
 No streamer installation or OBS setup is needed. Without the neural-level flag,
 that stage remains off; Tesseract and EXP diagnostics still run.
@@ -66,21 +66,21 @@ Exit status: **0** = at least one locally fresh strict diagnostic observation,
 stays open, the final status is returned when it closes; a PowerShell wrapper may
 map native nonzero exits to 1, so inspect `$LASTEXITCODE` and the actual summary.
 
-## Existing Telfer1 data versus a new live trial
+## Existing Streamer_A data versus a new live trial
 
 These are different databases; the dashboard URL cannot switch databases:
 
 | File under `private/local-alpha/` | Channel | Evidence at inspection |
 | --- | --- | --- |
-| `replay-01.sqlite3` | `niru` | 12 saved attempts |
-| `replay-a-01.sqlite3` | `telfer1` | 12 saved attempts |
-| `telfer1-live-01.sqlite3` | `telfer1` | Configured character/session, zero runs/attempts |
+| `replay-01.sqlite3` | `streamer_e` | 12 saved attempts |
+| `replay-a-01.sqlite3` | `streamer_a` | 12 saved attempts |
+| `streamer_a-live-01.sqlite3` | `streamer_a` | Configured character/session, zero runs/attempts |
 
 The third file now exists, but contains no capture attempt to diagnose. This does
 not show that Twitch was offline or denied access. No new Twitch trial was run
 during launcher development.
 
-To view the **saved Telfer1** example, terminal 1:
+To view the **saved Streamer_A** example, terminal 1:
 
 ```powershell
 .\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/replay-a-01.sqlite3 --diagnostic-dashboard
@@ -89,7 +89,7 @@ To view the **saved Telfer1** example, terminal 1:
 Terminal 2:
 
 ```powershell
-Start-Process 'http://127.0.0.1:8765/dashboard/telfer1'
+Start-Process 'http://127.0.0.1:8765/dashboard/streamer_a'
 ```
 
 This is an old saved recording, visibly stale. **Starting HTTP does not capture
@@ -102,7 +102,7 @@ or overwrite logs; retain every attempt for later blinded review.
 
 | Symptom | Meaning / next action |
 | --- | --- |
-| Wrong dashboard/channel | Unknown channels now return 404 with configured channels. Check `--db`; use `replay-a-01.sqlite3` for saved Telfer1. |
+| Wrong dashboard/channel | Unknown channels now return 404 with configured channels. Check `--db`; use `replay-a-01.sqlite3` for saved Streamer_A. |
 | Only HTTP is running | No capture is implied. Use the launcher or the separate capture command below. |
 | Port already occupied | Stop the previous server or choose `--port 8766`. The launcher does not reuse an unidentified server. No capture starts after a bind failure. |
 | Character/database mismatch | No reassignment is performed. Use the matching existing selection/database or a fresh live path. |

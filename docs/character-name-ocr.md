@@ -58,7 +58,7 @@ $rapid = "$repo\private\rapidocr\.venv\Scripts\python.exe"
 & $python tools/character_name_ocr.py "$repo\private\cross-stream\stream3\frames\0000.png" "$repo\private\cross-stream\stream3\frames\0022.png" --engine rapidocr --rapid-python $rapid --output private/character-name/images.json
 
 # Smallest fallback when localization fails: operator marks the own-name line.
-# This measured example proposes emmies; coordinates are SOURCE IMAGE pixels.
+# This measured example proposes streamer_f; coordinates are SOURCE IMAGE pixels.
 & $python tools/character_name_ocr.py "$repo\private\levelup-evaluation\overview-0000.png" "$repo\private\levelup-evaluation\overview-1200.png" --region 480,991,651,1015 --owner-field --engine rapidocr --rapid-python $rapid --output private/character-name/manual.json
 ```
 
@@ -95,7 +95,7 @@ means setup/input failure. An engine failure is retained in that attempt's `erro
 | Character information window | No representative own-information window was found in this bounded selection | Untested; operator must establish whose window it is |
 | Chat/stream overlays | Account names, speakers and stale tracker text need not be the current character | Not an ownership source |
 
-Screenshot 2 shows the streamer as **Ryambi** in the status panel and on a floating
+Screenshot 2 shows the streamer as **CharH** in the status panel and on a floating
 nameplate, alongside **Whoami**, **Stammi**, a **Black Pig** pet and a party list.
 Whoami has an orange nameplate; color or the most confident name is insufficient.
 The five screenshot layouts also include a VTuber/music overlay, large cat/camera
@@ -141,7 +141,7 @@ starting with a letter, and engine score at least .5. Scores are uncalibrated.
 | Automatic / both | 12 | 12 | 0 | 3 |
 
 The Tesseract raw mistakes include **five wrong spellings**, all below .5, plus
-`Telfer |` containing a panel border. One exact raw reading also falls below .5.
+`CharA |` containing a panel border. One exact raw reading also falls below .5.
 Do not interpret zero *candidate* errors as zero OCR errors.
 
 **Owner identification, separate from readability:** automatic RapidOCR supplies
@@ -152,25 +152,25 @@ proposes the correct name on **3/3 multi-frame recording groups**:
 
 | Recording group | Frames including corresponding screenshot | Distinct automatic support | Proposal |
 | --- | ---: | ---: | --- |
-| Original | 5 | 3 | emmies |
+| Original | 5 | 3 | streamer_f |
 | Stream 2 | 4 | 3 | hefferheffer |
 | Stream 3 | 4 | 4 | Mawile |
 
-The Telfer and Ryambi singleton groups remain unknown for lack of another frame.
+The CharA and CharH singleton groups remain unknown for lack of another frame.
 All four negatives yield no owner candidate/proposal. **False-owner identifications:
 zero observed**, with only four limited negatives; this does not establish a safe
 false-owner rate. Manual own-field RapidOCR also proposes the three recording names,
 with 5/4/4 distinct supporting frames respectively. Tesseract alone proposes only
-emmies automatically. Never pool different streams into one temporal invocation.
+streamer_f automatically. Never pool different streams into one temporal invocation.
 
 Concrete successes/failures:
 
-- Screenshot 2: automatic RapidOCR `Ryambi`, box `[511,1053,697,1078]`.
+- Screenshot 2: automatic RapidOCR `CharH`, box `[511,1053,697,1078]`.
   Nearby Whoami is read at ~1.000 score on a manually marked plate but stays
   unverified; the status panel establishes the useful ownership context.
 - Stream 2 at 3129.510 and 6259.020 s: both automatic names `hefferheffer`;
   actual video CLI returns `review_required` with support 2.
-- Original recording at 0 s and screenshot 4: status name `emmies` is readable,
+- Original recording at 0 s and screenshot 4: status name `streamer_f` is readable,
   but the existing automatic locator finds no HUD. The manual fallback succeeds.
 - Stream 2 at 0 s: same localization miss despite readable `hefferheffer`.
 - Manual Tesseract `heternetier` / `hetfernetier` instead of `hefferheffer`,
@@ -264,7 +264,7 @@ $rapid = "$repo\private\rapidocr\.venv\Scripts\python.exe"
 & $python tools/shadow_capture.py --file "$repo\samples\sample-stream2.mp4" --start 3120 --interval 15 --count 3 --character-names --ocr-python $rapid --output private/character-name/integration/demo-NEW.jsonl
 
 # The private, clearly labeled splice made during this investigation:
-# emmies / emmies / hefferheffer / hefferheffer, four 10-second segments.
+# streamer_f / streamer_f / hefferheffer / hefferheffer, four 10-second segments.
 # Numeric events override a deliberately long five-minute periodic interval.
 & $python tools/shadow_capture.py --file private/character-name/integration/switch-montage.mkv --interval 10 --count 4 --character-names --name-interval 300 --experimental-neural-level --ocr-python $rapid --output private/character-name/integration/switch-NEW.jsonl
 ```
@@ -281,7 +281,7 @@ Example excerpt from the splice's fourth attempt:
 ```json
 {
   "index": 4,
-  "proposed_name": "emmies",
+  "proposed_name": "streamer_f",
   "pending_switch": "hefferheffer",
   "observed_name": "hefferheffer",
   "numeric_reason": "level_change_requires_confirmation",
@@ -485,7 +485,7 @@ New-Item -ItemType Junction -Path private\rapidocr -Target "$repo\private\rapido
 # private/character-name/coordinator/config-enabled.json: a NEW database path, and
 # "character" = the exact in-game name selected for that lane:
 #   streamtwo / hefferheffer / sample-stream2.mp4 start 3120 interval 15 count 4
-#   splice    / emmies       / integration/switch-montage.mkv start 0 interval 10 count 4
+#   splice    / streamer_f       / integration/switch-montage.mkv start 0 interval 10 count 4
 & $python tools/multi_alpha.py --config private/character-name/coordinator/config-enabled.json --character-names --workers 2 --exit-after-capture
 # Contrast: the same config with another NEW database and no --character-names.
 # Replay check: a third NEW database, --replay CHANNEL=<private run>/CHANNEL/capture.jsonl per lane.
@@ -496,12 +496,12 @@ Results (2026-10-20, workstation, real RapidOCR/Tesseract):
 | Lane | Attempt | Name read | Decision | Public card effect |
 | --- | --- | --- | --- | --- |
 | streamtwo (`hefferheffer`) | 1–4 | `hefferheffer` | accepted | 475 / 84.82%, level 7 (unchanged behavior) |
-| splice (`emmies`) | 1–2 | `emmies` | accepted | last attributable reading 1169 / 94.12% |
+| splice (`streamer_f`) | 1–2 | `streamer_f` | accepted | last attributable reading 1169 / 94.12% |
 | splice | 3 | `hefferheffer` | held: `name_mismatch`, `unverified_numeric_anomaly` (`level_decrease`) | none; evidence 475 / 84.82%, L7 kept privately |
 | splice | 4 | `hefferheffer` | held: + `pending_switch` | none; evidence 207 / 12.06%, L10 kept privately |
 
-The `emmies` card kept 1169 / 94.12% (attempt 2), no level and no pace. **With the
-feature off, the same splice made the `emmies` card show `hefferheffer`'s 207 / 12.06%
+The `streamer_f` card kept 1169 / 94.12% (attempt 2), no level and no pace. **With the
+feature off, the same splice made the `streamer_f` card show `hefferheffer`'s 207 / 12.06%
 at level 10**, the contamination this prevents. Replaying the enabled run's logs into a
 third database stored byte-identical payloads. No character, roster entry or trusted
 observation was created. Name work: mean 67 ms, max 81 ms per capture (8 captures).
@@ -549,13 +549,13 @@ to 4.2 µs per observation, negligible against ~90 ms name OCR.
   locator returns **two layout candidates**, so no name inference/proposal. This
   negative is preserved, not cropped around or retried with a different OCR strategy.
 - `switch-montage.jsonl`: four decoded frames of the private splice, all four exact
-  names; `emmies` proposal retained while `hefferheffer` becomes a pending switch
+  names; `streamer_f` proposal retained while `hefferheffer` becomes a pending switch
   only on its second distinct frame. Experimental neural levels and names share one
   worker (name requests 2/4/6/8).
 - `switch-event-priority.jsonl`: same splice with `--name-interval 300`. Captures
-  1–2 confirm `emmies`; capture 3's level decrease bypasses the timer immediately;
+  1–2 confirm `streamer_f`; capture 3's level decrease bypasses the timer immediately;
   capture 4 checks again and proposes the pending switch. The proposed name stays
-  `emmies`. This proves the local workflow, not a naturally observed stream switch.
+  `streamer_f`. This proves the local workflow, not a naturally observed stream switch.
 - Paired frozen-frame experiment: four real name-bearing frames (three names) and
   two negatives, two enabled and two disabled passes. All **8 enabled positive reads
   exact**, all **4 negative evaluations abstain**, zero incorrect owner-field associations.
@@ -824,10 +824,10 @@ retained in the full receipt):
 
 | Experiment | Outcome |
 | --- | --- |
-| `video-config-v2.json`: emmies, emmies, hefferheffer x3 | All five names exact. First A level waits for confirmation; A2 is 1169 / 94.12%, level 9. B3 held under A. Capture 4 automatically creates/selects B (character 3, session 3), first baseline 475 / 84.82%, level 7. Capture 5 continues B. |
+| `video-config-v2.json`: streamer_f, streamer_f, hefferheffer x3 | All five names exact. First A level waits for confirmation; A2 is 1169 / 94.12%, level 9. B3 held under A. Capture 4 automatically creates/selects B (character 3, session 3), first baseline 475 / 84.82%, level 7. Capture 5 continues B. |
 | Same run, independent original Stream 2 video | Four exact hefferheffer names, first level waits then three accepted diagnostic readings. Own character 2 / session 2; no association with the splice's character 3. |
 | Original `video-config.json` splice, B middle frame missing HUD | B3 held, B4 no HUD, B5 only one fresh qualifying B after the gap. No switch or new character; negative preserved, no retry-based success claim. |
-| Synthetic Telfer-style level sequence 67,67,80,67,53,67,67 | Floor stays 67; single 80 and old 53 excluded; valid 67 resumes. Floor survives retention, restart and a fresh session. |
+| Synthetic CharA-style level sequence 67,67,80,67,53,67,67 | Floor stays 67; single 80 and old 53 excluded; valid 67 resumes. Floor survives retention, restart and a fresh session. |
 
 The successful two-worker run committed all nine attempts, no skipped deadlines,
 requested/actual starts 10s/10s and 15s/15.001s. Total 51.122s wall, sampled process-tree

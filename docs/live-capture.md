@@ -20,17 +20,17 @@ Python dependencies are optional extras so ordinary screenshot OCR remains small
 ```powershell
 .\.venv\Scripts\python -m pip install -e ".[dev,capture]"
 .\.venv\Scripts\python -m exp_tracker.capture --file private/authorized-video.mp4 --mode periodic --count 1 --config configs/stream1.json
-.\.venv\Scripts\python -m exp_tracker.capture --channel telfer1 --mode periodic --interval 30 --count 3 --config configs/telfer1-live.json
+.\.venv\Scripts\python -m exp_tracker.capture --channel streamer_a --mode periodic --interval 30 --count 3 --config configs/streamer-live.json
 ```
 
 The channel trial requires permission to test that content. An authorized trial
-on `telfer1` was confirmed by the project owner in this session. That is not
+on `streamer_a` was confirmed by the project owner in this session. That is not
 platform authorization for a public capture service. No credentials are needed
 for anonymous public playback when Twitch allows it. Restricted, unavailable,
 advertisement or access-denied inputs may yield no useful HUD reading.
 
 Use the config for the actual layout, not merely the channel name. The separate
-`telfer1-live.json` has a wider EXP crop than the original screenshot fixture:
+`streamer-live.json` has a wider EXP crop than the original screenshot fixture:
 larger numeric EXP and a two-digit percent occupied more horizontal space during
 the trial. Original sample configs and expected answers are preserved. Calibrate
 again if the streamer changes resolution/layout; numeric character identity
@@ -134,7 +134,7 @@ this replay is a separate OCR result, not a retroactive change to capture metric
 The 30-second mode pair used the same OCR version and is the cleaner CPU
 comparison. The 10-second CPU comparison includes the OCR version difference.
 
-**Authorized live Twitch trial, `telfer1`, native 1920x1080, rendition `best`:**
+**Authorized live Twitch trial, `streamer_a`, native 1920x1080, rendition `best`:**
 all **18/18 scheduled captures succeeded**. Small runs at different times are
 not statistically controlled comparisons of network conditions or game activity.
 
@@ -233,7 +233,7 @@ GOP), real-time HLS server and both acquisition modes:
 ```powershell
 .\.venv\Scripts\python tools/benchmark_capture.py --intervals 30,15,10 --count 3 --directory artifacts/local-hls-benchmark
 # Authorized live source, same acquisition code and native rendition:
-.\.venv\Scripts\python tools/benchmark_capture.py --channel telfer1 --config configs/telfer1-live.json --intervals 30,15,10 --count 3 --directory artifacts/live-benchmark
+.\.venv\Scripts\python tools/benchmark_capture.py --channel streamer_a --config configs/streamer-live.json --intervals 30,15,10 --count 3 --directory artifacts/live-benchmark
 ```
 
 The synthetic fixture is original generated content. It tests plumbing, not

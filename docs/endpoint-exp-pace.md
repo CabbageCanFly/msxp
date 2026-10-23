@@ -133,21 +133,21 @@ trusted observations or ETA. Derivation is reproducible after server restart.
 
 Read-only inspection confirmed all 60 source attempts and exact #10–13 raw strings
 in the live SQLite database. That connection closed promptly; no coordinator was
-interrupted. Before/after comparisons use the existing frozen **first 55** Telfer1
-attempts and Shiphtur's **41-frame** saved run, in a new ignored replay database.
+interrupted. Before/after comparisons use the existing frozen **first 55** Streamer_A
+attempts and CharB's **41-frame** saved run, in a new ignored replay database.
 Inputs were hash-checked unchanged. Counts below describe eligibility, not verified
 accuracy; there are no saved #12 source pixels to independently verify its `X`.
 
 | Checkpoint | Before: readings / seconds / EXP/hour | After |
 |---|---|---|
-| Telfer1 #10 | 10 / 179.65 / 207,826 | 10 / 179.65 / 210,248; numerical endpoint preference |
-| Telfer1 #12 | Old sample retained; no usable #12 percentage | Conditional 401,128 / 22.82%; **new baseline**, no #10→12 interval |
-| Telfer1 #13 | Inactive 10 / 179.65 / 207,826 | Active 12 / 199.65 / 210,659; includes #12→13 |
-| Telfer1 #14 | 2 / 19.96 / 158,490 | 13 / 219.62 / 207,099 |
-| Telfer1 #23 | Inactive 9 / 159.90 / 186,000 | Active 13 / 239.85 / 191,158; includes net endpoint interval around unavailable #22 |
-| Shiphtur #41 | 40 / 273.15 / 171,389 | Identical |
+| Streamer_A #10 | 10 / 179.65 / 207,826 | 10 / 179.65 / 210,248; numerical endpoint preference |
+| Streamer_A #12 | Old sample retained; no usable #12 percentage | Conditional 401,128 / 22.82%; **new baseline**, no #10→12 interval |
+| Streamer_A #13 | Inactive 10 / 179.65 / 207,826 | Active 12 / 199.65 / 210,659; includes #12→13 |
+| Streamer_A #14 | 2 / 19.96 / 158,490 | 13 / 219.62 / 207,099 |
+| Streamer_A #23 | Inactive 9 / 159.90 / 186,000 | Active 13 / 239.85 / 191,158; includes net endpoint interval around unavailable #22 |
+| CharB #41 | 40 / 273.15 / 171,389 | Identical |
 
-Telfer1 #11 remains withheld: its EXP and 22.25% contradict the supported level-67
+Streamer_A #11 remains withheld: its EXP and 22.25% contradict the supported level-67
 requirement. #12 now uses prior reader-supported 67, unique punctuation syntax,
 compatible arithmetic and noncontradictory numbers; it does not erase #11 or
 guess 22.75%. The ordinary parser still has no #12 strict candidate. All **96
@@ -164,17 +164,17 @@ This is explicitly experimental recovery, not numerical or pixel verification.
 node --test tools/*.test.mjs
 
 # New ignored directory and unused port; saved-data workflow, no live capture.
-node tools/product.browser.mjs http://127.0.0.1:18975 private/endpoint-pace/browser-new --verify-resilience telfer1
+node tools/product.browser.mjs http://127.0.0.1:18975 private/endpoint-pace/browser-new --verify-resilience streamer_a
 
 # Separate read-only server; does not start or interrupt capture.
-.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-telfer-shiphtur.sqlite3 --diagnostic-dashboard --port 8766
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
+.\.venv\Scripts\python -m exp_tracker.server --db private/multi-alpha/live-local.sqlite3 --diagnostic-dashboard --port 8766
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
 ```
 
 Private audit scripts/results are under `private/endpoint-pace/`: before/final
 checkpoints, synthetic baseline comparison, input hashes and read-only source
-check. Thirty player projections measured Telfer1 10.50ms median / 11.95ms p95
-(55 rows), Shiphtur 5.79ms / 6.13ms (41 rows), excluding acquisition/model loading.
+check. Thirty player projections measured Streamer_A 10.50ms median / 11.95ms p95
+(55 rows), CharB 5.79ms / 6.13ms (41 rows), excluding acquisition/model loading.
 The collector uses the existing 640-row bound; no full-history browser transfer
 or schema change was added. These timings do not establish VPS throughput.
 
@@ -199,7 +199,7 @@ rewriting their historical results.
 
 Final checks: **1,475 Python passes in 160.65s, zero skips; 74 Node passes**.
 SQLite-backed Chrome checks passed for the five polling/recovery stages and both
-actual Telfer1 checkpoints, including desktop/mobile/OBS screenshots. Inspected
+actual Streamer_A checkpoints, including desktop/mobile/OBS screenshots. Inspected
 screenshots show readable values and no horizontal overflow. `git diff --check`
 passed. Test servers were shut down; the active coordinator was left running.
 The next useful authorized trial is a saved-crop run with independent review of

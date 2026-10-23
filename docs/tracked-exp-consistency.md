@@ -6,11 +6,11 @@ adjacent-only 24-hour policy documented in the cross-level history audit.
 Strict complete-window rankings, trusted Store accounting and raw observations
 are unchanged. EXP/hour and ETA remain estimates, not accumulated EXP totals.
 
-## Reproduced Emmies discrepancy
+## Reproduced Streamer_F discrepancy
 
 The reported values reproduce exactly at **2026-10-19 01:03:54.273738 UTC**, at
 attempt 10 of rotated run `a5d68cbbfe14469abf4f7380d49a161a` under
-`private/multi-alpha/runs/20261019T003226Z-cbe9ba29/emmies/`.
+`private/multi-alpha/runs/20261019T003226Z-cbe9ba29/streamer_f/`.
 The replay also includes the saved `001842Z-5817cb05` and `001945Z-65cc75a7`
 cohorts. It uses an isolated SQLite database and original capture timestamps.
 
@@ -77,7 +77,7 @@ level requirement, evidence types, basis and policy `tracked_endpoint_exp_v2`.
   Keep independent intervals on either side. Negative differences are never
   subtracted from gross tracked gains. Unknown level-up gains remain unknown.
 - Reject unsupported requirements, prevent overlapping interval contributions,
-  and preserve the existing numerical vetoes, including Telfer's wrong whole pair.
+  and preserve the existing numerical vetoes, including CharA's wrong whole pair.
 - The common public scope is the explicitly selected **character ID**, across
   its explicitly assigned sessions and sources. Each session/source contributes
   only its own eligible intervals. No subtraction crosses those identities;
@@ -151,9 +151,9 @@ OBS semantics are unchanged.
 .\.venv\Scripts\python -m pytest tests/test_tracked_exp_totals.py tests/test_rolling_history.py tests/test_eta_followup.py tests/test_cross_level_product.py -q
 .\.venv\Scripts\python -m pytest -q
 node --test tools/*.test.mjs
-node tools/product.browser.mjs http://127.0.0.1:8874 private/tracked-exp-check-01 --verify-tracked-exp emmies
-node tools/product.browser.mjs http://127.0.0.1:8875 private/tracked-exp-cross-01 --verify-cross-level telfer1
-node tools/product.browser.mjs http://127.0.0.1:8876 private/tracked-exp-eta-01 --verify-eta-followup niru
+node tools/product.browser.mjs http://127.0.0.1:8874 private/tracked-exp-check-01 --verify-tracked-exp streamer_f
+node tools/product.browser.mjs http://127.0.0.1:8875 private/tracked-exp-cross-01 --verify-cross-level streamer_a
+node tools/product.browser.mjs http://127.0.0.1:8876 private/tracked-exp-eta-01 --verify-eta-followup streamer_e
 ```
 
 Use new private directory names. Browser commands start their own read-only HTTP
@@ -171,7 +171,7 @@ whole-boundary exclusion, streaming/full replay parity and coherent HTTP cache
 timestamps. Tracked gains do not wait for the pace minimum duration.
 
 Private receipts, before/after results, the exact 14-interval difference and
-screenshots are under `private/tracked-exp-review/`. The Emmies query measured
+screenshots are under `private/tracked-exp-review/`. The Streamer_F query measured
 median 25.5ms over ten reads, a 1.45MiB Python allocation peak and approximately
 52KB JSON. A synthetic 4,321-attempt/73-run full-day query measured median 1.39s
 over three reads, an 8.24MiB allocation peak and 77KB JSON. Those are local query
@@ -184,17 +184,17 @@ requirements, strict comparisons and trusted accounting were not modified.
 
 Validation: **1,620 full Python tests passed; 81 Node tests passed; zero skips**.
 The focused total/history/ETA/cross-level suite also passes. Chrome's saved
-Emmies, Telfer cross-level and Niru ETA replays passed, producing 13, 12 and
+Streamer_F, CharA cross-level and CharE ETA replays passed, producing 13, 12 and
 16 screenshots respectively. Representative final images are
 `private/tracked-exp-review/browser-final/tracked-exp-desktop.png`,
 `tracked-exp-mobile.png` and `eta-multiday-overlay-formatting-control.png`.
-The Emmies browser check verifies all five totals, equal recent/24h as-of clocks,
+The Streamer_F browser check verifies all five totals, equal recent/24h as-of clocks,
 bar/card sum equality, polling after real saved attempts are committed, aged
 history, the unchanged level filter and static ETA retention.
 
-Additional saved checkpoints remain nested: Telfer's level-68 cohort has
+Additional saved checkpoints remain nested: CharA's level-68 cohort has
 54,663.82 EXP for both 60 minutes and 24 hours; its earlier 65→66 cohort has
-13,444.9739 for both. Niru's later checkpoint has 90,584 EXP for 60 minutes and
+13,444.9739 for both. CharE's later checkpoint has 90,584 EXP for 60 minutes and
 311,344.4504 for 24 hours. None includes an invented level-up boundary gain.
 
 Remaining limits: OCR can still produce numerically consistent wrong digits;

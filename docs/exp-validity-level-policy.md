@@ -55,8 +55,8 @@ policy. No character identity, automatic level-up or maximum EXP-rate rule is in
 
 ## Saved-run results
 
-Input: `private/local-alpha/runs/telfer1-20261017T195421Z-8fa57aab/capture.jsonl`.
-Database: `private/product-preview/telfer1-manual-01.sqlite3`, containing these 30
+Input: `private/local-alpha/runs/streamer_a-20261017T195421Z-8fa57aab/capture.jsonl`.
+Database: `private/product-preview/streamer_a-manual-01.sqlite3`, containing these 30
 attempts plus one earlier failed attempt. User-confirmed level 65 is evaluation
 context only. James confirmed no source crops were saved; glyphs cannot be reviewed.
 
@@ -117,11 +117,11 @@ rule. Enable `--save-crops` for future manual trials; no new Twitch capture ran 
 Restart an old server to load the changed code. This command does not start capture:
 
 ```powershell
-.\.venv\Scripts\python -m exp_tracker.server --db private/product-preview/telfer1-manual-01.sqlite3 --diagnostic-dashboard --port 8766
+.\.venv\Scripts\python -m exp_tracker.server --db private/product-preview/streamer_a-manual-01.sqlite3 --diagnostic-dashboard --port 8766
 Start-Process 'http://127.0.0.1:8766/'
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
-Start-Process 'http://127.0.0.1:8766/live/overlay/telfer1'
-Start-Process 'http://127.0.0.1:8766/dashboard/telfer1'
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
+Start-Process 'http://127.0.0.1:8766/live/overlay/streamer_a'
+Start-Process 'http://127.0.0.1:8766/dashboard/streamer_a'
 ```
 
 Saved data age normally; stale rates/ETA remain hidden. The last observed value is
@@ -140,8 +140,8 @@ Use new output names/directories:
 .\.venv\Scripts\python private/level-validity/audit.py private/level-validity/replay-new.json
 .\.venv\Scripts\python -m pytest tests/test_diagnostic_evidence.py tests/test_diagnostic_progress.py tests/test_product.py tests/test_exp_consistency.py tests/test_adaptive_hud.py tests/test_diagnostics.py -q
 node --test tools/shadow.test.mjs tools/product.test.mjs
-node tools/product.browser.mjs http://127.0.0.1:8766 private/level-validity/product-browser-new - telfer1
-node tools/shadow.browser.mjs http://127.0.0.1:8766/dashboard/telfer1 private/level-validity/diagnostic-browser-new
+node tools/product.browser.mjs http://127.0.0.1:8766 private/level-validity/product-browser-new - streamer_a
+node tools/shadow.browser.mjs http://127.0.0.1:8766/dashboard/streamer_a private/level-validity/diagnostic-browser-new
 .\.venv\Scripts\python -m pytest -q
 ```
 

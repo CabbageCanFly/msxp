@@ -16,14 +16,14 @@ tests never access that database. An occupied writer lease or port is a refusal,
 not an instruction to terminate another process.
 
 The existing tracker has thirteen authorized Twitch channels, port **8766** and
-configured **20-second** intervals. Its login is **`telfer1`**, not `telfer`. The
-operator has already renamed that character to **`Telfer`** through the admin portal
-and updated its JSON assignment to `"character": "Telfer"`. Inspect the database to
+configured **20-second** intervals. Its login is **`streamer_a`**, not `streamer_a`. The
+operator has already renamed that character to **`CharA`** through the admin portal
+and updated its JSON assignment to `"character": "CharA"`. Inspect the database to
 confirm that label and obtain the numeric ID; this guide never assumes an ID.
 
 The shortest post-merge path is: inspect and review; make a consistent disposable
 copy; rehearse approval; stop the original coordinator with operator authorization;
-preview/apply adoption on the original; preflight and activate only `telfer1`;
+preview/apply adoption on the original; preflight and activate only `streamer_a`;
 verify, then separately approve retention and expand the automatic subset.
 **Merge** installs code but does not adopt identities, enable automation or restart
 the running process. **Adoption** records explicit identity approval. **Activation**
@@ -45,7 +45,7 @@ This command maps the currently selected legacy character. Review other saved
 legacy aliases through the existing audited rename workflow before expecting OCR
 to reuse those IDs; unknown aliases are not inferred from level/EXP or joined by
 similar spelling.
-If the saved label already equals the reviewed name (`Telfer` -> `Telfer`), adoption
+If the saved label already equals the reviewed name (`CharA` -> `CharA`), adoption
 records approval only: no rename audit, duplicate character or history reset is
 created. The same applies to other correctly named channels. A mismatched alias
 still requires explicit historical-identity review; never infer the mapping from
@@ -77,8 +77,8 @@ $main = 'H:\Desktop\codex\msclassic-twitch-exp-tracker'
 $python = "$main\.venv\Scripts\python.exe"
 $ocr = "$main\private\rapidocr\.venv\Scripts\python.exe"
 $env:PYTHONPATH = "$PWD\src"
-$db = "$main\private\multi-alpha\live-telfer-shiphtur.sqlite3"
-$config = "$main\private\multi-alpha\live-telfer-shiphtur.json"
+$db = "$main\private\multi-alpha\live-local.sqlite3"
+$config = "$main\private\multi-alpha\live-local.json"
 $trial = Join-Path $repo "private\existing-auto-rehearsal-$(Get-Date -Format yyyyMMdd-HHmmss)"
 New-Item -ItemType Directory $trial | Out-Null
 
@@ -94,9 +94,9 @@ $copy = Join-Path (Resolve-Path $trial) 'rehearsal.sqlite3'
 # Copy configuration without editing the original. Preflight does not capture.
 $settings = Get-Content $config -Raw | ConvertFrom-Json
 if ($settings.port -ne 8766) { throw 'Review the actual tracker port before proceeding' }
-$configured = @($settings.streams | Where-Object { $_.channel -eq 'telfer1' })
-if ($configured.Count -ne 1 -or $configured[0].character -cne 'Telfer') {
-  throw 'Review the telfer1 assignment; do not guess or edit the original config here'
+$configured = @($settings.streams | Where-Object { $_.channel -eq 'streamer_a' })
+if ($configured.Count -ne 1 -or $configured[0].character -cne 'CharA') {
+  throw 'Review the streamer_a assignment; do not guess or edit the original config here'
 }
 $settings.database = $copy
 $settings.port = 8879
@@ -119,22 +119,22 @@ activate capture or automation. Do not guess a legacy identity or numeric ID.
 $inspectionJson = & $python tools/adopt_automatic.py --db $copy inspect
 if ($LASTEXITCODE -ne 0) { throw 'Database inspection failed' }
 $inspection = ($inspectionJson -join "`n") | ConvertFrom-Json
-$characterRows = @($inspection.channels | Where-Object { $_.channel -eq 'telfer1' })
-if ($characterRows.Count -ne 1 -or $characterRows[0].character -cne 'Telfer' -or $characterRows[0].character_id -lt 1) {
-  throw 'Review the selected telfer1 ID/name; this example requires the saved label Telfer'
+$characterRows = @($inspection.channels | Where-Object { $_.channel -eq 'streamer_a' })
+if ($characterRows.Count -ne 1 -or $characterRows[0].character -cne 'CharA' -or $characterRows[0].character_id -lt 1) {
+  throw 'Review the selected streamer_a ID/name; this example requires the saved label CharA'
 }
 $mapping = @([ordered]@{
   channel = $characterRows[0].channel
   character_id = $characterRows[0].character_id
   character = $characterRows[0].character
-  name = 'Telfer'
+  name = 'CharA'
 })
 ConvertTo-Json -InputObject $mapping -Depth 10 |
   Set-Content "$trial\mappings.json" -Encoding utf8
 
 & $python tools/adopt_automatic.py --db $copy preview `
   --mappings "$trial\mappings.json" --preview "$trial\preview-copy.json" `
-  --reason 'Reviewed telfer1 history and confirmed the existing Telfer character identity'
+  --reason 'Reviewed streamer_a history and confirmed the existing CharA character identity'
 
 # Read the printed mappings, current floors, tracking state, history counts,
 # source schema, fingerprint and confirmation token before continuing.
@@ -147,7 +147,7 @@ $confirm = 'adopt-existing:' + $review.fingerprint.Substring(0,16)
 # Read-only startup preflight: model/FFmpeg/authorization/ownership/port checks,
 # no model startup, network capture, database migration or new capture logs.
 & $python tools/multi_alpha.py --config "$trial\config.json" --existing-tracker `
-  --automatic-existing-channel telfer1 --ocr-python $ocr --workers 3 `
+  --automatic-existing-channel streamer_a --ocr-python $ocr --workers 3 `
   --log-root "$trial\runs" --check
 ```
 
@@ -182,7 +182,7 @@ $env:PYTHONPATH = "$main\src"
 
 & $python tools/adopt_automatic.py --db $db preview `
   --mappings "$trial\mappings.json" --preview "$trial\preview-original.json" `
-  --reason 'Reviewed telfer1 history and confirmed the existing Telfer character identity'
+  --reason 'Reviewed streamer_a history and confirmed the existing CharA character identity'
 
 # Review again, then explicitly supply the printed token.
 $review = Get-Content "$trial\preview-original.json" -Raw | ConvertFrom-Json
@@ -205,17 +205,17 @@ cannot be assumed to read schema 10; rehearse rollback separately before activat
 
 With the writer stopped and port 8766 free, use the original configuration and
 database. Its requested intervals stay 20s. The command below captures from all
-enabled configured channels, but enables name OCR/switching **only for telfer1**.
+enabled configured channels, but enables name OCR/switching **only for streamer_a**.
 The remaining channels keep their normal numerical tracking. No `--interval` override
 or config edit is needed. Leave retention **off for this brief identity verification**:
 adoption alone does not prune old readings, and recovery evidence stays available.
 
 ```powershell
-& $python tools/multi_alpha.py --config $config --existing-tracker --automatic-existing-channel telfer1 `
+& $python tools/multi_alpha.py --config $config --existing-tracker --automatic-existing-channel streamer_a `
   --ocr-python $ocr --workers 3 --continuous --check
 
 # LIVE: run only with operator capture approval. Short bounded rollout first.
-& $python tools/multi_alpha.py --config $config --existing-tracker --automatic-existing-channel telfer1 `
+& $python tools/multi_alpha.py --config $config --existing-tracker --automatic-existing-channel streamer_a `
   --ocr-python $ocr --workers 3 --continuous `
   --max-attempts 6 --exit-after-capture
 ```
@@ -257,7 +257,7 @@ repeat `--automatic-existing-channel CHANNEL` for each desired automatic channel
 Once all thirteen are reviewed, a supported PowerShell launch pattern is:
 
 ```powershell
-$autoChannels = @('telfer1','shiphtur') # Include shiphtur only after inspecting and approving it.
+$autoChannels = @('streamer_a','streamer_b') # Include streamer_b only after inspecting and approving it.
 $autoArgs = @()
 foreach ($channel in $autoChannels) { $autoArgs += @('--automatic-existing-channel', $channel) }
 & $python tools/multi_alpha.py --config $config --existing-tracker @autoArgs --ocr-python $ocr `
@@ -322,12 +322,12 @@ preflight and resume the original thirteen-channel tracker with retention enable
 
 ```powershell
 & $python tools/multi_alpha.py --config $config --existing-tracker `
-  --automatic-existing-channel telfer1 --ocr-python $ocr --workers 3 `
+  --automatic-existing-channel streamer_a --ocr-python $ocr --workers 3 `
   --continuous --retention-24h --check
 
 # LIVE: only after approval. Same database, port 8766 and configured 20s intervals.
 & $python tools/multi_alpha.py --config $config --existing-tracker `
-  --automatic-existing-channel telfer1 --ocr-python $ocr --workers 3 `
+  --automatic-existing-channel streamer_a --ocr-python $ocr --workers 3 `
   --continuous --retention-24h
 ```
 
@@ -409,7 +409,7 @@ rerun after checking disabled-mode caching passed **82**, zero skips.
 
 Operator-readiness follow-up: **112 passed, zero skips** across adoption, trial,
 scheduler, retention and daily snapshots. New regressions use an inspected,
-already-admin-renamed `telfer1` / `Telfer` identity and another correctly named
+already-admin-renamed `streamer_a` / `CharA` identity and another correctly named
 character: approval makes no rename/history changes, and activation, expansion,
 switch/restart and disabling retain the right IDs. All eight PowerShell blocks
 parse without execution. The broader results above are from the initial

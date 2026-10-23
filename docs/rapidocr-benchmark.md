@@ -405,7 +405,7 @@ profile referenced by the unchanged `private/exp-digits/bank.json`:
 
 | Test group | Cases |
 |---|---|
-| `test_exp_digits.py::test_private_success_and_rejection_regressions` | 19750 ms, 599000 ms, Telfer crop 0016 |
+| `test_exp_digits.py::test_private_success_and_rejection_regressions` | 19750 ms, 599000 ms, CharA crop 0016 |
 | `test_grammar_suffix.py::test_private_percent_recoveries_do_not_rescue_bad_numbers` | 142500, 1770000, 599000 ms |
 | `test_grayscale_digits.py::test_private_hybrid_recoveries_and_unreadable_rejection` | 384250, 780000, 599000 ms |
 

@@ -98,8 +98,8 @@ these regression tests intentionally fail if the invariant is weakened.
 
 The final private audit is `private/rolling-history/pagination-audit-final/audit.json`.
 All three actual summaries exactly equal the original audit: single-stream
-Telfer1 57,442.9428 EXP / 97 intervals; multi-stream Telfer1 156,762.4334 / 210;
-Shiphtur 25,265 / 103. All six original input hashes match. Query times were
+Streamer_A 57,442.9428 EXP / 97 intervals; multi-stream Streamer_A 156,762.4334 / 210;
+CharB 25,265 / 103. All six original input hashes match. Query times were
 37–44ms, 65–67ms and 38–39ms respectively. The unchanged synthetic 6,000-attempt
 workload took 2.02–2.06s, 1.82MiB incremental traced Python peak, ~49MiB process
 RSS and a 13,564-byte response. Differences from earlier timing are ordinary
@@ -115,7 +115,7 @@ tests passed**; **38 focused history tests passed**; `git diff --check` passed.
 ```powershell
 .\.venv\Scripts\python -m pytest tests/test_rolling_history.py -q
 .\.venv\Scripts\python private/rolling-history/audit.py private/rolling-history/pagination-audit-new
-node tools/product.browser.mjs http://127.0.0.1:8781 private/rolling-history/pagination-browser-new --verify-rolling telfer1
+node tools/product.browser.mjs http://127.0.0.1:8781 private/rolling-history/pagination-browser-new --verify-rolling streamer_a
 ```
 
 The read-only endpoint is opt-in with the existing product server. It returns no
@@ -133,7 +133,7 @@ availability/derived sums on familiar saved evidence, not independently verified
 earned EXP or new OCR accuracy scores. Clocks in browser replay are explicitly
 as-of original source timestamps; observations are never retimed.
 
-| Telfer1 capture | Attempts | Eligible percentage observations | Gain intervals | Tracked EXP | Captured interval time |
+| Streamer_A capture | Attempts | Eligible percentage observations | Gain intervals | Tracked EXP | Captured interval time |
 |---|---:|---:|---:|---:|---:|
 | 03:01 run, completed | 40 | 36 | 31 | ~26,428 | 464.893s |
 | 03:20 run, interrupted | 10 | 9 | 7 | ~6,273 | 105.038s |
@@ -147,8 +147,8 @@ At 03:23:15 UTC, the existing single-stream database contains 193 attempts over
 eight runs for the selected character. Its 24h projection is **~57,443 EXP** from
 97 intervals / 982.769 captured seconds: 92 percentage-derived intervals and five
 direct EXP intervals. The rest of the day remains unknown. Existing multi-stream
-history separately gives Telfer1 ~156,762 EXP / 210 intervals and Shiphtur 25,265
-EXP / 103 intervals. Telfer1's two validated scheduled-rotation edges account for
+history separately gives Streamer_A ~156,762 EXP / 210 intervals and CharB 25,265
+EXP / 103 intervals. Streamer_A's two validated scheduled-rotation edges account for
 two additional intervals, not manually restarted-run gaps. The earlier 65→66
 transition supplies no cross-level gain. No databases were silently merged.
 
@@ -160,8 +160,8 @@ unchanged; no trusted observations were written.
 ## Performance and checks
 
 On this workstation, three uncached projections took 40–43ms for the 193-attempt
-single-stream history, 41–43ms for multi-stream Shiphtur and 71–76ms for multi-stream
-Telfer1. A separate synthetic 6,000-attempt / 100-rotation-run SQLite history
+single-stream history, 41–43ms for multi-stream CharB and 71–76ms for multi-stream
+Streamer_A. A separate synthetic 6,000-attempt / 100-rotation-run SQLite history
 returned 5,760 eligible intervals covering 24h in 2.16–2.46s; mean process CPU
 was ~1.96s/query. Incremental traced Python peak allocation was 1.82MiB; whole
 process RSS after projection ~48.8MiB. Database size 3.52MiB; response 13.2KiB.
@@ -169,7 +169,7 @@ The actual query plan uses the existing time/session indexes. Synthetic payloads
 are smaller than many live OCR payloads; these are projection measurements, not
 capture benchmarks, concurrent 25-player capacity or low-end VPS guarantees.
 
-SQLite-backed Chrome checks passed for the saved new Telfer1 runs: loading all
+SQLite-backed Chrome checks passed for the saved new Streamer_A runs: loading all
 48 buckets, polling the second committed run into the total and chart without
 navigation, retaining missing buckets, and expiring history after two days to
 unknown rather than zero. The separate existing two-stream/clean-rotation browser
@@ -211,13 +211,13 @@ source hashes, replay databases and screenshots remain ignored under
 
 ```powershell
 # Read existing actual data; this does not initiate capture.
-.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/telfer1.sqlite3 --diagnostic-dashboard --port 8766
-Start-Process 'http://127.0.0.1:8766/stream/telfer1'
+.\.venv\Scripts\python -m exp_tracker.server --db private/local-alpha/live/streamer_a.sqlite3 --diagnostic-dashboard --port 8766
+Start-Process 'http://127.0.0.1:8766/stream/streamer_a'
 # Select 30 min under EXP history for the rolling 24-hour axis.
 
 # Non-overwriting private replay, original timestamps and explicit as-of clock.
-node tools/product.browser.mjs http://127.0.0.1:8781 private/rolling-history/review-new --verify-rolling telfer1
-node tools/product.browser.mjs http://127.0.0.1:8782 private/rolling-history/windows-new --verify-windows telfer1
+node tools/product.browser.mjs http://127.0.0.1:8781 private/rolling-history/review-new --verify-rolling streamer_a
+node tools/product.browser.mjs http://127.0.0.1:8782 private/rolling-history/windows-new --verify-windows streamer_a
 .\.venv\Scripts\python private/rolling-history/audit.py private/rolling-history/audit-new
 .\.venv\Scripts\python -m pytest -q -rs
 node --test tools/*.test.mjs

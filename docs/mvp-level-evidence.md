@@ -66,13 +66,13 @@ coordinator was opened or modified, and no Twitch connection was started.
 
 | Run / result | Before | After |
 | --- | --- | --- |
-| Tricia: first public level 43 | Attempt 37 | Attempt 1, `08:03:44.123741Z` |
-| Tricia: attempts 1–4 | EXP shown, level unavailable, no comparable gains | Level 43; 82,330→82,342 at fixed 21.05%; +12 EXP |
-| Tricia: full-run tracked estimate | 39.116 EXP / 20 intervals | 92 EXP / 55 intervals |
-| 2ndsequence: first public level 59 | Attempt 3 | Attempt 1, recovered `381,477133.25%1` |
-| 2ndsequence #31 | 415,930 / 36.26% visible, no resolved level/progression endpoint | Same reading; derived 59; public/progress eligible |
-| 2ndsequence #32 | 416,913 / 36.34% visible, no resolved level/progression endpoint | Same reading; derived 59; public/progress eligible |
-| 2ndsequence: full-run tracked estimate | 55,088 EXP / 31 intervals | 59,704 EXP / 38 intervals |
+| CharC: first public level 43 | Attempt 37 | Attempt 1, `08:03:44.123741Z` |
+| CharC: attempts 1–4 | EXP shown, level unavailable, no comparable gains | Level 43; 82,330→82,342 at fixed 21.05%; +12 EXP |
+| CharC: full-run tracked estimate | 39.116 EXP / 20 intervals | 92 EXP / 55 intervals |
+| streamer_g: first public level 59 | Attempt 3 | Attempt 1, recovered `381,477133.25%1` |
+| streamer_g #31 | 415,930 / 36.26% visible, no resolved level/progression endpoint | Same reading; derived 59; public/progress eligible |
+| streamer_g #32 | 416,913 / 36.34% visible, no resolved level/progression endpoint | Same reading; derived 59; public/progress eligible |
+| streamer_g: full-run tracked estimate | 55,088 EXP / 31 intervals | 59,704 EXP / 38 intervals |
 
 The #31→#32 interval uses **983 EXP / 26.41636 seconds**, with the original event
 IDs and `grammar_recovered` provenance. #31 starts a fresh chart baseline after
@@ -83,22 +83,22 @@ every missing/uncertain period. The saved logs demonstrate projection and
 mathematical support; source pixels were not re-OCRed or independently relabeled
 for this task.
 
-The wider regression replay also admits previously excluded Niru endpoints:
+The wider regression replay also admits previously excluded CharE endpoints:
 18,315→19,173 (+858), 159,241→159,512 (+271), and 166,503→167,413 (+910).
 Each is a saved same-level interval whose first level was previously pending.
 The 56→57 transition still contributes no fabricated gain.
 
 ## Validation and operation
 
-New synthetic regressions cover the actual Tricia/2ndsequence strings, initial
+New synthetic regressions cover the actual CharC/streamer_g strings, initial
 recovery, retention/renewal, stationary EXP, fixed-percentage gains, losses,
 level-ups, incomplete/competing text, source/crop/freshness checks and real
 character/session/source/run boundaries. A background publisher test verifies
 the homepage and character API, chart history, tracked totals, Advanced route
 and OBS route against the recovered readings without trusted observations.
 
-The existing headless browser check passed on real saved prefixes (Tricia
-through #4 and 2ndsequence through #32), with seven screenshots each. The real
+The existing headless browser check passed on real saved prefixes (CharC
+through #4 and streamer_g through #32), with seven screenshots each. The real
 pages show ordinary level 43/59 labels, numerical EXP and useful public pace.
 Existing card/checkpoint/publisher parity tests remain part of the full suite.
 
@@ -110,7 +110,7 @@ integration, saved-history checks and unchanged trusted-accounting tests are
 included in the Python result. `git diff --check` passed.
 
 Ignored evidence is under `private/mvp-level-policy/`: `before.json`,
-`verified.json`, replay consoles, the Niru endpoint audit, isolated browser
+`verified.json`, replay consoles, the CharE endpoint audit, isolated browser
 databases, screenshots and test outputs. No generated evidence belongs in Git.
 
 Restart the **Python serving process** to load the new projection code and clear

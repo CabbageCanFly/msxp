@@ -259,7 +259,7 @@ on the same data, measured back to back.
 | Character body | Before | Unchanged poll now | Full body now |
 |---|---:|---:|---:|
 | Synthetic full day, 132 chart rows | 747 KiB (26 KiB gzip) | **117 KiB (8 KiB gzip)** | 747 KiB |
-| Real Shiphtur (live DB, read-only), 110 rows | 785 KiB (35 KiB gzip) | **179 KiB (14 KiB gzip)** | 786 KiB |
+| Real CharB (live DB, read-only), 110 rows | 785 KiB (35 KiB gzip) | **179 KiB (14 KiB gzip)** | 786 KiB |
 | Presentation, median (synthetic / real) | 6.6 / 12.2 ms | **3.3 / 7.1 ms** | 6.2 / 11.7 ms |
 
 The refresher adds 3.8 ms per build for both hashes (a cold full-day build is ≈2 s).
@@ -309,7 +309,7 @@ database at a pinned clock. Every new homepage, character and history body equal
 `public()` of HEAD's body, minus the homepage's current-level maps, and no private
 field remains anywhere. The only other difference was `requirement.sha256`, an artifact
 of the line endings described below. Publisher parity tests compare against
-`public()` of the full-replay reference, including the saved Emmies, Niru and Telfer1
+`public()` of the full-replay reference, including the saved Streamer_F, CharE and Streamer_A
 logs.
 
 | Live snapshot, 9 channels | Before | After |
@@ -349,9 +349,9 @@ consecutive runs of one coordinator, so a migration is unaffected. Displayed and
 recorded hashes will still differ between machines. Pin the line endings (for example
 a `.gitattributes` entry) before comparing evidence across machines.
 
-## Saved Telfer1 log failures
+## Saved Streamer_A log failures
 
-Two separate problems surfaced with the saved Telfer1 logs, which the running
+Two separate problems surfaced with the saved Streamer_A logs, which the running
 capture keeps appending to.
 
 **1. Reproducible: refresher builds raised `NameError` (fixed).**
@@ -359,12 +359,12 @@ capture keeps appending to.
 locally. Python therefore treated both as locals of the whole function, so the nested
 `step()` saw unbound closure cells. Only the `_historical and len(rows) > 4096` branch
 uses them in `step()`. That branch runs on a cold restore (no attempt in the last 65
-minutes) of a session longer than 4,096 attempts. Telfer1's live session crossed
+minutes) of a session longer than 4,096 attempts. Streamer_A's live session crossed
 4,096 at step 4,200.
 
-From then on every Telfer1 build failed. The publisher kept serving the last good
+From then on every Streamer_A build failed. The publisher kept serving the last good
 entry with honest, growing ages, as designed for failures, and
-`test_saved_publications_match_reference[telfer1]` failed on
+`test_saved_publications_match_reference[streamer_a]` failed on
 `latest_attempt_age_seconds` (publisher stats: `failures: 2, last_error: NameError`).
 The module-level imports already provide both names, so the fix deletes the
 re-imports. A synthetic regression test (69 rotated runs, 4,140 attempts, cold
@@ -373,14 +373,14 @@ parity. A long-running server started from HEAD will hit this for any such sessi
 
 **2. Intermittent `rolling_history` parity assertion: a checkpoint replay bug,
 exposed by the live fixture (fixed).**
-`test_saved_logs_match_full_replay_while_streamed[telfer1]` failed twice in full
+`test_saved_logs_match_full_replay_while_streamed[streamer_a]` failed twice in full
 8-worker runs. The test globs the live logs once, then reads each file again as the
 loop reaches it, about four minutes later for the newest file. A rotation in between
 leaves the read input ending at the old run's summary, with the new run's file not
 enumerated. That is a valid input (capture stopping right after a summary), and it is
 one the test rarely sees.
 
-Frozen reproduction (`private/telfer1-frozen-01`, 90 files copied once from the live
+Frozen reproduction (`private/streamer_a-frozen-01`, 90 files copied once from the live
 logs; live logs and database untouched):
 
 - the unmodified test passes on the full snapshot under 16 hash seeds, so iteration
@@ -388,7 +388,7 @@ logs; live logs and database untouched):
 - a sweep ending the input after every record in both failure windows found exactly
   one mismatching endpoint. It is after the summary of run `bf772160` (step 4,254,
   `now` 2026-10-19T21:11:56.888634Z), inside the second failing run's read window;
-- the unmodified test fails there deterministically (`private/telfer1-frozen-02-rotation`,
+- the unmodified test fails there deterministically (`private/streamer_a-frozen-02-rotation`,
   two seeds) at `assert fast==full`.
 
 Only `boundary_intervals_excluded` differed: 0 resumed vs 1 full. `tracked_exp`, all
@@ -410,12 +410,12 @@ passes now. After the fix, the endpoint sweep (19:54–20:09, 20:58–21:12:30 a
 
 Remaining:
 
-- The first failure (read window 19:55–20:08Z) is not reproduced: no Telfer1 run opened
+- The first failure (read window 19:55–20:08Z) is not reproduced: no Streamer_A run opened
   or closed then, and every endpoint in it passes before and after the fix. Its
   details were not captured.
 - The final pairing loop counts excluded pairs (`exclusion_counts`) with no time
   filter. A full replay would also count an excluded pair entirely before the cutoff,
-  which a checkpoint no longer holds. The frozen Telfer1 full replay has zero excluded
+  which a checkpoint no longer holds. The frozen Streamer_A full replay has zero excluded
   pairs, so this is not demonstrated and is unchanged.
 - The test still reads growing live logs. A header-only new file or a half-written last
   line would surface as `IndexError`/`JSONDecodeError`, not parity failures; neither was

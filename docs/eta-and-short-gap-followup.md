@@ -8,11 +8,11 @@ inference, schema migration or active-database write was performed.
 
 | Causal prefix | Before | After |
 |---|---|---|
-| Telfer1 rotated run `93dd…`, #5, 20:58:08 UTC | `56.97%1` unavailable | 56.97% grammar proposal; no OCR EXP integer |
-| Niru run `e45e…`, #4, 21:16:00 UTC | Missing HUD | Still no numerical point |
-| Niru #5, 21:16:20 UTC | Level confirmation pending; excluded from progress/chart | Provisional 56, compatible full pair, eligible |
+| Streamer_A rotated run `93dd…`, #5, 20:58:08 UTC | `56.97%1` unavailable | 56.97% grammar proposal; no OCR EXP integer |
+| CharE run `e45e…`, #4, 21:16:00 UTC | Missing HUD | Still no numerical point |
+| CharE #5, 21:16:20 UTC | Level confirmation pending; excluded from progress/chart | Provisional 56, compatible full pair, eligible |
 
-The Niru sequence is neural-only pending at #1, corroborated 56 at #2–3,
+The CharE sequence is neural-only pending at #1, corroborated 56 at #2–3,
 unavailable at #4, then supported 56 at #5–7. The new policy preserves the
 independent reader anchor through #4; #5 still supplies its own neural 56 and
 arithmetically compatible `757,975[77.54%]`. It is not a carried numeric reading.
@@ -26,8 +26,8 @@ implementation, with unchanged source timestamps:
 
 | Stream | Eligible readings before → after | Sampled elapsed | EXP/hour before = after |
 |---|---:|---:|---:|
-| Telfer1 | 6 → 7 | 178.304s | ~221,731 |
-| Niru | 4 → 5 | 99.954s | ~151,234 |
+| Streamer_A | 6 → 7 | 178.304s | ~221,731 |
+| CharE | 4 → 5 | 99.954s | ~151,234 |
 
 These rates do not increase merely because a missing interior point becomes
 available. This is familiar development evidence, not a new accuracy benchmark
@@ -49,8 +49,8 @@ last independent support. Missing attempts do not renew that expiry or receive
 a level/percentage point. Ownership, source, ordering and distinct-frame guards
 still apply. Competing levels, stale/duplicate frames, incomplete level tiles,
 ambiguous HUDs, excessive local age and unvalidated run changes clear continuity.
-Shiphtur's genuinely stale #33 remains excluded; #34 remains pending and #35–42
-remain eligible. Telfer1's wrong whole pair at #21 remains vetoed before either
+CharB's genuinely stale #33 remains excluded; #34 remains pending and #35–42
+remain eligible. Streamer_A's wrong whole pair at #21 remains vetoed before either
 field can establish a public value, baseline, chart point or gain.
 
 ## ETA is a dated duration, not live pace
@@ -100,8 +100,8 @@ are explicitly simulated. They do not claim a new live-capture evaluation.
 ```powershell
 .\.venv\Scripts\python -m pytest
 node --test tools/*.test.mjs
-node tools/product.browser.mjs http://127.0.0.1:8874 private/eta-followup/browser-new --verify-eta-followup niru
-node tools/product.browser.mjs http://127.0.0.1:8875 private/eta-followup/veto-new --verify-numerical-windows telfer1
+node tools/product.browser.mjs http://127.0.0.1:8874 private/eta-followup/browser-new --verify-eta-followup streamer_e
+node tools/product.browser.mjs http://127.0.0.1:8875 private/eta-followup/veto-new --verify-numerical-windows streamer_a
 ```
 
 Use new output-directory names. Chrome checks polling without navigation, all five
@@ -114,7 +114,7 @@ Both real SQLite-backed Chrome workflows passed without console errors, with
 16 ETA/recovery screenshots and 19 numerical-veto/recovery screenshots.
 
 On the isolated saved sessions, two-hour-old cold restoration plus full player
-projection took ~41ms for 60 Niru attempts and ~105ms for 161 Telfer1 attempts.
+projection took ~41ms for 60 CharE attempts and ~105ms for 161 Streamer_A attempts.
 Cached medians were ~21ms/~61ms; Python allocation peaks were ~1.35/~3.76MiB.
 These are small local workloads, not capacity measurements for 25 long-running
 channels. No additional Twitch requests were made.

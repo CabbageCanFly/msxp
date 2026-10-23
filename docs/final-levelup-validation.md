@@ -50,7 +50,7 @@ this selected set. Missing native level crops stay explicitly unavailable.
 Other rejected raw strings: 70 s `355,537[99.61%1`, 114 s
 `356,786[99.96%1`, 118 s `356,876199.99%]`. None is repaired or supplied manually.
 The 120-second frame also shows the level-up animation and increased HP/MP
-maxima. At 150 seconds the game's party list visibly shows `TriciaBirdy`, level
+maxima. At 150 seconds the game's party list visibly shows `CharC`, level
 43. This is independent manual corroboration, not input to inference or automatic
 identity recognition. Old level 42 is established arithmetically from native EXP.
 

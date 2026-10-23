@@ -72,7 +72,7 @@ No frontend code changed, and no browser test or live VPS replay was performed.
 
 ## Weak level crops after a level-up
 
-A subsequent misusingtv incident was different: the first two level-55 reads had
+A subsequent streamer_d incident was different: the first two level-55 reads had
 scores 0.8498 and 0.7927, below the existing 0.90 seed threshold. The level-54 floor
 was retained until a later full EXP/% pair uniquely supported 55. The earlier
 stationary-level fix was running; it does not bypass weak visual evidence.

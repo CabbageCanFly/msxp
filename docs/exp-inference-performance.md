@@ -51,7 +51,7 @@ reference and compares complete outputs:
 - 210 invalid or unusual input combinations: None, negative and over-long EXP, bool,
   float, Decimal, NaN, infinity, three decimals, comma, empty, over 100%, unhashable.
   Bad tables and modes still raise.
-- `_exp_derived()` complete results for every saved Emmies, Niru and Telfer1 pair plus
+- `_exp_derived()` complete results for every saved Streamer_F, CharE and Streamer_A pair plus
   synthetic boundary pairs, with the reference patched in (call count asserted). These
   cover unique, ambiguous, incompatible and outside-coverage statuses.
 

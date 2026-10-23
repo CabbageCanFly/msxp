@@ -27,7 +27,7 @@ Read-only, decoded in memory; no frame or crop was written or copied.
   covered, EXP label covered, 1280×720 / 2560×1440 / 3840×2160, 2560×1080 pillarbox,
   4:3 letterbox and a cross-fade scene transition.
 
-**Missing:** the Tricia obscured-HUD frames (`private/obscured-hud/`) are no longer on
+**Missing:** the CharC obscured-HUD frames (`private/obscured-hud/`) are no longer on
 disk, and there are no live Twitch frames, no long 30–60 s sequences and no Linux run.
 
 ## Where the time goes
@@ -216,7 +216,7 @@ PYTHONPATH=src:tools python tools/benchmark_hud_locate.py \
 
 - **Focused:** `python -m pytest tests/test_adaptive_hud.py tests/test_capture_performance.py
   tests/test_hud_resilience.py tests/test_hud_dedup.py` gave **106 passed, 3 skipped**.
-  The skips are private Telfer fixtures. The new tests cover:
+  The skips are private CharA fixtures. The new tests cover:
   - batched/separate plumbing parity (full frame and box);
   - missing, extra and malformed pages raising an error;
   - per-scale release on the default path;

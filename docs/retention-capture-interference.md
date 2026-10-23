@@ -124,7 +124,7 @@ The `read / no HUD / unclear / no frame / offline` columns say what each capture
   the inventory below before enabling.
 - **Never VACUUM** these databases (implicit `diagnostic_runs.rowid`; see 24h-retention.md).
 - **Local state:** catch-up stopped part-way (oldest data 71.3 h); retention off. Pre-retention backup:
-  `private/manual-backups/live-telfer-shiphtur-pre-retention-20261022.sqlite3` (410 MB).
+  `private/manual-backups/live-local-pre-retention-20261022.sqlite3` (410 MB).
 
 ## VPS results (measured 2026-10-23, 4 vCPU, 27–28 streamers, ~13 live)
 

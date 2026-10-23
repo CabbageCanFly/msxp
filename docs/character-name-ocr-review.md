@@ -186,7 +186,7 @@ are included; no viewers, network acquisition or retention-sized database.
   names .043s. Initial deadline staggering explains means slightly below 60s.
 - **95.002s wall, 94.562 sampled CPU-s**, peak **601.25 MiB**. Short-lived child CPU
   can be undercounted; the frozen-frame figures subtract existing worker lifetime CPU.
-- 28 unique-HUD name candidates: emmies 10, hefferheffer 10, Mawile 8, all matching
+- 28 unique-HUD name candidates: streamer_f 10, hefferheffer 10, Mawile 8, all matching
   provisional saved-source labels. One missing HUD and one multiple-HUD frame abstain.
   These are repeated sources, not 15 independently labeled broadcasts.
 - **13** channels automatically move from bootstrap placeholders into separate named
