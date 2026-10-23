@@ -17,6 +17,7 @@ from exp_tracker.store import Store
 from exp_tracker.diagnostics import Diagnostics
 from tests.test_diagnostic_progress import row,NOW
 from tests.test_numerical_windows import false_pair
+from private_data import recorded
 
 
 def strict(index,pct):
@@ -229,7 +230,7 @@ def test_missing_hud_gap_after_both_supports_still_checks_capture_safety(change)
 def test_saved_interrupted_run_read_only_projection_and_causal_prefixes():
     from exp_tracker.shadow_view import observation
 
-    path=Path('private/test-fixtures/runs/20261020T214039Z-1781b4bb/telfer1/01f9f3a2328e42128e182408ffae84ff/capture.jsonl')
+    path=recorded('private/test-fixtures/runs/20261020T214039Z-1781b4bb/streamer_a/01f9f3a2328e42128e182408ffae84ff/capture.jsonl')
     if not path.exists():pytest.skip('Private saved source unavailable')
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
     records=[json.loads(line) for line in path.read_text().splitlines()];config=records[0]
@@ -239,7 +240,7 @@ def test_saved_interrupted_run_read_only_projection_and_causal_prefixes():
         r=observation(record);when=r['received_at'] or r['attempted_at']
         r.update(event_id=f'{config["run_id"]}:{r["index"]}',run_id=config['run_id'],
             interval_seconds=config['interval'],source_identity=config['source_identity'],
-            coordinator_instance=config['coordinator_instance'],assigned_channel='telfer1',character_id=1,session_id=1,
+            coordinator_instance=config['coordinator_instance'],assigned_channel='streamer_a',character_id=1,session_id=1,
             hud_count=(record.get('localization') or {}).get('count'),
             capture_acquired=r['status']!='capture_failed' and r['received_at'] is not None,
             timestamp_ordered=previous is None or when>previous)
@@ -262,15 +263,15 @@ def test_saved_interrupted_run_read_only_projection_and_causal_prefixes():
 
 
 def test_saved_run_public_availability_and_causal_prefixes(tmp_path):
-    path=Path('private/test-fixtures/runs/20261019T000710Z-bda4f628/telfer1/capture.jsonl')
+    path=recorded('private/test-fixtures/runs/20261019T000710Z-bda4f628/streamer_a/capture.jsonl')
     if not path.exists():pytest.skip('Private saved source unavailable')
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
     with Store(tmp_path/'review.sqlite3') as store:
-        store.add_channel('telfer1');c=store.add_character('telfer1','Saved review');store.select_character('telfer1',c);store.start_session('telfer1')
-        d=Diagnostics(store);d.replay('telfer1',path)
+        store.add_channel('streamer_a');c=store.add_character('streamer_a','Saved review');store.select_character('streamer_a',c);store.start_session('streamer_a')
+        d=Diagnostics(store);d.replay('streamer_a',path)
         records=[json.loads(s) for s in path.read_text().splitlines()]
         now=max(datetime.fromisoformat(r['received_at']) for r in records if r['type']=='attempt')
-        snap=d.snapshot('telfer1',now=now)
+        snap=d.snapshot('streamer_a',now=now)
         assert len(snap['observations'])==35
         assert sum(bool(r['percentage_only_candidate']) for r in snap['observations'])==31
         assert sum(reading(r) is not None for r in snap['observations'])==35

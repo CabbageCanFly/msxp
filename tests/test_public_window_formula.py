@@ -109,11 +109,11 @@ def test_current_level_only_follows_the_visible_possible_level_without_changing_
 def test_exact_real_windows_public_cards_api_and_selected_graph(tracking,monkeypatch,clock,folders,expected,boundary_gain):
     import exp_tracker.server as http
     from tests.test_server import request
-    if any(not (SAVED/folder/'telfer1/capture.jsonl').exists() for folder in folders):pytest.skip('Private saved capture unavailable')
-    path,store,_=tracking;now=datetime.fromisoformat(clock);d,_=replay(store,'telfer1',folders,as_of=now)
+    if any(not (SAVED/folder/'streamer_a/capture.jsonl').exists() for folder in folders):pytest.skip('Private saved capture unavailable')
+    path,store,_=tracking;now=datetime.fromisoformat(clock);d,_=replay(store,'streamer_a',folders,as_of=now)
     raw=[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
-    snap=d.recent_snapshot('telfer1',now=now);rolling=d.rolling_history('telfer1',now=now)
-    p=tracked_statistics(player(d.snapshot('telfer1',now=now),now=now,recent_snapshot=snap),rolling,now=now)
+    snap=d.recent_snapshot('streamer_a',now=now);rolling=d.rolling_history('streamer_a',now=now)
+    p=tracked_statistics(player(d.snapshot('streamer_a',now=now),now=now,recent_snapshot=snap),rolling,now=now)
     w=p['recent_windows']['5'];assert w['gain']['approximate']==expected
     assert w['pace']['total_gain']==w['gain']
     assert fraction(w['pace']['estimates']['exp_per_hour']['value'])==expected*12
@@ -135,11 +135,11 @@ def test_exact_real_windows_public_cards_api_and_selected_graph(tracking,monkeyp
     monkeypatch.setattr(http,'datetime',Clock)
     with http.create_server(path,port=0,diagnostic_dashboard=True,background=True) as server:
         server.publisher.settle()
-        detail=json.loads(request((server,None),'/api/players/telfer1')[2])
+        detail=json.loads(request((server,None),'/api/players/streamer_a')[2])
         home=json.loads(request((server,None),'/api/players')[2])
-        chart=json.loads(request((server,None),'/api/players/telfer1/history')[2])
+        chart=json.loads(request((server,None),'/api/players/streamer_a/history')[2])
         assert detail['player']['recent_windows']['5']['gain']['approximate']==expected
-        assert next(p for p in home['players'] if p['channel']=='telfer1')['recent_windows']['5']['gain']['approximate']==expected
+        assert next(p for p in home['players'] if p['channel']=='streamer_a')['recent_windows']['5']['gain']['approximate']==expected
         assert chart['windows']['5']['gain']['approximate']==expected
     assert raw==[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     assert not store.db.execute('select 1 from observations').fetchone()

@@ -24,7 +24,7 @@ def supported():
     return [example(1,'397,820[22.63%]'),example(2,'398,923122.69%1')]
 
 
-def test_telfer_defects_are_not_repaired_into_known_answers():
+def test_streamer_a_defects_are_not_repaired_into_known_answers():
     rows=supported()+[example(3,'399.979122.25%1',level=57,score=.68772),
         example(4,'401.128122.82X1',visual=None,level=None,score=0),
         example(5,'402.319[22.89%]',visual=None,level=57,score=.71207)]

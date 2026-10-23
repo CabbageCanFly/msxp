@@ -78,7 +78,7 @@ try {
   port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0];
   const admin = await tab(info.admin, '/');
   const idle = "document.getElementById('app')?.getAttribute('aria-busy')==='false'";
-  await admin.wait(idle+" && document.getElementById('character')?.selectedOptions[0]?.text==='Tricia'");
+  await admin.wait(idle+" && document.getElementById('character')?.selectedOptions[0]?.text==='CharC'");
   const get = id => admin.evaluate(`document.getElementById(${JSON.stringify(id)}).value`);
   async function api(path = '/api/inspect?channel=alpha') {
     return admin.evaluate(`fetch(${JSON.stringify(path)},{headers:{'X-Admin-Token':document.querySelector('meta[name="admin-token"]').content}}).then(r=>r.json())`);
@@ -192,7 +192,7 @@ try {
   // Ordinary correction using native local date/time and percentage only.
   await admin.fill('percentage','0.45');
   let p = await preview(); assert.equal(p.event.current_exp,null); assert.ok(p.reading.estimated_exp);
-  assert.match(await admin.evaluate("document.getElementById('preview-summary').textContent"), /setting Tricia to level 50 at 0.45%/);
+  assert.match(await admin.evaluate("document.getElementById('preview-summary').textContent"), /setting CharC to level 50 at 0.45%/);
   assert.equal(p.event.effective_at,info.stamps.live[2].replace('.123456','.000000'));
   assert.equal((await api()).corrections.length,0);
   await screenshot(admin,'review-percentage');
@@ -257,10 +257,10 @@ try {
   p = await preview(); assert.equal(p.event.effective_at,'2025-11-02T06:30:00.123456+00:00'); await admin.click('cancel');
   await admin.click('new-correction');
   // Rename is a separate small action, with a review that does not write.
-  await admin.click('rename'); await admin.fill('new-name','Tricia renamed'); p = await preview(true);
-  assert.equal((await api()).character.label,'Tricia'); const renamed = (await save()).event; assert.equal(renamed.character_id,info.cid);
-  await board.wait("data?.players?.[0]?.character?.label==='Tricia renamed'");
-  for (const page of [detail,overlay]) await page.wait("data?.player?.character?.label==='Tricia renamed'");
+  await admin.click('rename'); await admin.fill('new-name','CharC renamed'); p = await preview(true);
+  assert.equal((await api()).character.label,'CharC'); const renamed = (await save()).event; assert.equal(renamed.character_id,info.cid);
+  await board.wait("data?.players?.[0]?.character?.label==='CharC renamed'");
+  for (const page of [detail,overlay]) await page.wait("data?.player?.character?.label==='CharC renamed'");
   // Clear stays available in Advanced and still requires an explicit time and confirmation.
   await admin.evaluate("document.getElementById('form-advanced').open=true"); await admin.click('clear'); await admin.click('use-now');
   await preview();
@@ -282,7 +282,7 @@ try {
   assert.equal(await get('date'),''); assert.equal(await get('level'),'');
   await screenshot(admin,'empty-state');
   await admin.fill('channel','beta'); await admin.wait(idle+" && document.getElementById('character').selectedOptions[0].text==='Beta'");
-  await admin.fill('channel','alpha'); await admin.wait(idle+" && document.getElementById('character').selectedOptions[0].text==='Tricia renamed'");
+  await admin.fill('channel','alpha'); await admin.wait(idle+" && document.getElementById('character').selectedOptions[0].text==='CharC renamed'");
   await undo(cleared); await overlay.wait("data?.player?.reading?.evidence==='strict_full'");
   await admin.evaluate("document.getElementById('past-section').open=false;document.getElementById('history-section').open=false;window.scrollTo(0,0)");
   await screenshot(admin,'admin-desktop');

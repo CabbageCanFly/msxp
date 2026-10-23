@@ -18,6 +18,7 @@ from tests.test_endpoint_pace import point,missing,snapshot
 from tests.test_product import tracking,NOW
 from tests.test_numerical_windows import saved_attempt,false_pair
 from tests.test_diagnostic_history import config
+from private_data import recorded
 
 
 @pytest.mark.parametrize('raw',['56.97%1','56.97%','56.97%|||','56.97%]','00.85%1'])
@@ -290,15 +291,15 @@ def test_historical_eta_replay_prunes_only_after_supported_intervals(tracking,mo
     assert result['observations'][-1]['percentage_review']['progress_eligible']
 
 
-@pytest.mark.parametrize('channel',['telfer1','niru'])
+@pytest.mark.parametrize('channel',['streamer_a','streamer_e'])
 def test_saved_followup_checkpoints(tmp_path,channel):
-    path=(Path('private/test-fixtures/runs/20261018T195958Z-eee70469/telfer1/93dddb3313a5445e86d7d12dd3fb9917/capture.jsonl')
-        if channel=='telfer1' else Path('private/test-fixtures/runs/20261018T211439Z-794bf39d/niru/capture.jsonl'))
+    path=recorded('private/test-fixtures/runs/20261018T195958Z-eee70469/streamer_a/93dddb3313a5445e86d7d12dd3fb9917/capture.jsonl'
+        if channel=='streamer_a' else 'private/test-fixtures/runs/20261018T211439Z-794bf39d/streamer_e/capture.jsonl')
     if not path.exists():pytest.skip('Private source unavailable')
     with Store(tmp_path/'saved.sqlite3') as store:
         store.add_channel(channel);cid=store.add_character(channel,'Saved review');store.select_character(channel,cid);store.start_session(channel)
         d=Diagnostics(store)
-        paths=list(path.parent.parent.rglob('capture.jsonl')) if channel=='telfer1' else [path]
+        paths=list(path.parent.parent.rglob('capture.jsonl')) if channel=='streamer_a' else [path]
         paths.sort(key=lambda p:next(json.loads(x)['attempted_at'] for x in p.read_text().splitlines() if json.loads(x)['type']=='attempt'))
         for source in paths:d.replay(channel,source)
         rid=json.loads(path.read_text().splitlines()[0])['run_id']
@@ -307,7 +308,7 @@ def test_saved_followup_checkpoints(tmp_path,channel):
         snap=snapshot(raw,seconds)
         row=snap['observations'][4]
         assert row['percentage_review']['progress_eligible']
-        assert percentage_point(row)[0]['percentage']==('56.97' if channel=='telfer1' else '77.54')
-        assert row['experimental_level']['value']==(67 if channel=='telfer1' else 56)
-        if channel=='niru':assert history(snap)[3]['reading'] is None
+        assert percentage_point(row)[0]['percentage']==('56.97' if channel=='streamer_a' else '77.54')
+        assert row['experimental_level']['value']==(67 if channel=='streamer_a' else 56)
+        if channel=='streamer_e':assert history(snap)[3]['reading'] is None
         assert not store.db.execute('select 1 from observations').fetchone()

@@ -59,7 +59,7 @@ def test_cards_match_reference_after_every_append_and_as_windows_expire(tracking
     for delta in (1,11,301,3601,3901,86401):same_card(d,'alpha',last+timedelta(seconds=delta),checkpoints,monkeypatch)
 
 
-@pytest.mark.parametrize('channel',['emmies','niru','telfer1'])
+@pytest.mark.parametrize('channel',['streamer_f','streamer_e','streamer_a'])
 def test_saved_cards_match_reference(tmp_path,monkeypatch,channel):
     """Missing/malformed OCR, level-ups, quarantine, rotation, restarts and inactivity."""
     paths=sorted(Path(SAVED).glob(f'*/{channel}/**/capture.jsonl'),key=lambda p:json.loads(p.read_text().splitlines()[1])['attempted_at'])[:REPLAY_LOGS]

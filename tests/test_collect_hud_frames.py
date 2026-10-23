@@ -154,7 +154,7 @@ def test_resolved_output_cannot_escape_through_symlink(collector, args, tmp_path
 
 
 def test_remote_authorization_required_before_any_connection_or_output(collector, args, capsys):
-    assert collector.main(['--channel', 'TriciaIsABirdy', '--output', str(args.output)],
+    assert collector.main(['--channel', 'Streamer_C', '--output', str(args.output)],
         session_factory=lambda *a, **k: pytest.fail('Unauthorized source acquired')) == 1
     assert '--authorized' in capsys.readouterr().err
     assert not args.output.exists()
@@ -170,15 +170,15 @@ def test_remote_input_validation_reuses_existing_contract(collector, args, extra
 
 
 def test_authorized_remote_metadata_without_network(collector, args):
-    args.file, args.channel, args.authorized, args.quality = None, 'TriciaIsABirdy', True, '1080p60'
+    args.file, args.channel, args.authorized, args.quality = None, 'Streamer_C', True, '1080p60'
     calls = []
     session = Session([frame('red', 1), frame('blue', 2)])
     def factory(source, **kwargs):
         calls.append(source)
         return session
     result = collector.collect(args, session_factory=factory, clock=lambda: 100, sleep=lambda _: None)
-    assert calls[0].value == 'triciaisabirdy' and calls[0].quality == '1080p60'
-    assert result['source']['channel'] == 'triciaisabirdy'
+    assert calls[0].value == 'streamer_c' and calls[0].quality == '1080p60'
+    assert result['source']['channel'] == 'streamer_c'
     assert result['source']['requested_rendition'] == '1080p60'
     assert 'https://' not in json.dumps(result)
 

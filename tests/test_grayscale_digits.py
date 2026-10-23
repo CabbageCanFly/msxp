@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 import pytest
 
+from private_data import require_live_crops
 from test_exp_digits import exp, profile
 from test_glyphs import synthetic_profile, render
 
@@ -122,6 +123,7 @@ def test_hybrid_preserves_complete_pixel_candidate_without_classifier_calls(gray
     (384250,57,15.32,'candidate'), (780000,280,33.33,'candidate'), (599000,0,None,'unavailable')])
 def test_private_hybrid_recoveries_and_unreadable_rejection(gray, exp, milliseconds, number, percent, status):
     root=Path(__file__).parents[1]
+    require_live_crops()  # The digit bank loads them.
     bank=root/'private/exp-digits/bank.json';model=root/'private/numeric-classifier/model.json'
     crop=root/f'private/levelup-evaluation/evaluation-crops/recording-crops/{milliseconds:04d}/exp-crop.png'
     if not all(p.exists() for p in (bank,model,crop)):

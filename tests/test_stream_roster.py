@@ -24,11 +24,11 @@ def test_coordinated_manual_rename_preserves_assignment_ids_and_rejects_stale_ro
     module.initialize(database,rows,say=lambda _:None)
     with Store(database) as store:
         before=store.state('alpha');cid=before['selected_character_id']
-        store.rename_character('alpha',cid,'Tricia',reason='Correct placeholder')
+        store.rename_character('alpha',cid,'CharC',reason='Correct placeholder')
     with pytest.raises(ValueError,match='coordinated rename'):
         module.check_assignments(database,rows)
     original,config=tool.read_config(path)
-    next(r for r in config['streams'] if r['channel']=='alpha')['character']='Tricia'
+    next(r for r in config['streams'] if r['channel']=='alpha')['character']='CharC'
     tool.save_config(path,config,original)
     database,_,renamed=module.validate_config(config)
     module.check_assignments(database,renamed)

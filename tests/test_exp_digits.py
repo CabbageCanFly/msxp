@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 import pytest
 
+from private_data import require_live_crops
 from test_glyphs import synthetic_profile, render
 
 
@@ -178,6 +179,7 @@ def test_scoring_keeps_partial_fields_and_level_errors_separate(exp):
     ('artifacts/green-test-20261015-215403/0016/exp-crop.png', 879440, 72.68, 'candidate')])
 def test_private_success_and_rejection_regressions(exp, relative, number, percentage, status):
     root = Path(__file__).parents[1]
+    require_live_crops()  # The digit bank loads them.
     bank = root/'private/exp-digits/bank.json'
     image = root/relative
     if not bank.exists() or not image.exists():

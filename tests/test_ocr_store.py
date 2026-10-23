@@ -14,6 +14,7 @@ from exp_tracker.glyphs import GlyphProfile
 from exp_tracker.models import Region
 from exp_tracker.recognition import recognize
 from exp_tracker.store import Store
+from private_data import require_live_crops
 from tools.replay_capture_crops import read_records, recognize_saved, restore_frame
 
 
@@ -24,6 +25,7 @@ pytestmark = [pytest.mark.samples, pytest.mark.ocr]
 
 @pytest.fixture(scope="module")
 def saved():
+    require_live_crops()
     records = ROOT / f"artifacts/{TRIAL}.jsonl"
     profile = ROOT / "private/ocr-evaluation/glyph-profile-green-experimental.json"
     if not records.exists() or not profile.exists():
@@ -132,7 +134,7 @@ def test_real_capture_cli_profile_ocr_sqlite_on_lossless_saved_video(saved, tmp_
     # The new local decoder delivery uses current time; replay above uses original times.
     setup(path, datetime.now().astimezone() - timedelta(seconds=1))
     assert main(["--file", str(video_path), "--database", str(path), "--tracking-channel", "replay",
-                 "--glyph-profile", str(profile_path), "--config", str(ROOT / "configs/telfer1-live.json"),
+                 "--glyph-profile", str(profile_path), "--config", str(ROOT / "configs/streamer-live.json"),
                  "--count", "1", "--timeout", "10"]) == 0
     output = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert output[0]["tracking"]["outcome"] == "baseline"

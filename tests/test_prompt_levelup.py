@@ -1,4 +1,4 @@
-"""Saved Telfer punctuation and corroborated level-up, using synthetic frames only."""
+"""Saved CharA punctuation and corroborated level-up, using synthetic frames only."""
 from datetime import datetime,timedelta
 import json
 
@@ -21,7 +21,7 @@ from tests.test_product import tracking,get,NOW  # noqa: F401 (pytest fixture)
     ('3,44410.18%','3444','0.18'),
     ('1,.719[0.09%]','1719','0.09'),
     ('3,444[0.18%','3444','0.18')])
-def test_complete_telfer_pairs_preserve_digits_and_provenance(raw,exp,pct):
+def test_complete_streamer_a_pairs_preserve_digits_and_provenance(raw,exp,pct):
     result=interpret_exp(raw)
     pair=result['strict_full'] or result['full_exp']['proposals'][0]['reading']
     assert (pair['exp'],pair['percentage'])==(exp,pct)
@@ -127,17 +127,17 @@ def test_public_projection_and_rolling_history_resume_without_trusted_writes(tra
     assert not store.db.execute('select 1 from observations').fetchone()
 
 
-def test_saved_telfer_first_new_level_and_two_punctuation_recoveries(tracking):
+def test_saved_streamer_a_first_new_level_and_two_punctuation_recoveries(tracking):
     from tests.test_cross_level_product import replay,SAVED
     from exp_tracker.product import player
     from exp_tracker.server import create_server
     from tests.test_server import request
     folder='20261019T080326Z-f4f3d659';rid='764dc5b622f54861bfb90a43168330c4'
-    if not (SAVED/folder/'telfer1'/rid/'capture.jsonl').is_file():pytest.skip('private Telfer capture unavailable')
+    if not (SAVED/folder/'streamer_a'/rid/'capture.jsonl').is_file():pytest.skip('private CharA capture unavailable')
     path,store,_=tracking
     now=datetime.fromisoformat('2026-10-19T09:02:06.728610+00:00')
-    d,_=replay(store,'telfer1',[folder],as_of=now)
-    recent=d.recent_snapshot('telfer1',now=now);rows=recent['observations']
+    d,_=replay(store,'streamer_a',[folder],as_of=now)
+    recent=d.recent_snapshot('streamer_a',now=now);rows=recent['observations']
     by_id={r['event_id']:r for r in rows}
     for index,exp,pct in [(11,'151','0.01'),(12,'1719','0.09'),(13,'3444','0.18')]:
         r=by_id[f'{rid}:{index}']
@@ -146,10 +146,10 @@ def test_saved_telfer_first_new_level_and_two_punctuation_recoveries(tracking):
     chart={p['event_id']:p for p in history(recent)}
     assert chart[f'{rid}:11']['gain'] is None
     assert [chart[f'{rid}:{i}']['gain']['value']['approximate'] for i in (12,13)]==[1568,1725]
-    expected=player(d.snapshot('telfer1',now=now),now=now,recent_snapshot=d.recent_snapshot('telfer1',now=now))
+    expected=player(d.snapshot('streamer_a',now=now),now=now,recent_snapshot=d.recent_snapshot('streamer_a',now=now))
     with create_server(path,port=0,diagnostic_dashboard=True) as server:
         server.publisher.settle()
-        actual=json.loads(request((server,None),'/api/players/telfer1')[2])['player']
+        actual=json.loads(request((server,None),'/api/players/streamer_a')[2])['player']
         assert actual['display_level']['value']==expected['display_level']['value']==69
         assert (actual['reading']['exp'],actual['reading']['percentage'])==('3444','0.18')
     assert not store.db.execute('select 1 from observations').fetchone()

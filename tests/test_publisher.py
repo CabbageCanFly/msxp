@@ -210,7 +210,7 @@ def test_homepage_mini_chart_omits_long_gap_gain_but_keeps_recent_gain_and_daily
         assert player['tracked_windows']['1440']['gain']==tracked['tracked_exp']
 
 
-@pytest.mark.parametrize('channel',['emmies','niru','telfer1'])
+@pytest.mark.parametrize('channel',['streamer_f','streamer_e','streamer_a'])
 def test_saved_publications_match_reference(tmp_path,clock,channel):
     # Read each file once: active rotation tails must not change this invocation's inputs.
     captures=sorted(((p,p.read_text()) for p in Path(SAVED).glob(f'*/{channel}/**/capture.jsonl')),
@@ -241,12 +241,12 @@ def test_saved_publications_match_reference(tmp_path,clock,channel):
 def test_saved_publication_preserves_pruned_level_decrease(tracking,clock,tmp_path):
     path,store,_=tracking
     clock.at=datetime.fromisoformat('2026-10-19T03:52:21.976670+00:00')
-    replay(store,'telfer1',['20261018T021930Z-a5713c06','20261019T025444Z-0fbaad78'],as_of=clock.at)
+    replay(store,'streamer_a',['20261018T021930Z-a5713c06','20261019T025444Z-0fbaad78'],as_of=clock.at)
     with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
         for delta in (0,31,31):
             clock.at+=timedelta(seconds=delta);server.publisher.settle()
-            assert_publication(store,server,'telfer1',clock.at,tmp_path)
-            assert server.publisher.entry('telfer1')['tracked']['exclusion_counts']['observed_level_decrease']==1
+            assert_publication(store,server,'streamer_a',clock.at,tmp_path)
+            assert server.publisher.entry('streamer_a')['tracked']['exclusion_counts']['observed_level_decrease']==1
 
 
 def test_concurrent_viewers_share_one_projection_per_publication(tracking,clock,monkeypatch):

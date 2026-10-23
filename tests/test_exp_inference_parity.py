@@ -105,7 +105,7 @@ def test_bad_tables_and_modes_are_still_rejected():
 def saved_pairs():
     pairs=set()
     for path in Path(SAVED).glob('*/*/**/capture.jsonl'):
-        if path.parent.name not in ('emmies','niru','telfer1') and path.parents[1].name not in ('emmies','niru','telfer1'):continue
+        if path.parent.name not in ('streamer_f','streamer_e','streamer_a') and path.parents[1].name not in ('streamer_f','streamer_e','streamer_a'):continue
         for line in path.read_text().splitlines():
             record=json.loads(line);candidate=record.get('candidate')
             if record.get('type')=='attempt' and candidate:

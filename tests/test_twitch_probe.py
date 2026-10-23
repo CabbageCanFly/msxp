@@ -164,13 +164,13 @@ def paginated_cache(monkeypatch,pages):
 
 def test_live_channel_with_cursor_and_empty_final_page_checks_offline_and_caches(monkeypatch):
     cache,calls=paginated_cache(monkeypatch,[
-        dict(data=[dict(user_login='telfer1',type='live')],pagination=dict(cursor='next')),
+        dict(data=[dict(user_login='streamer_a',type='live')],pagination=dict(cursor='next')),
         dict(data=[],pagination={})])
-    result=cache.snapshot(['telfer1','shiphtur'])
-    assert result['telfer1']['status']=='live' and result['shiphtur']['status']=='offline'
-    assert calls==[dict(user_login=['shiphtur','telfer1'],first=100),
-                   dict(user_login=['shiphtur','telfer1'],first=100,after='next')]
-    assert cache.snapshot(['shiphtur','telfer1'])==result and len(calls)==2
+    result=cache.snapshot(['streamer_a','streamer_b'])
+    assert result['streamer_a']['status']=='live' and result['streamer_b']['status']=='offline'
+    assert calls==[dict(user_login=['streamer_a','streamer_b'],first=100),
+                   dict(user_login=['streamer_a','streamer_b'],first=100,after='next')]
+    assert cache.snapshot(['streamer_b','streamer_a'])==result and len(calls)==2
 
 
 @pytest.mark.parametrize('failure,reason',[

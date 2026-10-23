@@ -179,7 +179,7 @@ def test_saved_logs_are_read_once_in_run_order(tmp_path):
     assert [len(r) for r in logs]==[4,2] and logs[1][1]['attempted_at']==(NOW+timedelta(seconds=60)).isoformat()
 
 
-@pytest.mark.parametrize('channel',['emmies','niru','telfer1'])
+@pytest.mark.parametrize('channel',['streamer_f','streamer_e','streamer_a'])
 def test_saved_logs_match_full_replay_while_streamed(tmp_path,channel):
     """Real missing/malformed OCR, level-ups, rotation, restarts and long inactivity.
 
@@ -227,7 +227,7 @@ def test_homepage_and_character_api_share_one_card_computation_per_revision(trac
 
 
 def test_cold_restore_of_a_session_beyond_4096_rows_trims_instead_of_failing(tracking):
-    """Saved Telfer1 reached this branch and every build raised NameError (shadowed module imports)."""
+    """Saved Streamer_A reached this branch and every build raised NameError (shadowed module imports)."""
     path,store,d=tracking;run='r0';d.begin(run,'alpha',config(run))
     for n in range(4140):  # 69 rotated runs of 60, as the coordinator writes them.
         if n and n%60==0:rotate(d,run,f'r{n//60}');run=f'r{n//60}'
@@ -239,7 +239,7 @@ def test_cold_restore_of_a_session_beyond_4096_rows_trims_instead_of_failing(tra
 
 
 def test_checkpoint_keeps_the_endpoint_before_the_window_for_the_boundary_pair(tracking):
-    """Saved Telfer1 at a rotation: a checkpoint saved at the comparison time had dropped the
+    """Saved Streamer_A at a rotation: a checkpoint saved at the comparison time had dropped the
     last reading before the 24h start, so only the full replay saw the boundary-crossing pair."""
     path,store,d=tracking;d.begin('r0','alpha',config('r0'))
     for i in range(1,61):save(d,'r0',i,20*i,3300+i)  # 20..1200 s.
