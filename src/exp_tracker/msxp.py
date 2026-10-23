@@ -5,6 +5,8 @@ option msxp does not know passes through to that tool (e.g. `msxp tracker --chec
 Standard library only, so `msxp install` and `msxp doctor` work before anything is installed.
 """
 import argparse
+import base64
+import json
 import os
 from pathlib import Path
 import shlex
@@ -98,6 +100,18 @@ def tesseract():
     return os.environ.get('TESSERACT_CMD') or shutil.which('tesseract') or (str(candidate) if WINDOWS and candidate.is_file() else None)
 
 
+BLANK_PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAHgAAAAQCAAAAAD4qOQ5AAAAF0lEQVR42mNgGAWjYBSMglEwCkbBQAMAB5AAAa8T4zAAAAAASUVORK5CYII=')
+
+
+def ocr_works():
+    """Runs the live tracker's RapidOCR worker once: a damaged environment can still have its python.exe."""
+    if not OCR.is_file():return False
+    try:
+        output = subprocess.run([str(OCR), str(ROOT / 'tools/shadow_rapidocr.py')], input=BLANK_PNG, capture_output=True, timeout=120)
+        return output.returncode == 0 and 'text' in json.loads(output.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):return False
+
+
 def hint(tool):
     return INSTALL[tool][0 if WINDOWS else 1 if sys.platform == 'darwin' else 2]
 
@@ -162,7 +176,7 @@ def checks(s):
     db = path(s['MSXP_DATABASE'])
     yield 'Python 3.11 or newer', sys.version_info >= (3, 11), 'install Python 3.11+ from https://www.python.org/downloads/', 'need'
     yield 'Project environment (.venv)', VENV.is_file(), 'msxp install', 'need'
-    yield 'OCR environment (RapidOCR)', OCR.is_file(), 'msxp install', 'need'
+    yield 'OCR environment (RapidOCR worker runs)', ocr_works(), 'msxp install   (repairs a damaged environment too)', 'need'
     yield 'Tesseract OCR', bool(tesseract()), hint('Tesseract') + '   (or set TESSERACT_CMD)', 'need'
     yield 'FFmpeg', bool(shutil.which('ffmpeg')), hint('FFmpeg') + '   (then open a new terminal)', 'need'
     yield f'Tracker database: {db}', db.is_file(), 'msxp setup   (or point MSXP_DATABASE in .env at yours)', 'next'
@@ -188,11 +202,12 @@ def install(args, s):
         print('Python 3.11 or newer is required: https://www.python.org/downloads/');return 1
     steps = []
     if not VENV.is_file():steps.append([sys.executable, '-m', 'venv', ROOT / '.venv'])
-    pip = ['-m', 'pip', 'install', '--disable-pip-version-check']
-    steps += [[VENV, *pip, '--upgrade', 'pip'], [VENV, *pip, '-e', '.[capture,dev]']]
+    # ensurepip first: a damaged environment can lose pip itself; reinstalling then restores missing dependencies.
+    pip, ensure = ['-m', 'pip', 'install', '--disable-pip-version-check'], ['-m', 'ensurepip', '--upgrade']
+    steps += [[VENV, *ensure], [VENV, *pip, '--upgrade', 'pip'], [VENV, *pip, '-e', '.[capture,dev]']]
     if not args.no_ocr:
         if not OCR.is_file():steps.append([sys.executable, '-m', 'venv', ROOT / 'private/rapidocr/.venv'])
-        steps.append([OCR, *pip, '--only-binary=:all:', *OCR_PACKAGES])
+        steps += [[OCR, *ensure], [OCR, *pip, '--only-binary=:all:', *OCR_PACKAGES]]
     for step in steps:
         if run(step, tool=False):print('Install stopped; see the error above.');return 1
     if not (ROOT / '.env').exists():
