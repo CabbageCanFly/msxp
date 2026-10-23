@@ -58,6 +58,7 @@ Want the leaderboard to show who is live? Add free Twitch app keys to `.env` (ne
 | `msxp admin` | Add streamers, confirm permission, start or pause tracking |
 | `msxp tracker` | Captures the streams and serves your leaderboard |
 | `msxp api` | Only the website, from an existing database, without capturing |
+| `msxp dashboard` | Operator view: every capture's details per streamer, read-only (`msxp tracker` includes it at `/dev/streams`) |
 | `msxp health` | Missed captures in the last hour, and why |
 | `msxp cleanup` | Keeps only the last 24 hours of raw readings (`--apply` to actually delete) |
 | `msxp test` | Runs the test suite |
@@ -79,6 +80,7 @@ Everything personal lives in **`.env`** in the project folder. `msxp install` cr
 | `MSXP_DATABASE` | `private/msxp/tracker.sqlite3` | Your tracker database |
 | `MSXP_PORT` | `8765` | Your leaderboard website |
 | `MSXP_ADMIN_PORT` | `8766` | The admin page (only reachable from your computer) |
+| `MSXP_DASHBOARD_PORT` | `8767` | The operator dashboard (only reachable from your computer) |
 | `MSXP_WORKERS` | `2` | Streams captured at the same time |
 | `MSXP_SERVER` | none | Your server's SSH login, for `msxp server` (e.g. `root@203.0.113.7`) |
 | `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | none | Optional. Shows who is live. Create a free app at [dev.twitch.tv/console/apps](https://dev.twitch.tv/console/apps) |
@@ -101,10 +103,11 @@ runs as the `msxp` user, and keeps its settings in `/etc/msxp/` (msxp reads them
 | `msxp server logs` | Follows the server's logs (`msxp server logs api` for just the website) |
 | `msxp server health` | Missed captures on the server in the last hour |
 | `msxp server where` | Where everything lives on the server |
+| `msxp server dashboard` | Opens the server's operator dashboard the same way; Ctrl+C closes it |
 | `msxp server doctor` | Checks the server's setup |
 
-The admin page is never exposed to the internet: it only listens on the server itself, and the
-tunnel brings it to your computer. **Updating the server** after you push changes:
+The admin page and dashboard are never exposed to the internet: they only listen on the server
+itself, and the tunnel brings them to your computer. The dashboard adds some CPU load while it is open. **Updating the server** after you push changes:
 `ssh root@your-server "cd /opt/msxp/app && git pull --ff-only && systemctl restart msxp-api msxp-tracker"`.
 The [docs index](docs/README.md) lists the deeper server guides.
 
