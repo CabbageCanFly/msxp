@@ -38,11 +38,13 @@ With an active Python environment, the equivalent command on any platform is
 `python tools/preview_pages.py --demo --live --port 8890`. To keep your own synthetic
 data, use `--api-db PATH --live` instead of `--demo`.
 
-At the top of `src/exp_tracker/web/product.css`, **`--background-tint:5%`** adds a
-uniform 5% navy veil over Sleepywood's previous gradients. Increase the percentage
-to dim the scene further. Kerning overrides the same variable to **35%**, because
+At the top of `src/exp_tracker/web/product.css`, **`--background-tint:10%`** adds a
+uniform 10% navy veil over Sleepywood's previous gradients. Increase the percentage
+to dim the scene further. Kerning overrides the same variable to **40%**, because
 its sunset sky and brickwork are brighter. The underlying gradients now use
 readable opacity percentages instead of hex alpha values.
+Kerning's fixed background extends 3% past each viewport edge, providing a small
+zoom that crops away the original render's uneven transparent bottom border.
 
 Overrides apply to the current URL; add the parameter on a character URL too,
 e.g. `/stream/synthetic_demo?background=kerning`. Without an override, either town

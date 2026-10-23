@@ -1,12 +1,12 @@
 .product {
   /* Extra navy tint: raise this percentage to make either town less distracting. */
-  --background-tint:5%;
+  --background-tint:10%;
   --background-map:none; --background-sky:none;
   isolation:isolate; background:var(--bg);
 }
 .product[data-background=sleepywood] { --background-map:url(sleepywood.webp); --background-sky:url(sleepywood-forest.webp); }
 /* The original sunset sky is much brighter than Sleepywood's forest. */
-.product[data-background=kerning] { --background-tint:35%; --background-map:url(kerning.webp); --background-sky:url(kerning-sky.webp); }
+.product[data-background=kerning] { --background-tint:40%; --background-map:url(kerning.webp); --background-sky:url(kerning-sky.webp); }
 .product .sky { display:none; }
 /* The viewport-sized scene stays behind pages of any length; the original pixels are preserved in lossless WebP. */
 .product::before {
@@ -18,6 +18,8 @@
     var(--background-map) center bottom / cover no-repeat,
     var(--background-sky) center / cover no-repeat;
 }
+/* Overscan hides the town render's uneven transparent bottom edge. */
+.product[data-background=kerning]::before { inset:-3%; }
 .product .brand { text-decoration:none; color:inherit; }
 /* A fixed line height and an SVG arrow (not a fallback-font glyph) keep the masthead identical on every page. */
 .product .brand span { line-height:18px; }
