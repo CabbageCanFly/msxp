@@ -377,8 +377,8 @@ for local, read-only inspection; the preview server has stopped:
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe -m exp_tracker.manual_admin --db private/manual-revision/browser.sqlite3 --channel alpha inspect
-& ..\msclassic-twitch-exp-tracker\.venv\Scripts\python.exe -m exp_tracker.manual_admin --db private/manual-revision/browser.sqlite3 --channel alpha history
+& <your msxp folder>\.venv\Scripts\python.exe -m exp_tracker.manual_admin --db private/manual-revision/browser.sqlite3 --channel alpha inspect
+& <your msxp folder>\.venv\Scripts\python.exe -m exp_tracker.manual_admin --db private/manual-revision/browser.sqlite3 --channel alpha history
 ```
 
 The adjacent existing interpreter supplied dependencies read-only; bytecode writes
