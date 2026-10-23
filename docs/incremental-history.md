@@ -57,6 +57,22 @@ from the first run and replaces the checkpoint:
 | Each covered run keeps its configuration, summary, attempt count and last attempt ID | Late appends to an older unfinished run, a summary written later, out-of-band row insert or delete |
 | Work limits are re-applied with the restored receipt | `history_limit` stays identical to a full replay; never a truncated total |
 
+**Across a retention fold.** The key also carries the retention floor (`through_run`). When
+a fold raises it, a checkpoint from the previous floor is resumed if (`folded()`): the
+mode has a frozen state, the checkpoint's leading runs are now at or below the new floor
+(or deleted), and its remaining runs begin the current sequence and pass the checks above.
+Retention folds a prefix by replaying it with the same steps, so the frozen state equals
+the checkpoint's state after those runs, except `retained_etas`/`retained_paces`, which
+only the fold writes and are taken from the frozen state. The folded runs' share is
+removed from the receipt (fingerprints now carry each run's byte count). A fold that
+reached past the checkpoint's last run, the first fold of a character, and the
+historical-ETA view (keyed by the earliest kept attempt, so once per fold for offline
+characters) still replay in full.
+
+Measured 2026-10-23 on a copy of the local live DB (12 channels, one hour folded, then
+publisher calls at the fold time and 90 s later): live channels replayed 2 runs
+(0.2–0.5 s) instead of 128–140 (3–4.5 s); every packet equal to a full replay.
+
 Readings before the 24h start are pruned when saved, except the last usable endpoint
 before it. A later window's boundary-crossing pair begins there, and
 `boundary_intervals_excluded` counts that pair. Until the parity fix described in

@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import pytest
 
+from exp_tracker import rolling_history
 from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.product import player
 from exp_tracker.retention import prune,checkpoint
@@ -12,9 +13,9 @@ from tests.test_diagnostic_history import config
 from tests.test_tracked_exp_totals import save
 
 
-def chain(d, count=8):
-    d.append('run',dict(type='summary',trusted=False,attempts=0,interrupted=True))
-    for n in range(count):
+def chain(d, count=8, first=0):
+    if not first:d.append('run',dict(type='summary',trusted=False,attempts=0,interrupted=True))
+    for n in range(first,first+count):
         rid=f'chain{n}'
         if n==0:d.begin(rid,'alpha',config(rid,interval=300))
         else:d.rotate(f'chain{n-1}',rid,'alpha',dict(type='summary',trusted=False,attempts=60,
@@ -24,7 +25,7 @@ def chain(d, count=8):
             level=64 if index<200 else 65
             save(d,rid,i,index*300,1000+index,missing=index%17==0,
                 level=level,neural_level=dict(level=level,text=str(level),status='numeric_candidate',score=.99))
-    return NOW+timedelta(seconds=(count*60-1)*300)
+    return NOW+timedelta(seconds=((first+count)*60-1)*300)
 
 
 def metrics(d,now):
@@ -269,6 +270,34 @@ def test_publisher_heads_and_live_checkpoints_change_on_retention(tracking):
     assert metrics(d,now)=={k:before[k] for k in metrics(d,now)}
     full=d.rolling_history('alpha',now=now)
     assert d.rolling_history('alpha',now=now,checkpoints=cache)==full
+
+
+def both(d,now,checkpoints=None):
+    return d.rolling_history('alpha',now=now,checkpoints=checkpoints),d.recent_snapshot('alpha',now=now,checkpoints=checkpoints)
+
+
+def test_live_checkpoints_resume_across_a_fold_instead_of_replaying_every_run(tracking,monkeypatch):
+    _,store,d=tracking;now=chain(d);cache={};character=store._channel('alpha')['selected_character_id']
+    prune(store,now=now,dry_run=False);both(d,now,cache)  # Checkpoints from the first floor on.
+    later=chain(d,count=4,first=8);both(d,later,cache)
+    floor=checkpoint(store,character)['through_run']
+    prune(store,now=later,dry_run=False)
+    assert checkpoint(store,character)['through_run']>floor
+    seen=[];original=rolling_history.run_rows
+    monkeypatch.setattr(rolling_history,'run_rows',lambda *a,**k:seen.append(a[2]['run_id']) or original(*a,**k))
+    fast=both(d,later,cache)
+    assert seen==['chain11','chain11']  # Only the open run: folded and settled runs are not replayed.
+    seen.clear();assert fast==both(d,later)  # Totals, windows, paces, ETAs and receipts as a full replay.
+    assert len(seen)>2
+    assert both(d,later+timedelta(minutes=5),cache)==both(d,later+timedelta(minutes=5))
+
+
+def test_a_fold_past_the_whole_checkpoint_replays_in_full(tracking):
+    _,store,d=tracking;now=chain(d);cache={}
+    prune(store,now=now,dry_run=False);both(d,now,cache)
+    later=chain(d,count=8,first=8)  # 40 h on: every checkpointed run has expired.
+    prune(store,now=later,dry_run=False)
+    assert both(d,later,cache)==both(d,later)
 
 
 def test_pending_loss_at_expired_rotation_boundary_matches_full_causal_replay(tracking):
