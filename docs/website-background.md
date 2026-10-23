@@ -103,6 +103,10 @@ The existing wandering monsters supply movement. Mobile shows a narrower crop.
 Walking mobs and their damage numbers disable touch highlighting, selection and
 image dragging. Each accepted tap/click shows one floating damage number, including
 nonlethal reactions; mobs already dying or falling ignore further input.
+The character-page "Bar chart transfers below" tip is a keyboard-accessible
+button: one activation draws a gold strike, two form an X, and three dismiss the
+text and arrow with a brief shrinking/blurred fade. Reduced motion dismisses it
+immediately. Dismissal lasts for this page visit; refreshing restores the tip.
 The town scales up on 4K screens: this is original pixel art, not native 4K detail.
 The small forest tile is also enlarged and intentionally subdued by the tint.
 If an image fails, the navy body remains the fallback. The OBS overlay uses its own
@@ -127,10 +131,13 @@ The original background milestone passed 2,985 Python tests with one OS symlink
 skip on the main workstation. This follow-up in the separate worktree passed
 2,869 Python tests, with 119 private-fixture skips and one OS symlink skip;
 the worktree does not copy the original directory's ignored private fixtures.
-The product JavaScript suite passed all 121 tests, including repeated mob clicks
+The product JavaScript suite passed all 122 tests, including repeated mob clicks
 across all four reactions. On 2026-10-23, Chrome touch emulation verified four taps
 and a mouse click each create one damage number, numbers clean up, mob highlighting
 and selection are disabled, and ordinary page text remains selectable.
+The three-stage character tip was checked with actual mouse clicks, touch taps
+and Enter/Space, including reduced motion, focus transfer and restoration on
+refresh. Its strikes were visually inspected; test preview servers were stopped.
 Both towns were checked at 1080p, 4K and mobile, on long scrolling lists and the
 character page; only the selected images loaded and OBS remained transparent.
 Tests also change source CSS and HTML while the same live server runs, and verify

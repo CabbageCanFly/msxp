@@ -33,6 +33,36 @@ function player(changes={}){return {channel:'alpha',character:{label:'Main'},sou
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
 
+test('profile chart tip takes two strikes then poofs once; reduced motion, missing animations and cancellation still dismiss it',async()=>{
+  for(const mode of ['finish','cancel','reduced','unsupported']) {
+    const p=page('player'),tip=p.elements['history-overlay-tip'];
+    let removed=0,animated=0,focused=0,finish,cancel;
+    const next={focus(options){focused++;assert.equal(options.preventScroll,true);}};
+    p.context.document.activeElement=tip;
+    p.context.document.querySelector=selector=>selector==='.overlay-board button'?next:null;
+    p.context.matchMedia=()=>({matches:mode==='reduced'});
+    tip.remove=()=>removed++;
+    if(mode!=='unsupported')tip.animate=(frames,options)=>{
+      animated++;assert.equal(frames.at(-1).opacity,0);assert.equal(options.duration,360);
+      return {finished:new Promise((resolve,reject)=>{finish=resolve;cancel=reject;})};
+    };
+    tip.listeners.click();
+    assert.equal(tip.dataset.strikes,'1');assert.match(tip.attributes['aria-label'],/again/);assert.equal(removed,0);
+    p.render(player());
+    tip.listeners.click();
+    assert.equal(tip.dataset.strikes,'2');assert.match(tip.attributes['aria-label'],/Dismiss/);assert.equal(removed,0);
+    tip.listeners.click();tip.listeners.click();
+    assert.equal(tip.dataset.strikes,'3');assert.equal(tip.disabled,true);
+    if(mode==='finish' || mode==='cancel') {
+      assert.equal(removed,0);assert.equal(animated,1);
+      if(mode==='finish')finish();else cancel(new Error('Animation interrupted'));
+      await Promise.resolve();
+    } else assert.equal(animated,0);
+    assert.equal(removed,1);assert.equal(focused,1);
+  }
+  for(const view of ['board','overlay'])assert.equal(page(view).elements['history-overlay-tip'],undefined);
+});
+
 test('town backgrounds accept only known overrides, otherwise choose randomly once per page load; overlays stay transparent',()=>{
   for(const view of ['board','player']) {
     for(const town of ['sleepywood','kerning']) {

@@ -835,6 +835,28 @@ document.querySelectorAll('[data-window]').forEach(button=>button.addEventListen
   if(view==='board')renderBoard();else if(data?.player){renderPlayer();drawHistory();}
 }));
 if(view==='player') {
+  const overlayTip=el('history-overlay-tip');
+  let tipStrikes=0;
+  overlayTip.addEventListener('click',()=>{
+    if(overlayTip.disabled)return;
+    overlayTip.dataset.strikes=String(++tipStrikes);
+    if(tipStrikes<3) {
+      overlayTip.setAttribute('aria-label',tipStrikes===1?'Bar chart transfers below. Cross out tip again.':'Bar chart transfers below. Dismiss tip.');
+      return;
+    }
+    const focused=document.activeElement===overlayTip;
+    overlayTip.disabled=true;
+    const remove=()=>{
+      if(focused && (document.activeElement===overlayTip || document.activeElement===document.body))document.querySelector('.overlay-board button')?.focus({preventScroll:true});
+      overlayTip.remove();
+    };
+    if(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches || !overlayTip.animate){remove();return;}
+    overlayTip.animate([
+      {transform:'rotate(-12deg) scale(1)',opacity:1,filter:'blur(0px)'},
+      {transform:'rotate(-8deg) scale(1.12)',opacity:.8,filter:'blur(1px)',offset:.3},
+      {transform:'rotate(-17deg) scale(.55)',opacity:0,filter:'blur(5px)'},
+    ],{duration:360,easing:'ease-out',fill:'forwards'}).finished.then(remove,remove);
+  });
   el('current-level-only').addEventListener('change',e=>{currentLevelOnly=e.target.checked;if(data?.player){renderPlayer();drawHistory();}});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){tipDismissed=true;hideTip();}else if(e.key==='Tab')tipDismissed=false;});
   document.addEventListener('pointermove',e=>{if(!lastPointer || lastPointer.x!==e.clientX || lastPointer.y!==e.clientY)tipDismissed=false;lastPointer={x:e.clientX,y:e.clientY};});
