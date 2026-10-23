@@ -76,12 +76,63 @@ Want the leaderboard to show who is live? Add free Twitch app keys to `.env` (ne
 | `msxp cleanup` | Keeps only the last 24 hours of raw readings (`--apply` to actually delete) |
 | `msxp test` | Runs the test suite |
 | `msxp where` | Where your settings, database, logs and backups are |
-| `msxp logs` | Shows the log (on a server: `tracker`, `api` or `cleanup`) |
+| `msxp logs` | Follow or browse logs; filter by time or text (on a server: `tracker`, `api` or `cleanup`) |
+| `msxp sql` | Open the configured database in a read-only SQLite shell; optionally supply a quoted SQL query |
 | `msxp server ...` | Runs any command on your server over SSH (see [Put it online](#put-it-online)) |
 | `msxp help` | This list, plus where your settings live |
 
-Every command prints the tool it runs underneath, and passes any extra options through
-(for example `msxp tracker --check` only checks, without capturing).
+Tool wrappers print the command they run and pass extra options to their underlying project tool
+(for example `msxp tracker --check` only checks, without capturing). Logs and SQL use the options below.
+
+### Search and browse server logs
+
+```bash
+msxp logs tracker --browse
+msxp logs tracker --since "14 hours ago" --until "10 hours ago" --search "triciaisabirdy" --browse
+msxp logs tracker --search "error" --lines 100
+```
+
+`--search` (alias `--grep`) matches a literal piece of text, ignoring case; punctuation is not a regular
+expression. `--since` and `--until` accept relative times or dates such as `"2026-10-23 08:00:00"`.
+Dates without a timezone use the server's local timezone. Time filters show history and exit;
+add `--browse` for the scrollable journal viewer, or `--follow` to keep waiting for new entries.
+Inside the viewer: `/text` then Enter searches, `n` finds the next match, `g`/`G` jump to the
+top/bottom, and `q` quits. Left/right arrows scroll long lines.
+
+Without time filters or `--browse`, logs start with the latest **50 entries**, then
+follow new ones. `--lines 500` changes that initial count; `--no-follow` prints it and exits.
+Time filters and `--browse` default to **all retained matching entries**; `--lines N` limits them,
+and `--lines all` explicitly requests everything. History still depends on the server's journal retention.
+When searching with a finite line count, historical results appear newest first. Live search filters
+the initial recent-entry window and subsequent new entries; use `--lines all` to search all history.
+Filtering and browsing require the systemd journal; local JSONL fallback only prints the newest operator
+log's last `--lines` entries. It does not follow new entries.
+
+From your PC, prefix the same command with `server`:
+
+```bash
+msxp server logs tracker --since "14 hours ago" --until "10 hours ago" --search "triciaisabirdy" --browse
+```
+
+### Query the database read-only
+
+```bash
+msxp sql
+msxp sql "SELECT id, login FROM streamers;"
+msxp sql --db /path/to/another-existing.sqlite3
+msxp server sql
+msxp server sql "SELECT id, login FROM streamers;"
+```
+
+The shell prints the database path, then accepts SQL ending in `;`. `.tables` lists tables,
+`.schema diagnostic_attempts` shows a table's columns, and `.quit` exits. It opens the configured
+database read-only, never creates a missing database, and uses SQLite safe mode to block opening
+other files, attaching databases or running shell commands. User SQLite startup scripts are skipped.
+Use the admin portal for corrections. This uses the existing `sqlite3` program (already installed
+by the Ubuntu deployment installer); the wrapper explains how to install it if missing.
+
+`msxp server sql` uses normal SSH authentication: you may be asked for your SSH password,
+key passphrase or sudo password depending on your server setup. It needs no separate database password.
 
 ## Settings and secrets
 
@@ -106,6 +157,8 @@ The live site runs the tracker on a small Ubuntu server, around the clock, and t
 Cloudflare Pages. To set one up, start with [`deploy/install-ubuntu.sh`](deploy/install-ubuntu.sh)
 and the [server guide](docs/vps-deployment.md). On the server, the project lives in `/opt/msxp/app`,
 runs as the `msxp` user, and keeps its settings in `/etc/msxp/` (msxp reads them there too).
+The wrapper reads `split.env`, then `roster.env`, then `msxp.env`; environment variables and the
+project's `.env` override these files. Check `msxp where` or the path printed by `msxp sql` if unsure.
 
 **Manage it from your own computer.** Put your server's SSH login in your local `.env`
 (`MSXP_SERVER=root@203.0.113.7`), then:
@@ -114,6 +167,7 @@ runs as the `msxp` user, and keeps its settings in `/etc/msxp/` (msxp reads them
 | --- | --- |
 | `msxp server admin` | Opens the server's admin page in your browser through a private SSH tunnel; Ctrl+C closes it |
 | `msxp server logs` | Follows the server's logs (`msxp server logs api` for just the website) |
+| `msxp server sql` | Opens an interactive read-only SQLite shell on the server's configured database |
 | `msxp server health` | Missed captures on the server in the last hour |
 | `msxp server where` | Where everything lives on the server |
 | `msxp server dashboard` | Opens the server's operator dashboard the same way; Ctrl+C closes it |

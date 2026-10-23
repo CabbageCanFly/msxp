@@ -1,5 +1,8 @@
 """msxp: settings precedence, the exact tool commands it runs, setup and its friendly refusals."""
 from argparse import Namespace
+import shutil
+import sqlite3
+import subprocess
 
 import pytest
 
@@ -77,7 +80,7 @@ def test_doctor_fails_only_for_missing_requirements(monkeypatch, capsys):
 def test_help_lists_every_command(capsys):
     assert msxp.main([]) == 0
     text = capsys.readouterr().out
-    for name in ('install', 'doctor', 'demo', 'setup', 'admin', 'tracker', 'api', 'health', 'cleanup', 'test', '.env'):
+    for name in ('install', 'doctor', 'demo', 'setup', 'admin', 'tracker', 'api', 'health', 'cleanup', 'test', 'sql', '.env'):
         assert f'msxp {name}' in text or name in text
 
 
@@ -116,3 +119,121 @@ def test_server_without_a_configured_login_explains_what_to_set(monkeypatch, cap
     monkeypatch.setattr(msxp, 'settings', lambda: msxp.SETTINGS | {'twitch': False})
     monkeypatch.setattr(msxp, 'run', lambda *a, **k: pytest.fail('must not run'))
     assert msxp.main(['server', 'admin']) == 1 and 'MSXP_SERVER=' in capsys.readouterr().out
+
+
+def test_split_settings_precede_roster_but_not_explicit_settings(tmp_path):
+    split, roster = tmp_path / 'split.env', tmp_path / 'roster.env'
+    split.write_text('MSXP_DATABASE=production.sqlite3\n')
+    roster.write_text('MSXP_DATABASE=older.sqlite3\n')
+    local = tmp_path / '.env'
+    assert msxp.settings(local, {}, (split, roster))['MSXP_DATABASE'] == 'production.sqlite3'
+    local.write_text('MSXP_DATABASE=local.sqlite3\n')
+    assert msxp.settings(local, {}, (split, roster))['MSXP_DATABASE'] == 'local.sqlite3'
+    assert msxp.settings(local, {'MSXP_DATABASE': 'explicit.sqlite3'}, (split, roster))['MSXP_DATABASE'] == 'explicit.sqlite3'
+    assert [p.name for p in msxp.SERVER_ENV] == ['split.env', 'roster.env', 'msxp.env']
+
+
+@pytest.mark.parametrize('options,lines,follow,pager', [
+    ([], '50', True, False),
+    (['--no-follow', '--lines', '500'], '500', False, False),
+    (['--browse'], 'all', False, True),
+    (['--since', '14 hours ago', '--until', '10 hours ago'], 'all', False, False),
+    (['--since', 'yesterday', '--follow', '--lines', '100'], '100', True, False),
+    (['--lines', 'all', '--no-follow'], 'all', False, False),
+])
+def test_log_modes(monkeypatch, options, lines, follow, pager):
+    commands = []
+    monkeypatch.setattr(msxp, 'services', lambda: ['msxp-tracker'])
+    monkeypatch.setattr(msxp.shutil, 'which', lambda name: name)
+    monkeypatch.setattr(msxp, 'run', lambda command, **kwargs: commands.append(command) or 0)
+    assert msxp.main(['logs', 'tracker', *options]) == 0
+    command = commands[0]
+    assert command[command.index('-n') + 1] == lines
+    assert ('-f' in command) == follow
+    assert ('--no-pager' not in command) == pager
+    assert command[command.index('-u') + 1] == 'msxp-tracker'
+    if '--since' in options:assert '--since=' + options[options.index('--since') + 1] in command
+    if '--until' in options:assert '--until=' + options[options.index('--until') + 1] in command
+
+
+@pytest.mark.parametrize('flag', ['--search', '--grep'])
+def test_log_search_treats_punctuation_as_literal_text(monkeypatch, flag):
+    commands = []
+    monkeypatch.setattr(msxp, 'services', lambda: ['msxp-tracker'])
+    monkeypatch.setattr(msxp.shutil, 'which', lambda name: name)
+    monkeypatch.setattr(msxp, 'run', lambda command, **kwargs: commands.append(command) or 0)
+    assert msxp.main(['logs', 'tracker', flag, 'Some.Name[1]', '--browse']) == 0
+    assert '--grep=Some\\.Name\\[1\\]' in commands[0] and '--case-sensitive=no' in commands[0]
+
+
+@pytest.mark.parametrize('options', [['--lines', '-1'], ['--lines', 'oops'], ['--browse', '--follow']])
+def test_log_options_reject_invalid_values(options):
+    with pytest.raises(SystemExit):msxp.main(['logs', 'tracker', *options])
+
+
+def test_local_logs_preserve_tail_and_refuse_unavailable_filters(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(msxp, 'services', lambda: [])
+    monkeypatch.setattr(msxp, 'ROOT', tmp_path)
+    log = tmp_path / 'private/multi-alpha/runs/example/operator.jsonl'
+    log.parent.mkdir(parents=True)
+    log.write_text('first\nsecond\nthird\n', encoding='utf-8')
+    assert msxp.main(['logs', '--lines', '1']) == 0
+    assert capsys.readouterr().out.endswith('\nthird\n')
+    assert msxp.main(['logs', '--lines', '0']) == 0
+    assert 'third' not in capsys.readouterr().out
+    assert msxp.main(['logs', '--lines', 'all']) == 0
+    assert capsys.readouterr().out.endswith('first\nsecond\nthird\n')
+    for options in (['--search', 'first'], ['--since', 'yesterday'], ['--until', 'now'], ['--browse']):
+        assert msxp.main(['logs', *options]) == 1
+        assert 'need the server journal' in capsys.readouterr().out
+
+
+def test_remote_sql_and_log_filters_preserve_arguments():
+    import shlex
+    s = msxp.SETTINGS | {'MSXP_SERVER': 'root@203.0.113.7'}
+    for args in (['sql'], ['sql', "SELECT 'a; $(whoami)';", '--db', '/a path/file.sqlite3'],
+                 ['logs', 'tracker', '--since', '14 hours ago', '--until', '10 hours ago', '--search', 'some.text', '--browse']):
+        command, url = msxp.remote(args, s)
+        assert command[:2] == ['ssh', '-t'] and url is None
+        expected = (['sudo', '-u', 'msxp'] if args[0] == 'sql' else []) + ['./msxp', *args]
+        assert shlex.split(command[-1].split(' && ', 1)[1]) == expected
+
+
+def test_sql_missing_database_or_shell_never_runs(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(msxp, 'run', lambda *a, **k: pytest.fail('must not run'))
+    missing = tmp_path / 'missing.sqlite3'
+    assert msxp.main(['sql', '--db', str(missing)]) == 1
+    assert 'No tracker database' in capsys.readouterr().out and not missing.exists()
+    db = tmp_path / 'existing.sqlite3'
+    with sqlite3.connect(db):pass
+    monkeypatch.setattr(msxp.shutil, 'which', lambda name: None)
+    assert msxp.main(['sql', '--db', str(db)]) == 1
+    assert 'SQLite shell is missing' in capsys.readouterr().out
+
+
+def test_sql_reads_live_wal_and_blocks_writes_and_file_commands(monkeypatch, tmp_path, capsys):
+    if not shutil.which('sqlite3'):pytest.skip('SQLite CLI is not installed')
+    db = tmp_path / 'a space # unicode-é.sqlite3'
+    outputs = []
+    def execute(command, **kwargs):
+        result = subprocess.run(command, input='', capture_output=True, text=True)
+        outputs.append(result)
+        return result.returncode
+    monkeypatch.setattr(msxp, 'run', execute)
+    monkeypatch.setattr(msxp, 'settings', lambda: msxp.SETTINGS | {'MSXP_DATABASE': str(db)})
+    with sqlite3.connect(db) as writer:
+        writer.execute('PRAGMA journal_mode=WAL')
+        writer.execute('CREATE TABLE example (value TEXT)')
+        writer.execute("INSERT INTO example VALUES ('original')")
+        writer.commit()
+        assert msxp.main(['sql', 'SELECT * FROM example;']) == 0
+        assert 'original' in outputs[-1].stdout
+        assert str(db) in capsys.readouterr().out
+        assert msxp.main(['sql', '--', '-- SQL comment\nSELECT * FROM example;']) == 0
+        assert 'original' in outputs[-1].stdout
+        for query in ("UPDATE example SET value='changed';", 'DELETE FROM example;', 'DROP TABLE example;',
+                      "ATTACH 'forbidden.sqlite3' AS other;", '.open forbidden.sqlite3', '.shell echo forbidden'):
+            assert msxp.main(['sql', query]) != 0, query
+            assert outputs[-1].stderr
+            assert writer.execute('SELECT * FROM example').fetchall() == [('original',)]
+        assert msxp.main(['sql', '--db', str(db)]) == 0

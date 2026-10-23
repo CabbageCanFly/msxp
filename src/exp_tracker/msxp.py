@@ -9,6 +9,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import socket
@@ -28,7 +29,7 @@ SETTINGS = {'MSXP_DATABASE': 'private/msxp/tracker.sqlite3', 'MSXP_PORT': '8765'
             'MSXP_DEMO_PORT': '8890', 'MSXP_DASHBOARD_PORT': '8767', 'MSXP_WORKERS': '2',
             'MSXP_SERVER': '', 'MSXP_SERVER_DIR': '/opt/msxp/app', 'MSXP_SERVER_USER': 'msxp'}
 TWITCH_KEYS = ('TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET')
-SERVER_ENV = (Path('/etc/msxp/roster.env'), Path('/etc/msxp/msxp.env'))  # Written by deploy/install-ubuntu.sh.
+SERVER_ENV = (Path('/etc/msxp/split.env'), Path('/etc/msxp/roster.env'), Path('/etc/msxp/msxp.env'))
 UNITS = {'tracker': 'msxp-tracker', 'api': 'msxp-api', 'cleanup': 'msxp-retention'}
 PORTS = {'admin': 'MSXP_ADMIN_PORT', 'demo': 'MSXP_DEMO_PORT', 'dashboard': 'MSXP_DASHBOARD_PORT', 'api': 'MSXP_PORT', 'tracker': 'MSXP_PORT'}
 PAGES = {'dashboard': 'dev/streams'}  # The page each command opens; default the homepage.
@@ -53,6 +54,7 @@ msxp: MapleStory Classic EXP tracker
                  msxp test        run the test suite
                  msxp where       where your settings, database, logs and backups are
                  msxp logs        follow the log (on a server: tracker, api or cleanup)
+                 msxp sql         open your database in a read-only SQLite shell
   On a server    msxp server ...  run any command on your server over SSH, e.g. msxp server admin
 
 Settings and secrets live in .env (msxp install copies .env.example; never commit .env):
@@ -61,7 +63,18 @@ Settings and secrets live in .env (msxp install copies .env.example; never commi
   MSXP_WORKERS    streams captured at once (default 2)
   MSXP_SERVER     your server's SSH login for msxp server, e.g. root@203.0.113.7
   TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET   optional, shows who is live (docs/twitch-authentication.md)
-On a server, the installer's /etc/msxp/roster.env and msxp.env are read too.
+On a server, /etc/msxp/split.env, roster.env and msxp.env are read too, in that order.
+
+Browse logs      msxp logs tracker --browse
+                 msxp logs tracker --since "14 hours ago" --until "10 hours ago" --search "triciaisabirdy" --browse
+  --lines N      latest N entries (default 50; all for --browse or time filters)
+  --lines all    all retained matching entries
+  --no-follow    show entries and exit; default follows new entries
+  --since/--until show history and exit unless --follow is requested
+  --search TEXT  case-insensitive literal text; --browse opens the scroll/search viewer
+  Viewer keys    /text + Enter to search, n next, g top, G bottom, q quit
+  Remote         msxp server logs tracker --browse    msxp server sql
+  SQL keys       .tables    .schema TABLE    SELECT ...;    .quit
 
 Every command prints the tool it runs; unknown options pass through (msxp tracker --check).
 Stop a running command with Ctrl+C. More: README.md, docs/README.md
@@ -248,13 +261,50 @@ def logs(args):
     if services() and shutil.which('journalctl'):
         units = [UNITS[n] for n in args.which or UNITS]
         sudo = ['sudo'] if hasattr(os, 'geteuid') and os.geteuid() != 0 else []  # Service logs need root or the journal group.
-        return run([*sudo, 'journalctl', *(x for unit in units for x in ('-u', unit)), '-n', str(args.lines),
-                    *([] if args.no_follow else ['-f'])], tool=False)
+        history = bool(args.browse or args.since or args.until)
+        follow = args.follow if args.follow is not None else not history
+        count = args.lines if args.lines is not None else ('all' if history else 50)
+        command = [*sudo, 'journalctl', *(x for unit in units for x in ('-u', unit)),
+                   '-o', 'short-iso', '--full', '-n', str(count)]
+        for name in ('since', 'until'):
+            if getattr(args, name):command.append(f'--{name}={getattr(args, name)}')
+        if args.search is not None:command += ['--grep=' + re.escape(args.search), '--case-sensitive=no']
+        if follow:command.append('-f')
+        if not args.browse:command.append('--no-pager')
+        return run(command, tool=False)
+    if args.since or args.until or args.search is not None or args.browse:
+        print('Time filters, text search and browsing need the server journal. Use: msxp server logs tracker ...')
+        return 1
     newest = max((ROOT / 'private/multi-alpha/runs').glob('*/operator*.jsonl'), key=lambda p: p.stat().st_mtime, default=None)
     if not newest:print('No capture logs yet. A running msxp tracker prints its log in its own window.');return 0
     print(f'Newest capture log: {newest}\n(msxp tracker also prints a readable log in its own window)\n')
-    print(''.join(newest.read_text(encoding='utf-8', errors='replace').splitlines(keepends=True)[-args.lines:]), end='')
+    lines = newest.read_text(encoding='utf-8', errors='replace').splitlines(keepends=True)
+    count = args.lines if args.lines is not None else 50
+    if count != 'all':lines = lines[-count:] if count else []
+    print(''.join(lines), end='')
     return 0
+
+
+def log_lines(value):
+    if value == 'all':return value
+    try:
+        count = int(value)
+        if count >= 0:return count
+    except ValueError:pass
+    raise argparse.ArgumentTypeError('use a nonnegative number of lines, or all')
+
+
+def sql(args, s):
+    db = path(args.db or s['MSXP_DATABASE']).resolve()
+    if not db.is_file():
+        print(f'No tracker database at {db}. Check msxp where or supply --db PATH.');return 1
+    executable = shutil.which('sqlite3')
+    if not executable:
+        print('SQLite shell is missing. Install it: sudo apt install sqlite3 (Ubuntu), brew install sqlite (macOS), '
+              'or winget install --id SQLite.SQLite -e (Windows).');return 1
+    print(f'Read-only database: {db}\n.tables lists tables; .schema TABLE shows columns; end SQL with ; and exit with .quit.', flush=True)
+    return run([executable, '-init', os.devnull, '-safe', '-readonly', '-header', '-column',
+                '-cmd', '.timeout 5000', '--', str(db), *([args.query] if args.query is not None else [])], tool=False)
 
 
 def remote(command, s, no_browser=False):
@@ -278,16 +328,25 @@ def main(argv=None):
                        ('tracker', 'capture streams + local website'), ('api', 'website only'),
                        ('dashboard', 'operator view of every capture'),
                        ('health', 'missed captures and why'), ('cleanup', 'keep only the last 24 h'),
-                       ('test', 'run the test suite'), ('where', 'where files are'), ('logs', 'follow the log'),
+                       ('test', 'run the test suite'), ('where', 'where files are'), ('logs', 'follow or browse the log'),
+                       ('sql', 'open a read-only SQLite shell'),
                        ('server', 'run a command on your server over SSH')):
         sub = commands.add_parser(name, help=text, aliases=['diag'] if name == 'doctor' else [])
         if name == 'logs':
             sub.add_argument('which', nargs='*', choices=list(UNITS), help='on a server: tracker, api, cleanup (default all)')
-            sub.add_argument('--lines', type=int, default=50);sub.add_argument('--no-follow', action='store_true')
+            sub.add_argument('--lines', type=log_lines, help='latest N entries, or all (default 50; all with time filters/browse)')
+            sub.add_argument('--since', help='start time, e.g. "14 hours ago" or "2026-10-23 08:00:00"')
+            sub.add_argument('--until', help='end time, e.g. "10 hours ago"')
+            sub.add_argument('--search', '--grep', help='case-insensitive literal substring')
+            mode = sub.add_mutually_exclusive_group()
+            mode.add_argument('--browse', action='store_true', help='scroll/search historical logs in the journal viewer')
+            mode.add_argument('--follow', dest='follow', action='store_true', default=None, help='keep waiting for new entries')
+            mode.add_argument('--no-follow', dest='follow', action='store_false', help='show entries and exit')
+        if name == 'sql':sub.add_argument('query', nargs='?', help='optional SQL to execute instead of opening the shell')
         if name == 'server':
             sub.add_argument('--no-browser', action='store_true')
             sub.add_argument('remote', nargs=argparse.REMAINDER, help='the msxp command to run there (default: doctor)')
-        if name in ('setup', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup'):sub.add_argument('--db', help='database (default: MSXP_DATABASE)')
+        if name in ('setup', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'sql'):sub.add_argument('--db', help='database (default: MSXP_DATABASE)')
         if name in ('demo', 'admin', 'tracker', 'api', 'dashboard'):
             sub.add_argument('--port', type=int);sub.add_argument('--no-browser', action='store_true')
         if name == 'tracker':sub.add_argument('--workers', type=int, help='streams captured at once (default: MSXP_WORKERS)')
@@ -303,6 +362,7 @@ def main(argv=None):
     if name == 'install':return install(args, s)
     if name == 'where':return where(s)
     if name == 'logs':return logs(args)
+    if name == 'sql':return sql(args, s)
     if name == 'server':
         if not s['MSXP_SERVER']:
             print("Add your server's SSH login to .env first, e.g.  MSXP_SERVER=root@203.0.113.7\n"
