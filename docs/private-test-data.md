@@ -13,7 +13,8 @@
 
 | Data | Where | Recreatable from |
 | --- | --- | --- |
-| Three stream recordings (8.7 GB) | `samples/sample-stream.mp4`, `-stream2.mp4`, `-stream3.mp4` | Nothing: **back these up** |
+| **Golden frames: the 206 labelled frames, lossless (292 MB)** | `samples/frames/*.webp` | `python tools/extract_test_frames.py` (needs the recordings); **back these up** |
+| Three stream recordings (8.7 GB) | `samples/sample-stream.mp4`, `-stream2.mp4`, `-stream3.mp4` | Nothing. Only needed to cut new examples or rebuild the crop sets: cold storage is fine |
 | Labelled frames: timestamps and HUD values | committed in [`tests/data/recorded_frames.json`](../tests/data/recorded_frames.json), and the private manifests below | The labels are in Git |
 | Level-up crop set (234 crops, recording 1) | `private/levelup-evaluation/` | `python tools/rebuild_fixture_crops.py private/levelup-evaluation/manifest.json` |
 | Cross-stream crop sets (2 × 90 crops, recordings 2 and 3) | `private/cross-stream/stream2/`, `stream3/` | the same tool with each `manifest.json` |
@@ -25,8 +26,8 @@ without writing. On 2026-10-23 all 414 crops above came back identical.
 ## The live reader on real footage
 
 `tests/test_recorded_streams.py` runs the reader the tracker actually uses (`shadow_capture.analyze`:
-HUD localization, Tesseract and the RapidOCR worker) on frames decoded straight from the recordings.
-No saved crops are involved. It checks two things: the reader never accepts a wrong EXP pair, and frames
+HUD localization, Tesseract and the RapidOCR worker) on the golden frames, or on frames decoded from the
+recordings when those are absent. `extract_test_frames.py --check` proves the two are pixel-identical. It checks two things: the reader never accepts a wrong EXP pair, and frames
 it read correctly before still read correctly. By default every 5th frame runs (about 30 s);
 `MSXP_ALL_FRAMES=1` runs all 206.
 
@@ -45,6 +46,26 @@ is known. The test marks it as a known misread; it fails loudly if the reader st
 This test also catches a broken OCR environment. Every frame would come back rejected, as happened
 locally on 2026-10-23 when the RapidOCR environment lost `pip` and `certifi`. `msxp doctor` now runs the
 OCR worker once, and `msxp install` repairs such an environment (it restores pip first, then reinstalls).
+
+## Backing up, and why other people can't run these
+
+**Back up `samples/frames/` (292 MB)**, plus `private/` if you want the crop sets and capture logs. A cloud
+folder is plenty. Keep the recordings only while you plan to label new examples.
+
+Other people cannot have this data, at any size. A stream frame shows the streamer's webcam, overlays and
+chat, other players' names and Nexon's artwork, and redistributing it needs their permission. Keeping
+only the HUD bar (name masked) was measured on 2026-10-23: alone it read 61 of 206 frames, and even pasted
+back into a black frame of the original size 103 instead of 164, twice accepting a wrong pair. The reader
+judges the HUD against the whole frame, so a cut-down frame is not a faithful test.
+
+What anyone can run instead:
+
+- the public suite: about 2,960 tests, 94% of `src/exp_tracker` (95% with the private tests);
+- their own real-world check: record a stream they have permission to use, label frames in
+  `tests/data/recorded_frames.json` style, and run `tools/extract_test_frames.py` and this test.
+
+A shareable real-world set would need permission from the streamers in it, or a recording of your own
+gameplay. That is the one way to publish real frames.
 
 ## Lost on 2026-10-23
 
