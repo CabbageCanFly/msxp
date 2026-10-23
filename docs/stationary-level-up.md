@@ -53,8 +53,10 @@ missing-requirement/percentage-only policy, monotone floors and trusted accounti
 are unchanged. A repeated self-consistent OCR error remains a limitation of this
 conditional evidence policy; repetition does not prove correctness.
 
-Deploying this change requires a controlled restart of the capture tracker. The
-API also needs the new shared backend code when both processes use this checkout.
+Deploying this change requires a controlled restart of the capture tracker. Only
+the writer's per-frame qualifier changed; the read-only API can keep running and
+will refresh from the newly accepted database records. Other API changes deployed
+alongside this fix may separately require an API restart.
 No schema migration, production data rewrite or historical held-frame backfill is
 performed. Nothing here starts capture, connects to Twitch or restarts the VPS.
 
