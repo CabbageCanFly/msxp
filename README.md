@@ -25,7 +25,9 @@ cd msxp
 | `.\msxp demo` | `./msxp demo` |
 
 `install` sets everything up and tells you if anything is still missing. `demo` opens your
-browser on a leaderboard with made-up players. Press **Ctrl+C** in the terminal to stop it.
+browser on a leaderboard with made-up players.
+
+**Ctrl+C** is your best friend for stopping things in the terminal.
 
 > Below, commands are written as `msxp ...`. Type `.\msxp ...` on Windows or `./msxp ...` on
 > macOS/Linux, from the project folder.
