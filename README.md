@@ -1,8 +1,8 @@
 # MSXP: MapleStory Classic EXP tracker
 
-MSXP watches MapleStory Classic streams on Twitch, reads the EXP bar straight from the video,
+MSXP watches MapleStory Classic streams on Twitch, reads the EXP bar from the stream,
 and turns it into a live leaderboard: EXP per hour, time to the next level, 24-hour history
-and a stream overlay for OBS. It is free, open source (MIT) and runs on your own computer
+and a stream overlay for OBS. It can run for free on your own computer
 or a small server. **See it live: [msxp.pages.dev](https://msxp.pages.dev)**
 
 Nobody installs anything on the streamer's side: MSXP only watches the public stream.
