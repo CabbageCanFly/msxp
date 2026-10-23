@@ -1,12 +1,12 @@
 .product {
   /* Extra navy tint: raise this percentage to make either town less distracting. */
-  --background-tint:10%;
+  --background-tint:15%;
   --background-map:none; --background-sky:none;
   isolation:isolate; background:var(--bg);
 }
 .product[data-background=sleepywood] { --background-map:url(sleepywood.webp); --background-sky:url(sleepywood-forest.webp); }
 /* The original sunset sky is much brighter than Sleepywood's forest. */
-.product[data-background=kerning] { --background-tint:40%; --background-map:url(kerning.webp); --background-sky:url(kerning-sky.webp); }
+.product[data-background=kerning] { --background-tint:45%; --background-map:url(kerning.webp); --background-sky:url(kerning-sky.webp); }
 .product .sky { display:none; }
 /* The viewport-sized scene stays behind pages of any length; the original pixels are preserved in lossless WebP. */
 .product::before {
@@ -20,7 +20,14 @@
 }
 /* Overscan hides the town render's uneven transparent bottom edge. */
 .product[data-background=kerning]::before { inset:-3%; }
-.product .brand { text-decoration:none; color:inherit; }
+.product[data-background-state]::before { opacity:0; }
+.product[data-background-state=ready]::before { opacity:1; }
+@media (prefers-reduced-motion:no-preference) {
+  .product::before { transition:opacity .55s ease-out; }
+  .product[data-intro] :is(.masthead,.reading-info) { animation:content-arrive .28s ease-out; }
+}
+@keyframes content-arrive { from { opacity:0; } to { opacity:1; } }
+.product .brand { padding:10px 16px; border:1px solid #56637d66; border-radius: var(--radius-lg); background:#232c3e90; text-decoration:none; color:inherit; }
 @media (prefers-reduced-motion:no-preference) {
   .product .emblem { transition:rotate .18s ease-out; }
   .product .brand:focus-visible .emblem { rotate:15deg; }
@@ -207,10 +214,8 @@
 .site-footer select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 
 /* Live content fades in once the first update arrives instead of jumping as it fills; shown anyway after 2s. */
-.product :is(.board,.site-footer,.history-overlay-link) { transition:opacity .18s ease; }
-.product[data-loading] :is(.board,.site-footer,.history-overlay-link) { opacity:0; animation:reveal 0s 2s forwards; }
-/* Once its first data arrives the board fades in rather than popping in. */
 .product :is(.board,.site-footer,.history-overlay-link) { transition:opacity .2s ease-out; }
+.product[data-loading] :is(.board,.site-footer,.history-overlay-link) { opacity:0; animation:reveal 0s 2s forwards; }
 /* Switching lists keeps the current one (dimmed only if the other takes a moment) until the other can swap in whole. */
 .product #entries[aria-busy="true"] { opacity:.6; transition:opacity .2s .15s; }
 @keyframes reveal { to { opacity:1; } }

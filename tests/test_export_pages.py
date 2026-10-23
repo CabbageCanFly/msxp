@@ -94,8 +94,10 @@ def test_product_js_contacts_only_the_configured_api_origin():
     assert re.search(r"const endpoint=channel\?`\$\{apiOrigin\}/api/players/\$\{encodeURIComponent\(channel\)\}`:`\$\{apiOrigin\}/api/players`;", source)
     for channel in ('XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'import(', 'importScripts', 'new Image'):
         assert channel not in source, channel
-    # Loaded URLs besides the API: the overlay preview iframe and the mob sprites, both on the page's own origin.
-    assert set(re.findall(r'\.src=([^;]*);', source)) == {'url', "sprite(slug,'move')", "sprite(slug,'hit')", "sprite(slug,'die')", "sprite(pick(BOSSES),'stand')"}
+    # Loaded URLs besides the API: the overlay preview, mob sprites and decoded town layers, all same-origin.
+    assert set(re.findall(r'\.src=([^;]*);', source)) == {'url', "sprite(slug,'move')", "sprite(slug,'hit')", "sprite(slug,'die')", "sprite(pick(BOSSES),'stand')", '`/static/${file}`'}
+    assert "const files=[`${town}.webp`,town==='sleepywood'?'sleepywood-forest.webp':'kerning-sky.webp'];" in source
+    assert "['sleepywood','kerning'].includes(background)?background:" in source
     assert 'return `${location.origin}/live/overlay/${encodeURIComponent(channel)}' in source and "sprite=(slug,action)=>`/static/mobs/${slug}-${action}.${slug==='slime'?'webp':'gif'}`" in source
     # Absolute URLs are only outbound links and the SVG namespace, never fetched.
     assert set(re.findall(r'https?://[^`\'"$/]+', source)) == {'https://www.twitch.tv', 'http://www.w3.org'}

@@ -10,24 +10,25 @@ class Element {
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v,options){(this.listeners??={})[k]=v;(this.listenerOptions??={})[k]=options;}
   getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
 }
-function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,random=Math.random){
-  const elements={},timers=[],events={},visits=[];
+function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,random=Math.random,decodeImage=()=>Promise.resolve(),storage=new Map(),clock=Date){
+  const elements={},timers=[],events={},visits=[],images=[];
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const bucketButtons=[60,300,1800].map(seconds=>Object.assign(new Element(),{dataset:{bucket:String(seconds)}}));
   const chartButtons=[15,30,60].map(minutes=>Object.assign(new Element(),{dataset:{chartWindow:String(minutes)}}));
   const characterSortButtons=['name','level','recent'].map(value=>Object.assign(new Element(),{dataset:{characterSort:value}}));
   const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
   const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
-  const context=vm.createContext({Intl,Date,BigInt,AbortController,URL,URLSearchParams,Math:Object.assign(Object.create(Math),{random}),performance:{now:()=>0},
+  const context=vm.createContext({Intl,Date:clock,BigInt,AbortController,URL,URLSearchParams,Math:Object.assign(Object.create(Math),{random}),performance:{now:()=>0},
     location:{pathname,search,href:'http://127.0.0.1:8765'+pathname+search,origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
     history:{pushState:(s,t,u)=>visits.push(['push',String(u)]),replaceState:(s,t,u)=>visits.push(['replace',String(u)])},
-    navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{documentElement:{dataset:api==null?{}:{api}},body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
-      querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:selector==='[data-character-sort]'?characterSortButtons:[],createElement:tag=>new Element(tag),createElementNS:(ns,tag)=>new Element(tag)},
+    sessionStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
+    navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{documentElement:{dataset:api==null?{}:{api}},body:Object.assign(new Element('body'),{dataset:view==='overlay'?{view}:{view,loading:''}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
+      querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:selector==='[data-character-sort]'?characterSortButtons:[],createElement:tag=>Object.assign(new Element(tag),tag==='img'?{decode(){images.push(this);return decodeImage(this.src);}}:{}),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
   // Most cases below were written against the original 5 minute card and chart windows with 1 minute bars.
   if(view==='player' && !search.includes('defaults'))vm.runInContext('windowMinutes=5;lineWindow=5;chartWindow=5;bucketSeconds=60',context);
-  return {context,elements,timers,buttons,bucketButtons,chartButtons,characterSortButtons,modes,events,visits,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
+  return {context,elements,timers,buttons,bucketButtons,chartButtons,characterSortButtons,modes,events,visits,images,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
 }
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
@@ -63,17 +64,47 @@ test('profile chart tip takes two strikes then poofs once; reduced motion, missi
   for(const view of ['board','overlay'])assert.equal(page(view).elements['history-overlay-tip'],undefined);
 });
 
-test('town backgrounds accept only known overrides, otherwise choose randomly once per page load; overlays stay transparent',()=>{
+test('background reveals only after both chosen layers decode, independent of data; broken images keep the navy fallback',async()=>{
+  for(const town of ['sleepywood','kerning']) {
+    const pending=[];
+    const p=page('board',undefined,`?background=${town}`,null,Math.random,()=>new Promise(resolve=>pending.push(resolve)));
+    assert.deepEqual(p.images.map(image=>image.src),[`/static/${town}.webp`,`/static/${town==='sleepywood'?'sleepywood-forest':'kerning-sky'}.webp`]);
+    assert.equal(p.run('document.body.dataset.backgroundState'),'loading');
+    pending[1]();await settle();assert.equal(p.run('document.body.dataset.backgroundState'),'loading');
+    pending[0]();await settle();assert.equal(p.run('document.body.dataset.backgroundState'),'ready');
+    assert.equal(p.run("'loading' in document.body.dataset"),true);
+  }
+  const broken=page('board',undefined,'',null,Math.random,()=>Promise.reject(new Error('Image unavailable')));
+  await settle();assert.equal(broken.run('document.body.dataset.backgroundState'),'failed');
+  const overlay=page('overlay');assert.equal(overlay.images.length,0);assert.equal(overlay.run('document.body.dataset.backgroundState'),undefined);
+});
+
+test('header introduction happens once per tab; original panel loading finishes on first response or error',async()=>{
+  const storage=new Map(),p=page('board',server([{players:[]}]).fetch,'',null,Math.random,undefined,storage);
+  assert.equal(p.run('document.body.dataset.intro'),'true');
+  await settle();assert.equal(p.run('document.body.dataset.loading'),undefined);
+  assert.equal(p.elements.entries.attributes['aria-busy'],'false');
+  const next=page('player',undefined,'',null,Math.random,undefined,storage);
+  assert.equal(next.run('document.body.dataset.intro'),undefined);
+  p.run('poll()');await settle();assert.equal(p.run('document.body.dataset.loading'),undefined);
+  const failed=page('board',()=>Promise.reject(new Error('Offline')));await settle();
+  assert.equal(failed.run('document.body.dataset.loading'),undefined);assert.equal(failed.elements.entries.attributes['aria-busy'],'false');
+  assert.match(failed.elements.connection.textContent,/Reconnecting/);
+});
+
+test('town backgrounds follow odd/even local day of month; known overrides win and overlays stay transparent',()=>{
   for(const view of ['board','player']) {
     for(const town of ['sleepywood','kerning']) {
-      const p=page(view,undefined,`?background=${town}`,null,()=>{throw new Error('Forced town must not roll randomly');});
+      const p=page(view,undefined,`?background=${town}`,null,()=>{throw new Error('Backgrounds must not roll randomly');});
       assert.equal(p.run('document.body.dataset.background'),town);
     }
-    for(const [roll,town] of [[0,'sleepywood'],[.49,'sleepywood'],[.5,'kerning'],[.99,'kerning']]) {
-      const p=page(view,undefined,'?background=unknown',null,()=>roll);
-      assert.equal(p.run('document.body.dataset.background'),town);
+    for(const day of [1,2,28,29,30,31]) {
+      class LocalDate extends Date {getDate(){return day;}}
+      for(const query of ['', '?background=unknown']) {
+        const p=page(view,undefined,query,null,()=>{throw new Error('No random town selection');},undefined,undefined,LocalDate);
+        assert.equal(p.run('document.body.dataset.background'),day%2?'sleepywood':'kerning');
+      }
     }
-    assert.equal(page(view,undefined,'',null,()=>.9).run('document.body.dataset.background'),'kerning');
   }
   assert.equal(page('overlay',undefined,'?background=kerning').run('document.body.dataset.background'),undefined);
 });

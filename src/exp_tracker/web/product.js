@@ -3,7 +3,20 @@
 const view=document.body.dataset.view;
 if(view==='board' || view==='player') {
   const background=new URLSearchParams(location.search).get('background');
-  document.body.dataset.background=['sleepywood','kerning'].includes(background)?background:Math.random()<.5?'sleepywood':'kerning';
+  document.body.dataset.background=['sleepywood','kerning'].includes(background)?background:new Date().getDate()%2?'sleepywood':'kerning';
+  prepareBackground(document.body.dataset.background);
+  try {
+    if(!sessionStorage.getItem('site-intro-seen'))document.body.dataset.intro='true';
+    sessionStorage.setItem('site-intro-seen','true');
+  } catch {} // Storage can be unavailable; the header stays visible.
+}
+async function prepareBackground(town) {
+  document.body.dataset.backgroundState='loading';
+  const files=[`${town}.webp`,town==='sleepywood'?'sleepywood-forest.webp':'kerning-sky.webp'];
+  try {
+    await Promise.all(files.map(file=>{const image=node('img');image.src=`/static/${file}`;return image.decode();}));
+    document.body.dataset.backgroundState='ready';
+  } catch { document.body.dataset.backgroundState='failed'; } // Keep the navy fallback if either layer fails.
 }
 const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?location.pathname.split('/')[2]:null;
 // The static Pages export names its API origin on <html data-api> (tools/export_pages.py); the Python server
