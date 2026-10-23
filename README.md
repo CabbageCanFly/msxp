@@ -55,6 +55,10 @@ setup was checked on Windows with an existing local build backend).
 
 ### Website and overlay
 
+For website styling on Windows, run `.\preview.cmd` from this worktree. It uses
+temporary fictional players, serves saved CSS/HTML/JS edits on browser refresh,
+and stops both local servers with Ctrl+C. See [background preview and tint controls](docs/website-background.md).
+
 Serve an existing database without starting capture ([product preview guide](docs/product-preview.md)):
 
 ```powershell
@@ -192,10 +196,16 @@ Other notes live in [docs/](docs/). The earlier OBS test page is an unverified d
 
 ## Credits
 
+The Sleepywood and Kerning City website backgrounds (`src/exp_tracker/web/sleepywood*.webp`
+and `kerning*.webp`) are
+MapleStory artwork © Nexon, rendered from original GMS v55 game assets by
+[maplestory.io](https://maplestory.io). The towns and original forest/sky backdrops are preserved
+as lossless WebP; the navy tint is CSS. See [sources and background checks](docs/website-background.md).
+
 Monster sprites in `src/exp_tracker/web/mobs/` are MapleStory artwork © Nexon, rendered
 from game data by [maplestory.io](https://maplestory.io)
 (`https://maplestory.io/api/GMS/83/mob/{id}/render/{move|hit1|die1|stand}`), with empty margins
 trimmed losslessly so the feet touch the bottom edge. The Slime is the animated WebP from
 [meowdb.com](https://meowdb.com/msclassic/es/monsters/7), because maplestory.io's GIF dithers its soft edges. They decorate this non-commercial fan site, which is
-not affiliated with Nexon. They are the one intentional exception to "nothing game-derived in Git",
+not affiliated with Nexon. These decorative assets and the website background are intentional exceptions to "nothing game-derived in Git",
 a rule that covers OCR screenshots, crops and templates.

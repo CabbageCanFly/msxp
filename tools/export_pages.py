@@ -29,7 +29,8 @@ ORIGIN = re.compile(rf"https://{LABEL}(?:\.{LABEL})+(?::[0-9]{{1,5}})?|http://(?
 
 # Exported path -> source under web/. Anything not listed is never published.
 PAGES = {'index.html': 'tracker.html', 'player.html': 'player.html', 'live-overlay.html': 'live-overlay.html'}
-STATIC = ('product.js', 'product.css', 'leaderboard.css', 'live-overlay.css', 'steely.png',
+STATIC = ('product.js', 'product.css', 'leaderboard.css', 'live-overlay.css', 'steely.png', 'sleepywood.webp', 'sleepywood-forest.webp',
+          'kerning.webp', 'kerning-sky.webp',
           'fonts/fredoka-latin.woff2', 'fonts/nunito-latin.woff2', 'fonts/OFL-Fredoka.txt', 'fonts/OFL-Nunito.txt',
           *sorted(f'mobs/{p.name}' for p in WEB.glob('mobs/*.*')))  # Wandering mob sprites; the folder holds only these.
 # Developer links kept in the shared HTML; [data-site=public] hides them and they 404 on Pages.
@@ -39,7 +40,8 @@ DEVELOPER_LINKS = {'/dev/streams', '/demo/leaderboard'}
 REDIRECTS = ('/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
              '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200')
 ROUTES = {'/', '/streams'}
-CACHED = ('/static/fonts/*', '/static/steely.png', '/static/mobs/*')
+CACHED = ('/static/fonts/*', '/static/steely.png', '/static/sleepywood.webp', '/static/sleepywood-forest.webp',
+          '/static/kerning.webp', '/static/kerning-sky.webp', '/static/mobs/*')
 NOT_FOUND = '''<!doctype html>
 <html lang="en" data-site="public"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Not found · EXP Tracker</title><link rel="icon" href="/static/steely.png" type="image/png">

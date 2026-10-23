@@ -1,6 +1,10 @@
 "use strict";
 
 const view=document.body.dataset.view;
+if(view==='board' || view==='player') {
+  const background=new URLSearchParams(location.search).get('background');
+  document.body.dataset.background=['sleepywood','kerning'].includes(background)?background:Math.random()<.5?'sleepywood':'kerning';
+}
 const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?location.pathname.split('/')[2]:null;
 // The static Pages export names its API origin on <html data-api> (tools/export_pages.py); the Python server
 // leaves it unset, so requests stay same-origin. Same exact-origin rule as the server's --cors-origin.
@@ -831,6 +835,28 @@ document.querySelectorAll('[data-window]').forEach(button=>button.addEventListen
   if(view==='board')renderBoard();else if(data?.player){renderPlayer();drawHistory();}
 }));
 if(view==='player') {
+  const overlayTip=el('history-overlay-tip');
+  let tipStrikes=0;
+  overlayTip.addEventListener('click',()=>{
+    if(overlayTip.disabled)return;
+    overlayTip.dataset.strikes=String(++tipStrikes);
+    if(tipStrikes<3) {
+      overlayTip.setAttribute('aria-label',tipStrikes===1?'Bar chart transfers below. Cross out tip again.':'Bar chart transfers below. Dismiss tip.');
+      return;
+    }
+    const focused=document.activeElement===overlayTip;
+    overlayTip.disabled=true;
+    const remove=()=>{
+      if(focused && (document.activeElement===overlayTip || document.activeElement===document.body))document.querySelector('.overlay-board button')?.focus({preventScroll:true});
+      overlayTip.remove();
+    };
+    if(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches || !overlayTip.animate){remove();return;}
+    overlayTip.animate([
+      {transform:'rotate(-12deg) scale(1)',opacity:1,filter:'blur(0px)'},
+      {transform:'rotate(-8deg) scale(1.12)',opacity:.8,filter:'blur(1px)',offset:.3},
+      {transform:'rotate(-17deg) scale(.55)',opacity:0,filter:'blur(5px)'},
+    ],{duration:360,easing:'ease-out',fill:'forwards'}).finished.then(remove,remove);
+  });
   el('current-level-only').addEventListener('change',e=>{currentLevelOnly=e.target.checked;if(data?.player){renderPlayer();drawHistory();}});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){tipDismissed=true;hideTip();}else if(e.key==='Tab')tipDismissed=false;});
   document.addEventListener('pointermove',e=>{if(!lastPointer || lastPointer.x!==e.clientX || lastPointer.y!==e.clientY)tipDismissed=false;lastPointer={x:e.clientX,y:e.clientY};});
@@ -964,7 +990,7 @@ function spawnBoss() {
   boss.animate([{transform:'translateY(-14px) rotate(-7deg)'},{transform:'translateY(14px) rotate(7deg)'}],{duration:3200,iterations:Infinity,direction:'alternate',easing:'ease-in-out'});
 }
 function spawnMob(lane) {
-  const slug=pick(MOBS),mob=node('div','mob'),img=node('img');img.alt='';img.src=sprite(slug,'move');mob.append(img);
+  const slug=pick(MOBS),mob=node('div','mob'),img=node('img');img.alt='';img.draggable=false;img.src=sprite(slug,'move');mob.append(img);
   img.decode().then(()=>{
     if(document.hidden || lane.querySelectorAll('.mob').length>=3)return;
     lane.append(mob);
@@ -977,8 +1003,6 @@ function spawnMob(lane) {
     const fall=()=>{img.src=sprite(slug,'hit');end([{transform:'none'},{transform:`translate(-${half+10}px,260px) rotate(-110deg)`,opacity:0}],900);};
     const die=()=>{
       img.src=sprite(slug,'die');
-      const hit=node('span','mob-hit',String(7+Math.floor(Math.random()*40)));
-      hit.style.left=`${mob.getBoundingClientRect().left-lane.getBoundingClientRect().left}px`;hit.style.bottom=`${img.height+4}px`;lane.append(hit);setTimeout(()=>hit.remove(),1000);
       end([{opacity:1},{opacity:1,offset:.6},{opacity:0}],1100);
     };
     const hop=()=>img.animate([{transform:'none'},{transform:'translateY(-28px)'},{transform:'none'}],{duration:450,easing:'ease-out'});
@@ -989,7 +1013,12 @@ function spawnMob(lane) {
       walk.pause();img.src=sprite(slug,'hit');
       setTimeout(()=>{if(!gone){img.src=sprite(slug,'move');walk.play();}},500);
     });
-    img.addEventListener('click',()=>{if(!gone)pick(reactions)();});
+    img.addEventListener('click',()=>{
+      if(gone)return;
+      const hit=node('span','mob-hit',String(7+Math.floor(Math.random()*40)));
+      hit.style.left=`${mob.getBoundingClientRect().left-lane.getBoundingClientRect().left}px`;hit.style.bottom=`${img.height+4}px`;lane.append(hit);setTimeout(()=>hit.remove(),1000);
+      pick(reactions)();
+    });
   },()=>{});  // A sprite that fails to load is simply skipped.
 }
 // Every 10–45 s, whether or not others are still walking: occasionally a boss (one at a time), otherwise a mob, at most 3 at once.

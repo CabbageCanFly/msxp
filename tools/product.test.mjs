@@ -10,7 +10,7 @@ class Element {
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v,options){(this.listeners??={})[k]=v;(this.listenerOptions??={})[k]=options;}
   getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
 }
-function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null){
+function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,random=Math.random){
   const elements={},timers=[],events={},visits=[];
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const bucketButtons=[60,300,1800].map(seconds=>Object.assign(new Element(),{dataset:{bucket:String(seconds)}}));
@@ -18,7 +18,7 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null)
   const characterSortButtons=['name','level','recent'].map(value=>Object.assign(new Element(),{dataset:{characterSort:value}}));
   const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
   const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
-  const context=vm.createContext({Intl,Date,BigInt,AbortController,URL,URLSearchParams,performance:{now:()=>0},
+  const context=vm.createContext({Intl,Date,BigInt,AbortController,URL,URLSearchParams,Math:Object.assign(Object.create(Math),{random}),performance:{now:()=>0},
     location:{pathname,search,href:'http://127.0.0.1:8765'+pathname+search,origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
     history:{pushState:(s,t,u)=>visits.push(['push',String(u)]),replaceState:(s,t,u)=>visits.push(['replace',String(u)])},
     navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{documentElement:{dataset:api==null?{}:{api}},body:Object.assign(new Element('body'),{dataset:{view}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
@@ -32,6 +32,51 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null)
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
+
+test('profile chart tip takes two strikes then poofs once; reduced motion, missing animations and cancellation still dismiss it',async()=>{
+  for(const mode of ['finish','cancel','reduced','unsupported']) {
+    const p=page('player'),tip=p.elements['history-overlay-tip'];
+    let removed=0,animated=0,focused=0,finish,cancel;
+    const next={focus(options){focused++;assert.equal(options.preventScroll,true);}};
+    p.context.document.activeElement=tip;
+    p.context.document.querySelector=selector=>selector==='.overlay-board button'?next:null;
+    p.context.matchMedia=()=>({matches:mode==='reduced'});
+    tip.remove=()=>removed++;
+    if(mode!=='unsupported')tip.animate=(frames,options)=>{
+      animated++;assert.equal(frames.at(-1).opacity,0);assert.equal(options.duration,360);
+      return {finished:new Promise((resolve,reject)=>{finish=resolve;cancel=reject;})};
+    };
+    tip.listeners.click();
+    assert.equal(tip.dataset.strikes,'1');assert.match(tip.attributes['aria-label'],/again/);assert.equal(removed,0);
+    p.render(player());
+    tip.listeners.click();
+    assert.equal(tip.dataset.strikes,'2');assert.match(tip.attributes['aria-label'],/Dismiss/);assert.equal(removed,0);
+    tip.listeners.click();tip.listeners.click();
+    assert.equal(tip.dataset.strikes,'3');assert.equal(tip.disabled,true);
+    if(mode==='finish' || mode==='cancel') {
+      assert.equal(removed,0);assert.equal(animated,1);
+      if(mode==='finish')finish();else cancel(new Error('Animation interrupted'));
+      await Promise.resolve();
+    } else assert.equal(animated,0);
+    assert.equal(removed,1);assert.equal(focused,1);
+  }
+  for(const view of ['board','overlay'])assert.equal(page(view).elements['history-overlay-tip'],undefined);
+});
+
+test('town backgrounds accept only known overrides, otherwise choose randomly once per page load; overlays stay transparent',()=>{
+  for(const view of ['board','player']) {
+    for(const town of ['sleepywood','kerning']) {
+      const p=page(view,undefined,`?background=${town}`,null,()=>{throw new Error('Forced town must not roll randomly');});
+      assert.equal(p.run('document.body.dataset.background'),town);
+    }
+    for(const [roll,town] of [[0,'sleepywood'],[.49,'sleepywood'],[.5,'kerning'],[.99,'kerning']]) {
+      const p=page(view,undefined,'?background=unknown',null,()=>roll);
+      assert.equal(p.run('document.body.dataset.background'),town);
+    }
+    assert.equal(page(view,undefined,'',null,()=>.9).run('document.body.dataset.background'),'kerning');
+  }
+  assert.equal(page('overlay',undefined,'?background=kerning').run('document.body.dataset.background'),undefined);
+});
 
 test('background tabs freeze mob and boss motion, including a hovered mob that resumes, then restore speeds',()=>{
   const p=page('board'),walk={playState:'running',playbackRate:3},hover={playState:'paused',playbackRate:1},
@@ -70,6 +115,31 @@ test('a delayed sprite decode cannot spawn in a hidden tab or exceed the three-m
   assert.equal(added.length,0);
   p.context.document.hidden=false;p.run('spawnMob(lane)');count=3;pending.shift()();await Promise.resolve();
   assert.equal(added.length,0);
+});
+
+test('every accepted mob click shows one damage number for every reaction, including repeated nonlethal hits',async()=>{
+  for(const reaction of [0,.25,.5,.75]) {
+    const p=page('board');
+    p.context.document.createElement=tag=>Object.assign(new Element(tag),{
+      naturalWidth:40,height:24,decode:()=>Promise.resolve(),remove(){this.removed=true;},
+      animate:()=>({finished:new Promise(()=>{}),playState:'running',pause(){this.playState='paused';},updatePlaybackRate(){}}),
+    });
+    const lane=Object.assign(new Element(),{clientWidth:300});p.context.lane=lane;
+    p.run('spawnMob(lane)');await Promise.resolve();
+    const img=lane.children[0].children[0];assert.equal(img.draggable,false);
+    const before=p.timers.filter(delay=>delay===1000).length;
+    for(let i=0;i<3;i++) {
+      const rolls=[.2,reaction];p.context.Math.random=()=>rolls.shift();
+      img.listeners.click();
+      const hits=lane.children.filter(child=>child.className==='mob-hit');
+      assert.equal(hits.length,reaction<.5?i+1:1,'A retiring mob ignores later clicks; other reactions allow repeated hits');
+      for(const hit of hits) {
+        assert.match(hit.textContent,/^\d+$/);
+        assert.equal(hit.style.left,'0px');assert.equal(hit.style.bottom,'28px');
+      }
+    }
+    assert.equal(p.timers.filter(delay=>delay===1000).length-before,reaction<.5?3:1,'Every damage number gets its cleanup timer');
+  }
 });
 
 test('offline last-seen EXP fills the bar and ages its original timestamp',()=>{

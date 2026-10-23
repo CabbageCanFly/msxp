@@ -1,4 +1,33 @@
+.product {
+  /* Extra navy tint: raise this percentage to make either town less distracting. */
+  --background-tint:10%;
+  --background-map:none; --background-sky:none;
+  isolation:isolate; background:var(--bg);
+}
+.product[data-background=sleepywood] { --background-map:url(sleepywood.webp); --background-sky:url(sleepywood-forest.webp); }
+/* The original sunset sky is much brighter than Sleepywood's forest. */
+.product[data-background=kerning] { --background-tint:40%; --background-map:url(kerning.webp); --background-sky:url(kerning-sky.webp); }
+.product .sky { display:none; }
+/* The viewport-sized scene stays behind pages of any length; the original pixels are preserved in lossless WebP. */
+.product::before {
+  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:
+    linear-gradient(rgb(16 27 50 / var(--background-tint)), rgb(16 27 50 / var(--background-tint))),
+    linear-gradient(180deg, rgb(16 27 50 / 50%), rgb(16 27 50 / 25%) 40%, rgb(16 27 50 / 44%)),
+    linear-gradient(90deg, rgb(16 27 50 / 12.5%), rgb(16 27 50 / 56.5%) 50%, rgb(16 27 50 / 12.5%)),
+    var(--background-map) center bottom / cover no-repeat,
+    var(--background-sky) center / cover no-repeat;
+}
+/* Overscan hides the town render's uneven transparent bottom edge. */
+.product[data-background=kerning]::before { inset:-3%; }
 .product .brand { text-decoration:none; color:inherit; }
+@media (prefers-reduced-motion:no-preference) {
+  .product .emblem { transition:rotate .18s ease-out; }
+  .product .brand:focus-visible .emblem { rotate:15deg; }
+}
+@media (hover:hover) and (prefers-reduced-motion:no-preference) {
+  .product .brand:hover .emblem { rotate:15deg; }
+}
 /* A fixed line height and an SVG arrow (not a fallback-font glyph) keep the masthead identical on every page. */
 .product .brand span { line-height:18px; }
 .back-arrow { margin-right:5px; vertical-align:-1px; }
@@ -197,8 +226,17 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 /* Stream overlay builder. */
 .overlay-board { margin-top:22px; }
 .history-overlay-wrap { position:relative; }
-.history-overlay-link { position:absolute; left:calc(100% - 4px); bottom:-22px; display:flex; align-items:center; gap:4px; width:118px; margin:0; color:var(--text-muted); font-size:10px; line-height:1.3; text-align:center; transform:rotate(-12deg); }
-.history-overlay-link span { white-space:nowrap; }
+.history-overlay-link { position:absolute; left:calc(100% - 4px); bottom:-22px; display:flex; align-items:center; gap:4px; width:118px; margin:0; color:var(--text-muted); font-size:12px; text-shadow: #000 0 0 6px; line-height:1.3; text-align:center; transform:rotate(-12deg); }
+.history-overlay-link, .history-overlay-link:hover:not(:disabled) { padding:0; min-height:32px; border:0; border-radius:0; background:none; color:var(--text-muted); font-weight:400; touch-action:manipulation; }
+.history-overlay-link:focus-visible { outline:2px solid var(--gold); outline-offset:4px; border-radius:4px; }
+.history-overlay-link span { position:relative; white-space:nowrap; }
+.history-overlay-link span::before, .history-overlay-link span::after { content:""; position:absolute; left:-5%; top:50%; width:110%; height:2px; background:var(--gold); border-radius:2px; pointer-events:none; transform:rotate(-18deg) scaleX(0); }
+.history-overlay-link span::after { transform:rotate(18deg) scaleX(0); }
+.history-overlay-link[data-strikes] span::before { transform:rotate(-18deg) scaleX(1); }
+.history-overlay-link:is([data-strikes="2"],[data-strikes="3"]) span::after { transform:rotate(18deg) scaleX(1); }
+@media (prefers-reduced-motion:no-preference) {
+  .history-overlay-link span::before, .history-overlay-link span::after { transition:transform .08s ease; }
+}
 .history-overlay-link svg { flex:none; color:var(--gold); opacity:.65; }
 @media(max-width:1399px) { .history-overlay-link { display:none; } }
 .overlay-builder { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,524px); gap:18px 24px; padding:20px 25px 24px; }
@@ -224,8 +262,9 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 /* Clip on html too, so body clips falling mobs itself rather than handing a scrollable "hidden" to the viewport. */
 html, body.product { overflow-x:clip; }
 .mob-lane { position:relative; height:0; pointer-events:none; }
+.mob-lane, .mob-lane * { -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
 .mob { position:absolute; left:0; bottom:-1px; }
-.mob img { position:absolute; left:0; bottom:0; translate:-50% 0; pointer-events:auto; cursor:pointer; }
+.mob img { position:absolute; left:0; bottom:0; translate:-50% 0; pointer-events:auto; cursor:pointer; touch-action:manipulation; }
 .mob-hit { position:absolute; translate:-50% 0; color:#ffb340; font:700 22px var(--font-display); text-shadow:0 2px 0 #7a2e00, 0 0 3px #000; animation:mob-hit 1s ease-out forwards; }
 @keyframes mob-hit { to { transform:translateY(-34px); opacity:0; } }
 .boss { position:fixed; top:0; left:0; opacity:.18; pointer-events:none; }
