@@ -1,5 +1,8 @@
 # Character identity: pre-merge safety and performance review
 
+Streamer and character names in this report are placeholders. Private source
+footage and literal OCR evidence remain outside Git.
+
 The previous offline milestone was committed as `a657300`. The clean worktree was
 rebased onto **local main `4ab2293`**, incorporating both the `790c273` percentage-context
 fix and the opt-in eight-worker limit. No conflicts; the rebased milestone is
@@ -186,7 +189,7 @@ are included; no viewers, network acquisition or retention-sized database.
   names .043s. Initial deadline staggering explains means slightly below 60s.
 - **95.002s wall, 94.562 sampled CPU-s**, peak **601.25 MiB**. Short-lived child CPU
   can be undercounted; the frozen-frame figures subtract existing worker lifetime CPU.
-- 28 unique-HUD name candidates: streamer_f 10, hefferheffer 10, Mawile 8, all matching
+- 28 unique-HUD name candidates: streamer_f 10, CharI 10, CharJ 8, all matching
   provisional saved-source labels. One missing HUD and one multiple-HUD frame abstain.
   These are repeated sources, not 15 independently labeled broadcasts.
 - **13** channels automatically move from bootstrap placeholders into separate named

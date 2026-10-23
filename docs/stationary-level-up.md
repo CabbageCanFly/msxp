@@ -124,3 +124,126 @@ boundaries, disagreement, malformed responses, all four crop edges, failures,
 idempotent bridge validation and duplicate-frame rejection by the persistent floor.
 Screenshots, crops and replay output remain ignored private artifacts. No live
 capture, VPS deployment, API restart or production history rewrite was performed.
+
+## TODO (deferred): obscured LV labels and localization timeouts
+
+**Status: deferred at the operator's request.** This edge-case follow-up is future
+work, not a completed production fix. The local prototype and test results below
+are retained in version control for later review; they have not been deployed. The
+capture-concurrency trial has not been run. Earlier fixes described above are
+separate from this deferred investigation. Streamer and character names in this
+document are placeholders.
+
+Eight supplied screenshots for `streamer_c` / `CharC` in the ignored
+`samples/important-level-up-sample-reference/` show the native level 47 badge and
+42 EXP / 0.01%. The separate tracker overlay covers the native LV label to its
+left. Before this change, the locator found one HP/MP/EXP layout in every image,
+but supplied no level region because the LV text anchor was missing. Both level
+readers therefore received no crop (`missing_crop` for the neural reader).
+The earlier confidence/temporal-confirmation fixes cannot help a missing input.
+
+The pair alone is ambiguous across levels 37–53 under the existing rounding
+hypotheses; repeating it does not independently identify level 47. The native
+digits must be read instead of inferring identity or level from this pair.
+
+The local prototype considers a level crop only for one undisputed three-label HUD,
+using the existing Classic layout's relative geometry. It requires a visible
+orange badge inside that crop with margins on all four sides and bounded size
+relative to the HP/MP spacing. An absent badge, a crop outside the source frame,
+edge-touching or implausibly sized color bounds, multiple HUDs and explicitly
+disputed level geometry still withhold the crop. Existing LV-based crops are
+unchanged. The fallback records `level_region_source: hp_mp_exp_orange_badge`
+without fabricating an LV token or changing EXP geometry.
+
+Both existing readers then read 47 on all eight local screenshots, with neural
+scores 0.99964–0.99986. Five strict EXP pairs remain 42 / 0.01%; the three malformed
+raw strings remain rejected as EXP candidates. No parser, confidence threshold,
+identity policy, level confirmation rule, EXP requirement or accounting rule was
+changed. A plausible orange object at the expected position remains a limitation;
+color/geometry is crop evidence, not proof of correct digits or character ownership.
+
+An isolated SQLite comparison used an explicitly synthetic, independently seeded
+level-46 baseline, then these actual OCR outputs at artificial 20-second timestamps.
+The old outputs left the floor at 46. With the recovered crops, the first image
+was held for confirmation; the second advanced the floor to 47, and the accepted
+reading became 42 EXP / 0.01% without further EXP gains. No trusted observations
+were created. These screenshots are all after the reported level-up: this is not
+a replay of its real boundary or a measurement of live VPS capture latency.
+
+Eleven synthetic localization cases cover the fallback and its rejection guards;
+the focused locator, capture, neural-level and autonomous-character suites passed
+233 tests. The full Python suite passed 3,038 tests, with 68 missing-private-crop
+skips, one Windows symlink-permission skip and one expected failure.
+Private before/after OCR output, crops and disposable databases are in
+ignored local replay artifacts, outside Git. Production SSH authentication was unavailable.
+The operator supplied checkout version `e43c299` and eight production records from
+2026-10-23 09:34–09:39 UTC. The 09:37:02 record reports `missing_crop`, consistent
+with the screenshot reproduction. A follow-up extract adds 09:39:46 and explains
+the other eight attempts: all report `localization_failed`, one also reports
+`local_receipt_age_exceeded`. Seven fail after one Tesseract call at approximately
+10.39–10.53 seconds; one fails after two calls at 18.98 seconds and is already stale.
+The only completed localization takes 9.35 seconds, then has no level crop and a
+malformed EXP pair. Resident OCR queue waits are under 0.0001 seconds. The native
+worker has a 10-second per-request limit, so these timings strongly suggest
+request timeouts; the old generic exception handler discarded the specific cause.
+
+The operator also reports four CPUs, sustained system load around 7.4–7.6, no
+service CPU quota, and several busy Python processes. This supports CPU contention
+as a contributor, but load includes uninterruptible I/O and the supplied `ps` CPU
+figures are lifetime averages. A subsequent service inspection identifies the busy
+process as `msxp-api`, alongside the capture-only tracker using six
+capture workers, resident neural OCR and resident Tesseract. Six capture workers
+permit four simultaneous native OCR workers; the API and video decoding compete
+for the same four CPUs. Concurrency is not itself a core-count guarantee because
+capture also waits for network I/O.
+
+A reversible three-capture-worker runtime trial would cap native OCR concurrency
+at three. Its benefit remains unmeasured; fewer workers can also miss more capture
+slots. It needs an explicit operator restart and must preserve the existing database,
+runtime path, capture bounds and retention settings. The supplied exact ExecStart
+with only `--workers 6` changed to `--workers 3` was prepared as a private runtime
+override named `90-ocr-concurrency-trial.conf`; it was not installed.
+Compare failure reasons, stage durations, skipped slots and actual per-channel
+cadence before/after. Confirmation still needs two distinct qualifying captures
+within 120 seconds, so a lower failure count alone is insufficient. A trial should
+be rolled back if effective capture cadence becomes worse. Profiling the API's
+CPU cost remains separate; its high process average alone does not establish a bug.
+The older local screenshot replay needed 1.90–2.60 seconds for the five Perion
+images and 5.90–6.05 seconds for the three crowded Free Market images; this is not
+a controlled comparison of Linux/VPS hardware or its running workload.
+
+The local diagnostic prototype preserves five fixed native-worker failure
+codes alongside `localization_failed`; the diagnostic sanitizer permits those
+same codes. Arbitrary exception text, URLs and paths remain excluded. Eight new
+fault-injection cases passed with the capture/view/native-worker/localizer/level-
+guard subset (217 tests). The final full Python run passed 3,047 tests, with
+68 missing-private-crop skips, one Windows symlink-permission skip and one known
+expected failure (the recorded-stream tiny-font 9/8 misread).
+This improves diagnosis, not throughput. Timeouts,
+freshness limits, scan scales and completeness checks remain unchanged. A failed
+attempt still clears pending level confirmation: recovering the crop alone cannot
+guarantee two qualifying captures arrive in time under the observed failure rate.
+Do not increase timeouts or accept stale readings to force confirmation.
+
+The relevant locator/capture/guard files at `e43c299`
+match the local committed baseline; the running process version was not verified.
+Nothing was deployed, restarted or backfilled. Loading this locator
+change on the VPS would require a controlled restart of the capture tracker.
+
+### Future work and acceptance checks
+
+- Revisit the crop prototype with more independent obscured-label footage,
+  conflicting overlays, clipped badges and multiple-HUD negatives. Preserve
+  character attribution, arithmetic checks and distinct-frame confirmation.
+- Profile the API and OCR workload under representative server load. Confirm the
+  specific localization error using the diagnostic prototype; the historical
+  timings suggest a timeout but did not retain its exact error code.
+- If still warranted, run the reviewed, reversible six-to-three-worker comparison
+  with the current production database and service settings. Measure usable
+  readings, stage timings, missed slots, actual cadence and public API latency.
+  Roll back if capture cadence or API behavior degrades.
+- Verify stationary post-level-up readings can confirm the new level through two
+  distinct qualifying captures within 120 seconds, including a fresh writer and
+  the existing negative cases. Do not relax freshness or confidence to force it.
+- Review and explicitly authorize any eventual deployment and tracker restart
+  separately. No production history backfill is part of this TODO.

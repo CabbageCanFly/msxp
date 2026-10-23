@@ -71,6 +71,7 @@ grouped so you can find one without opening a hundred files.
   [percentage quarantine](percentage-quarantine.md), [level evidence](mvp-level-evidence.md),
   [prompt level-ups](prompt-levelup-and-window-gaps.md), [stationary EXP after level-up](stationary-level-up.md),
   [numeric gaps and percentage recovery](numeric-gap-and-percentage-recovery.md)
+- Deferred follow-up: [obscured LV labels and localization timeouts](stationary-level-up.md#todo-deferred-obscured-lv-labels-and-localization-timeouts)
 - History and ETA: [numerical windows and ETA](numerical-windows-eta.md),
   [cross-level history](cross-level-history.md), [tracked-EXP consistency](tracked-exp-consistency.md),
   [historical EXP consistency](historical-exp-consistency.md), [pace through gaps](gap-level-resilience.md),
