@@ -1,0 +1,1658 @@
+{
+ "_about": "Labelled frames of private recordings for tests/test_recorded_streams.py: timestamps and the HUD values visually transcribed before any OCR (provisional, one reviewer). expect = the live reader on 2026-10-23: read correctly, rejected, or a known misread. The recordings themselves are private (samples/, never in Git).",
+ "videos": {
+  "samples/sample-stream.mp4": 1405549922,
+  "samples/sample-stream2.mp4": 4037750536,
+  "samples/sample-stream3.mp4": 3682979177
+ },
+ "frames": [
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 0,
+   "level": 1,
+   "exp": 9,
+   "percentage": 60.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 15,
+   "level": 1,
+   "exp": 9,
+   "percentage": 60.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 16,
+   "level": 1,
+   "exp": 9,
+   "percentage": 60.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 17,
+   "level": 1,
+   "exp": 9,
+   "percentage": 60.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 18,
+   "level": 1,
+   "exp": 9,
+   "percentage": 60.0,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 19,
+   "level": 1,
+   "exp": 9,
+   "percentage": 60.0,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 19.25,
+   "level": 1,
+   "exp": 9,
+   "percentage": 60.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 19.5,
+   "level": 2,
+   "exp": 4,
+   "percentage": 11.76,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 19.75,
+   "level": 2,
+   "exp": 4,
+   "percentage": 11.76,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 20,
+   "level": 2,
+   "exp": 4,
+   "percentage": 11.76,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 30,
+   "level": 2,
+   "exp": 4,
+   "percentage": 11.76,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 45,
+   "level": 2,
+   "exp": 5,
+   "percentage": 14.71,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 60,
+   "level": 2,
+   "exp": 8,
+   "percentage": 23.53,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 90,
+   "level": 2,
+   "exp": 24,
+   "percentage": 70.59,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 120,
+   "level": 2,
+   "exp": 28,
+   "percentage": 82.35,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 140,
+   "level": 2,
+   "exp": 28,
+   "percentage": 82.35,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 141,
+   "level": 2,
+   "exp": 30,
+   "percentage": 88.24,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 142,
+   "level": 2,
+   "exp": 30,
+   "percentage": 88.24,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 142.25,
+   "level": 2,
+   "exp": 30,
+   "percentage": 88.24,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 142.5,
+   "level": 3,
+   "exp": 0,
+   "percentage": 0.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 142.75,
+   "level": 3,
+   "exp": 0,
+   "percentage": 0.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 143,
+   "level": 3,
+   "exp": 0,
+   "percentage": 0.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 144,
+   "level": 3,
+   "exp": 0,
+   "percentage": 0.0,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 145,
+   "level": 3,
+   "exp": 4,
+   "percentage": 7.02,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 150,
+   "level": 3,
+   "exp": 4,
+   "percentage": 7.02,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 180,
+   "level": 3,
+   "exp": 4,
+   "percentage": 7.02,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 235,
+   "level": 3,
+   "exp": 52,
+   "percentage": 91.23,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 236,
+   "level": 3,
+   "exp": 54,
+   "percentage": 94.74,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 236.25,
+   "level": 3,
+   "exp": 56,
+   "percentage": 98.25,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 236.5,
+   "level": 4,
+   "exp": 3,
+   "percentage": 3.26,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 236.75,
+   "level": 4,
+   "exp": 3,
+   "percentage": 3.26,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 237,
+   "level": 4,
+   "exp": 3,
+   "percentage": 3.26,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 238,
+   "level": 4,
+   "exp": 5,
+   "percentage": 5.43,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 239,
+   "level": 4,
+   "exp": 7,
+   "percentage": 7.61,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 240,
+   "level": 4,
+   "exp": 7,
+   "percentage": 7.61,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 280,
+   "level": 4,
+   "exp": 84,
+   "percentage": 91.3,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 281,
+   "level": 4,
+   "exp": 90,
+   "percentage": 97.83,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 282,
+   "level": 4,
+   "exp": 90,
+   "percentage": 97.83,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 283,
+   "level": 4,
+   "exp": 90,
+   "percentage": 97.83,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 284,
+   "level": 4,
+   "exp": 90,
+   "percentage": 97.83,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 284.25,
+   "level": 4,
+   "exp": 90,
+   "percentage": 97.83,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 284.5,
+   "level": 4,
+   "exp": 90,
+   "percentage": 97.83,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 284.75,
+   "level": 5,
+   "exp": 0,
+   "percentage": 0.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 285,
+   "level": 5,
+   "exp": 0,
+   "percentage": 0.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 300,
+   "level": 5,
+   "exp": 28,
+   "percentage": 20.74,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 360,
+   "level": 5,
+   "exp": 101,
+   "percentage": 74.81,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 380,
+   "level": 5,
+   "exp": 108,
+   "percentage": 80.0,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 381,
+   "level": 5,
+   "exp": 108,
+   "percentage": 80.0,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 382,
+   "level": 5,
+   "exp": 108,
+   "percentage": 80.0,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 383,
+   "level": 5,
+   "exp": 112,
+   "percentage": 82.96,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 384,
+   "level": 5,
+   "exp": 112,
+   "percentage": 82.96,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 384.25,
+   "level": 6,
+   "exp": 57,
+   "percentage": 15.32,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 384.5,
+   "level": 6,
+   "exp": 57,
+   "percentage": 15.32,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 384.75,
+   "level": 6,
+   "exp": 60,
+   "percentage": 16.13,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 385,
+   "level": 6,
+   "exp": 60,
+   "percentage": 16.13,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 420,
+   "level": 6,
+   "exp": 66,
+   "percentage": 17.74,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 450,
+   "level": 6,
+   "exp": 66,
+   "percentage": 17.74,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 451,
+   "level": 6,
+   "exp": 66,
+   "percentage": 17.74,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 452,
+   "level": 6,
+   "exp": 66,
+   "percentage": 17.74,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 453,
+   "level": 6,
+   "exp": 66,
+   "percentage": 17.74,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 453.5,
+   "level": 6,
+   "exp": 66,
+   "percentage": 17.74,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 454.25,
+   "level": 7,
+   "exp": 394,
+   "percentage": 70.36,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 454.5,
+   "level": 7,
+   "exp": 394,
+   "percentage": 70.36,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 454.75,
+   "level": 7,
+   "exp": 394,
+   "percentage": 70.36,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 455,
+   "level": 7,
+   "exp": 394,
+   "percentage": 70.36,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 455.5,
+   "level": 7,
+   "exp": 394,
+   "percentage": 70.36,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 480,
+   "level": 7,
+   "exp": 394,
+   "percentage": 70.36,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 540,
+   "level": 7,
+   "exp": 455,
+   "percentage": 81.25,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 595,
+   "level": 7,
+   "exp": 552,
+   "percentage": 98.57,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 596,
+   "level": 7,
+   "exp": 552,
+   "percentage": 98.57,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 597,
+   "level": 7,
+   "exp": 554,
+   "percentage": 98.93,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 598,
+   "level": 7,
+   "exp": 556,
+   "percentage": 99.29,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 598.25,
+   "level": 7,
+   "exp": 556,
+   "percentage": 99.29,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 598.5,
+   "level": 7,
+   "exp": 558,
+   "percentage": 99.64,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 598.75,
+   "level": 7,
+   "exp": 558,
+   "percentage": 99.64,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 599,
+   "level": 8,
+   "exp": 0,
+   "percentage": 0.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 600,
+   "level": 8,
+   "exp": 0,
+   "percentage": 0.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 660,
+   "level": 8,
+   "exp": 121,
+   "percentage": 14.4,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 720,
+   "level": 8,
+   "exp": 167,
+   "percentage": 19.88,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 780,
+   "level": 8,
+   "exp": 280,
+   "percentage": 33.33,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 840,
+   "level": 8,
+   "exp": 396,
+   "percentage": 47.14,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 900,
+   "level": 8,
+   "exp": 513,
+   "percentage": 61.07,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 960,
+   "level": 8,
+   "exp": 643,
+   "percentage": 76.55,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1020,
+   "level": 8,
+   "exp": 765,
+   "percentage": 91.07,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1060,
+   "level": 8,
+   "exp": 837,
+   "percentage": 99.64,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1061,
+   "level": 8,
+   "exp": 839,
+   "percentage": 99.88,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1061.25,
+   "level": 8,
+   "exp": 839,
+   "percentage": 99.88,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1061.5,
+   "level": 8,
+   "exp": 839,
+   "percentage": 99.88,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1061.75,
+   "level": 9,
+   "exp": 1,
+   "percentage": 0.08,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1062,
+   "level": 9,
+   "exp": 1,
+   "percentage": 0.08,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1063,
+   "level": 9,
+   "exp": 5,
+   "percentage": 0.4,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1064,
+   "level": 9,
+   "exp": 5,
+   "percentage": 0.4,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1065,
+   "level": 9,
+   "exp": 9,
+   "percentage": 0.72,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1080,
+   "level": 9,
+   "exp": 41,
+   "percentage": 3.3,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1140,
+   "level": 9,
+   "exp": 166,
+   "percentage": 13.37,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1200,
+   "level": 9,
+   "exp": 301,
+   "percentage": 24.24,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1260,
+   "level": 9,
+   "exp": 421,
+   "percentage": 33.9,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1320,
+   "level": 9,
+   "exp": 523,
+   "percentage": 42.11,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1380,
+   "level": 9,
+   "exp": 644,
+   "percentage": 51.85,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1440,
+   "level": 9,
+   "exp": 750,
+   "percentage": 60.39,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1500,
+   "level": 9,
+   "exp": 828,
+   "percentage": 66.67,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1560,
+   "level": 9,
+   "exp": 897,
+   "percentage": 72.22,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1620,
+   "level": 9,
+   "exp": 952,
+   "percentage": 76.65,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1680,
+   "level": 9,
+   "exp": 1053,
+   "percentage": 84.78,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1740,
+   "level": 9,
+   "exp": 1169,
+   "percentage": 94.12,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1765,
+   "level": 9,
+   "exp": 1225,
+   "percentage": 98.63,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1766,
+   "level": 9,
+   "exp": 1229,
+   "percentage": 98.95,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1767,
+   "level": 9,
+   "exp": 1231,
+   "percentage": 99.11,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1768,
+   "level": 9,
+   "exp": 1231,
+   "percentage": 99.11,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1769,
+   "level": 9,
+   "exp": 1237,
+   "percentage": 99.6,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1769.25,
+   "level": 9,
+   "exp": 1237,
+   "percentage": 99.6,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1769.5,
+   "level": 9,
+   "exp": 1239,
+   "percentage": 99.76,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1769.75,
+   "level": 9,
+   "exp": 1241,
+   "percentage": 99.92,
+   "expect": "misread"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1770,
+   "level": 10,
+   "exp": 1,
+   "percentage": 0.06,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1800,
+   "level": 10,
+   "exp": 70,
+   "percentage": 4.08,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream.mp4",
+   "seconds": 1819,
+   "level": 10,
+   "exp": 123,
+   "percentage": 7.17,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 0.0,
+   "level": 1,
+   "exp": 13,
+   "percentage": 86.67,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 142.25,
+   "level": 2,
+   "exp": 15,
+   "percentage": 44.12,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 284.501,
+   "level": 2,
+   "exp": 17,
+   "percentage": 50.0,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 426.751,
+   "level": 2,
+   "exp": 17,
+   "percentage": 50.0,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 569.002,
+   "level": 2,
+   "exp": 17,
+   "percentage": 50.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 711.252,
+   "level": 2,
+   "exp": 17,
+   "percentage": 50.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 853.503,
+   "level": 2,
+   "exp": 17,
+   "percentage": 50.0,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 995.753,
+   "level": 3,
+   "exp": 8,
+   "percentage": 14.04,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 1138.004,
+   "level": 3,
+   "exp": 38,
+   "percentage": 66.67,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 1280.254,
+   "level": 4,
+   "exp": 16,
+   "percentage": 17.39,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 1422.505,
+   "level": 4,
+   "exp": 24,
+   "percentage": 26.09,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 1564.755,
+   "level": 4,
+   "exp": 68,
+   "percentage": 73.91,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 1707.005,
+   "level": 4,
+   "exp": 83,
+   "percentage": 90.22,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 1849.256,
+   "level": 5,
+   "exp": 1,
+   "percentage": 0.74,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 1991.506,
+   "level": 5,
+   "exp": 45,
+   "percentage": 33.33,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 2133.757,
+   "level": 5,
+   "exp": 130,
+   "percentage": 96.3,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 2276.007,
+   "level": 6,
+   "exp": 5,
+   "percentage": 1.34,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 2418.258,
+   "level": 6,
+   "exp": 133,
+   "percentage": 35.75,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 2560.508,
+   "level": 6,
+   "exp": 154,
+   "percentage": 41.4,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 2702.759,
+   "level": 6,
+   "exp": 173,
+   "percentage": 46.51,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 2845.009,
+   "level": 6,
+   "exp": 299,
+   "percentage": 80.38,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 2987.26,
+   "level": 6,
+   "exp": 345,
+   "percentage": 92.74,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 3129.51,
+   "level": 7,
+   "exp": 475,
+   "percentage": 84.82,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 3271.76,
+   "level": 7,
+   "exp": 475,
+   "percentage": 84.82,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 3414.011,
+   "level": 8,
+   "exp": 15,
+   "percentage": 1.79,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 3556.261,
+   "level": 8,
+   "exp": 55,
+   "percentage": 6.55,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 3698.512,
+   "level": 8,
+   "exp": 325,
+   "percentage": 38.69,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 3840.762,
+   "level": 8,
+   "exp": 325,
+   "percentage": 38.69,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 3983.013,
+   "level": 8,
+   "exp": 325,
+   "percentage": 38.69,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 4125.263,
+   "level": 8,
+   "exp": 325,
+   "percentage": 38.69,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 4267.514,
+   "level": 8,
+   "exp": 325,
+   "percentage": 38.69,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 4409.764,
+   "level": 8,
+   "exp": 325,
+   "percentage": 38.69,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 4552.015,
+   "level": 8,
+   "exp": 467,
+   "percentage": 55.6,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 4694.265,
+   "level": 8,
+   "exp": 575,
+   "percentage": 68.45,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 4836.515,
+   "level": 8,
+   "exp": 623,
+   "percentage": 74.17,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 4978.766,
+   "level": 8,
+   "exp": 724,
+   "percentage": 86.19,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 5121.016,
+   "level": 8,
+   "exp": 764,
+   "percentage": 90.95,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 5263.267,
+   "level": 9,
+   "exp": 103,
+   "percentage": 8.29,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 5405.517,
+   "level": 9,
+   "exp": 246,
+   "percentage": 19.81,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 5547.768,
+   "level": 9,
+   "exp": 305,
+   "percentage": 24.56,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 5690.018,
+   "level": 9,
+   "exp": 451,
+   "percentage": 36.31,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 5832.269,
+   "level": 9,
+   "exp": 551,
+   "percentage": 44.36,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 5974.519,
+   "level": 9,
+   "exp": 656,
+   "percentage": 52.82,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 6116.77,
+   "level": 9,
+   "exp": 743,
+   "percentage": 59.82,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream2.mp4",
+   "seconds": 6259.02,
+   "level": 10,
+   "exp": 207,
+   "percentage": 12.06,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 0.0,
+   "level": 40,
+   "exp": 51025,
+   "percentage": 17.34,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 81.796,
+   "level": 40,
+   "exp": 53054,
+   "percentage": 18.03,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 163.592,
+   "level": 40,
+   "exp": 54580,
+   "percentage": 18.55,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 245.388,
+   "level": 40,
+   "exp": 56097,
+   "percentage": 19.07,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 327.185,
+   "level": 40,
+   "exp": 57841,
+   "percentage": 19.66,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 408.981,
+   "level": 40,
+   "exp": 59501,
+   "percentage": 20.22,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 490.777,
+   "level": 40,
+   "exp": 61005,
+   "percentage": 20.73,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 572.573,
+   "level": 40,
+   "exp": 62522,
+   "percentage": 21.25,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 654.369,
+   "level": 40,
+   "exp": 63896,
+   "percentage": 21.72,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 736.165,
+   "level": 40,
+   "exp": 65438,
+   "percentage": 22.24,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 817.961,
+   "level": 40,
+   "exp": 67283,
+   "percentage": 22.87,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 899.758,
+   "level": 40,
+   "exp": 69234,
+   "percentage": 23.53,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 981.554,
+   "level": 40,
+   "exp": 70953,
+   "percentage": 24.12,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1063.35,
+   "level": 40,
+   "exp": 72407,
+   "percentage": 24.61,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1145.146,
+   "level": 40,
+   "exp": 74059,
+   "percentage": 25.17,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1226.942,
+   "level": 40,
+   "exp": 75812,
+   "percentage": 25.77,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1308.738,
+   "level": 40,
+   "exp": 77314,
+   "percentage": 26.28,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1390.534,
+   "level": 40,
+   "exp": 78135,
+   "percentage": 26.56,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1472.33,
+   "level": 40,
+   "exp": 79960,
+   "percentage": 27.18,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1554.127,
+   "level": 40,
+   "exp": 81427,
+   "percentage": 27.68,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1635.923,
+   "level": 40,
+   "exp": 83364,
+   "percentage": 28.33,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1717.719,
+   "level": 40,
+   "exp": 85087,
+   "percentage": 28.92,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1799.515,
+   "level": 40,
+   "exp": 86675,
+   "percentage": 29.46,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1881.311,
+   "level": 40,
+   "exp": 88396,
+   "percentage": 30.04,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 1963.107,
+   "level": 40,
+   "exp": 90254,
+   "percentage": 30.68,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2044.903,
+   "level": 40,
+   "exp": 92108,
+   "percentage": 31.31,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2126.7,
+   "level": 40,
+   "exp": 93807,
+   "percentage": 31.88,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2208.496,
+   "level": 40,
+   "exp": 95654,
+   "percentage": 32.51,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2290.292,
+   "level": 40,
+   "exp": 97701,
+   "percentage": 33.21,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2372.088,
+   "level": 40,
+   "exp": 99508,
+   "percentage": 33.82,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2453.884,
+   "level": 40,
+   "exp": 101170,
+   "percentage": 34.39,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2535.68,
+   "level": 40,
+   "exp": 102815,
+   "percentage": 34.95,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2617.476,
+   "level": 40,
+   "exp": 103393,
+   "percentage": 35.14,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2699.273,
+   "level": 40,
+   "exp": 103393,
+   "percentage": 35.14,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2781.069,
+   "level": 40,
+   "exp": 103393,
+   "percentage": 35.14,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2862.865,
+   "level": 40,
+   "exp": 103787,
+   "percentage": 35.28,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 2944.661,
+   "level": 40,
+   "exp": 105666,
+   "percentage": 35.91,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 3026.457,
+   "level": 40,
+   "exp": 107703,
+   "percentage": 36.61,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 3108.253,
+   "level": 40,
+   "exp": 109670,
+   "percentage": 37.28,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 3190.049,
+   "level": 40,
+   "exp": 111451,
+   "percentage": 37.88,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 3271.845,
+   "level": 40,
+   "exp": 113367,
+   "percentage": 38.53,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 3353.642,
+   "level": 40,
+   "exp": 115142,
+   "percentage": 39.14,
+   "expect": "rejected"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 3435.438,
+   "level": 40,
+   "exp": 117020,
+   "percentage": 39.77,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 3517.234,
+   "level": 40,
+   "exp": 118909,
+   "percentage": 40.42,
+   "expect": "read"
+  },
+  {
+   "video": "samples/sample-stream3.mp4",
+   "seconds": 3599.03,
+   "level": 40,
+   "exp": 120405,
+   "percentage": 40.92,
+   "expect": "read"
+  }
+ ]
+}
