@@ -63,7 +63,12 @@ def level_evidence(record):
     row = observation(record)
     row.update(hud_count=1, capture_acquired=True, event_id='level_evidence')
     projected = project([row])[0]
-    level = projected['experimental_level'].get('value')
+    evidence = projected['experimental_level']
+    level, basis = evidence.get('value'), evidence['status']
+    # guard_level supplies the two-frame confirmation; a one-frame projection cannot do it itself.
+    if (level is None and evidence['status'] == 'pending' and evidence.get('neural_score', 0) >= NEURAL_SEED_SCORE
+            and (row.get('neural_level') or {}).get('preprocessing') == 'neutral4'):
+        level, basis = evidence['neural'], 'single_neural_arithmetic'
     full = full_reading(row)
     check=consistency(full,level)
     agreed=(projected['experimental_level']['status']=='agreement' and
@@ -75,7 +80,7 @@ def level_evidence(record):
     name=name_evidence(record)
     return dict(level=level, name=name['name'] if name else None,
                 pixel_sha256=record.get('character_name', {}).get('evidence', {}).get('pixel_sha256')
-                or row['frame_sha256'], received_at=row['received_at'], basis=projected['experimental_level']['status'])
+                or row['frame_sha256'], received_at=row['received_at'], basis=basis)
 
 
 def level_held(record, reason, floor):
