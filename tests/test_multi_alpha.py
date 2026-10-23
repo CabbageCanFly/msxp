@@ -79,6 +79,14 @@ def test_shared_database_runs_restart_and_read_only_directory(multi):
         assert {c:store.state(c)['session']['id'] for c in ids}==ids
 
 
+def test_each_capture_line_names_the_lane_character(multi,capsys):
+    assert main(multi)==0
+    out=capsys.readouterr().out
+    for channel in ('alpha','beta'):
+        for index in (1,2):
+            assert f'{channel} [{channel} character] #{index:02d} frame=acquired' in out
+
+
 def test_capture_failures_do_not_starve_other_lane_and_no_overlap(multi,monkeypatch):
     module,path,_,_,_=multi
     active=[False];calls=[]

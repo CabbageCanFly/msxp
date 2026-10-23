@@ -736,7 +736,7 @@ def main(argv=None):
                                         print(f"{lane['channel']}: automatically selected {receipt['name']} / character {receipt['character_id']} / session {receipt['session_id']}",flush=True)
                                     lane['commits']+=1
                                     print(report_attempt(receipt['record'],True,database=database,channel=lane['channel'],
-                                        neural_enabled=lane['args'].experimental_neural_level).replace('#',lane['channel']+' #',1),flush=True)
+                                        neural_enabled=lane['args'].experimental_neural_level).replace('#',f"{lane['channel']} [{lane.get('character')}] #",1),flush=True)
                                     return
                                 record = identity_held(record)  # Before the log too, so replay stores the same payload.
                                 if record['type']=='summary' and lane.get('rotation_failed'):
@@ -757,7 +757,7 @@ def main(argv=None):
                                         timings=record.get('timings',{})))+'\n'); operator.flush()
                                     if record['type']=='attempt':
                                         print(report_attempt(record, committed, database=database, channel=lane['channel'],
-                                            neural_enabled=lane['args'].experimental_neural_level).replace('#',lane['channel']+' #',1),flush=True)
+                                            neural_enabled=lane['args'].experimental_neural_level).replace('#',f"{lane['channel']} [{lane.get('character')}] #",1),flush=True)
                             def rotate(lane):
                                 previous=lane['run_id']; following=uuid.uuid4().hex
                                 summary=dict(type='summary',trusted=False,attempts=60,interrupted=False,
