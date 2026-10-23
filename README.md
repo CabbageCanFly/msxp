@@ -7,6 +7,10 @@ or a small server. **See it live: [msxp.pages.dev](https://msxp.pages.dev)**
 
 Nobody installs anything on the streamer's side: MSXP only watches the public stream.
 
+![MSXP leaderboard showing player levels, EXP progress and recent EXP per hour](docs/images/leaderboard.png)
+
+*Leaderboard with player levels, EXP progress and recent EXP/hour.*
+
 ---
 
 ## Try it in 5 minutes
@@ -47,6 +51,14 @@ browser on a leaderboard with made-up players.
    the overlay builder, click **Copy URL**, and follow **How do I add this to OBS?** right there.
 
 Want the leaderboard to show who is live? Add free Twitch app keys to `.env` (next section).
+
+![Player profile showing recent pace, next-level estimates and EXP history](docs/images/player-profile.png)
+
+*Player profile with recent pace, next-level estimates and EXP history.*
+
+![Stream overlay builder showing settings, preview and Copy URL button](docs/images/overlay-builder.png)
+
+*Overlay settings, preview and URL for an OBS Browser Source.*
 
 ## Commands
 
