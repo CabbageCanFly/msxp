@@ -415,33 +415,36 @@ def test_percentage_only_levelup_can_use_two_independent_agreeing_readers(auto):
     assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==68
 
 
-def stationary_levelup_record(index):
-    value=record(index,level=57,bp=14)
-    value.update(visual_level=None,visual_status='unavailable',candidate=[1437,.14],
-        neural=dict(text='1,437[0.14%]'),
+def stationary_levelup_record(index,exp=1437,interval=15):
+    value=record(index,level=57,bp=14,at=AT+timedelta(seconds=index*interval))
+    value.update(visual_level=None,visual_status='unavailable',candidate=[exp,.14],
+        neural=dict(text=f'{exp:,}[0.14%]'),
         neural_level=dict(level=57,text='57',status='numeric_candidate',score=.99839,preprocessing='neutral4'))
     return value
 
 
 @pytest.mark.parametrize('restart',[False,True])
-def test_stationary_low_percentage_levelup_with_one_neural_reader_reaches_outer_confirmation(auto,restart):
+@pytest.mark.parametrize('exp',[1437,1441])
+@pytest.mark.parametrize('interval',[15,40])
+def test_stationary_low_percentage_levelup_with_one_neural_reader_reaches_outer_confirmation(auto,restart,exp,interval):
     _,store,policy=auto
     sequence(auto,['Alpha','Alpha'],levels=[56,56],bps=[9900,9985])
     for i in (3,4,5):
         if i==4 and restart:policy=AutonomousCharacters(store)
-        value=stationary_levelup_record(i)
+        value=stationary_levelup_record(i,exp,interval)
         result=policy.append('first',value,f'noop{i}',config(f'noop{i}'))
         if i==3:
             assert result['record']['level_hold']['reason']=='level_confirmation_pending'
         else:
             assert result['record']['current'] and 'level_hold' not in result['record']
     assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==57
-    projected=Diagnostics(store).snapshot('alpha',now=AT+timedelta(seconds=76))
+    now=AT+timedelta(seconds=5*interval+1)
+    projected=Diagnostics(store).snapshot('alpha',now=now)
     assert projected['percentage_progress']['latest_percentage']['percentage']=='0.14'
     assert projected['percentage_progress']['current_segment']['difference_bp']==0
-    card=Diagnostics(store).directory({},now=AT+timedelta(seconds=76))['streams'][0]['player']
-    assert card['display_level']['value']==57 and card['reading']['exp']=='1437'
-    assert card['reading']['timestamp']==(AT+timedelta(seconds=75)).isoformat()
+    card=Diagnostics(store).directory({},now=now)['streams'][0]['player']
+    assert card['display_level']['value']==57 and card['reading']['exp']==str(exp)
+    assert card['reading']['timestamp']==(AT+timedelta(seconds=5*interval)).isoformat()
     assert store.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==0
 
 

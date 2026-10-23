@@ -29,9 +29,14 @@ is held as `level_confirmation_pending`; the second advances the floor to 57 and
 the next stationary capture updates the public reading at 0.14%. No gain, character
 switch, trusted observation or retrospective promotion is fabricated.
 
-The local reproduction and screenshot explain a matching failure mode. Production
-attribution still requires the VPS attempt payloads to confirm the hold reason
-and recorded OCR outputs.
+The supplied VPS extract confirms this failure mode: eleven held attempts retain
+the validated level-56 floor and report `unresolved_level_change` despite neural
+level 57 at scores above 0.96, with full pairs 1,437 / 0.14% or 1,441 / 0.14%.
+The next shown attempt, 2,821 / 0.27%, finally reaches `level_confirmation_pending`.
+Tesseract abstains in all twelve excerpts. Only these selected fields were
+reviewed, not the complete production payloads or frame hashes; no raw logs are
+committed. Synthetic regressions cover both stationary values at 15- and 40-second
+cadences, including recreating the writer between the confirming captures.
 
 ## Narrow change and retained guards
 
@@ -55,9 +60,10 @@ performed. Nothing here starts capture, connects to Twitch or restarts the VPS.
 
 ## Local validation
 
-The final full Python run passed 2,882 tests with 120 skips: 119 unavailable private
-fixtures in this isolated worktree and one Windows symlink permission check.
-The 12 new targeted cases pass, including persistent confirmation across a fresh
-writer object, stationary public EXP/level updates, and unchanged zero gained EXP.
+The full Python run for the fix passed 2,882 tests with 120 skips: 119 unavailable
+private fixtures in this isolated worktree and one Windows symlink permission check.
+After the VPS extract, all 51 automatic-character tests passed, including the 18
+targeted cases covering persistent confirmation across a fresh writer object,
+stationary public EXP/level updates, and unchanged zero gained EXP.
 The supplied screenshot was separately run through the local OCR pipeline above.
 No frontend code changed, and no browser test or live VPS replay was performed.
