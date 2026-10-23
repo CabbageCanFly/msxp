@@ -50,7 +50,9 @@ short transaction as the deletions. Details: [24h-retention.md](24h-retention.md
 | Progress before it was stopped | oldest data 104.9 h → 71.3 h in ~20 min; integrity ok afterwards |
 
 Before/after numbers come from `tools/tracker_health.py` (read-only; reports missed readings and
-worst delay per streamer, plus kept-data age).
+worst delay per streamer, plus kept-data age). "Missed" also counts slots paused while a streamer is
+live outside MapleStory and restart gaps; only its `behind` part is the tracker falling behind schedule.
+The `read / no HUD / unclear / no frame / offline` columns say what each capture got.
 
 ## Why it blocks
 
@@ -144,8 +146,8 @@ coordinator refuses it and would not start). `MSXP_RETENTION` in an env file is 
 ```sh
 cd /opt/msxp/app; R=private/retention-rehearsal; sudo -u msxp mkdir -p "$R"
 sudo -u msxp .venv/bin/python tools/backup_database.py "$DB" "$R/tracker.sqlite3"
-sudo -u msxp .venv/bin/python -m exp_tracker.retention --db "$R/tracker.sqlite3"                      # report
-sudo -u msxp nice -n 10 .venv/bin/python -m exp_tracker.retention --db "$R/tracker.sqlite3" --apply --max-seconds 3600 | tee "$R/pass.jsonl"
+sudo -u msxp env PYTHONPATH=src .venv/bin/python -m exp_tracker.retention --db "$R/tracker.sqlite3"   # report
+sudo -u msxp env PYTHONPATH=src nice -n 10 .venv/bin/python -m exp_tracker.retention --db "$R/tracker.sqlite3" --apply --max-seconds 3600 | tee "$R/pass.jsonl"
 sudo -u msxp sqlite3 -readonly "$R/tracker.sqlite3" 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
 ```
 
