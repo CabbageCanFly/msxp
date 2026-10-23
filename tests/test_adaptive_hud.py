@@ -21,12 +21,62 @@ def anchors(x=100,y=40,step=20):
             for name,dx,dy in [('HP',0,0),('MP',1,0),('EXP',2,0),('LV.',-1.9,.07)]]
 
 
+def hidden_lv_anchors(x=300,y=100):
+    return [{**t,'width':20,'height':10} for t in anchors(x,y,100)[:3]]
+
+
 @pytest.mark.parametrize('x,y,step',[(100,40,20),(300,300,45),(600,900,80)])
 def test_layout_is_relative_to_anchors(x,y,step):
     result=hud.layouts(anchors(x,y,step),(1920,1080))
     assert len(result)==1
     assert result[0]['anchor_step']==step
     assert result[0]['regions']['exp'].x0==pytest.approx((x+2.26*step)/1920)
+
+
+def test_hidden_lv_label_can_use_visible_native_badge_without_moving_exp_or_inventing_lv(monkeypatch):
+    tokens=hidden_lv_anchors()
+    image=Image.new('RGB',(700,200))
+    image.paste((240,120,20),(143,107,167,119))
+    monkeypatch.setattr(hud,'scan',lambda *args,**kwargs:[tokens,tokens])
+    before=hud.layouts(tokens,image.size)[0]
+    found=hud.locate(image)
+    assert len(found)==1 and found[0]['regions']['level'] is not None
+    assert found[0]['regions']['exp']==before['regions']['exp']
+    assert found[0]['anchors']['lv'] is None
+    assert found[0]['level_region_source']=='hp_mp_exp_orange_badge'
+    assert hud.locate(image,batched=True)==found
+
+
+@pytest.mark.parametrize('badge',[
+    None, (0,0,35,20), (139,107,167,119), (143,103,167,119),
+    (143,107,172,119), (143,107,167,124), (143,107,145,109),
+    (140,105,171,122),
+])
+def test_hidden_lv_recovery_rejects_absent_misplaced_clipped_tiny_or_oversized_badges(monkeypatch,badge):
+    image=Image.new('RGB',(700,200))
+    if badge:image.paste((240,120,20),badge)
+    monkeypatch.setattr(hud,'scan',lambda *args,**kwargs:[hidden_lv_anchors()])
+    assert hud.locate(image)[0]['regions']['level'] is None
+
+
+def test_hidden_lv_recovery_never_overrides_multiple_huds_disputed_levels_or_a_visible_lv(monkeypatch):
+    image=Image.new('RGB',(700,400))
+    image.paste((240,120,20),(143,107,167,119))
+    monkeypatch.setattr(hud,'scan',lambda *args,**kwargs:[hidden_lv_anchors()+hidden_lv_anchors(y=250)])
+    assert len(hud.locate(image))==2
+    assert all(c['regions']['level'] is None for c in hud.locate(image))
+    base=hud.layouts(hidden_lv_anchors(),image.size)[0]
+    monkeypatch.setattr(hud,'merge_layouts',lambda *args:[{**base,'level_ambiguous':True}])
+    assert hud.locate(image)[0]['regions']['level'] is None
+    visible=hud.layouts(anchors(300,100,100),image.size)[0]
+    monkeypatch.setattr(hud,'merge_layouts',lambda *args:[visible])
+    assert hud.locate(image)==[visible]
+
+
+def test_hidden_lv_recovery_rejects_source_bounds_instead_of_padded_pixels(monkeypatch):
+    monkeypatch.setattr(hud,'scan',lambda *args,**kwargs:[hidden_lv_anchors(x=150)])
+    found=hud.locate(Image.new('RGB',(700,200)))
+    assert len(found)==1 and found[0]['regions']['level'] is None
 
 
 def test_numeric_token_bounds_do_not_move_exp_region():

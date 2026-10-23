@@ -199,7 +199,23 @@ def locate(image, box=None, *, batched=False):
     for tokens in scan(image, box, batched=batched):
         candidates.extend(layouts(tokens, image.size,deduplicate=False))
     # Both scales must contribute to uniqueness, including partly obscured HUDs.
-    return merge_layouts(candidates,image.size)
+    found=merge_layouts(candidates,image.size)
+    if (len(found)!=1 or found[0]['regions']['level'] is not None
+            or found[0].get('anchor_mode')!='hp_mp_exp' or found[0].get('level_ambiguous')):
+        return found
+    candidate=found[0];hp=candidate['anchors']['hp'];step=candidate['anchor_step']
+    # An overlay can hide LV while leaving the native orange digits visible.
+    bounds=(hp['x']-1.61*step,hp['y']+.03*step,hp['x']-1.28*step,hp['y']+.24*step)
+    if not (0<=bounds[0]<bounds[2]<=image.width and 0<=bounds[1]<bounds[3]<=image.height):
+        return found
+    region=Region(bounds[0]/image.width,bounds[1]/image.height,bounds[2]/image.width,bounds[3]/image.height)
+    crop=image.crop(region.pixels(*image.size))
+    tile=level_tile_box(crop)
+    if (tile is not None and 0<tile[0]<tile[2]<crop.width and 0<tile[1]<tile[3]<crop.height
+            and .05*step<=tile[2]-tile[0]<=.30*step and .06*step<=tile[3]-tile[1]<=.15*step):
+        found=[{**candidate,'regions':{**candidate['regions'],'level':region},
+                'level_region_source':'hp_mp_exp_orange_badge'}]
+    return found
 
 
 def search_box(candidate, size):
