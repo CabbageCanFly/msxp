@@ -9,6 +9,9 @@ until measurements establish a need for more infrastructure.
 - `msxp` (src/exp_tracker/msxp.py) is the user-facing entry point: keep its commands, the README
   command table and `msxp help` in step when a tool's options or defaults change.
 - Run `python -m pytest` after code changes. Report sample skips separately from passes.
+- Reuse normal pytest temporary storage; do not accumulate a new permanent `--basetemp` per run.
+  Remove disposable browser profiles after review. Preserve unique fixtures separately from generated output;
+  see `docs/private-test-data.md` for verified recovery from the private test-data repository.
 - Never hardcode expected sample readings in production code or infer character identity
   from level/EXP alone. Reject uncertain readings and preserve the last accepted state.
 - Do not add screenshots, crops, credentials, databases or logs to Git. Samples are

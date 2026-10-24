@@ -34,3 +34,26 @@ def test_crops_are_built_from_the_recording_then_verified_pixel_for_pixel(manife
     seen = []
     assert rebuild.rebuild(manifest, check=True, say=seen.append)['different'] == 1 and 'different: run/0 exp' in seen
     assert rebuild.main([str(manifest), '--check']) == 1
+
+
+def test_lossless_frames_rebuild_identical_crops_without_the_recording(manifest, monkeypatch):
+    data = json.loads(manifest.read_text())
+    video = manifest.parent / data['video']
+    assert rebuild.rebuild(manifest, say=lambda _: None)['created'] == 3
+    frames = video.parent / 'frames';frames.mkdir()
+    for example in data['examples']:
+        # An integer timestamp also matches a manifest written with a trailing .0.
+        seconds = example['seconds']
+        rebuild.frame_at(video, seconds).save(frames / f'{video.stem}-{seconds:g}s.webp', lossless=True)
+    data['examples'][0]['seconds'] = 0.0
+    manifest.write_text(json.dumps(data))
+    video.unlink()
+    monkeypatch.setattr(rebuild.subprocess, 'run', lambda *a, **k: pytest.fail('Recording fallback attempted'))
+    assert rebuild.rebuild(manifest, check=True, say=lambda _: None) == dict(created=0, identical=3, different=0, missing=0)
+    crop = manifest.parent / 'crops/run-crops/0000/exp-crop.png'
+    crop.unlink()
+    assert rebuild.rebuild(manifest, say=lambda _: None)['created'] == 1
+    assert rebuild.rebuild(manifest, check=True, say=lambda _: None)['identical'] == 3
+    (frames / f'{video.stem}-0s.webp').unlink()
+    with pytest.raises(ValueError, match='source frame or recording not found'):
+        rebuild.rebuild(manifest, check=True, say=lambda _: None)

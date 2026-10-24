@@ -1,4 +1,4 @@
-"""Rebuild private fixture crops from their source recording, so crop sets are never one-of-a-kind.
+"""Rebuild private fixture crops from saved lossless frames, or their source recording.
 
     python tools/rebuild_fixture_crops.py private/levelup-evaluation/manifest.json           # create missing crops
     python tools/rebuild_fixture_crops.py private/levelup-evaluation/manifest.json --check   # compare, write nothing
@@ -6,6 +6,7 @@
 A manifest names its recording (`video`, relative to the manifest), the frozen field `boxes` (or
 `field_boxes`), its `crop_root` and `examples` with `id` ("run/index") and `seconds`; an example may override them.
 Crops land where tools/evaluate_ocr.load_crops reads them: crop_root/<run>-crops/<index:04d>/<field>-crop.png.
+Saved frames live beside the recording in frames/<video-stem>-<seconds>s.webp; the recording is optional.
 Recordings and crops stay private (never in Git). Existing crops are never overwritten.
 """
 import argparse
@@ -19,7 +20,12 @@ from PIL import Image
 
 
 def frame_at(video, seconds):
-    """The frame FFmpeg decodes at this time (accurate seek: deterministic for the same file)."""
+    """Prefer the exact saved pixels; decode the recording only when the frame is absent."""
+    for timestamp in dict.fromkeys((str(seconds), format(seconds, '.15g'))):
+        saved = video.parent / 'frames' / f'{video.stem}-{timestamp}s.webp'
+        if saved.is_file():
+            with Image.open(saved) as image:return image.convert('RGB')
+    if not video.is_file():raise ValueError(f'source frame or recording not found: {video} at {seconds}s')
     output = subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-ss', str(seconds), '-i', str(video),
                              '-frames:v', '1', '-f', 'image2pipe', '-c:v', 'png', 'pipe:1'],
                             check=True, capture_output=True, timeout=120).stdout
@@ -36,7 +42,6 @@ def rebuild(manifest, *, check=False, say=print):
     manifest = Path(manifest)
     data = json.loads(manifest.read_text(encoding='utf-8'))
     video = manifest.parent / data['video']
-    if not video.is_file():raise ValueError(f'source recording not found: {video}')
     counts = dict(created=0, identical=0, different=0, missing=0)
     for example in data['examples']:
         target, image = crop_dir(manifest, data, example), None

@@ -1,5 +1,40 @@
 # Test data: public, private and recreatable
 
+## Restore the private fixtures after a fresh clone
+
+The maintainer's private `msxp-test-data` repository contains a checksum manifest and a portable copy
+of the regression inputs. It is separate from this public code repository. From a fresh project checkout:
+
+```sh
+msxp install
+python tools/restore_test_data.py ../msxp-test-data
+python tools/restore_test_data.py ../msxp-test-data --check
+msxp test
+```
+
+Use the project's Python environment (`.venv/Scripts/python.exe` on Windows, `.venv/bin/python` on Linux)
+for these Python commands. Clone the private data repository with its files checked out, not metadata only.
+The restore command verifies original bytes, decompresses stored text when needed, and refuses to overwrite
+different local files. Its `--check` option writes nothing and fails if a preserved file is corrupt or a
+restored fixture is missing. Research-only evidence stays in the private data repository.
+
+The three multi-GB source recordings are **not required** once these fixtures are restored. Keep the
+lossless full-frame cache, crop manifests, digit/profile data and saved-log fixtures. The extra frame at
+454 seconds in recording 1 completes the source frames for the existing crop manifests. Rebuild crops
+from those frames with the same commands below; a recording is only a fallback if a frame is absent.
+
+Credentials and the optional historical development database are separate private backups. They are not
+needed by the tests and do not belong in either Git repository. Python/OCR environments are reinstalled,
+and generated test databases, browser profiles and caches are disposable. A reconstruction is verified
+by comparing each original test's result, including skips and expected failures, in an independent checkout.
+
+Recovery rehearsal on 2026-10-24: the original normal suite had 3,198 passes, 74 skips and one expected
+failure. The independent, video-free checkout had 3,214 passes, 69 skips and the same expected failure:
+all original outcomes were preserved, five restored two-feed cases changed from skip to pass, and 11 new
+recovery checks passed. All 414 historical crops rebuilt pixel-identically. The optional full 206-frame
+OCR run had the same pre-existing failure before and after: the frame at 144 seconds in recording 1
+rejects a labelled `0 [0.00%]` pair. Neither its expected value nor the test was weakened for cleanup.
+
 ## Two kinds of tests
 
 - **Public tests (about 2,950):** generated fonts, synthetic HUDs and made-up channels. They need nothing
@@ -14,14 +49,14 @@
 | Data | Where | Recreatable from |
 | --- | --- | --- |
 | **Golden frames: the 206 labelled frames, lossless (292 MB)** | `samples/frames/*.webp` | `python tools/extract_test_frames.py` (needs the recordings); **back these up** |
-| Three stream recordings (8.7 GB) | `samples/sample-stream.mp4`, `-stream2.mp4`, `-stream3.mp4` | Nothing. Only needed to cut new examples or rebuild the crop sets: cold storage is fine |
+| Three optional source recordings (9.13 GB) | `samples/sample-stream.mp4`, `-stream2.mp4`, `-stream3.mp4` | Only needed to extract new moments not in the saved full-frame cache; existing tests/crop sets do not need them |
 | Labelled frames: timestamps and HUD values | committed in [`tests/data/recorded_frames.json`](../tests/data/recorded_frames.json), and the private manifests below | The labels are in Git |
 | Level-up crop set (234 crops, recording 1) | `private/levelup-evaluation/` | `python tools/rebuild_fixture_crops.py private/levelup-evaluation/manifest.json` |
 | Cross-stream crop sets (2 × 90 crops, recordings 2 and 3) | `private/cross-stream/stream2/`, `stream3/` | the same tool with each `manifest.json` |
 | Two-feed screenshots (percentage-only HUD, second gameplay feed): 1–21 at level 71, 23–29 at level 72 after a feed swap (70 MB) | `samples/two-feed/` | Nothing; copy `two-feed/` back from the private test-data repository |
 | Saved capture logs for replay tests | `private/test-fixtures/runs/` | A frozen copy of tracker logs. Tests read an anonymized copy built from it using the private `names.json` |
 
-`tools/rebuild_fixture_crops.py --check` regenerates every crop from its recording and compares pixels
+`tools/rebuild_fixture_crops.py --check` regenerates every crop from its saved full frame (or recording fallback) and compares pixels
 without writing. On 2026-10-23 all 414 crops above came back identical.
 
 ## The live reader on real footage
