@@ -16,6 +16,8 @@ until measurements establish a need for more infrastructure.
   from level/EXP alone. Reject uncertain readings and preserve the last accepted state.
 - Do not add screenshots, crops, credentials, databases or logs to Git. Samples are
   private fixtures; only generated synthetic fixtures may be committed.
+- Use placeholders (`Streamer_A`, `CharA`) for real streamer logins and character names in
+  Git-tracked files and commit messages; real names stay in private, ignored files.
 - Keep OBS credentials on the streamer's machine and separate capture authorization
   from public, read-only overlay URLs. No disabling browser security to make capture work.
 - No provisioning, purchases, publishing or pushing without explicit authorization.
