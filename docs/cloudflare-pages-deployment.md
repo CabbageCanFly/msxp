@@ -108,7 +108,7 @@ own origin), and its live preview is a same-origin iframe, allowed by `frame-anc
 
 ## Build and preview locally (Windows PowerShell)
 
-For CSS/HTML/JS iteration, run `.\preview.cmd` from the worktree. This uses temporary
+For CSS/HTML/JS iteration, run `.\msxp demo` from the checkout or worktree. This uses temporary
 synthetic data and `--live` mode: save and refresh to see source edits, with no
 export/restart needed. Ctrl+C in that terminal closes both servers and removes the
 temporary database. See [town overrides and tint](website-background.md).

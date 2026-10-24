@@ -58,7 +58,7 @@ setup was checked on Windows with an existing local build backend).
 
 ### Website and overlay
 
-For website styling on Windows, run `.\preview.cmd` from this worktree. It uses
+For website styling on Windows, run `.\msxp demo` from this checkout or worktree. It uses
 temporary fictional players, serves saved CSS/HTML/JS edits on browser refresh,
 and stops both local servers with Ctrl+C. See [background preview and tint controls](website-background.md).
 

@@ -10,15 +10,15 @@ release or the upcoming Classic client.
 
 ## Preview and tune
 
-From the Sleepywood worktree on Windows, run:
+From any checkout or worktree, run:
 
 ```powershell
-.\preview.cmd
+.\msxp demo
 ```
 
-The launcher uses this worktree's virtual environment, or the adjacent
-`msclassic-twitch-exp-tracker/.venv` if necessary. It always loads this worktree's
-source. It creates temporary fictional players and starts the preview in your
+In a worktree without its own `.venv`, msxp uses the main checkout's. It always loads
+this worktree's source and opens the browser once the page answers (`--no-browser` to
+skip). It creates temporary fictional players and starts the preview in your
 current terminal. No previously generated database or exported folder is needed.
 
 - Town of the day: <http://127.0.0.1:8890/>
@@ -33,7 +33,7 @@ reload. Python changes still need a restart.
 Press **Ctrl+C in that terminal** to stop both the preview and its API and remove
 the temporary demo database. The launcher leaves no detached server. If port 8890
 is occupied, stop your earlier preview or choose another with
-`.\preview.cmd --port 8891`. It never kills an existing process.
+`.\msxp demo --port 8891`. It never kills an existing process.
 
 With an active Python environment, the equivalent command on any platform is
 `python tools/preview_pages.py --demo --live --port 8890`. To keep your own synthetic
