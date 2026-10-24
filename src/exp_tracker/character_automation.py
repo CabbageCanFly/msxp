@@ -69,7 +69,7 @@ def level_evidence(record):
     if (level is None and evidence['status'] == 'pending' and evidence.get('neural_score', 0) >= NEURAL_SEED_SCORE
             and (row.get('neural_level') or {}).get('preprocessing') == 'neutral4'):
         level, basis = evidence['neural'], 'single_neural_arithmetic'
-    full = full_reading(row)
+    full = full_reading(projected)  # A pair the projection could not verify is no level evidence.
     check=consistency(full,level)
     agreed=(projected['experimental_level']['status']=='agreement' and
             (row.get('neural_level') or {}).get('score',0)>=NEURAL_SEED_SCORE)

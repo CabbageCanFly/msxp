@@ -133,6 +133,7 @@ function displayedExp(r,full=false) {
 function expTitle(r) {
   if(r?.evidence==='manual_admin')return `Entered manually by the tracker operator.${r.estimated_exp?' EXP is estimated from the entered %.':''}${r.estimated_percentage?' % is estimated from the entered EXP.':''}${r.exp_validity?.status==='invalid'?' The entered EXP and % don\'t fully match.':''}`;
   if(r?.estimated_exp)return 'Estimated from the level %; the exact EXP isn\'t shown on stream.';
+  if(r?.evidence==='level_start')return 'Start of the new level · no EXP read at this level yet';
   return r?.exp_validity?.status==='invalid'?'EXP hidden: it didn\'t match the level and %':r?.exp==null?'EXP not available yet':`${numbers.format(BigInt(r.exp))} EXP${['grammar_recovered','conditional_symbol'].includes(r.evidence)?' · partly unclear on stream, may be slightly off':''}`;
 }
 function percentageText(r) { return r?.percentage!=null?`${r.estimated_percentage?'~':''}${r.percentage}%`:'—'; }
@@ -150,6 +151,11 @@ function sourceLink(p,profile) {
   return source;
 }
 function lastSeenReading(p) { return p.last_seen?.reading ?? p.last_seen?.full_exp ?? null; }
+// A level newer than the reading's: show that level's start, never the old level's % beside it.
+function shownReading(r,level) {
+  return r?.level?.value!=null && level?.value!=null && level.value>r.level.value && Date.parse(level.timestamp)>Date.parse(r.timestamp)
+    ?{...r,exp:'0',percentage:'0.00',bp:0,estimated_exp:null,estimated_percentage:false,exp_validity:null,evidence:'level_start'}:r;
+}
 function displayLevel(p) { return p.display_level?.evidence ?? p.reading?.level; }
 function lastKnown(p) { const l=p.display_level;return !!l && (l.last_known || l.age_seconds+(performance.now()-receivedAt)/1000>p.stale_after_seconds); }
 // Public labels follow accepted display evidence; possible wraps stay in the status and hover text.
@@ -266,7 +272,7 @@ function metricValue(p,key,minutes=windowMinutes) {
   return pace && pace.age>=0 && pace.age<=minutes*60?pace.estimates.exp_per_hour?.value.approximate ?? null:null;
 }
 // Level ties break on EXP % within the level (Lv. 65 at 75% ranks above Lv. 65 at 50%).
-function sortValue(p,key) { const value=metricValue(p,key);return key==='level' && value!=null?value+(p.reading?.bp ?? 0)/10000:value; }
+function sortValue(p,key) { const value=metricValue(p,key);return key==='level' && value!=null?value+(shownReading(p.reading,p.display_level)?.bp ?? 0)/10000:value; }
 function ranked(players,key) {
   const rows=players.map(player=>({player,value:metricValue(player,key),order:sortValue(player,key)})).sort((a,b)=>(a.order==null)-(b.order==null)||(b.order??0)-(a.order??0)||a.player.channel.localeCompare(b.player.channel));
   let rank=null,previous=null;
@@ -328,7 +334,7 @@ function rowETA(p,minutes=windowMinutes) {
     ?{text:etaText(saved.estimate),minutes:saved.window_minutes,age:saved.age}:null;
 }
 function entry({player:p,value,rank}) {
-  const r=p.reading,s=current(p),row=node('li','entry streamer-entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));
+  const r=shownReading(p.reading,p.display_level),s=current(p),row=node('li','entry streamer-entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));
   row.dataset.metric=sort;
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
@@ -394,7 +400,7 @@ function renderCharacters() {
     identity.append(link,sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},link.href));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
     const at=r.reading?.timestamp ?? r.last_seen_at,ago=at?ageText(Math.max(0,(now-Date.parse(at))/1000)):null;
-    const section=expSection(r.reading ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,eta:rowETA(r,5),empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
+    const section=expSection(shownReading(r.reading,r.display_level) ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,eta:rowETA(r,5),empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
       age:ago?`Updated ${ago}`:'Not seen yet',ageTitle:at?localTime(at):''});
     const value=metricValue(r,'exp_hour',5),score=node('div','score');
     score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label','EXP / hour'));score.title=rateTitle(value);scoreAge(score,ago,at?localTime(at):'');
@@ -435,7 +441,7 @@ function renderPlayer() {
       const chosen=view==='player' && roster.find(r=>viewCharacter?String(r.id)===viewCharacter:r.current);
       if(chosen){el('player-name').textContent=chosen.label;el('level').textContent=`Lv. ${chosen.level ?? '—'}`;
         if(chosen.last_seen_at)el('age').textContent=`Updated ${ageText(Math.max(0,(Date.now()-Date.parse(chosen.last_seen_at))/1000))}`;}
-      const saved=chosen && String(data?.summary?.character_id)===String(chosen.id)?data.summary:null,reading=saved?.reading;
+      const saved=chosen && String(data?.summary?.character_id)===String(chosen.id)?data.summary:null,reading=shownReading(saved?.reading,saved?.display_level);
       if(reading) {
         const bp=reading.bp ?? (reading.percentage!=null?Math.round(Number(reading.percentage)*100):null);
         el('progress').hidden=bp==null;el('progress').value=bp==null?0:bp/100;
@@ -462,7 +468,7 @@ function renderPlayer() {
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
   el('level').dataset.lastKnown=String(lastKnown(p));
   el('level').dataset.inferred=String(!!levelTransition(p) || !!LEVEL_SOURCES[displayLevel(p)?.status]);
-  const shown=r ?? (s.stale?last:null);
+  const shown=shownReading(r ?? (s.stale?last:null),p.display_level);
   const shownBp=shown?.bp ?? (shown?.percentage!=null?Math.round(Number(shown.percentage)*100):null);
   el('progress').value=shownBp!=null?shownBp/100:0;
   el('progress').hidden=shownBp==null;

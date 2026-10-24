@@ -93,7 +93,7 @@ def _interpret_exp(text, *, source_complete=None):
     """
     base = dict(classification='rejected', proposals=[], trusted=False,
                 numerical_identity_verified=False, reason='no_bounded_interpretation')
-    result = dict(policy='bounded_exp_v10', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
+    result = dict(policy='bounded_exp_v11', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
                   strict_full=None, strict_percentage_only=None, full_exp={**base}, percentage={**base},
                   symbol_hypotheses=[], percentage_hypotheses=[], source_complete=source_complete, trusted=False)
     if not isinstance(text, str) or not text or len(text) > MAX_TEXT:
@@ -213,7 +213,8 @@ def _interpret_exp(text, *, source_complete=None):
                         field_span=[0,len(text)],image_verification='required',source_completeness_verified=False,
                         trusted=False,numerical_identity_verified=False)]}
             return result
-    if not text.endswith(('%]', '%1', '%|')):
+    # ')' is a bracket the strict parser already accepts; after a literal '%' it cannot be a digit.
+    if not text.endswith(('%]', '%1', '%|', '%)')):
         # Missing '%' is not ordinary recovery evidence. Keep a bounded review
         # hypothesis separate; no consumer may use it as a percentage endpoint.
         if source_complete is not False and re.search(r'[0-9]{1,2}\.[0-9]{2}X1$',text):
@@ -242,13 +243,16 @@ def _interpret_exp(text, *, source_complete=None):
         extra=re.fullmatch(r'[0-9]{1,3}(?:[,.][0-9]{3})*(?:\.,|,\.)[0-9]{3}(?:[,.][0-9]{3})*',prefix)
         dot=prefix.index('.',re.search(r'\.,|,\.',prefix).start()) if extra else None
         grouped_prefix=prefix if dot is None else prefix[:dot]+prefix[dot+1:]
-        if char == '1' and not re.fullmatch(GROUPED, grouped_prefix):
+        # Below 1,000 no comma proves the '1' is the opener: '192' + '10.07%' behind a lost opener
+        # reads the same. Only arithmetic at an independently read level may accept it (project()).
+        ungrouped = char == '1' and re.fullmatch(r'0|[1-9][0-9]{0,2}', prefix) is not None
+        if char == '1' and not ungrouped and not re.fullmatch(GROUPED, grouped_prefix):
             continue
         if prefix and not re.fullmatch(r'[0-9.,]+', prefix):
             continue
         edits = []
         if char != '[':
-            edits.append(dict(index=index, old=char, new='[', category='opening_bracket'))
+            edits.append(dict(index=index, old=char, new='[', category='ungrouped_exp_opener' if ungrouped else 'opening_bracket'))
         if ',' in token:
             position = index + 1 + token.index(',')
             edits.append(dict(index=position, old=',', new='.', category='percentage_decimal'))

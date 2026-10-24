@@ -25,7 +25,7 @@ from private_data import recorded
 def test_complete_standalone_token_never_invents_an_opening_bracket(raw):
     result=interpret_exp(raw)
     proposal=result['percentage']['proposals'][0]
-    assert result['policy']=='bounded_exp_v10'
+    assert result['policy']=='bounded_exp_v11'
     assert not result['full_exp']['proposals'] and result['strict_percentage_only'] is None
     assert parse_percentage_only(raw) is None
     assert proposal['interpretation']==raw[:raw.index('%')+1]

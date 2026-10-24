@@ -104,3 +104,33 @@ prior history, malformed grouping, multiple repairs, arithmetic contradictions,
 normal endpoint exclusions, API restart, chart presentation, logs and unchanged
 SQLite payloads. This is not an empirical false-positive rate: a letter can still
 be misinterpreted, and percentage-only text has no independent arithmetic check.
+
+## Small EXP after a level-up
+
+On this stream the opener is always read as `1`. Grouped EXP proves that `1` is the
+opener (`266.109199.79%1` → `266,109[99.79%]`), but right after a level-up the EXP has
+no comma: `19210.07%]` reads as `192[0.07%]` or as `192` + `10.07%` behind a lost opener.
+`bounded_exp_v11` proposes the first only for an EXP of at most three digits and tags it
+`ungrouped_exp_opener`; two possible openers (`11110.07%]`) still abstain. `)` is now
+accepted as the closing bracket after a literal `%`, as the strict parser already does.
+
+The text cannot choose between the readings; the EXP table can. `project()` keeps the
+pair only if it is consistent with a level read independently of it: the selected
+reader level or a supported anchor, as for leading `S`/`B` repairs. Otherwise the frame
+abstains exactly as before (`exp_opener_unverified`, no reading, no percentage, not an
+arithmetic contradiction), and the pair cannot vouch for a neural-only level in the
+level guard. Level 40 needs 294,216 EXP, so 192 EXP rounds to 0.07%; 10.07% would be
+about 29,600 EXP.
+
+Replaying the 102 stored VPS attempts (05:40–06:46 UTC on 2026-10-24) in a fresh local
+database: 15 frames gain `192[0.07%]` at level 40, from the 06:34:53 level confirmation
+on; no other reading changes, and the level-up interval adds exactly 765 EXP. Before,
+the page showed the confirmed Lv. 40 beside the last Lv. 39 reading, 99.79%.
+
+While a newer confirmed level has no reading yet, the page shows that level's start
+(0 EXP, 0.00%, with a hover note) instead of the old level's percentage. This is display
+only: the API still returns the last real reading, and gains and rates use it. The level
+sort uses the shown value, so the character ranks at the start of the new level.
+
+Untested: other streams and levels, and the VPS (this change is not deployed). The
+13-minute wait for level confirmation is unchanged.

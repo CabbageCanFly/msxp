@@ -173,6 +173,18 @@ test('every accepted mob click shows one damage number for every reaction, inclu
   }
 });
 
+for(const view of ['player','overlay'])test(`${view} starts a newer level at 0 instead of beside the old level's %`,()=>{
+  const p=page(view),reading={...player().reading,exp:'266109',percentage:'99.79',bp:9979,level:{value:39,status:'agreement'}};
+  const newer=(value,timestamp)=>({value,evidence:{value,status:'agreement'},timestamp,age_seconds:1});
+  p.render(player({reading,display_level:newer(40,'2026-01-01T00:14:00Z')}));
+  assert.match(p.elements.exp.textContent,/^0( EXP)?$/);assert.equal(p.elements.percentage.textContent,'0.00%');
+  assert.equal(p.elements.progress.value,0);assert.match(p.elements.exp.title,/new level/);
+  for(const level of [newer(39,'2026-01-01T00:14:00Z'),newer(40,'2025-12-31T23:59:00Z')]) {
+    p.render(player({reading,display_level:level}));
+    assert.equal(p.elements.percentage.textContent,'99.79%');
+  }
+});
+
 test('offline last-seen EXP fills the bar and ages its original timestamp',()=>{
   const p=page('player'),reading=player().reading;
   p.render(player({reading:null,stale:true,age_seconds:null,twitch:{status:'offline'},

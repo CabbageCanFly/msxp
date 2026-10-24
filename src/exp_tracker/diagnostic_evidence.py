@@ -31,7 +31,7 @@ CONFIRM_GAP_SECONDS = 120
 
 def full_reading(row):
     parsed = interpret_exp(row.get('raw_text'))
-    if row.get('candidate_invalid') or row.get('percentage_only_invalid'): return None
+    if row.get('candidate_invalid') or row.get('percentage_only_invalid') or row.get('exp_opener_unverified'): return None
     if row.get('candidate'):
         return parsed['strict_full'] if parsed['strict_full'] and all(row['candidate'].get(k)==parsed['strict_full'][k] for k in ('exp','percentage')) else None
     proposal = parsed['full_exp']
@@ -92,8 +92,16 @@ def exp_derived(full):
     return None if full is None else deepcopy(_exp_derived(full['exp'], full['percentage']))
 
 
+def ungrouped_opener(row):
+    """The reading needs a '1' after an EXP below 1,000 to be the opener, not a digit before a lost one."""
+    parsed = interpret_exp(row.get('raw_text'))
+    return any(edit['category'] == 'ungrouped_exp_opener' for field in ('full_exp', 'percentage')
+               if parsed[field]['classification'] == 'unique_proposal' for edit in parsed[field]['proposals'][0]['edits'])
+
+
 def _percentage(row, full):
     if full: return full['percentage']
+    if row.get('exp_opener_unverified'): return None
     parsed = interpret_exp(row.get('raw_text'))
     pct = parsed['strict_percentage_only'] or (parsed['percentage']['proposals'][0]['reading']
         if parsed['percentage']['classification'] == 'unique_proposal' else None)
@@ -334,6 +342,7 @@ def project(rows, *, state=None, allow_context=True):
             missing=0;corroborated_at=None;anchor=None;context_conflicts=0;capture_gaps=0;derived=None
             manual_epoch=original.get('manual_epoch');manual_released=False
         row=dict(original); visual=_visual(row); neural,score=_neural(row)
+        row.pop('exp_opener_unverified',None)  # Decided again from this projection's level evidence.
         if row.get('manual_point'):
             from .manual import corrected_reading
             corrected=corrected_reading(row['manual_point'])
@@ -393,6 +402,7 @@ def project(rows, *, state=None, allow_context=True):
                 derived=_established(manual['level'],sample,row['received_at'],'manual_admin')
         full=full_reading(row)
         leading_exp_repair=bool(full and (row.get('raw_text') or '')[:1] in ('S','B'))
+        opener=ungrouped_opener(row)
         direct=consistency(full,neural) if row.get('candidate') and neural is not None else None
         # Zero/zero fits every requirement and supplies no identifying level evidence.
         strict_support=bool(direct and direct['status']=='consistent' and full['exp']!='0' and full['percentage']!='0.00')
@@ -467,12 +477,15 @@ def project(rows, *, state=None, allow_context=True):
         # The derived/retained level never outranks a selected reader level, verifies its
         # own pairs or survives a disagreement with recent reader-supported context.
         derived_safe=fresh and not row.get('candidate_invalid') and not row.get('percentage_only_invalid')
-        # A leading letter may be a label tail; these pairs cannot establish their own level.
-        leading_verified=not leading_exp_repair
-        if leading_exp_repair:
+        # A leading letter may be a label tail, and an ungrouped opener may be a digit before a lost
+        # opener ('192' + '10.07%'); these pairs cannot establish their own level.
+        leading_verified=not (leading_exp_repair or opener)
+        if not leading_verified:
             independent=selected if selected is not None else anchor['value'] if anchor and anchor['samples']>=2 and safe else None
             leading_verified=bool(safe and consistency(full,independent)['status']=='consistent')
             if not leading_verified:full=None
+        # Unverified, its percentage is no more certain than its EXP: abstain as before.
+        if opener and not leading_verified:row['exp_opener_unverified']=True
         inference=exp_derived(full) if derived_safe and full else None
         if inference:evidence['exp_derived']=inference
         pct=_percentage(row,full) if derived_safe else None
@@ -561,6 +574,7 @@ def project(rows, *, state=None, allow_context=True):
             row['exp_validity'].update(status='indeterminate',reason='level_derived_from_exp_pairs')
         if leading_exp_repair and (not leading_verified or row['exp_validity']['status']!='consistent'):
             row['exp_validity'].update(status='invalid',reason='leading_exp_glyph_requires_independent_arithmetic')
+        if opener and row['exp_validity']['status']!='consistent':row['exp_opener_unverified']=True
         if row.get('manual_epoch') is not None:
             row['manual_resume_eligible']=bool(fresh and not row.get('candidate_invalid')
                 and not row.get('percentage_only_invalid') and row['exp_validity']['status']!='invalid'

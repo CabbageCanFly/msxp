@@ -44,6 +44,8 @@ def percentage_point(row, *, include_recovered=True):
         return None, 'arithmetic_pair_veto'
     if row.get('candidate_invalid') or row.get('percentage_only_invalid'):
         return None, 'candidate_contradiction'
+    if row.get('exp_opener_unverified'):  # Set by project() when no independent level confirms the pair.
+        return None, 'invalid_or_ambiguous_percentage'
     interpreted = interpret_exp(row.get('raw_text'))
     kind, reading, requires_context = None, None, False
     if row.get('candidate'):
