@@ -113,7 +113,7 @@ def test_sqlite_product_history_spans_clean_rotations_but_advanced_pages_stay_bo
         import exp_tracker.server as http
         import exp_tracker.diagnostics as persistence
         from tests.test_server import request
-        from exp_tracker.publisher import public
+        from exp_tracker.publisher import board as listed,public
         import json
         class Clock(datetime):
             @classmethod
@@ -122,7 +122,8 @@ def test_sqlite_product_history_spans_clean_rotations_but_advanced_pages_stay_bo
         with http.create_server(configured,port=0,diagnostic_dashboard=True) as server:
             board=json.loads(request((server,None),'/api/players')[2])['players'][0]
             detail=json.loads(request((server,None),'/api/players/alpha')[2])
-            assert board['windows']==detail['player']['windows']==public(result['windows'])  # Public omits diagnostics only.
+            assert detail['player']['windows']==public(result['windows'])  # Public omits diagnostics only.
+            assert board['windows']==listed(detail['player'])['windows']
             assert len(detail['history'])==125
             assert request((server,None),'/dev/api/streams/alpha/diagnostics')[0]==200
         for limit in (0,641,True):

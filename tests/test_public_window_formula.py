@@ -6,6 +6,7 @@ import pytest
 
 from exp_tracker.exp_requirements import requirement
 from exp_tracker.product import recent_windows,player,tracked_statistics,reading,fraction
+from exp_tracker.publisher import board as listed
 from tests.test_endpoint_pace import point,missing,snapshot,NOW
 from tests.test_observed_endpoint_totals import numeric
 from tests.test_product import tracking
@@ -139,7 +140,7 @@ def test_exact_real_windows_public_cards_api_and_selected_graph(tracking,monkeyp
         home=json.loads(request((server,None),'/api/players')[2])
         chart=json.loads(request((server,None),'/api/players/streamer_a/history')[2])
         assert detail['player']['recent_windows']['5']['gain']['approximate']==expected
-        assert next(p for p in home['players'] if p['channel']=='streamer_a')['recent_windows']['5']['gain']['approximate']==expected
+        assert next(p for p in home['players'] if p['channel']=='streamer_a')['recent_windows']==listed(detail['player'])['recent_windows']
         assert chart['windows']['5']['gain']['approximate']==expected
     assert raw==[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     assert not store.db.execute('select 1 from observations').fetchone()

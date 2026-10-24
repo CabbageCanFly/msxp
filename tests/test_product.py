@@ -8,6 +8,7 @@ from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.product import player
 from exp_tracker.publisher import public
 from exp_tracker.server import create_server
+from exp_tracker.publisher import board as listed
 from tests.test_server import request
 
 NOW=datetime(2026,1,1,tzinfo=timezone.utc)
@@ -226,7 +227,7 @@ def test_product_and_diagnostic_apis_share_integer_veto_without_rewriting_saved_
         p=json.loads(request((server,None),'/api/players/alpha')[2])['player']['reading']
         board=json.loads(request((server,None),'/api/players')[2])['players'][0]['reading']
         diagnostic=json.loads(request((server,None),'/dev/api/streams/alpha/diagnostics')[2])['observations'][-1]
-        assert p==board and p['exp'] is None and p['percentage']=='45.14'
+        assert listed(dict(reading=p))['reading']==board and p['exp'] is None and p['percentage']=='45.14'
         assert p['level']['value']==65 and p['exp_validity']['status']=='invalid'
         assert diagnostic['candidate']['exp']=='2458' and public(diagnostic['exp_validity'])==p['exp_validity']  # Public omits diagnostics only.
         assert diagnostic['visual_level']==63 and diagnostic['neural_level']['level']==65

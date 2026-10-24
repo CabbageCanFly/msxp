@@ -8,6 +8,7 @@ import pytest
 
 from exp_tracker.pace_intervals import collect,collect_observed,exp_interval,tracked_window
 from exp_tracker.product import reading,recent_windows,player,tracked_statistics,fraction,history
+from exp_tracker.publisher import board as listed
 from tests.test_endpoint_pace import point,missing,snapshot,NOW
 from tests.test_product import tracking
 from tests.test_cross_level_product import replay
@@ -209,7 +210,7 @@ def test_saved_windows_and_public_api_share_numeric_totals(tracking,monkeypatch,
         home=json.loads(request((server,None),'/api/players')[2])['players']
         chart=json.loads(request((server,None),'/api/players/streamer_a/history')[2])
         assert card['recent_windows']['5']['gain']['approximate']==expected
-        assert next(p for p in home if p['channel']=='streamer_a')['recent_windows']['5']['gain']['approximate']==expected
+        assert next(p for p in home if p['channel']=='streamer_a')['recent_windows']==listed(card)['recent_windows']
         assert chart['windows']['5']['gain']['approximate']==expected
     assert raw==[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     assert not store.db.execute('select 1 from observations').fetchone()

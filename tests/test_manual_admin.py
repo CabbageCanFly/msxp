@@ -9,6 +9,7 @@ import pytest
 from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.manual_admin import main
 from exp_tracker.product import player
+from exp_tracker.publisher import board as listed
 from exp_tracker.schema import STATEMENTS,MIGRATION_2,MIGRATION_3,MIGRATION_4,VERSION
 from exp_tracker.server import create_server
 from exp_tracker.store import Store
@@ -297,7 +298,7 @@ def test_publication_and_directory_invalidation_without_new_capture(tracking):
         second=json.loads(request((server,None),'/api/players/alpha')[2])
         board=json.loads(request((server,None),'/api/players')[2])['players'][0]
         assert first['player']['reading']!=second['player']['reading']
-        assert board['reading']==second['player']['reading']
+        assert board['reading']==listed(second['player'])['reading']
         assert board['reading']['exp']=='123456' and board['display_level']['value']==70
         assert d.directory(cache)['streams'][0]['player']['manual_correction']['id']==event['id']
         for route in ('/','/stream/alpha','/live/overlay/alpha'):

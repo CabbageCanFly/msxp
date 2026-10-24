@@ -88,6 +88,15 @@ instead of repeating it.
 All three present the entry's [public projection](vps-readiness.md#public-projection),
 made once per build.
 
+**Streamers list projection.** `/api/players` then keeps only what the list reads
+(`publisher.board()`): the reading and level, the 5–30 min pace, ETA and eligibility, the
+24 h total and mini chart, and Twitch status. Estimates carry their values without the
+evidence behind them. Profiles and overlays still get everything from `/api/players/{ch}`.
+Measured 2026-10-24 on the live 36-channel reply: 1,883 KB → 165 KB raw, 131.5 → 15.8 KB
+gzipped. Rendering the board from the full and the projected reply gave identical output in
+all 36 sort, window and online-filter combinations. The list now polls every 4 s, or every
+30 s while its tab is hidden; profiles and overlays keep 2 s.
+
 Moved out of requests: card rebuilds, 24h/recent history replay (cold or resumed), the
 Twitch Helix lookup, and the latest-source query.
 

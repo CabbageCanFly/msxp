@@ -223,7 +223,7 @@ def test_homepage_and_character_api_share_one_card_computation_per_revision(trac
         save(d,'one',5,100,3330)
         home=json.loads(request((server,None),'/api/players')[2]);character=json.loads(request((server,None),'/api/players/alpha')[2])
         assert len(calls)==2 and character['history'][-1]['timestamp']==(NOW+timedelta(seconds=100)).isoformat()
-        assert home['players'][0]['latest_attempt_at']==character['player']['latest_attempt_at']
+        assert home['players'][0]['reading']['timestamp']==character['player']['reading']['timestamp']==(NOW+timedelta(seconds=100)).isoformat()
 
 
 def test_cold_restore_of_a_session_beyond_4096_rows_trims_instead_of_failing(tracking):

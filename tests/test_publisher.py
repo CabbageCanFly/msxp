@@ -184,9 +184,10 @@ def test_background_publication_matches_reference_through_rotation_restart_loss_
             rebuilt.add(server.publisher.entry('alpha')['card']['recent_as_of'])
             assert published(server,'alpha')==reference(store,server,'alpha',clock.at);compared+=1
         assert len(rebuilt)>=3  # Aging windows rebuilt the card; an expired one was reused.
-        home=json.loads(server.publisher.homepage())
-        assert home['players'][0]['tracked_as_of']==clock.at.isoformat() and 'warming' not in home
-        buckets=server.publisher.entry('alpha')['public']['tracked']['buckets']
+        home=json.loads(server.publisher.homepage());tracked=server.publisher.entry('alpha')['public']['tracked']
+        assert tracked['as_of']==clock.at.isoformat() and 'warming' not in home
+        assert home['players'][0]['tracked_windows']['1440']['gain']==tracked['windows']['1440']['gain']
+        buckets=tracked['buckets']
         assert len(buckets)==48 and home['players'][0]['day_buckets']==[None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in buckets]
     assert compared>20
 
@@ -343,8 +344,8 @@ def test_presented_bodies_are_reused_until_publication_or_clock_changes(tracking
         clock.at+=timedelta(milliseconds=2);second=server.publisher.homepage()
         assert second is not first and json.loads(second)['served_at']!=json.loads(first)['served_at']
         server.coordinator_status['alpha']=dict(state='capture_failing',updated_at=clock.at.isoformat(),next_due_at=clock.at.isoformat())
-        third=server.publisher.homepage()  # Same publication and clock; new coordinator activity.
-        assert third is not second and json.loads(third)['players'][0]['activity']['state']=='capture_failing'
+        third=server.publisher.homepage()  # Same publication and clock; new coordinator activity (it drives pace presentation).
+        assert third is not second
         save(d,'one',4,80,3320);server.publisher.settle()
         assert server.publisher.homepage() is not third
         entry=server.publisher.entry('alpha');before=json.dumps(entry,default=str)
@@ -596,7 +597,7 @@ def test_public_responses_omit_private_fields_while_internal_state_keeps_them(tr
     save(d,'one',8,160,3340,missing=True)
     clock.at=NOW+timedelta(seconds=165)
     from tests.test_server import request
-    from exp_tracker.publisher import CHARACTER_ONLY
+    from exp_tracker.publisher import CHARACTER_ONLY,board
     def keys(value,found):
         if isinstance(value,dict):
             for k,v in value.items():found.add(k);keys(v,found)
@@ -610,11 +611,11 @@ def test_public_responses_omit_private_fields_while_internal_state_keeps_them(tr
         home,character,packet=get('/api/players'),get('/api/players/alpha'),get('/api/players/alpha/history')
         assert not keys([home,character,packet],set())&PRIVATE_FIELDS
         player=home['players'][0]
-        assert player['activity']==character['player']['activity']=={'state':'waiting'}
-        # The homepage drops only the current-level maps and adds only its mini chart; every other public value equals the character page's.
+        assert character['player']['activity']=={'state':'waiting'} and 'activity' not in player
+        # The homepage keeps only what the Streamers list reads and adds its mini chart; every value it keeps equals the character page's.
         assert not set(CHARACTER_ONLY)&set(player) and all(character['player'][f] for f in CHARACTER_ONLY)
         assert 'day_buckets' not in character['player'] and len(player.pop('day_buckets'))==48
-        assert player=={k:v for k,v in character['player'].items() if k not in CHARACTER_ONLY}
+        assert player==board(character['player'])
         assert packet=={**character['tracked_history'],'served_at':packet['served_at']}
         # Calculations, publisher state and developer diagnostics keep the full data.
         entry=server.publisher.entry('alpha')

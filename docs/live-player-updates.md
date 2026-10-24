@@ -1,7 +1,8 @@
 # Live player updates and percentage-derived EXP
 
 Player pages now keep the existing two-second polling schedule in background
-tabs as well as foreground tabs. Returning to a page requests an immediate refresh;
+tabs as well as foreground tabs. (The homepage list later moved to 4 s, and 30 s while
+hidden; see [background publishing](background-publishing.md).) Returning to a page requests an immediate refresh;
 only one request can run at a time, with the existing five-second timeout and
 cached-value/stale safeguards. No full-page navigation is needed. Browsers may
 still throttle background timers. API `no-store` headers and SQLite revision-cache

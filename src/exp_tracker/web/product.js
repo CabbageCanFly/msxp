@@ -716,6 +716,9 @@ function drawPercentageHistory() {
   el('history-note').textContent=`${currentLevelOnly && level!=null?'Lv. '+level+' · ':''}Last ${lineWindow} min · times in ${zoneLabel()}${readable?'':' · no data in this period'}${unavailable?' · ✕ couldn\'t read EXP':''}`;
   el('history-note').title='';
 }
+// Rows change about once per capture (~40 s each), so the list refreshes every 4 s, and every 30 s while
+// its tab is hidden (returning refreshes at once). Profiles and OBS overlays keep 2 s; their polls are small.
+function pollDelay() { return view!=='board'?2000:document.hidden?30000:4000; }
 async function poll() {
   if(activeController)return;
   clearTimeout(pollTimer);
@@ -755,7 +758,7 @@ async function poll() {
     if(selecting())deferredRender=true;else if(swap)crossFade(render);else fadeSwitch(render);
     if(view==='player' && Array.isArray(data.history))pollRolling();
   } catch { if(!unchanged())return;failed=true;if(view==='board')renderBoard();else renderPlayer(); }
-  finally { clearTimeout(timeout);activeController=null;delete document.body.dataset.loading;pollTimer=setTimeout(poll,unchanged()?2000:0); }
+  finally { clearTimeout(timeout);activeController=null;delete document.body.dataset.loading;pollTimer=setTimeout(poll,unchanged()?pollDelay():0); }
 }
 
 function rosterReading(r) {

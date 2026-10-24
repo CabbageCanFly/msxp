@@ -11,6 +11,7 @@ from exp_tracker.pace_intervals import collect,exp_interval
 from exp_tracker.product import reading,player,tracked_statistics
 from exp_tracker.shadow_grammar import interpret_exp
 from exp_tracker.shadow_view import observation
+from exp_tracker.publisher import board as listed
 from tests.test_endpoint_pace import point,missing,snapshot
 from tests.test_exp_level_inference import display
 from tests.test_hud_dedup import candidates,SIZE
@@ -219,7 +220,7 @@ def test_saved_streamer_a_boundary_and_recovered_gains_and_unchanged_source_reco
         home=json.loads(request((server,None),'/api/players')[2])
         chart=json.loads(request((server,None),'/api/players/streamer_a/history')[2])
         assert card['player']['recent_windows']['5']['gain']==window['gain']
-        assert next(r for r in home['players'] if r['channel']=='streamer_a')['recent_windows']['5']['gain']==window['gain']
+        assert next(r for r in home['players'] if r['channel']=='streamer_a')['recent_windows']==listed(card['player'])['recent_windows']
         assert chart['windows']['5']['gain']==window['gain']
     assert raw==[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts order by id')]
     assert not store.db.execute('select 1 from observations').fetchone()

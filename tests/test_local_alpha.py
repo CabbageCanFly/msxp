@@ -354,10 +354,9 @@ def test_owned_runtime_is_visible_while_capturing_and_cleared_at_shutdown(alpha,
         server=servers[0]
         from tests.test_publisher import wait_for
         wait_for(lambda:server.publisher.entry('alpha') is not None,seconds=5)
-        board=json.loads(request((server,None),'/api/players')[2])['players'][0]['activity']
-        detail=json.loads(request((server,None),'/api/players/alpha')[2])['player']['activity']
-        assert board==detail
-        return detail
+        # The Streamers list never shows capture activity; the profile does.
+        assert 'activity' not in json.loads(request((server,None),'/api/players')[2])['players'][0]
+        return json.loads(request((server,None),'/api/players/alpha')[2])['player']['activity']
     def server(*a,**kw):
         assert kw.get('background') is True
         http=create(*a,**kw);servers.append(http);shutdown=http.shutdown

@@ -109,6 +109,14 @@ test('town backgrounds follow odd/even local day of month; known overrides win a
   assert.equal(page('overlay',undefined,'?background=kerning').run('document.body.dataset.background'),undefined);
 });
 
+test('the list refreshes every 4 s, every 30 s while hidden; profiles keep 2 s',async()=>{
+  const fetcher=async()=>({ok:true,json:async()=>({players:[]})});
+  const board=page('board',fetcher);await new Promise(setImmediate);assert.equal(board.timers.at(-1),4000);
+  board.context.document.hidden=true;await board.run('poll()');assert.equal(board.timers.at(-1),30000);
+  const profile=page('player',async()=>({ok:true,json:async()=>({player:player()})}));await new Promise(setImmediate);
+  profile.context.document.hidden=true;await profile.run('poll()');assert.equal(profile.timers.at(-1),2000);
+});
+
 test('background tabs freeze mob and boss motion, including a hovered mob that resumes, then restore speeds',()=>{
   const p=page('board'),walk={playState:'running',playbackRate:3},hover={playState:'paused',playbackRate:1},
     finished={playState:'finished',playbackRate:1},boss={playState:'running',playbackRate:1};

@@ -41,6 +41,9 @@ PRIVATE_FIELDS = frozenset({
     'excluded', 'holes', 'latest_endpoint', 'last_observed_eta', 'eligibility_checks',
     'evidence_counts', 'published_alternatives'})
 CHARACTER_ONLY = ('current_level_windows', 'tracked_current_level_windows')  # Only the character page's level toggle reads them.
+BOARD_WINDOWS = ('5', '10', '15', '30')  # The Streamers list's window buttons (tracker.html).
+BOARD_FIELDS = ('channel', 'character', 'source_kind', 'twitch', 'age_seconds', 'stale', 'stale_after_seconds',
+                'percentage_state', 'level_context', 'day_buckets', 'tracked_status', 'publication')
 MAX_VIEWS = 8  # Unselected-character views across all channels.
 VIEW_IDLE_SECONDS = 60
 VIEW_KEEP_SECONDS = 1800  # A first view replays the character's saved runs (seconds); keep it for a return visit.
@@ -56,6 +59,37 @@ def broadcast(players, statuses, now):
             and datetime.fromisoformat(value['latest_attempt_at']) >= datetime.fromisoformat(status['checked_at']) - timedelta(seconds=60)
             and value['latest_attempt_status'] != 'capture_failed')
     return [refresh(p, now=now, activity=p.get('activity')) for p in players]
+
+
+def numbers(estimates):
+    """Each estimate's value without the evidence behind it (hypotheses, requirements, basis)."""
+    return estimates and {k: v and {n: v[n] for n in ('value', 'seconds') if n in v} for k, v in estimates.items()}
+
+
+def board_pace(pace):
+    return pace and dict({k: pace[k] for k in ('active', 'age_seconds', 'tentative', 'level') if k in pace},
+        estimates=numbers(pace['estimates']), presentation=pace.get('presentation') and
+        {k: pace['presentation'][k] for k in ('state', 'running', 'expire_after_seconds', 'pause_after_seconds')})
+
+
+def board(p):
+    """Only what the Streamers list reads (product.js entry, sort and ETA). Everything was ~130 KB
+    gzipped per 2 s poll for 36 players; the profile and overlay keep it on /api/players/{channel}."""
+    value = {k: p[k] for k in BOARD_FIELDS if k in p}
+    reading, level = p.get('reading'), p.get('display_level')
+    value['reading'] = reading and dict(reading, level=reading['level'] and {k: reading['level'].get(k) for k in ('value', 'status')},
+        exp_validity=reading.get('exp_validity') and {'status': reading['exp_validity'].get('status')})
+    value['display_level'] = level and dict({k: level.get(k) for k in ('value', 'timestamp', 'age_seconds', 'last_known')},
+        evidence={k: level['evidence'].get(k) for k in ('value', 'status')})
+    eta = lambda e: e and dict({k: e.get(k) for k in ('age_seconds', 'historical', 'window_minutes')},
+        estimate=e.get('estimate') and {'seconds': e['estimate']['seconds']})
+    value['recent_windows'] = {m: dict(status=w.get('status'), eta=eta(w.get('eta')), pace=board_pace(w.get('pace')),
+        last_observed_pace=board_pace(w.get('last_observed_pace'))) for m, w in (p.get('recent_windows') or {}).items() if m in BOARD_WINDOWS}
+    value['windows'] = {m: {'eligible': w.get('eligible')} for m, w in (p.get('windows') or {}).items() if m in BOARD_WINDOWS}
+    value['responsive_pace'] = board_pace(p.get('responsive_pace'))
+    day = (p.get('tracked_windows') or {}).get('1440')
+    value['tracked_windows'] = {'1440': day and {k: day.get(k) for k in ('available', 'gain')}}
+    return value
 
 
 def encode(body):
@@ -434,7 +468,7 @@ class Publisher:
                     value['publication']=dict(state='restored',computed_at=entry['built_at'],updating=True)
                 for field in CHARACTER_ONLY:del value[field]
                 players.append(value)
-            body = dict(players=broadcast(players, statuses, now), served_at=utc(now), truncated=truncated, experimental=True, poll_seconds=2)
+            body = dict(players=[board(p) for p in broadcast(players, statuses, now)], served_at=utc(now), truncated=truncated, experimental=True, poll_seconds=4)
             if warming:body['warming'] = warming
             return encode(body)
         return self.present('home', build, self.runtime())

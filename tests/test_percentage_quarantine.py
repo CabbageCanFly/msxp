@@ -176,7 +176,8 @@ def test_sqlite_api_and_restart_share_quarantine_without_mutating_raw_or_trusted
             for p in (json.loads(request((server,None),'/api/players')[2])['players'][0],
                       json.loads(request((server,None),'/api/players/alpha')[2])['player']):
                 assert p['reading']['percentage']=='77.00' and p['reading']['event_id']=='loss:1'
-                assert p['percentage_state']['status']=='pending_exp_decrease' and p['estimates']['exp_per_hour'] is None
+                assert p['percentage_state']['status']=='pending_exp_decrease'
+                assert (p.get('estimates') or {}).get('exp_per_hour') is None  # The Streamers list never carries it.
             raw=json.loads(request((server,None),'/dev/api/streams/alpha/diagnostics')[2])['observations'][-1]
             assert raw['raw_text']=='[76.50%]' and not raw['percentage_review']['public_eligible']
         append(rows[2]);clock[0]=NOW+timedelta(seconds=30)
