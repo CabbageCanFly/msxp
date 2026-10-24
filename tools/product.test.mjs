@@ -711,7 +711,7 @@ test('rows carry phone twins: a short ETA under the bar and the reading age besi
   p.context.fixture=player({recent_windows:{5:{pace:{active:true},eta:{estimate:{seconds:{approximate:22800}},
     window_minutes:5,age_seconds:1,historical:false}}}});
   const row=p.run('entry({player:fixture,rank:1,value:60})'),meta=row.children[3].children[1].children,score=row.children[4];
-  assert.deepEqual(meta.filter(n=>/eta/.test(n.className)).map(n=>[n.className,n.textContent]),[['fact eta','Next level in 6h 20m'],['fact eta-short','↑ ETA 6h 20m']]);
+  assert.deepEqual(meta.filter(n=>/eta/.test(n.className)).map(n=>[n.className,n.textContent]),[['fact eta','Next level in 6h 20m'],['fact eta-short','ETA 6h 20m']]);
   assert.equal(meta.at(-1).textContent.replace(/\d+/,'N'),'Updated Ns ago');
   assert.deepEqual(score.children.map(n=>n.className),['score-value','score-label','score-age']);  // Appended last; CSS orders it first.
   assert.equal(score.children[2].textContent,meta.at(-1).textContent.replace('Updated ',''));  // CSS draws the ◎ mark.

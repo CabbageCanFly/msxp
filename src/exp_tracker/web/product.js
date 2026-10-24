@@ -304,7 +304,7 @@ function expSection(r,{label,buckets,day,eta,age,ageTitle,empty='Waiting for EXP
   if(day!=null){const total=node('span','fact',`${expText(day)} today`);total.title=`${expText(day,true)} EXP tracked in the last 24 hours`;meta.append(total);}
   if(eta){
     const title=`At the ${eta.minutes} min pace, estimated ${ageText(eta.age)}. Not a live countdown.`;
-    const soon=node('span','fact eta',`Next level in ${eta.text}`),short=node('span','fact eta-short',`↑ ETA ${eta.text}`);  // Phones show the short one.
+    const soon=node('span','fact eta',`Next level in ${eta.text}`),short=node('span','fact eta-short',`ETA ${eta.text}`);  // Phones show the short one; CSS adds its ↑.
     soon.title=short.title=title;meta.append(soon,short);
   }
   const updated=node('span','updated',age);if(ageTitle)updated.title=ageTitle;

@@ -397,6 +397,8 @@ html, body.product { overflow-x:clip; }
   /* Phones: the short ETA replaces the long one, and the age moves beside the score label (see scoreAge). */
   .exp-meta :is(.eta,.updated) { display:none; }
   .exp-meta .eta-short { display:inline; margin-left:auto; }
+  /* The ↑ glyph is a pixel shorter than the capitals and sits on the baseline, so it is lifted 1px to line up with their tops. */
+  .exp-meta .fact.eta-short::before { content:"↑"; position:relative; top:-1px; margin-right:.25em; color:inherit; }  /* Outranks the separator rule. */
   .product :is(.streamer-entry,.character-entry) .score { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:baseline; column-gap:5px; max-width:36vw; }
   .product :is(.streamer-entry,.character-entry) .score strong { flex-basis:100%; }
   .product .entry .score-age { display:inline; order:1; white-space:nowrap; color:#7f889a; }  /* As muted as the desktop age. */
