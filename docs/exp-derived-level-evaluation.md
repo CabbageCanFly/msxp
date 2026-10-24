@@ -263,11 +263,11 @@ keeps its whole-pair veto.
 Levels never fall, so a derived level below the character's validated level floor is
 outdated: when the reader selects exactly that floor, the derived context restarts at it
 (`validated_level_floor`) instead of vetoing it. The floor is attached only to frames
-received after its proof. Live bgi_stream, 2026-10-24: Lv. 56 was known from EXP pairs,
+received after its proof. Live Streamer_H, 2026-10-24: Lv. 56 was known from EXP pairs,
 the guard validated Lv. 57 at 08:25:05 from neural reads, and every neural-only Lv. 57
 frame was `reader_conflicts_exp_derived_level` until both readers agreed at 08:44:05.
 Replaying the stored attempts with the stored guard row: 12 frames from 08:25:05 now read
-Lv. 57; nothing before the level-up and nothing in the plaguegms replay changes.
+Lv. 57; nothing before the level-up and nothing in the Streamer_G replay changes.
 Unchanged and not yet reconciled: since `58b1a67` the conflict above has no 2-frame limit;
 it lasts until two readers agree or the derived context expires.
 

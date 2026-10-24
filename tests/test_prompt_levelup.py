@@ -109,7 +109,7 @@ def test_new_reader_agreement_does_not_borrow_old_level_arithmetic_support():
 
 @pytest.mark.parametrize('floor,expected',[(57,[57,57]),(None,[None,57])])  # Without a floor the wrap waits for a second read.
 def test_validated_new_level_replaces_an_older_exp_derived_level(floor,expected):
-    """Live bgi_stream: Lv. 56 known only from EXP arithmetic, then neural-only Lv. 57 frames.
+    """Live Streamer_H: Lv. 56 known only from EXP arithmetic, then neural-only Lv. 57 frames.
     The guard's floor made the first one select 57, which the stale derived 56 vetoed until both readers agreed."""
     rows=[point(1,0,975705,'99.82',level=56),point(2,40,977258,'99.98',level=56),
           point(3,80,735,'0.07',level=57),point(4,120,903,'0.09',level=57)]

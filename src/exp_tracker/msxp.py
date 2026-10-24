@@ -80,7 +80,7 @@ Settings and secrets live in .env (msxp install copies .env.example; never commi
 On a server, /etc/msxp/split.env, roster.env and msxp.env are read too, in that order.
 
 Browse logs      msxp logs tracker --browse
-                 msxp logs tracker --since "14 hours ago" --until "10 hours ago" --search "triciaisabirdy" --browse
+                 msxp logs tracker --since "14 hours ago" --until "10 hours ago" --search "Streamer_A" --browse
   --lines N      latest N entries (default 50; all for --browse or time filters)
   --lines all    all retained matching entries
   --no-follow    show entries and exit; default follows new entries

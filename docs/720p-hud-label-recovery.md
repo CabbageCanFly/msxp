@@ -42,7 +42,7 @@ The change was not deployed to the VPS. Individual digit misreads, compressed or
 hidden fields and processing-age timeouts can still withhold readings.
 
 Frames, raw diagnostic outputs, enlarged review and the disposable replay stay
-in ignored `private/plaguegms-debug/`; they are not committed.
+in ignored `private/`; they are not committed.
 
 ## Operator log follow-up
 
@@ -94,7 +94,7 @@ Eligible values use the existing `grammar_recovered` label and journal output.
 Raw OCR, saved strict candidates and trusted accounting remain unchanged. No
 additional OCR pass, dependency or separate display/graph recovery path is needed.
 
-For plaguegms's saved level-39 captures, `174.13216S.30%1` proposes
+For Streamer_G's saved level-39 captures, `174.13216S.30%1` proposes
 `174,132[65.30%]`, and `175,30516S.74%1` proposes `175,305[65.74%]`. Both rounded
 percentages agree with the current 266,682-EXP requirement. Replaying 45 saved VPS
 attempts in a fresh local database adds those two public graph readings, loses no

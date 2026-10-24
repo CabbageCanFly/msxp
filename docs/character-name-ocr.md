@@ -37,7 +37,7 @@ capture identity checks. Larger bottom overflows, other out-of-frame edges and
 invalid manual regions remain rejected; duplicate-frame, freshness, OCR quality and
 two-frame identity confirmation rules still apply.
 
-Measured offline: a private 1920x1080 screenshot reads `frenchiefry`, level 40,
+Measured offline: a private 1920x1080 screenshot reads `CharM`, level 40,
 EXP 275,236 [93.55%]. Replaying the supplied server HUD anchors previously inferred
 `[512, 1056, 699, 1081]` and raised `ValueError` before name OCR. Trimming its bottom
 to 1080 reads the name while preserving the level and EXP result. This is a

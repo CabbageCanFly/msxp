@@ -91,7 +91,7 @@ Tool wrappers print the command they run and pass extra options to their underly
 
 ```bash
 msxp logs tracker --browse
-msxp logs tracker --since "14 hours ago" --until "10 hours ago" --search "triciaisabirdy" --browse
+msxp logs tracker --since "14 hours ago" --until "10 hours ago" --search "Streamer_A" --browse
 msxp logs tracker --search "error" --lines 100
 ```
 
@@ -114,7 +114,7 @@ log's last `--lines` entries. It does not follow new entries.
 From your PC, prefix the same command with `server`:
 
 ```bash
-msxp server logs tracker --since "14 hours ago" --until "10 hours ago" --search "triciaisabirdy" --browse
+msxp server logs tracker --since "14 hours ago" --until "10 hours ago" --search "Streamer_A" --browse
 ```
 
 ### Query the database read-only
