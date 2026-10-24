@@ -11,7 +11,7 @@ from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS, WRAP_FROM_BP, W
 from exp_tracker.exp_consistency import MODES, assess, displayed_bp
 from exp_tracker.models import Reading
 from exp_tracker.validation import Observation, validate_transition
-from character_name_ocr import name_region, name_text
+from character_name_ocr import name_region, name_text, second_look
 
 
 # Numeric changes another character could explain; the rest stay ordinary EXP-validity questions.
@@ -191,15 +191,25 @@ class IdentityCapture:
                 evidence['box'] = region['box']
                 evidence['provenance'].update(search=layouts[0].get('search', 'full_frame'),
                     full_frame_age_seconds=layouts[0].get('full_frame_age_seconds', 0))
-                response = read_name(image.crop(region['box']))
+                def parsed(response):
+                    texts, scores = (response.get('raw') or {}).get('txts'), (response.get('raw') or {}).get('scores')
+                    if (isinstance(texts, list) and len(texts) == 1 and isinstance(texts[0], str)
+                            and len(texts[0]) <= 160 and isinstance(scores, list) and len(scores) == 1
+                            and type(scores[0]) in (int, float) and math.isfinite(scores[0]) and 0 <= scores[0] <= 1):
+                        return scores[0], name_text(texts[0]) if scores[0] >= .5 else None
+                    return None
+                crop = image.crop(region['box'])
+                response = read_name(crop); read = parsed(response)
+                reference = self.suggestions.reference
+                if reference and (read or (0, None))[1] != reference:
+                    # Only an exact match with the current character replaces the plain read.
+                    second = read_name(second_look(crop))
+                    if (parsed(second) or (0, None))[1] == reference:
+                        evidence['first_read'] = dict(text=response.get('text'), score=read and read[0])
+                        response, read = second, parsed(second)
                 evidence['raw'] = response
-                texts, scores = (response.get('raw') or {}).get('txts'), (response.get('raw') or {}).get('scores')
-                valid = (isinstance(texts, list) and len(texts) == 1 and isinstance(texts[0], str)
-                         and len(texts[0]) <= 160 and isinstance(scores, list) and len(scores) == 1
-                         and type(scores[0]) in (int, float) and math.isfinite(scores[0]) and 0 <= scores[0] <= 1)
-                if valid:
-                    evidence['score'] = scores[0]
-                    evidence['name'] = name_text(texts[0]) if scores[0] >= .5 else None
+                if read:
+                    evidence['score'], evidence['name'] = read
                 evidence['status'] = 'candidate' if evidence['name'] else 'unreadable_or_conflicting'
             except (OSError, RuntimeError, ValueError, KeyError) as error:
                 evidence.update(status='failed', error=type(error).__name__)

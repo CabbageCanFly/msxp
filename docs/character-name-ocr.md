@@ -719,6 +719,27 @@ give roughly 60–120 seconds plus capture/OCR completion from an arbitrary swit
 Missing panels/conflicts have no bounded detection latency. No extra model or full
 frame locator was introduced.
 
+### Second look for the current character's name
+
+When a name read does not match the current character's name, the same crop is read once
+more without its 3 rightmost pixels (the status panel's edge) and with 6 pixels of
+background margin all round (`second_look`). Only an exact match with the current name
+replaces the plain read; anything else keeps it. The extra read never proposes or selects
+another character, and matching reads take no second look. The first read is kept as
+`first_read`.
+
+Measured 2026-10-24 on live 1080p frames captured locally with the tracker's own capture
+code, through the production RapidOCR worker. Streamer_J's name has touching "yv", which
+the plain read gave as "w" or dropped: 0/29 correct before, 27/29 with the second look;
+the other two read a dropped-letter spelling. Thirteen other streams (127 crops) had no
+change; on a frame showing another of a channel's characters, the second look did not
+confirm the current one. Using the padded crop for every read is not safe: it fixed
+Streamer_J but misread two names the plain crop reads correctly.
+
+Setup for such a channel: rename the current character to the real name, and keep the
+remaining misspelling as a ruled-out character so two misreads in a row cannot switch to
+it. Untested: other fonts, resolutions and names.
+
 ### Transaction, restart and audit boundaries
 
 `exp_tracker.character_automation.AutonomousCharacters` runs on the existing serialized

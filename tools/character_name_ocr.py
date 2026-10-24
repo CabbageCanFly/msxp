@@ -51,6 +51,16 @@ def name_region(layout, size):
                 anchors=layout['anchors'], anchor_step=step)
 
 
+def second_look(crop):
+    """The name crop without its right panel edge, with background margin all round.
+    It reads touching glyphs ("yv" read as "w") that the plain crop misses, but it also
+    misreads some names the plain crop gets right, so it may only confirm a known name."""
+    crop = crop.convert('RGB').crop((0, 0, crop.width - 3, crop.height))
+    padded = Image.new('RGB', (crop.width + 12, crop.height + 12), crop.getpixel((0, 0)))
+    padded.paste(crop, (6, 6))
+    return padded
+
+
 def name_regions(image):
     """Reuse HUD anchor agreement; retain every layout rather than choosing one."""
     layouts = locate(image)

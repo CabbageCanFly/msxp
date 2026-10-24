@@ -396,3 +396,28 @@ def test_multiple_channels_keep_independent_lifecycles():
     assert va['hold_reasons'] == ['name_mismatch', 'pending_switch'] and vb['hold_reasons'] == ['name_mismatch']
     a.suggestions.dismiss(NOW.isoformat())
     assert not b.suggestions.history and a.suggestions.history[0]['state'] == 'dismissed'
+
+
+@pytest.mark.parametrize('second,used', [('Kayvenmoor', True), ('Kaymenmoor', False)])
+def test_second_look_may_only_confirm_the_current_character(second, used):
+    """Live Streamer_J: touching "yv" read as "w"; a padded second look reads the confirmed name."""
+    state = IdentityCapture('channel', confirmed='Kayvenmoor'); sizes = []
+    def read(crop):
+        sizes.append(crop.size)
+        return response('Kaywenmoor' if len(sizes) == 1 else second)
+    f = make_frame(0)
+    value = state.inspect(dict(current=True, candidate=None, visual_level=None), f, f.image(), candidate(), read,
+                          {1: 10000, 2: 20000}, max_age=15, clock=lambda: 101)
+    assert len(sizes) == 2 and sizes[1] == (sizes[0][0] + 9, sizes[0][1] + 12)
+    assert value['evidence']['name'] == ('Kayvenmoor' if used else 'Kaywenmoor')
+    assert value['evidence']['raw']['raw']['txts'] == [value['evidence']['name']]
+    assert ('first_read' in value['evidence']) is used and value['hold_reasons'] == ([] if used else ['name_mismatch'])
+
+
+def test_matching_reads_and_unconfirmed_channels_take_no_second_look():
+    for state, name in ((IdentityCapture('channel', confirmed='Alpha'), 'Alpha'), (IdentityCapture('channel'), 'Beta')):
+        calls = []
+        f = make_frame(0)
+        state.inspect(dict(current=True, candidate=None, visual_level=None), f, f.image(), candidate(),
+                      lambda crop: calls.append(crop) or response(name), {1: 10000, 2: 20000}, max_age=15, clock=lambda: 101)
+        assert len(calls) == 1
