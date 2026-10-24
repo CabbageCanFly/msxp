@@ -78,6 +78,11 @@ progress::-moz-progress-bar { background: var(--bar); }
 #overlay-chart .bar { fill: var(--bar); }
 #overlay-chart .none { fill: var(--muted); opacity: .45; }
 #overlay-chart .base { stroke: var(--line); stroke-width: 1; }
+/* Last hour: two y-axis values with faint guides and the peak bar's value. */
+#overlay-chart text { font: 700 9px "Nunito", sans-serif; font-variant-numeric: tabular-nums; }
+#overlay-chart .axis { fill: var(--muted); }
+#overlay-chart .grid { stroke: var(--line); stroke-dasharray: 2 3; }
+#overlay-chart .peak { fill: var(--accent); font-weight: 800; }
 
 footer { display: flex; align-items: center; gap: 10px; margin-top: auto; padding: 0 12px 5px; height: 21px; color: var(--muted); font-size: 10px; font-weight: 700; }
 #age { flex: 1; min-width: 0; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; opacity: .85; }

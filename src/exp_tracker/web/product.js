@@ -612,12 +612,28 @@ function drawHourChart(svg=el('overlay-chart'),seconds=300,range=3600) {
   const chart=seconds===1800?(tracked?.buckets?.length===48?{bins:tracked.buckets.slice(range===43200?-24:0).map(b=>({value:chartBucketValue(b)}))}:null)
     :bucketHistory((tracked?.chart_intervals ?? []).map(g=>({gain:g,connect_previous:true})),Date.parse(tracked?.as_of),seconds,range);
   if(!chart){el('hour-total').textContent='—';return;}
-  const top=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),step=462/chart.bins.length,gap=Math.min(6,step/4);
-  const rect=attrs=>{const n=document.createElementNS('http://www.w3.org/2000/svg','rect');for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);svg.append(n);};
+  const shape=(tag,attrs)=>{const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);svg.append(n);return n;};
+  const max=Math.max(1,...chart.bins.map(b=>b.value ?? 0));
+  // The "Last hour" layout gets a y-axis and the peak's value; the General card's mini chart stays bare.
+  // No time labels: the caption already says "last hour", and a "now" would crowd the Updated line below.
+  // It is drawn at its real pixel size so the text is not stretched (OBS keeps the source a fixed size).
+  const labelled=svg===el('overlay-chart'),width=labelled?svg.clientWidth || 462:462,height=labelled?svg.clientHeight || 90:76;
+  const left=labelled?28:0,top=labelled?11:2,bottom=height-2,scale=10**Math.floor(Math.log10(max));
+  const ceiling=labelled?Math.ceil(max/scale)*scale:max;  // A round top value such as 20K, like the profile chart.
+  if(labelled)svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+  const step=(width-left)/chart.bins.length,gap=Math.min(6,step/4),y=v=>bottom-Math.max(0,v)/ceiling*(bottom-top);
+  if(labelled)for(const v of [ceiling,ceiling/2]){
+    shape('line',{x1:left,x2:width,y1:y(v),y2:y(v),class:'grid'});
+    shape('text',{x:left-5,y:y(v)+3,'text-anchor':'end',class:'axis'}).textContent=expText(v);
+  }
   chart.bins.forEach((b,i)=>{
-    const height=b.value==null?2:Math.max(2,Math.max(0,b.value)/top*70);
-    rect({x:i*step+gap/2,y:74-height,width:step-gap,height,rx:b.value==null?1:3,class:b.value==null?'none':'bar'});
+    const tall=b.value==null?2:Math.max(2,bottom-y(b.value));
+    shape('rect',{x:left+i*step+gap/2,y:bottom-tall,width:step-gap,height:tall,rx:b.value==null?1:3,class:b.value==null?'none':'bar'});
   });
+  if(labelled) {
+    const peak=chart.bins.reduce((best,b,i)=>b.value!=null && b.value>(chart.bins[best]?.value ?? -Infinity)?i:best,-1);
+    if(peak>=0 && chart.bins[peak].value>0)shape('text',{x:left+(peak+.5)*step,y:y(chart.bins[peak].value)-3,'text-anchor':'middle',class:'peak'}).textContent=expText(chart.bins[peak].value);
+  }
   const seen=chart.bins.filter(b=>b.value!=null);
   el('hour-total').textContent=seen.length?`${expText(seen.reduce((sum,b)=>sum+b.value,0))} EXP`:'—';
 }

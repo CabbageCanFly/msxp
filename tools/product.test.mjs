@@ -1597,7 +1597,7 @@ test('General overlay shows minute history, preserves missing and zero bins, and
   p.run('applyOverlay(overlayOptions("?layout=bar"))');
   assert.equal(p.context.document.body.dataset.layout,'bar');
   assert.equal(p.elements.progress.value,5.9);assert.equal(p.elements.rate.textContent,'2K');
-  p.run('applyOverlay(overlayOptions("?layout=chart"))');assert.equal(p.elements['overlay-chart'].children.length,12);
+  p.run('applyOverlay(overlayOptions("?layout=chart"))');assert.equal(p.elements['overlay-chart'].children.filter(n=>n.tag==='rect').length,12);
   p.run('delete data.tracked_history;applyOverlay(overlayOptions(""))');
   assert.equal(p.elements['general-chart'].children.length,0);
 });
@@ -1651,9 +1651,11 @@ test('overlay rates read each lookback window; the last-hour chart keeps untrack
   assert.equal(p.run('publicPace(data.player,30)'),null);
   p.context.tracked={as_of:'2026-01-01T01:00:00Z',chart_intervals:[{start:'2026-01-01T00:50:00Z',end:'2026-01-01T00:52:00Z',value:{approximate:400},policy:'public_endpoint_window_v2'}]};
   p.run('data.tracked_history=tracked;drawHourChart()');
-  const bars=p.elements['overlay-chart'].children;
+  const shapes=p.elements['overlay-chart'].children,bars=shapes.filter(n=>n.tag==='rect');
   assert.equal(bars.length,12);assert.equal(bars.filter(b=>b.attributes.class==='bar').length,1);
   assert.equal(p.elements['hour-total'].textContent,'400 EXP');
+  // A round y-axis top and its half, and the peak bar's value.
+  assert.deepEqual(shapes.filter(n=>n.tag==='text').map(n=>[n.attributes.class,n.textContent]),[['axis','400'],['axis','200'],['peak','400']]);
 });
 
 test('the online filter cycles all, online, offline, ranks what it shows and carries over to Characters',()=>{
