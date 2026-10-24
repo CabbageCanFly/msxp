@@ -282,6 +282,12 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 /* Switching lists keeps the current one (dimmed only if the other takes a moment) until the other can swap in whole. */
 .product #entries[aria-busy="true"] { opacity:.6; transition:opacity .2s .15s; }
 @keyframes reveal { to { opacity:1; } }
+/* Until then an orange mushroom walks in place mid-screen; it leaves with the 2s fallback reveal. */
+@media (prefers-reduced-motion:no-preference) {
+  .product[data-loading]::after { content:""; position:fixed; left:50%; top:50%; z-index:5; width:64px; height:67px; margin:-34px 0 0 -32px;
+    background:url(mobs/orange-mushroom-move.gif) center/contain no-repeat; pointer-events:none; animation:loader-out 0s 2s forwards; }
+}
+@keyframes loader-out { to { visibility:hidden; } }
 
 /* Native dropdown lists take the select's colours; keep them dark and readable. */
 .site-footer select option { color:var(--text); background:var(--surface); }
