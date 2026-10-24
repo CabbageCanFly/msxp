@@ -50,6 +50,16 @@ def outside_maplestory(status):
     return (status or {}).get('status')=='live' and isinstance(name,str) and bool(name.strip()) and 'maplestory' not in name.lower()
 
 
+def capture_paused(status, *, now, any_category=False):
+    """Only a current official status can save a playback check; uncertainty allows capture."""
+    if not status:return False
+    try:
+        if not datetime.fromisoformat(status['checked_at']) <= now < datetime.fromisoformat(status['valid_until']):
+            return False
+    except (KeyError,TypeError,ValueError):return False
+    return status.get('status')=='offline' or not any_category and outside_maplestory(status)
+
+
 class StreamAvailability:
     """Opt-in, process-local Get Streams cache; never evidence of capture health."""
     def __init__(self, *, enabled=False, fetch=None, clock=time.monotonic,auth=None):

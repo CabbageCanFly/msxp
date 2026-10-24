@@ -27,7 +27,8 @@ are withheld. Cache restoration does not claim a fresh capture or a fresh window
 Compatibility includes the absolute database path and file identity, schema, the
 backend Python/data-file digest, selected character/session and correction,
 rename, invalidation and retention revisions. Raw input fingerprints include run
-configuration, summary and original payloads. Closed inputs are memoized only within
+configuration, summary and original payloads. Payload bytes are length-framed before hashing,
+avoiding a second JSON-escaped copy without skipping any input bytes. Closed inputs are memoized only within
 one API lifetime; a restart verifies their bytes again. Capture appends can leave an
 older dated publication available, but a new build must incorporate the new revision.
 Existing causal replay validates every restored checkpoint prefix before reuse.
@@ -53,8 +54,9 @@ and runtime heartbeat need not be backed up or copied between machines.
 
 `multi_alpha.py --db-roster DB --continuous --capture-only --runtime-state FILE`
 keeps the existing exclusive ownership-marker lease, scheduler, automation, worker
-bounds, retention and shutdown behavior. It starts **no HTTP listener, publisher or
-Twitch status client**, and does not probe port 8765. This mode is restricted to the
+bounds, retention and shutdown behavior. It starts **no HTTP listener or publisher**,
+and does not probe port 8765. A background Twitch status client checks whether to skip
+offline streams and other categories about once a minute. This mode is restricted to the
 explicit schema-11 database roster. HTTP/CORS/cache/status flags belong on the API
 command and are rejected on capture-only startup. `--check` remains read-only and
 does not create the heartbeat or connect to Twitch.

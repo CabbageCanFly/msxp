@@ -90,7 +90,13 @@ class PublicationCache:
                 mark=store.db.execute('SELECT COUNT(*),COALESCE(SUM(LENGTH(CAST(payload_json AS BLOB))),0) FROM diagnostic_attempts WHERE run_id=? AND id<=?',(run,through)).fetchone()
                 if mark[0]>60 or count+mark[0]>MAX_EVENTS or size+mark[1]>MAX_BYTES:raise ValueError('cache source limit')
                 rows=store.db.execute('SELECT id,payload_json FROM diagnostic_attempts WHERE run_id=? AND id<=? ORDER BY id',(run,through)).fetchall()
-                saved=(hashlib.sha256(json.dumps([run,list(head),[list(r) for r in rows]],ensure_ascii=True).encode()).hexdigest(),*mark)
+                source=hashlib.sha256(json.dumps([run,list(head)],ensure_ascii=True).encode())
+                # Length framing hashes the exact payload bytes without escaping a second large JSON copy.
+                for identity,payload in rows:
+                    raw=payload.encode()
+                    source.update(str(identity).encode()+b'\0'+len(raw).to_bytes(8,'big'))
+                    source.update(raw)
+                saved=(source.hexdigest(),*mark)
                 if head[1] is not None:
                     if len(self.digests)>=MAX_RUNS*2:self.digests.pop(next(iter(self.digests)))
                     self.digests[key]=saved

@@ -51,6 +51,9 @@ browser on a leaderboard with made-up players.
    the overlay builder, click **Copy URL**, and follow **How do I add this to OBS?** right there.
 
 Want the leaderboard to show who is live? Add free Twitch app keys to `.env` (next section).
+With those keys, continuous tracking also checks live status and category about once a minute,
+skipping playback while a stream is confirmed offline or outside MapleStory. Unknown or expired
+status allows capture. `--any-category` permits other live categories while still skipping offline streams.
 
 ![Player profile showing recent pace, next-level estimates and EXP history](docs/images/player-profile.png)
 

@@ -155,3 +155,23 @@ def test_closed_run_signature_skips_rescanning_payloads_within_one_api_lifetime(
             assert scans and cache.signature(reader,[run],through)==first and len(scans)==2
             assert cache.signature(reader,[run],through+1)==first and len(scans)==2
     finally:cache.close()
+
+
+def test_open_run_signature_tracks_exact_payload_bytes_and_covered_prefix(tracking,tmp_path):
+    from tests.test_diagnostic_history import config
+    path,store,d=tracking;d.begin('open','alpha',config('open',interval=20));save(d,'open',1,0,3300)
+    cache=PublicationCache(tmp_path/'warm.sqlite3',path,store.schema_version)
+    try:
+        through=store.db.execute('SELECT MAX(id) FROM diagnostic_attempts').fetchone()[0]
+        original=cache.signature(store,['open'],through)
+        save(d,'open',2,20,3310)
+        assert cache.signature(store,['open'],through)==original
+        assert cache.signature(store,['open'],through+1)!=original
+        payload=store.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE id=?',(through,)).fetchone()[0]
+        # Semantically equal JSON is still different source evidence, including Unicode/escaping.
+        for text in (payload+' ',json.dumps(dict(json.loads(payload),note='\u00e9\\"\n'),ensure_ascii=False)):
+            store.db.execute('UPDATE diagnostic_attempts SET payload_json=? WHERE id=?',(text,through))
+            assert cache.signature(store,['open'],through)!=original
+        store.db.execute('UPDATE diagnostic_attempts SET payload_json=? WHERE id=?',(payload,through))
+        assert cache.signature(store,['open'],through)==original
+    finally:cache.close()

@@ -6,7 +6,7 @@ import os
 from PIL import Image
 import pytest
 
-from exp_tracker.twitch_probe import outside_maplestory, inspect_thumbnail, main, thumbnail_url
+from exp_tracker.twitch_probe import capture_paused, outside_maplestory, inspect_thumbnail, main, thumbnail_url
 from exp_tracker.twitch_probe import MAX_STREAM_PAGES,StreamAvailability,helix
 
 
@@ -41,6 +41,31 @@ def test_missing_credentials_do_not_make_network_requests(monkeypatch, capsys):
     monkeypatch.delenv("TWITCH_ACCESS_TOKEN", raising=False)
     assert main(["somechannel"]) == 1
     assert "TWITCH_CLIENT_ID" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('state,game,paused',[
+    ('offline',None,True),('unknown',None,False),('live','Just Chatting',True),
+    ('live','MapleStory',False),('live','MapleStory Worlds',False),('live','',False),('live',None,False),
+])
+def test_capture_pause_requires_fresh_offline_or_other_category(state,game,paused):
+    now=datetime(2026,1,1,tzinfo=timezone.utc)
+    status=dict(status=state,game_name=game,checked_at=now.isoformat(),valid_until=(now+timedelta(seconds=60)).isoformat())
+    assert capture_paused(status,now=now) is paused
+    assert capture_paused(status,now=now,any_category=True) is (state=='offline')
+    assert not capture_paused(status,now=now+timedelta(seconds=60))
+    assert not capture_paused(status,now=now-timedelta(seconds=1))
+
+
+@pytest.mark.parametrize('changes',[
+    {'checked_at':None},{'valid_until':None},{'valid_until':'invalid'},
+    {'valid_until':'2026-01-01T00:01:00'},{'checked_at':'invalid'},
+])
+def test_invalid_status_dates_allow_capture(changes):
+    now=datetime(2026,1,1,tzinfo=timezone.utc)
+    status=dict(status='offline',checked_at=now.isoformat(),valid_until=(now+timedelta(seconds=60)).isoformat())
+    assert not capture_paused(dict(status,**changes),now=now)
+    assert not capture_paused(None,now=now)
+    assert not capture_paused({'status':'offline'},now=now)
 
 
 def test_batched_stream_status_cache_never_confuses_api_failure_with_offline(monkeypatch):
