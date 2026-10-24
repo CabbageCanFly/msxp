@@ -86,6 +86,29 @@ def test_numeric_token_bounds_do_not_move_exp_region():
     assert hud.layouts(tokens,(500,200))[0]['regions']==expected
 
 
+@pytest.mark.parametrize('text,expected',[
+    ('HPi','HP'), ('MPi123/456]','MP'), ('MPr123/456)','MP'),
+    ('MPias3vitte)','MP'), ('MPras3ci1ié','MP'), ('MPrsiosiiie)','MP'),
+    ('MPirate',None), ('HPrime',None), ('MPi'+'1'*25,None),
+    ('EXPi123',None), ('LVi39',None),
+])
+def test_merged_hp_mp_bracket_labels_are_bounded_and_do_not_repair_numbers(text,expected):
+    token={'text':text}
+    assert hud.label(token)==expected
+    assert token=={'text':text}
+
+
+def test_merged_hp_mp_value_still_needs_full_geometry_and_preserves_competing_huds():
+    tokens=anchors()
+    tokens[1]['text']='MPr123/456)'
+    expected=hud.layouts(anchors(),(500,400))[0]['regions']
+    assert hud.layouts(tokens,(500,400))[0]['regions']==expected
+    assert not hud.layouts(tokens[:3],(500,400))  # A merged value cannot satisfy bare-label LV recovery.
+    assert len(hud.layouts(tokens+anchors(100,200),(500,400)))==2
+    tokens[1]['x']+=10
+    assert not hud.layouts(tokens,(500,400))
+
+
 def test_hp_anchor_outlier_uses_two_other_spacing_constraints():
     tokens=anchors(780,1050,109)
     tokens[3]['x']=573

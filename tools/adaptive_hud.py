@@ -34,6 +34,10 @@ def label(token):
     for value in ("HP", "MP", "EXP", "LV"):
         if re.match(rf"^{value}(?:$|[\W\d])", text):
             return value
+    # Small HUDs can merge a misread opening bracket (I/R) into the HP/MP value.
+    merged = re.fullmatch(r"(HP|MP)[IR]([\w/|.]{0,24})([)\]])?", text)
+    if merged and (not merged[2] or merged[3] or re.search(r"[0-9]", merged[2])):
+        return merged[1]
     return None
 
 
