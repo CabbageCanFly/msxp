@@ -295,7 +295,7 @@ function dayChart(values) {
 // The homepage keeps these short: no ~ marks, since nearly every number here is an estimate.
 function expSection(r,{label,buckets,day,eta,age,ageTitle,empty='Waiting for EXP'}) {
   const section=node('div','exp-section'),bar=node('div','exp-bar'),progress=node('progress');progress.max=100;progress.value=r?.bp!=null?r.bp/100:0;progress.hidden=r?.bp==null;progress.setAttribute('aria-label',`${label} EXP progress`);
-  bar.dataset.missing=String(!r);bar.dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence));
+  bar.dataset.missing=String(!r);  // Partly unclear EXP keeps its ~ and hover note; the bar's border stays the same as every row's.
   const text=node('span','exp-label'),integer=node('span','exp-number',displayedExp(r,true));
   integer.dataset.compactNumber=displayedExp(r);text.title=expTitle(r);text.append(node('small','','EXP'),integer,node('span','percentage',r?.percentage!=null?`[${percentageText(r)}]`:empty));
   bar.append(progress,text);

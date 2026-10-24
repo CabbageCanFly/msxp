@@ -89,7 +89,6 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .product a.channel:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
 .product .score strong { font-size:26px; }
 .product .exp-bar[data-missing="true"] { opacity:.65; }
-.product .exp-bar[data-recovered="true"] { border-color:#dbb26e; }
 .product .entry[data-stale="true"] progress { opacity:.6; }
 .product progress::-webkit-progress-value { background:linear-gradient(#d4f584,var(--green) 45%,var(--green-deep)); }
 .product progress::-moz-progress-bar { background:var(--green); }
