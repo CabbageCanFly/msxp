@@ -167,13 +167,13 @@ function levelTitle(p) {
 function earlyText(p) {
   if(p.responsive_pace) {
     const pace=publicPace(p);if(!pace)return null;const e=pace.estimates;
-    const rate=e.exp_per_hour?`~${expText(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`~${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`:null;
+    const rate=e.exp_per_hour?`${expText(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`:null;
     return rate?`${rate} · ${pace.label}`:'Paused';
   }
   const early=p.early_pace;
   if(!early?.active || current(p).stale || failed)return null;
   const e=early.estimates;
-  const rate=e.exp_per_hour?`~${expText(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`~${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`:null;
+  const rate=e.exp_per_hour?`${expText(e.exp_per_hour.value.approximate)} EXP/hour`:e.percentage_per_hour?`${e.percentage_per_hour.value.approximate.toFixed(2)}% / hour`:null;
   return rate?`${rate} · Early estimate`:null;
 }
 function publicPace(p,minutes=null) {
@@ -243,11 +243,11 @@ function etaText(value,compact=false) {
   const seconds=value?.seconds?.approximate;
   if(!Number.isFinite(seconds) || seconds<0)return '—';
   const minutes=Math.round(seconds/60);
-  if(!minutes)return seconds>0?'~<1m':'~0m';
+  if(!minutes)return seconds>0?'<1m':'0m';
   const days=Math.floor(minutes/1440),hours=Math.floor(minutes%1440/60),rest=minutes%60;
   const parts=[];if(days)parts.push(`${days}d`);if(hours)parts.push(`${hours}h`);
   if(rest && !(compact && days))parts.push(`${rest}m`);
-  return '~'+parts.join(' ');
+  return parts.join(' ');
 }
 function rateTitle(rate) { return rate?'Estimated from recent stream updates.':'Not enough recent updates yet.'; }
 function metricValue(p,key,minutes=windowMinutes) {
@@ -313,7 +313,7 @@ function rowETA(p,minutes=windowMinutes) {
   // Retain dated durations within the selected window; never turn them into a countdown.
   const saved=publicETA(p,minutes);
   return saved && saved.age>=0 && saved.age<=minutes*60 && etaText(saved.estimate)!=='—'
-    ?{text:etaText(saved.estimate).replace('~',''),minutes:saved.window_minutes,age:saved.age}:null;
+    ?{text:etaText(saved.estimate),minutes:saved.window_minutes,age:saved.age}:null;
 }
 function entry({player:p,value,rank}) {
   const r=p.reading,s=current(p),row=node('li','entry streamer-entry');row.dataset.channel=p.channel;row.dataset.rank=rank??'';row.dataset.stale=String(s.stale && faded(s.age));
@@ -431,7 +431,7 @@ function renderPlayer() {
         el('age').textContent=`Updated ${ageText(Math.max(0,(Date.now()-Date.parse(reading.timestamp))/1000))}`;el('age').title=localTime(reading.timestamp);
       }
       if(saved?.day!=null) {
-        amount('tracked-exp',`~${expText(saved.day,true)}`,`~${expText(saved.day)}`);
+        amount('tracked-exp',`${expText(saved.day,true)}`,`${expText(saved.day)}`);
         el('tracked-note').textContent='Saved · preparing history';
       }
       hideTip();
@@ -471,8 +471,8 @@ function renderPlayer() {
   if(view==='overlay')el('movement').textContent=el('movement').textContent.replace(/ EXP$/,'');
   el('movement').dataset.paused=String(!!observed && (observed.paused || s.stale || failed) && faded(s.age));
   el('movement').title=observed?`${el('movement').dataset.fullNumber}${movement!=null?` (+${movement}% of level)`:''} gained between the first and last update in this time.`:windowNote(p);
-  amount('rate',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate,true)}`:'—',m?.exp_per_hour?`~${expText(m.exp_per_hour.value.approximate)}`:'—');el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
-  el('pp-rate').textContent=m?.percentage_per_hour?`~${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
+  amount('rate',m?.exp_per_hour?`${expText(m.exp_per_hour.value.approximate,true)}`:'—',m?.exp_per_hour?`${expText(m.exp_per_hour.value.approximate)}`:'—');el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
+  el('pp-rate').textContent=m?.percentage_per_hour?`${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Estimated level % per hour.';
   const savedETA=publicETA(p),eta=p.recent_windows?savedETA?.estimate:m?.eta;
   amount('eta',etaText(eta),etaText(eta,true));el('eta').title=eta?`${etaText(eta)} to the next level at ${savedETA?`the ${savedETA.window_minutes} min pace${Date.parse(savedETA.estimated_at)?`, estimated ${localTime(savedETA.estimated_at)}`:''}`:'the recent pace'}. Not a live countdown.`:'Needs recent EXP gains';
@@ -486,25 +486,25 @@ function renderPlayer() {
     el('rate-label').textContent=pace && !pace.active?'Last EXP / hour':'EXP / hour';
     for(const n of document.querySelectorAll('[data-rate-window]')) {
       const windowPace=publicPace(p,Number(n.dataset.rateWindow)),rate=windowPace?.estimates.exp_per_hour;
-      n.textContent=rate?`~${expText(rate.value.approximate)}`:'—';n.dataset.paused=String(!!windowPace && !windowPace.active && faded(windowPace.age));
+      n.textContent=rate?`${expText(rate.value.approximate)}`:'—';n.dataset.paused=String(!!windowPace && !windowPace.active && faded(windowPace.age));
     }
     if(document.body.dataset.layout==='card')drawHourChart(el('general-chart'),Number(document.body.dataset.interval),Number(document.body.dataset.range)*60);
     else if(document.body.dataset.layout==='chart')drawHourChart();
   }
   if(view==='player') {
     const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
-    amount('tracked-exp',rolling?.tracked_exp?`~${expText(rolling.tracked_exp.approximate,true)}`:'—',rolling?.tracked_exp?`~${expText(rolling.tracked_exp.approximate)}`:'—');
+    amount('tracked-exp',rolling?.tracked_exp?`${expText(rolling.tracked_exp.approximate,true)}`:'—',rolling?.tracked_exp?`${expText(rolling.tracked_exp.approximate)}`:'—');
     el('tracked-exp').title=rolling?`${el('tracked-exp').dataset.fullNumber} EXP gained in the last 24 hours while tracked.`:'';
     const rollingAge=(performance.now()-rollingReceived)/1000;
     el('tracked-note').textContent=rollingFailed?(rolling?`Saved · updated ${ageText(rollingAge)}`:'History unavailable'):rolling?.status==='history_limit'?'History unavailable':rolling?(rolling.tracked_exp?`${spanText(rolling.coverage_seconds.approximate)} tracked`:'Not enough data'):'Loading history';
     const early=p.early_pace,text=earlyText(p);
     el('early-value').textContent=pace?pace.label:text ?? (early?.segment?'Paused':'Calculating…');
     el('rate-label').textContent=m?.exp_per_hour?'EXP / hour':'% / hour';
-    if(!m?.exp_per_hour && m?.percentage_per_hour)amount('rate',`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`,`~${m.percentage_per_hour.value.approximate.toFixed(2)}%`);
+    if(!m?.exp_per_hour && m?.percentage_per_hour)amount('rate',`${m.percentage_per_hour.value.approximate.toFixed(2)}%`,`${m.percentage_per_hour.value.approximate.toFixed(2)}%`);
     el('movement-label').textContent=`${observed?.historical || s.stale && ['completed','interrupted'].includes(p.capture_lifecycle)?'Saved':'Last'} ${windowMinutes} min`;
     el('segment-note').textContent=windowNote(p);
-    el('window-rate').textContent=selectedWindow(p)?.eligible && s.metrics?.exp_per_hour?`~${expText(s.metrics.exp_per_hour.value.approximate)}`:observed?(s.stale || failed || observed.paused?'Paused':`Needs a full ${windowMinutes} min`):'Calculating…';
-    if(selectedWindow(p)?.eligible && s.metrics?.exp_per_hour)amount('window-rate',`~${expText(s.metrics.exp_per_hour.value.approximate,true)}`,el('window-rate').textContent);
+    el('window-rate').textContent=selectedWindow(p)?.eligible && s.metrics?.exp_per_hour?`${expText(s.metrics.exp_per_hour.value.approximate)}`:observed?(s.stale || failed || observed.paused?'Paused':`Needs a full ${windowMinutes} min`):'Calculating…';
+    if(selectedWindow(p)?.eligible && s.metrics?.exp_per_hour)amount('window-rate',`${expText(s.metrics.exp_per_hour.value.approximate,true)}`,el('window-rate').textContent);
     else {delete el('window-rate').dataset.fullNumber;delete el('window-rate').dataset.compactNumber;}
     el('window-rate-label').textContent=`${windowMinutes} min EXP / hour`;
     el('pp-stat').hidden=!!m?.exp_per_hour || !m?.percentage_per_hour;
@@ -579,7 +579,7 @@ function drawExpHistory() {
     shape('rect',{x:left,y:bin.state==='missing'?205:Math.min(yValue(bin.value),yValue(0)),width:w,height:bin.state==='missing'?2:height,rx:2,
       class:bin.state==='missing'?'exp-column missing':'exp-column'});
     inspect(shape('rect',{x:left,y:25,width:w,height:183,fill:'transparent',class:'bar-hit'}),`bar:${bin.start}:${bin.end}`,
-      `${localTime(bin.start)}\n${bin.value==null?'No data (not zero EXP)':`~${expText(bin.value,true)} EXP`}`);
+      `${localTime(bin.start)}\n${bin.value==null?'No data (not zero EXP)':`${expText(bin.value,true)} EXP`}`);
   }
   const ticks=width<600?3:5;
   for(let i=0;i<ticks;i++){
@@ -605,7 +605,7 @@ function drawHourChart(svg=el('overlay-chart'),seconds=300,range=3600) {
     rect({x:i*step+gap/2,y:74-height,width:step-gap,height,rx:b.value==null?1:3,class:b.value==null?'none':'bar'});
   });
   const seen=chart.bins.filter(b=>b.value!=null);
-  el('hour-total').textContent=seen.length?`~${expText(seen.reduce((sum,b)=>sum+b.value,0))} EXP`:'—';
+  el('hour-total').textContent=seen.length?`${expText(seen.reduce((sum,b)=>sum+b.value,0))} EXP`:'—';
 }
 function drawHistory() {
   const focus=document.activeElement?.dataset?.tipKey,openKey=tipKey,position=tipPosition;

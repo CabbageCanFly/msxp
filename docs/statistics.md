@@ -45,7 +45,8 @@ producing a deceptively precise result.
 - The five-minute count is marked `~` when either edge is trimmed. This is the
   **known included net gain**, an incomplete representation of the nominal
   window, not an estimate of excluded gains or a proven mathematical lower bound.
-  Exact-boundary counts use `+`. Pace/ETA always use `~` because they are estimates.
+  Exact-boundary counts use `+`. The developer overlay marks pace/ETA with `~`; public
+  pages show them unmarked and say they are estimates in the hover text.
 - Insufficient history/coverage yields JSON `null` and a dash, not zero. Verified
   unchanged endpoint intervals may produce genuine zero net gain/pace.
 - Offline, hard pause/reset/level ambiguity, no current-session reading, future
@@ -86,7 +87,7 @@ forecast accuracy, especially very close to the next level.
 
 ETA assumes recent **net** percentage progression continues. Idle time, deaths,
 route changes and future changes in pace can invalidate that assumption. Display
-whole minutes, rounded up, with `~`; do not count down between readings or subtract
+whole minutes, rounded up; do not count down between readings or subtract
 elapsed time as if unseen EXP had been earned. No target EXP total, level-up
 formula or cross-level gain is inferred. Automatic level confirmation and exact
 cross-level accounting remain deferred. A new session/confirmed level needs new

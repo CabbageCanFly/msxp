@@ -8,7 +8,8 @@ and game-like, with useful approximate information even when some readings fail.
 - Keep validation rigorous internally. Preserve raw evidence, quarantine, timestamps,
   provenance, character/session boundaries and exact arithmetic. A friendlier label
   never makes uncertain data trusted.
-- Use one subtle estimate cue (`~` or `≈`). Keep sources and mathematical caveats
+- Use one subtle estimate cue (`~` or `≈`), and on public pages only on the EXP bar;
+  rates, totals and ETA stay unmarked. Keep sources and mathematical caveats
   in tooltips, a small information area and Advanced, rather than permanent symbols
   on every level or repeated warning paragraphs.
 - Retain useful last-known information. State its age or paused status; never make
