@@ -6,17 +6,23 @@ are **off by default**. Without them, `capture_attempt` receives exactly the arg
 did before, every Tesseract call runs the CLI through pytesseract, and run headers are
 unchanged. `deploy/msxp-tracker.service` is unchanged.
 
-Evidence comes from two research branches. Nothing below was re-measured as a
+Evidence comes from the archived research notes below. Nothing below was re-measured as a
 whole-tracker capacity gain; that comparison happens separately on the VPS.
 
-- `research/throughput-architecture` (`1db3c1e`): `docs/staggered-capture-experiment.md`
-  covers the scheduler model, its validation against the real `schedule()` and the VPS A/B
-  procedure.
-- `research/resident-tesseract` (`b619cd6`): `docs/resident-tesseract-evaluation.md`. On
+- [Throughput architecture research](throughput-architecture-research.md) and
+  [staggered capture experiment](staggered-capture-experiment.md), originally
+  `research/throughput-architecture` (`1db3c1e`), cover the scheduler model, validation
+  against the real `schedule()` and the historical VPS A/B proposal.
+- [Resident Tesseract evaluation](resident-tesseract-evaluation.md), originally
+  `research/resident-tesseract` (`b619cd6`). On
   the Windows workstation, 535/535 OCR calls gave identical TSV. The operator-run Ubuntu
   parity run then gave 0 mismatches over 63 frames and 486 calls, and the isolated worker
   used 27.1 % less Tesseract CPU per frame. That figure covers HUD localization and level
   OCR only, not the whole attempt.
+
+The notes preserve the original measurements and proposals; their old benchmark
+commands and missing tools are not current runbooks. For retention, use the
+[separate retention service](24h-retention.md), not the removed coordinator flag.
 
 ## `--stagger-capture`
 
@@ -153,7 +159,7 @@ Database roster, preflight first, then the run:
 python tools/multi_alpha.py --db-roster private/multi-alpha/tracking.sqlite3 --port 8766 --continuous \
   --ocr-python "$OCR" --workers 4 --stagger-capture --resident-tesseract --check
 python tools/multi_alpha.py --db-roster private/multi-alpha/tracking.sqlite3 --port 8766 --continuous \
-  --ocr-python "$OCR" --workers 4 --stagger-capture --resident-tesseract --retention-24h
+  --ocr-python "$OCR" --workers 4 --stagger-capture --resident-tesseract
 ```
 
 Either flag can be used alone. With `--resident-tesseract`, `--check` starts one local

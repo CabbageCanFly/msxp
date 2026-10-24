@@ -41,7 +41,9 @@ grouped so you can find one without opening a hundred files.
 - [Live capture](live-capture.md) · [OCR consolidation](ocr-consolidation.md) ·
   [OCR reliability](ocr-reliability.md) · [OCR to SQLite verification](ocr-sqlite-verification.md)
 - [Capture throughput](capture-performance.md) · [HUD localization performance](hud-localization-performance.md) ·
-  [Staggered capture and resident Tesseract](performance-integration.md) ·
+  [Staggered capture and resident Tesseract](performance-integration.md)
+  (archived research: [throughput architecture](throughput-architecture-research.md),
+  [staggered capture](staggered-capture-experiment.md), [resident Tesseract](resident-tesseract-evaluation.md)) ·
   [Cached HUD regions](cached-hud-evaluation.md) · [15-second cadence](production-cadence-evaluation.md)
 - [Character-name OCR](character-name-ocr.md) ([review](character-name-ocr-review.md)) ·
   [RapidOCR benchmark](rapidocr-benchmark.md) · [RapidOCR levels](rapidocr-level-evaluation.md)
