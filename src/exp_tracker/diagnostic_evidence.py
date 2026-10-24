@@ -497,6 +497,10 @@ def project(rows, *, state=None, allow_context=True):
             if not hold:derived=None
         elif selected is not None:
             prior=level_context(derived,row['received_at'])
+            floor=row.get('validated_level_floor')
+            if derived and derived['confirmed'] and not derived['transition'] and floor is not None and derived['level']<floor==selected:
+                # Levels never fall: once the guard validated the reader's new level, the retained one is outdated.
+                derived=_established(selected,numbers,row['received_at'],'validated_level_floor',derived)
             derived,derived_reason=_reader_step(derived,selected,status,numbers,row['received_at'])
             if derived_reason:
                 evidence['exp_derived_disagreement']=dict(level_context=prior,reader_level=selected,
