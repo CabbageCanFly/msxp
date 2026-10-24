@@ -111,7 +111,8 @@ function inspect(target,key,text) {
   return target;
 }
 function localTime(stamp) { return localDates.format(new Date(stamp)); }
-function ageText(seconds) { if(seconds==null)return 'No reading yet';if(seconds<60)return `${Math.floor(seconds)}s ago`;if(seconds<3600)return `${Math.floor(seconds/60)}m ago`;if(seconds<86400)return `${Math.floor(seconds/3600)}h ago`;return `${Math.floor(seconds/86400)}d ago`; }
+// One unit only; the exact time is in the hover text. Years are capped so the fixed-width roster chip never overflows.
+function ageText(seconds) { if(seconds==null)return 'No reading yet';if(seconds<60)return `${Math.floor(seconds)}s ago`;if(seconds<3600)return `${Math.floor(seconds/60)}m ago`;if(seconds<86400)return `${Math.floor(seconds/3600)}h ago`;if(seconds<7*86400)return `${Math.floor(seconds/86400)}d ago`;if(seconds<365*86400)return `${Math.floor(seconds/(7*86400))}w ago`;return `${Math.min(99,Math.floor(seconds/(365*86400)))}y ago`; }
 function expText(value,full=false) { if(value==null)return '—';if(full)return wholeNumbers.format(typeof value==='string'?BigInt(value):value);const n=Number(value),scale=n>=1e9?1e9:n>=1e6?1e6:n>=1e3?1e3:1;return (scale===1?numbers:shortNumber).format(n/scale)+({1:'',1000:'K',1000000:'M',1000000000:'B'}[scale]); }
 function amount(id,full,compact) {
   const target=el(id);target.dataset.fullNumber=full;target.dataset.compactNumber=compact;
@@ -122,7 +123,8 @@ function fitAmounts() {
   const narrow=targets.filter(n=>n.clientWidth>0 && n.scrollWidth>n.clientWidth+1);
   narrow.forEach(n=>{n.textContent=n.dataset.compactNumber;});
 }
-function movementText(summary) { return summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate)} EXP`:summary?.difference_percentage_points!=null?`+${summary.difference_percentage_points}%`:'—'; }
+// No "EXP" suffix: the card's label already says "EXP gained", and the suffix overflowed narrow cards.
+function movementText(summary) { return summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate)}`:summary?.difference_percentage_points!=null?`+${summary.difference_percentage_points}%`:'—'; }
 function displayedExp(r,full=false) {
   return r?.exp!=null?(['grammar_recovered','conditional_symbol'].includes(r.evidence)?'~ ':'')+expText(r.exp,full):
     r?.estimated_exp?`~${expText(r.estimated_exp.value.approximate,full)}`:'—';
@@ -135,7 +137,11 @@ function expTitle(r) {
 }
 function percentageText(r) { return r?.percentage!=null?`${r.estimated_percentage?'~':''}${r.percentage}%`:'—'; }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
-function sourceLink(p) {
+// On a phone the channel sits right beside the name, so it opens the same profile instead of Twitch (the profile links there).
+function sourceLink(p,profile) {
+  if(profile && globalThis.matchMedia?.('(max-width:650px)').matches) {
+    const source=node('a','channel',sourceText(p));source.href=profile;source.tabIndex=-1;return source;  // The name is the keyboard stop.
+  }
   const source=node(p.source_kind==='twitch'?'a':'span','channel',sourceText(p));
   if(p.source_kind==='twitch') {
     source.href=`https://www.twitch.tv/${encodeURIComponent(p.channel)}`;source.target='_blank';source.rel='noopener noreferrer';
@@ -290,10 +296,16 @@ function expSection(r,{label,buckets,day,eta,age,ageTitle,empty='Waiting for EXP
   const meta=node('div','exp-meta');
   if(buckets?.length)meta.append(dayChart(buckets));
   if(day!=null){const total=node('span','fact',`${expText(day)} today`);total.title=`${expText(day,true)} EXP tracked in the last 24 hours`;meta.append(total);}
-  if(eta){const soon=node('span','fact',`Next level in ${eta.text}`);soon.title=`At the ${eta.minutes} min pace, estimated ${ageText(eta.age)}. Not a live countdown.`;meta.append(soon);}
+  if(eta){
+    const title=`At the ${eta.minutes} min pace, estimated ${ageText(eta.age)}. Not a live countdown.`;
+    const soon=node('span','fact eta',`Next level in ${eta.text}`),short=node('span','fact eta-short',`↑ ETA ${eta.text}`);  // Phones show the short one.
+    soon.title=short.title=title;meta.append(soon,short);
+  }
   const updated=node('span','updated',age);if(ageTitle)updated.title=ageTitle;
   meta.append(updated);section.append(bar,meta);return section;
 }
+// Phones show the reading's age beside the score label instead of under the EXP bar; CSS draws its ◎ mark.
+function scoreAge(score,ago,title) { if(!ago)return;const seen=node('small','score-age',ago);if(title)seen.title=title;score.append(seen); }
 // The level badge with an indicator light in its corner: lit while online, dark otherwise.
 function levelPill(text,online,label) {
   const level=node('span','level'),led=node('span','led');led.dataset.on=String(online);led.setAttribute('role','img');led.setAttribute('aria-label',label);led.title=label;
@@ -321,13 +333,14 @@ function entry({player:p,value,rank}) {
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
   const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
-  identity.append(name,sourceLink(p));
-  const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta:rowETA(p),age:r?'Updated '+ageText(s.age):'No reading yet'});
+  identity.append(name,sourceLink(p,name.href));
+  const ago=r?ageText(s.age):null,seenAt=r?.timestamp?localTime(r.timestamp):'';
+  const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta:rowETA(p),age:ago?'Updated '+ago:'No reading yet',ageTitle:seenAt});
   row.append(badge,level,identity,section);
   if(sort==='level')value=metricValue(p,'exp_hour',5);
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label',sort==='day'?'EXP · 24h':'EXP / hour'));
   score.title=sort!=='day'?rateTitle(value):value==null?'No tracked EXP in the last 24 hours':`${expText(value,true)} EXP in the last 24 hours while tracked`;
-  row.append(score);return row;
+  scoreAge(score,ago,seenAt);row.append(score);return row;
 }
 // Rows update in place instead of being replaced, so hover, open tooltips and selections survive the 1 s refresh.
 function patch(live,fresh) {
@@ -347,8 +360,8 @@ function renderBoard() {
   el('board-count').dataset.loading=String(!failed && (!data || !!data.warming?.length));
   document.querySelectorAll('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===boardMode)));
   el('entries').setAttribute('aria-busy',String(boardMode!==shownMode));  // The other list is on its way.
-  el('streamer-metrics').hidden=characters;el('streamer-windows').hidden=characters;el('character-sort-control').hidden=!characters;
-  el('connection').textContent=failed?'Reconnecting · showing last known numbers':'';
+  el('streamer-metrics').hidden=characters;el('streamer-windows').hidden=characters || sort!=='exp_hour';el('character-sort-control').hidden=!characters;
+  el('connection').textContent=failed?'Reconnecting':'';  // CSS animates the dots; the numbers shown are the last known.
   showPresence();
   if(characters){renderCharacters();return;}
   const search=el('character-filter').value.trim().toLowerCase();
@@ -362,8 +375,8 @@ function renderBoard() {
   el('board-count').textContent=data?`${rows.length<all.length?`${rows.length} of `:''}${all.length} player${all.length===1?'':'s'}${data.warming?.length?` · ${data.warming.length} more loading`:''}`:failed?'Tracker unavailable':'Loading players…';
   el('ranking-count').textContent='';el('ranking-note').textContent='';
   document.querySelectorAll('[data-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.sort===sort)));
-  // Only EXP / hour ranks by the short time window.
-  document.querySelectorAll('[data-window]').forEach(button=>{button.setAttribute('aria-pressed',String(sort==='exp_hour' && Number(button.dataset.window)===windowMinutes));button.disabled=sort!=='exp_hour';});
+  // Only EXP / hour ranks by the short time window, so the window buttons are shown only then.
+  document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
 }
 function renderCharacters() {
   const search=el('character-filter').value.trim().toLowerCase(),order=characterSort;
@@ -378,13 +391,13 @@ function renderCharacters() {
     const badge=node('span','rank',index+1);badge.dataset.medal=order==='level' && index<3?index+1:'';badge.setAttribute('aria-label',`Rank ${index+1}`);
     const level=levelPill(r.level ?? '—',!!r.online,r.online?'Online':r.current?'Offline':'Not currently tracked');
     const identity=node('div','identity'),link=node('a','character',r.label);link.href=`/stream/${encodeURIComponent(r.channel)}?character=${r.id}`;
-    identity.append(link,sourceLink({...r,source_kind:r.source_kind ?? 'twitch'}));
+    identity.append(link,sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},link.href));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
-    const at=r.reading?.timestamp ?? r.last_seen_at;
+    const at=r.reading?.timestamp ?? r.last_seen_at,ago=at?ageText(Math.max(0,(now-Date.parse(at))/1000)):null;
     const section=expSection(r.reading ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,eta:rowETA(r,5),empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
-      age:at?`Updated ${ageText(Math.max(0,(now-Date.parse(at))/1000))}`:'Not seen yet',ageTitle:at?localTime(at):''});
+      age:ago?`Updated ${ago}`:'Not seen yet',ageTitle:at?localTime(at):''});
     const value=metricValue(r,'exp_hour',5),score=node('div','score');
-    score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label','EXP / hour'));score.title=rateTitle(value);
+    score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label','EXP / hour'));score.title=rateTitle(value);scoreAge(score,ago,at?localTime(at):'');
     row.append(level,identity,section,badge,score);return row;
   }));
   if(focus)[...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
@@ -467,10 +480,10 @@ function renderPlayer() {
     movement=view==='overlay'?(p.segment?.readings>=2?p.segment.difference_percentage_points:null):selectedWindow(p)?.eligible?selectedWindow(p).difference_percentage_points:null;
   const summary=observed ?? (movement!=null?{difference_percentage_points:movement}:null);
   el('movement').textContent=(observed || !s.stale && !failed) && (summary?.estimated_exp || movement!=null)?movementText(summary):'—';
-  amount('movement',el('movement').textContent==='—'?'—':summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate,true)} EXP`:el('movement').textContent,el('movement').textContent);
+  amount('movement',el('movement').textContent==='—'?'—':summary?.estimated_exp?`+${expText(summary.estimated_exp.value.approximate,true)}`:el('movement').textContent,el('movement').textContent);
   if(view==='overlay')el('movement').textContent=el('movement').textContent.replace(/ EXP$/,'');
   el('movement').dataset.paused=String(!!observed && (observed.paused || s.stale || failed) && faded(s.age));
-  el('movement').title=observed?`${el('movement').dataset.fullNumber}${movement!=null?` (+${movement}% of level)`:''} gained between the first and last update in this time.`:windowNote(p);
+  el('movement').title=observed?`${el('movement').dataset.fullNumber}${summary?.estimated_exp?' EXP':''}${movement!=null?` (+${movement}% of level)`:''} gained between the first and last update in this time.`:windowNote(p);
   amount('rate',m?.exp_per_hour?`${expText(m.exp_per_hour.value.approximate,true)}`:'—',m?.exp_per_hour?`${expText(m.exp_per_hour.value.approximate)}`:'—');el('rate').title=(view==='overlay' && earlyText(p)?earlyText(p)+'. ':'')+rateTitle(m?.exp_per_hour);
   el('pp-rate').textContent=m?.percentage_per_hour?`${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Estimated level % per hour.';
@@ -563,7 +576,8 @@ function drawExpHistory() {
   if(!chart || !Number.isFinite(chart.start) || !Number.isFinite(chart.end)){el('history-note').textContent='';return;}
   if(bucketSeconds===1800 && longChartWindow===720){chart.bins=chart.bins.slice(-24);chart.range=43200;chart.start=chart.end-43200000;}
   const width=Math.max(300,Math.min(960,svg.clientWidth||960)),plotWidth=width-76;
-  svg.setAttribute('viewBox',`0 0 ${width} 250`);svg.setAttribute('aria-label','EXP gained over time; dashes mean no data');
+  // Starts at y=20: nothing is drawn above the bars' hover area (y=25), and 230 tall matches the CSS box, so it is not shrunk.
+  svg.setAttribute('viewBox',`0 20 ${width} 230`);svg.setAttribute('aria-label','EXP gained over time; dashes mean no data');
   svg.dataset.start=new Date(chart.start).toISOString();svg.dataset.end=new Date(chart.end).toISOString();
   const max=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),scale=10**Math.floor(Math.log10(max)),top=Math.ceil(max/scale)*scale;
   const bottom=Math.min(0,...chart.bins.map(b=>b.value ?? 0)),yValue=v=>200-(v-bottom)/(top-bottom)*160;
@@ -735,9 +749,6 @@ function rosterSeenText(r) {
   const age=(now-Date.parse(stamp))/1000;
   if(!Number.isFinite(age))return 'Pending';
   if(r.current && reading && age>=0 && age<=300)return 'Current';
-  // Capped so the chip never outgrows its fixed width (sized for "Lv. 200 · 59m ago").
-  if(age>=365*86400)return `${Math.min(99,Math.floor(age/(365*86400)))}y ago`;
-  if(age>=7*86400)return `${Math.floor(age/(7*86400))}w ago`;
   return ageText(Math.max(0,age));
 }
 function rosterLink(r,viewing,className) {

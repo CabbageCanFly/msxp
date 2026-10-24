@@ -6,15 +6,19 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
   /* Extra navy tint: raise this percentage to make either town less distracting. */
   --background-tint:15%;
   --background-map:none; --background-sky:none;
+  /* Panel headers: warmer, more saturated wood than the shared --wood tokens, which buttons also use. */
+  --header-top:#a8703a; --header-bottom:#87542a; --header-edge:#56331a;
   isolation:isolate; background:var(--bg);
 }
 .product[data-background=sleepywood] { --background-map:url(sleepywood.webp); --background-sky:url(sleepywood-forest.webp); }
 /* The original sunset sky is much brighter than Sleepywood's forest. */
 .product[data-background=kerning] { --background-tint:45%; --background-map:url(kerning.webp); --background-sky:url(kerning-sky.webp); }
 .product .sky { display:none; }
-/* The viewport-sized scene stays behind pages of any length; the original pixels are preserved in lossless WebP. */
+/* The viewport-sized scene stays behind pages of any length; the original pixels are preserved in lossless WebP.
+   Sized to the large viewport (lvh), not inset:0: a fixed box with bottom:0 follows a phone's address bar as it
+   slides in and out, and cover then rescales the scene on every scroll. Desktop viewports have no such bar. */
 .product::before {
-  content:""; position:fixed; inset:0; width:100vw; z-index:-1; pointer-events:none;
+  content:""; position:fixed; top:0; left:0; width:100vw; height:100vh; height:100lvh; z-index:-1; pointer-events:none;
   background:
     linear-gradient(rgb(16 27 50 / var(--background-tint)), rgb(16 27 50 / var(--background-tint))),
     linear-gradient(180deg, rgb(16 27 50 / 50%), rgb(16 27 50 / 25%) 40%, rgb(16 27 50 / 44%)),
@@ -23,12 +27,14 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
     var(--background-sky) center / cover no-repeat;
 }
 /* Overscan hides the town render's uneven transparent bottom edge. */
-.product[data-background=kerning]::before { inset:-3%; left:-3vw; width:106vw; }
+.product[data-background=kerning]::before { top:-3vh; top:-3lvh; left:-3vw; width:106vw; height:106vh; height:106lvh; }
 .product[data-background-state]::before { opacity:0; }
 .product[data-background-state=ready]::before { opacity:1; }
 @media (prefers-reduced-motion:no-preference) {
   .product::before { transition:opacity .55s ease-out; }
   .product[data-intro] :is(.masthead,.reading-info) { animation:content-arrive .28s ease-out; }
+  /* Shown only for EXP / hour; the fade replays each time [hidden] lifts, not on the 1 s refresh. */
+  .product #streamer-windows { animation:content-arrive .28s ease-out; }
 }
 @keyframes content-arrive { from { opacity:0; } to { opacity:1; } }
 .product .brand { padding:10px 16px; border:1px solid #56637d66; border-radius: var(--radius-lg); background:#232c3e90; text-decoration:none; color:inherit; }
@@ -39,6 +45,30 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 @media (hover:hover) and (prefers-reduced-motion:no-preference) {
   .product .brand:hover .emblem { rotate:15deg; }
 }
+/* A slow light sweep across the title, a quiet hint that the numbers are live.
+   The text is painted by its clipped background, so the title's shadow moves to a drop-shadow filter
+   (a text-shadow would paint over the clipped glyphs). */
+@media (prefers-reduced-motion:no-preference) {
+  /* --shimmer-spread is half the band's width; --shimmer-edge tints it so the cream text still shows it. */
+  .product .brand strong {
+    --shimmer-base:var(--text); --shimmer-edge:#ffd98a; --shimmer-light:#fff; --shimmer-spread:14%;
+    background:linear-gradient(105deg, var(--shimmer-base) calc(50% - var(--shimmer-spread)), var(--shimmer-edge) calc(50% - var(--shimmer-spread) / 2),
+      var(--shimmer-light) 50%, var(--shimmer-edge) calc(50% + var(--shimmer-spread) / 2), var(--shimmer-base) calc(50% + var(--shimmer-spread))) 0 0 / 250% 100%;
+    -webkit-background-clip:text; background-clip:text; color:transparent; animation:text-shimmer 4.5s ease-in-out infinite;
+    text-shadow:none; filter:drop-shadow(0 3px 0 #5a3e27);
+  }
+  /* The profile's EXP / hour card: a glint runs along its 3px top edge instead of across the number.
+     The layer covers the card's border box (so it follows the rounded corners) and is masked to the top 3px. */
+  .companion-cards .early-pace { position:relative; }
+  .companion-cards .early-pace::before {
+    content:""; position:absolute; inset:-3px -1px -1px; border-radius:inherit; pointer-events:none;
+    background:linear-gradient(90deg, transparent 38%, #ffd98a 46%, #fff 50%, #ffd98a 54%, transparent 62%) 0 0 / 250% 100% no-repeat;
+    -webkit-mask:linear-gradient(#000 0 0) top / 100% 3px no-repeat; mask:linear-gradient(#000 0 0) top / 100% 3px no-repeat;
+    animation:text-shimmer 4s ease-in-out infinite;
+  }
+}
+/* Sweeps left to right in the first half, then rests out of sight. */
+@keyframes text-shimmer { 0% { background-position:100% 0; } 50%, 100% { background-position:0 0; } }
 /* A fixed line height and an SVG arrow (not a fallback-font glyph) keep the masthead identical on every page. */
 .product .brand span { line-height:18px; }
 .back-arrow { margin-right:5px; vertical-align:-1px; }
@@ -49,7 +79,7 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .eyebrow { color:var(--gold); letter-spacing:2px; font-size:12px; font-weight:800; margin:0; }
 .welcome h1 { font-size:clamp(34px,5vw,54px); font-weight:600; line-height:1.05; text-transform:none; letter-spacing:-.5px; margin:10px 0 14px; color:var(--text); text-shadow:0 3px 0 #0a1124; }
 .welcome > p:last-child { font-size:16px; line-height:1.6; color:var(--text-soft); margin:0; }
-.product .board-header { min-height:66px; align-items:center; }
+.product .board-header { min-height:66px; align-items:center; background:linear-gradient(var(--header-top),var(--header-bottom)); border-bottom-color:var(--header-edge); }
 .product .board-header h2 { margin:0; font-family:var(--font-display); font-size:18px; font-weight:600; letter-spacing:.2px; }
 .product .entry { grid-template-columns:36px 64px minmax(135px,190px) minmax(160px,1fr) 120px; }
 .product .character { text-decoration:none; color:var(--text); }
@@ -64,6 +94,14 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .product progress::-webkit-progress-value { background:linear-gradient(#d4f584,var(--green) 45%,var(--green-deep)); }
 .product progress::-moz-progress-bar { background:var(--green); }
 .poll-note { color:var(--text-muted); font-size:12px; font-weight:600; }
+.poll-note:empty { display:none; }  /* Otherwise it wraps onto its own empty toolbar line on phones. */
+.poll-note:not(:empty)::after { content:"..."; }
+@media (prefers-reduced-motion:no-preference) {
+  /* The dots keep a fixed-width slot and are revealed one per step by a clip, so the text never moves.
+     The letter spacing makes each dot about a third of the slot. */
+  .poll-note:not(:empty)::after { display:inline-block; width:1.1em; vertical-align:bottom; letter-spacing:.1em; animation:reconnect-dots 1.4s steps(4,jump-none) infinite; }
+}
+@keyframes reconnect-dots { from { clip-path:inset(0 100% 0 0); } to { clip-path:inset(0 0 0 0); } }
 /* Streamers/Characters toggle sits in the board header beside the title. */
 /* The count and the online filter stay together at the right, also when the header wraps on a phone. */
 .board-tools { display:flex; align-items:center; gap:10px; margin-left:auto; }
@@ -81,8 +119,26 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .sort-controls { display:grid; gap:5px; }
 .sort-caption { color:var(--text-muted); font-size:9px; font-weight:700; letter-spacing:1px; margin-left:2px; }
 @media(max-width:650px) {
-  .product .board-header:has(.board-modes) { flex-wrap:wrap; align-items:center; }
+  .product .board-header:has(.board-modes) { flex-wrap:wrap; align-items:center; row-gap:10px; }
   .board-tools #board-count { font-size:11px; }
+  /* Search shares a row with the count and the filter; its placeholder says what it searches. */
+  .character-controls { flex:1 1 150px; }
+  .character-controls label { flex:1; }
+  .character-controls input { width:100%; }
+  .search-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  /* Sort and window pills share the width evenly instead of wrapping one button onto its own line. */
+  .sort-controls { width:100%; }
+  .product :is(#streamer-metrics,#character-sort-control) { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .product :is(#streamer-metrics,#character-sort-control) button { width:auto; padding:8px 6px; }
+  .product #streamer-windows { display:grid; grid-template-columns:auto repeat(4,minmax(0,1fr)); width:100%; }
+  .product #streamer-windows button { padding:6px 4px; min-height:36px; }
+  /* Profile "Last" and "Interval" rows: one line each, pills sharing the width, never a lone pill on a second line.
+     Matched by their leading label; the overlay builder's groups have their labels outside. */
+  .product[data-view="player"] .windows:has(> span:first-child) { display:grid; grid-auto-flow:column; grid-template-columns:auto; grid-auto-columns:minmax(0,1fr); width:100%; }
+  .product[data-view="player"] .windows:has(> span:first-child) button { min-width:52px; padding:5px 2px; white-space:nowrap; }
+  /* "5m … 60m" like the 12h / 24h pills beside them, so five pills fit with room to breathe. */
+  .product[data-view="player"] .windows .unit { display:none; }
+  .product[data-view="player"] .windows button:has(.unit)::after { content:"m"; }
 }
 .product .entry .exp-label { color:#fff; }
 .product .entry .exp-number { min-width:0; white-space:nowrap; }
@@ -123,7 +179,6 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .early-pace #eta { display:inline; font-size:inherit; }
 .early-pace #eta-stat { margin-top:6px; }
 .early-pace [hidden] { display:none; }
-.early-pace #rate[data-paused="true"] { opacity:.7; }
 .early-pace small { color:var(--text-muted); font-size:12px; }
 .reading-info { color:var(--text-muted); font-size:12px; font-weight:600; margin:0 0 14px; }
 .reading-info a { color:var(--text-muted); }
@@ -175,7 +230,7 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 
 /* Saved-character roster: one scrollable row; only shown for two or more characters. */
 .roster { display:flex; align-items:center; gap:8px; padding:14px 25px 0; }
-.roster-track { display:flex; gap:6px; flex:1; min-width:0; overflow-x:auto; scrollbar-width:thin; scrollbar-color:var(--line-strong) transparent; padding-bottom:4px; }
+.roster-track { display:flex; gap:6px; flex:1; min-width:0; overflow-x:auto; scrollbar-width:thin; scrollbar-color:var(--line-strong) transparent; padding-bottom:8px; }
 @media(hover:hover) and (pointer:fine) {
   .roster-track:where([data-more]:not([data-more=""])),.roster-track:where([data-more]:not([data-more=""])) a { cursor:grab; }
 }
@@ -274,7 +329,7 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 #overlay-url { flex:1 1 280px; min-width:0; padding:9px 12px; color:var(--text-soft); background:var(--surface-sunken); border:1px solid var(--line-strong); border-radius:var(--radius-sm); font:600 13px var(--font-ui); }
 #overlay-url:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 @media(max-width:1100px) { .overlay-builder { grid-template-columns:minmax(0,1fr); } }
-@media(max-width:650px) { .overlay-builder { padding:16px 14px 18px; } .option-row { grid-template-columns:minmax(0,1fr); gap:6px; } }
+@media(max-width:650px) { .overlay-builder { padding:16px 14px 18px; } .option-row { grid-template-columns:minmax(0,1fr); gap:6px; } .option-row > span, .option-row > label { text-align:left; } }
 /* Decorative wandering mobs (product.js). The lane has no height, so feet rest on the card's top border. */
 /* Clip on html too, so body clips falling mobs itself rather than handing a scrollable "hidden" to the viewport. */
 html, body.product { overflow-x:clip; }
@@ -293,6 +348,16 @@ html, body.product { overflow-x:clip; }
 :is(.streamer-entry,.character-entry) .identity { grid-area:identity; }
 :is(.streamer-entry,.character-entry) .exp-section { grid-area:exp; }
 :is(.streamer-entry,.character-entry) .score { grid-area:score; }
+/* Names in the same face as the score, close to its size, so a player reads as prominently as their number. */
+.product :is(.streamer-entry,.character-entry) .character { font-family:var(--font-display); font-size:22px; font-weight:600; line-height:1.15; letter-spacing:-.2px; }
+/* Wide screens: the EXP block and the score both sit at the row's bottom and the label matches the age's size and line height,
+   so "EXP / hour" shares a baseline with "Updated 3m ago", even when the footer wraps to a second line. */
+@media(min-width:651px) {
+  .product :is(.streamer-entry,.character-entry) :is(.exp-section,.score) { align-self:end; }
+  .product :is(.streamer-entry,.character-entry) .score small { font-size:12px; line-height:1.5; margin-top:0; }
+}
+/* Phone-only twins: the short ETA and the age beside the score. */
+.exp-meta .eta-short, .product .entry .score-age { display:none; }
 .level .led { position:absolute; top:4px; left:4px; width:6px; height:6px; border-radius:50%; background:#262d3d; box-shadow:inset 0 1px 1px #000c, 0 0 0 1px #4f5a70; }
 .level .led[data-on="true"] { background:radial-gradient(circle at 35% 35%, #f1ffc8, var(--green) 55%, var(--green-deep)); box-shadow:0 0 5px 1px #b6e65b8c; }
 /* The player page's status dot lights the same way. */
@@ -322,14 +387,27 @@ html, body.product { overflow-x:clip; }
   .product :is(.streamer-entry,.character-entry) { grid-template-columns:30px 66px minmax(105px,145px) minmax(0,1fr) 70px; }
 }
 @media(max-width:650px) {
-  .product :is(.streamer-entry,.character-entry) { grid-template-columns:40px minmax(0,1fr) 72px; grid-template-areas:"rank identity score" "level exp exp"; padding:10px 11px; row-gap:7px; }
-  :is(.streamer-entry,.character-entry) .identity { display:flex; align-items:baseline; gap:6px; overflow:hidden; }
-  .product :is(.streamer-entry,.character-entry) .character { flex:0 1 auto; max-width:65%; font-size:16px; }
-  :is(.streamer-entry,.character-entry) .channel { flex:1; min-width:0; margin:0; font-size:11px; }
+  .product :is(.streamer-entry,.character-entry) { grid-template-columns:40px minmax(0,1fr) auto; grid-template-areas:"rank identity score" "level exp exp"; padding:10px 11px; row-gap:7px; }
+  /* Name over channel, like the score's value over its label. */
+  :is(.streamer-entry,.character-entry) .identity { overflow:hidden; }
+  :is(.streamer-entry,.character-entry) .channel { margin:2px 0 0; font-size:11px; font-weight:700; }
   .product .streamer-entry[data-metric="day"] .score strong { font-size:22px; }
   .product .entry .level { padding:10px 1px 5px; }
   .level .led { top:3px; left:3px; }
   .exp-meta .fact + .fact::before { content:none; }  /* Items wrap onto their own lines here. */
+  /* Phones: the short ETA replaces the long one, and the age moves beside the score label (see scoreAge). */
+  .exp-meta :is(.eta,.updated) { display:none; }
+  .exp-meta .eta-short { display:inline; margin-left:auto; }
+  .product :is(.streamer-entry,.character-entry) .score { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:baseline; column-gap:5px; max-width:36vw; }
+  .product :is(.streamer-entry,.character-entry) .score strong { flex-basis:100%; }
+  .product .entry .score-age { display:inline; order:1; white-space:nowrap; color:#7f889a; }  /* As muted as the desktop age. */
+  /* A drawn ◎ (ring and dot): the site fonts lack the glyph, and fallback fonts blot it at this size. */
+  .product .entry .score-age::before { content:""; display:inline-block; width:8px; height:8px; margin-right:4px; vertical-align:0; box-sizing:border-box; border:1.5px solid currentColor; border-radius:50%; background:radial-gradient(currentColor 0 1.2px, transparent 1.7px); }
+  .product .entry .score-age::after { content:"•"; margin-left:5px; color:var(--line-strong); }
+  .product .entry .score-label { order:2; white-space:nowrap; }
+}
+@media(max-width:359px) {
+  .product .entry .score-age::after { content:none; }  /* Age and label wrap onto two lines here; no dangling bullet. */
 }
 /* The character's name is the player page's headline. */
 .player-board #player-name { min-width:0; font-size:28px; font-weight:700; line-height:1.15; overflow-wrap:anywhere; text-shadow:0 2px 0 #4b3423; }
@@ -338,3 +416,8 @@ html, body.product { overflow-x:clip; }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .1s; }
 /* Switching characters: a gentler fade from the old numbers to the new ones. */
 :root[data-fade=slow]::view-transition-old(root), :root[data-fade=slow]::view-transition-new(root) { animation-duration: .25s; }
+/* At 360px and under, five 52px pills no longer fit beside the label: three per line, the rest lined up below them. */
+@media(max-width:360px) {
+  .product[data-view="player"] .windows:has(> span:first-child) { grid-auto-flow:row; grid-template-columns:auto repeat(3,minmax(52px,1fr)); }
+  .product[data-view="player"] .windows:has(> span:first-child) > button:nth-of-type(3n+1) { grid-column:2; }
+}

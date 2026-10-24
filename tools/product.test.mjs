@@ -89,7 +89,7 @@ test('header introduction happens once per tab; original panel loading finishes 
   p.run('poll()');await settle();assert.equal(p.run('document.body.dataset.loading'),undefined);
   const failed=page('board',()=>Promise.reject(new Error('Offline')));await settle();
   assert.equal(failed.run('document.body.dataset.loading'),undefined);assert.equal(failed.elements.entries.attributes['aria-busy'],'false');
-  assert.match(failed.elements.connection.textContent,/Reconnecting/);
+  assert.equal(failed.elements.connection.textContent,'Reconnecting');  // CSS adds the animated dots.
 });
 
 test('town backgrounds follow odd/even local day of month; known overrides win and overlays stay transparent',()=>{
@@ -215,6 +215,17 @@ test('homepage Twitch labels link to the channel in a new tab; video labels stay
   }
 });
 
+test('on a phone the channel label opens the same profile as the name, in the same tab',()=>{
+  const p=page('board');p.context.matchMedia=query=>({matches:query==='(max-width:650px)'});
+  for(const kind of ['twitch','file']){
+    p.context.fixture=player({source_kind:kind});
+    const [name,source]=p.run('entry({player:fixture,rank:1,value:60})').children[2].children;
+    assert.equal(source.tag,'a');assert.equal(source.href,name.href);assert.equal(source.href,'/stream/alpha');
+    assert.equal(source.target,undefined);assert.equal(source.tabIndex,-1);
+    assert.equal(source.textContent,kind==='twitch'?'ttv/alpha':'Video · alpha');
+  }
+});
+
 test('homepage renders an operator correction with ordinary numeric labels',()=>{
   const p=page('board'),level={value:64,status:'manual_admin',correction_id:8};
   p.context.fixture=player({reading:{exp:'123456',percentage:'50.00',bp:5000,evidence:'manual_admin',
@@ -319,9 +330,9 @@ test('public tracked gains prefer their coherent all-window packet while pace st
   const p=page('player'),base=player({tracked_status:'ready',tracked_windows:{'5':{observed:{available:true,
     estimated_exp:{value:{approximate:41228}},readings:97,span_seconds:{approximate:2100},age_seconds:0}}},
     tracked_current_level_windows:{'5':{observed:{available:true,estimated_exp:{value:{approximate:5000}},readings:4,span_seconds:{approximate:60},age_seconds:0}}}});
-  p.render(base);assert.equal(p.elements.movement.dataset.fullNumber,'+41,228 EXP');
+  p.render(base);assert.equal(p.elements.movement.dataset.fullNumber,'+41,228');
   p.elements['current-level-only'].listeners.change({target:{checked:true}});
-  assert.equal(p.elements.movement.dataset.fullNumber,'+5,000 EXP');
+  assert.equal(p.elements.movement.dataset.fullNumber,'+5,000');
   base.tracked_status='history_limit';base.tracked_windows={};base.tracked_current_level_windows={};
   p.render(base);assert.equal(p.elements.movement.textContent,'—');assert.equal(p.elements['segment-note'].textContent,'History unavailable');
 });
@@ -350,12 +361,12 @@ test('overlay uses the same five-minute gain and dated ETA as the player through
   const overlay=page(),detail=page('player');
   for(const p of [overlay,detail]) {
     p.render(base);
-    assert.equal(p.elements.movement.dataset.fullNumber,'+17,500 EXP');
-    assert.equal(p.elements.movement.textContent,p===overlay?'+17.5K':'+17,500 EXP');
+    assert.equal(p.elements.movement.dataset.fullNumber,'+17,500');
+    assert.equal(p.elements.movement.textContent,p===overlay?'+17.5K':'+17,500');
     assert.equal(p.elements.eta.textContent,'2h');
     assert.match(p.elements.eta.title,/5 min pace.*estimated/);
     p.run('failed=true;renderPlayer()');
-    assert.equal(p.elements.movement.dataset.fullNumber,'+17,500 EXP');
+    assert.equal(p.elements.movement.dataset.fullNumber,'+17,500');
     assert.equal(p.elements.eta.textContent,'2h');
   }
   // Explicitly unavailable windows must not fall back to an unrelated continuous segment.
@@ -628,7 +639,7 @@ test('selected SQLite window controls gain, rate and tentative ETA while four ca
   for(let i=0;i<5;i++){
     p.buttons[i].listeners.click();
     assert.equal(p.elements.rate.textContent,''+((i+1)*1000).toLocaleString('en-US'));
-    assert.equal(p.elements.movement.textContent,`+${(i+1)*100} EXP`);
+    assert.equal(p.elements.movement.textContent,`+${(i+1)*100}`);
     assert.equal(p.elements['eta-stat'].hidden,false);
     assert.equal(p.elements.eta.textContent,'15m');
     assert.equal(p.elements['window-rate'].textContent,`Needs a full ${p.buttons[i].dataset.window} min`);
@@ -673,6 +684,20 @@ test('homepage row ETAs retain dated durations through the selected window, then
     assert.equal(shownETA().textContent,eta.textContent);
     p.context.performance.now=()=>2000;assert.equal(shownETA(),undefined);
   }
+});
+
+test('rows carry phone twins: a short ETA under the bar and the reading age beside the score',()=>{
+  const p=page('board');
+  p.context.fixture=player({recent_windows:{5:{pace:{active:true},eta:{estimate:{seconds:{approximate:22800}},
+    window_minutes:5,age_seconds:1,historical:false}}}});
+  const row=p.run('entry({player:fixture,rank:1,value:60})'),meta=row.children[3].children[1].children,score=row.children[4];
+  assert.deepEqual(meta.filter(n=>/eta/.test(n.className)).map(n=>[n.className,n.textContent]),[['fact eta','Next level in 6h 20m'],['fact eta-short','↑ ETA 6h 20m']]);
+  assert.equal(meta.at(-1).textContent.replace(/\d+/,'N'),'Updated Ns ago');
+  assert.deepEqual(score.children.map(n=>n.className),['score-value','score-label','score-age']);  // Appended last; CSS orders it first.
+  assert.equal(score.children[2].textContent,meta.at(-1).textContent.replace('Updated ',''));  // CSS draws the ◎ mark.
+  p.context.fixture=player({reading:null});
+  assert.equal(p.run('entry({player:fixture,rank:1,value:60})').children[4].children.length,2);  // No reading, no age.
+  assert.deepEqual([45,600,7200,3*86400,9*86400,400*86400].map(s=>p.run(`ageText(${s})`)),['45s ago','10m ago','2h ago','3d ago','1w ago','1y ago']);
 });
 
 test('homepage uses only the selected server ETA and retains the fresh label',()=>{
@@ -738,13 +763,13 @@ test('mixed-level EXP-only summaries remain visible and the filter selects its o
   base.recent_windows['5'].pace={active:true,level:61,readings:4,age_seconds:0,span_seconds:{approximate:60},
     estimates:{exp_per_hour:{value:{approximate:763*3600/60},requirement:{version:'test'},hypotheses:null},percentage_per_hour:null}};
   p.render(base);
-  assert.equal(p.elements.movement.textContent,'+763 EXP');assert.doesNotMatch(p.elements.movement.title,/null/);
+  assert.equal(p.elements.movement.textContent,'+763');assert.doesNotMatch(p.elements.movement.title,/null/);
   assert.equal(p.elements.rate.textContent,'45,780');
   assert.equal(p.elements.eta.textContent,'10m');
   p.elements['current-level-only'].listeners.change({target:{checked:true}});
-  assert.equal(p.elements.movement.textContent,'+575 EXP');
+  assert.equal(p.elements.movement.textContent,'+575');
   p.elements['current-level-only'].listeners.change({target:{checked:false}});
-  assert.equal(p.elements.movement.textContent,'+763 EXP');
+  assert.equal(p.elements.movement.textContent,'+763');
   assert.equal(p.elements['eta-stat'].hidden,false);
 });
 
@@ -814,7 +839,7 @@ test('EXP history has fixed axes and the 24h view waits for aggregated history',
     assert.equal(Date.parse(p.elements['history-chart'].dataset.end)-Date.parse(p.elements['history-chart'].dataset.start),seconds*1000);
   }
   p.elements['history-chart'].clientWidth=340;p.run('drawHistory()');
-  assert.equal(p.elements['history-chart'].attributes.viewBox,'0 0 340 250');
+  assert.equal(p.elements['history-chart'].attributes.viewBox,'0 20 340 230');
 });
 
 test('24h summary and bars use the server total, retain zero, and age cached failures',()=>{
@@ -838,7 +863,7 @@ test('public progress uses EXP with percentage fallback and exact provenance in 
   const p=page('player'),base=player({windows:{5:{eligible:false,observed:{available:true,
     difference_percentage_points:'0.14',estimated_exp:{value:{approximate:2329.7904},requirement:{version:'synthetic'}},
     span_seconds:{approximate:45},readings:4,interruptions:0,age_seconds:1}}}});
-  p.render(base);assert.equal(p.elements.movement.textContent,'+2,330 EXP');assert.match(p.elements.movement.title,/^\+2,330 EXP \(\+0\.14% of level\) gained between the first and last update/);
+  p.render(base);assert.equal(p.elements.movement.textContent,'+2,330');assert.match(p.elements.movement.title,/^\+2,330 EXP \(\+0\.14% of level\) gained between the first and last update/);
   delete base.windows[5].observed.estimated_exp;p.render(base);assert.equal(p.elements.movement.textContent,'+0.14%');
   assert.equal(p.run('expText(1234567890)'),'1.23B');assert.equal(p.run('expText(45)'),'45');
 });
@@ -1247,6 +1272,15 @@ test('character rows number every sort and reserve medals for Level, with Update
     assert.deepEqual(rows.map(r=>r.dataset.rank),index===1?[1,2]:['','']);
     assert.ok(rows.every(r=>r.children[4].children[0].textContent==='—'));
     assert.equal(rows[0].children[2].children[1].children.at(-1).textContent,'Updated 0s ago');
+  }
+});
+
+test('time window buttons appear only while EXP / hour sorts the streamers',()=>{
+  const p=page('board');p.context.fixture=player();
+  for(const [sort,hidden] of [['level',true],['day',true],['exp_hour',false]]){
+    p.run(`sort=${JSON.stringify(sort)};data={players:[fixture]};renderBoard()`);
+    assert.equal(p.elements['streamer-windows'].hidden,hidden,sort);
+    assert.ok(p.buttons.every(b=>!b.disabled));
   }
 });
 
