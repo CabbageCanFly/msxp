@@ -22,6 +22,16 @@ def test_settings_come_from_environment_then_env_file_then_defaults(tmp_path):
     assert msxp.settings(tmp_path / 'missing', {}, ())['MSXP_DATABASE'] == 'private/msxp/tracker.sqlite3'
 
 
+def test_a_git_worktree_borrows_the_main_checkouts_environments(tmp_path):
+    main, worktree = tmp_path / 'main', tmp_path / 'feature'
+    (main / '.git/worktrees/feature').mkdir(parents=True); (main / '.venv').mkdir(); worktree.mkdir()
+    (worktree / '.git').write_text(f'gitdir: {main / ".git/worktrees/feature"}\n', encoding='utf-8')
+    assert msxp.environment_root(worktree) == main.resolve()
+    (worktree / '.venv').mkdir()  # Its own environment wins.
+    assert msxp.environment_root(worktree) == worktree
+    assert msxp.environment_root(main) == main  # A normal checkout has a .git folder, not a file.
+
+
 def build(name, s=None, **args):
     return msxp.build(name, Namespace(**dict(db=None, port=None, workers=None, no_browser=False) | args), s or msxp.settings('missing', {}, ()))
 

@@ -79,6 +79,9 @@ Want the leaderboard to show who is live? Add free Twitch app keys to `.env` (ne
 | `msxp logs` | Follow or browse logs; filter by time or text (on a server: `tracker`, `api` or `cleanup`) |
 | `msxp sql` | Open the configured database in a read-only SQLite shell; optionally supply a quoted SQL query |
 | `msxp server ...` | Runs any command on your server over SSH (see [Put it online](#put-it-online)) |
+
+In a `git worktree` without its own `.venv`, msxp uses the main checkout's Python and OCR
+environments (`msxp where` shows which) while still running the worktree's code.
 | `msxp help` | This list, plus where your settings live |
 
 Tool wrappers print the command they run and pass extra options to their underlying project tool

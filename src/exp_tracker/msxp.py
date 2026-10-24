@@ -22,8 +22,22 @@ import webbrowser
 ROOT = Path(__file__).resolve().parents[2]
 WINDOWS = os.name == 'nt'
 BIN = 'Scripts/python.exe' if WINDOWS else 'bin/python'
-VENV = ROOT / '.venv' / BIN
-OCR = ROOT / 'private/rapidocr/.venv' / BIN
+
+
+def environment_root(root):
+    """A linked git worktree has no .venv of its own (it isn't in Git), so it borrows the main checkout's.
+
+    Tools still run this checkout's code: run() puts its src first on PYTHONPATH."""
+    git = root / '.git'
+    if (root / '.venv').exists() or not git.is_file():return root
+    gitdir = git.read_text(encoding='utf-8').partition('gitdir:')[2].strip()  # <main>/.git/worktrees/<name>
+    main = (root / gitdir).resolve().parents[2] if gitdir else root
+    return main if (main / '.venv').exists() else root
+
+
+ENVIRONMENTS = environment_root(ROOT)
+VENV = ENVIRONMENTS / '.venv' / BIN
+OCR = ENVIRONMENTS / 'private/rapidocr/.venv' / BIN
 OCR_PACKAGES = ['rapidocr==3.10.0', 'onnxruntime==1.31.0', 'psutil==7.2.2', 'Pillow==12.3.0']  # As deploy/install-ubuntu.sh.
 SETTINGS = {'MSXP_DATABASE': 'private/msxp/tracker.sqlite3', 'MSXP_PORT': '8765', 'MSXP_ADMIN_PORT': '8766',
             'MSXP_DEMO_PORT': '8890', 'MSXP_DASHBOARD_PORT': '8767', 'MSXP_WORKERS': '2',
@@ -214,12 +228,12 @@ def install(args, s):
     if sys.version_info < (3, 11):
         print('Python 3.11 or newer is required: https://www.python.org/downloads/');return 1
     steps = []
-    if not VENV.is_file():steps.append([sys.executable, '-m', 'venv', ROOT / '.venv'])
+    if not VENV.is_file():steps.append([sys.executable, '-m', 'venv', VENV.parents[1]])
     # ensurepip first: a damaged environment can lose pip itself; reinstalling then restores missing dependencies.
     pip, ensure = ['-m', 'pip', 'install', '--disable-pip-version-check'], ['-m', 'ensurepip', '--upgrade']
     steps += [[VENV, *ensure], [VENV, *pip, '--upgrade', 'pip'], [VENV, *pip, '-e', '.[capture,dev]']]
     if not args.no_ocr:
-        if not OCR.is_file():steps.append([sys.executable, '-m', 'venv', ROOT / 'private/rapidocr/.venv'])
+        if not OCR.is_file():steps.append([sys.executable, '-m', 'venv', OCR.parents[1]])
         steps += [[OCR, *ensure], [OCR, *pip, '--only-binary=:all:', *OCR_PACKAGES]]
     for step in steps:
         if run(step, tool=False):print('Install stopped; see the error above.');return 1
@@ -248,8 +262,8 @@ def where(s):
     rows = [('Project folder', ROOT), ('Your settings and secrets', ROOT / '.env'),
             *(('Server settings', p) for p in SERVER_ENV if p.exists()), ('Tracker database', path(s['MSXP_DATABASE'])),
             ('Capture logs', ROOT / 'private/multi-alpha/runs'), ('Backups', ROOT / 'private/backups'),
-            ('Manual backups', ROOT / 'private/manual-backups'), ('Python environment', ROOT / '.venv'),
-            ('OCR environment', ROOT / 'private/rapidocr/.venv')]
+            ('Manual backups', ROOT / 'private/manual-backups'), ('Python environment', VENV.parents[1]),
+            ('OCR environment', OCR.parents[1])]
     for what, location in rows:
         print(f'  {what:<26} {location}' + ('' if location.exists() else '   (not created yet)'))
     if services():print(f'  {"Services (systemd)":<26} {", ".join(services())}   logs: msxp logs')
