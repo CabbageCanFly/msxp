@@ -7,16 +7,22 @@ of the regression inputs. It is separate from this public code repository. From 
 
 ```sh
 msxp install
-python tools/restore_test_data.py ../msxp-test-data
-python tools/restore_test_data.py ../msxp-test-data --check
+msxp test-data
+msxp test-data --check
 msxp test
 ```
 
-Use the project's Python environment (`.venv/Scripts/python.exe` on Windows, `.venv/bin/python` on Linux)
-for these Python commands. Clone the private data repository with its files checked out, not metadata only.
-The restore command verifies original bytes, decompresses stored text when needed, and refuses to overwrite
-different local files. Its `--check` option writes nothing and fails if a preserved file is corrupt or a
-restored fixture is missing. Research-only evidence stays in the private data repository.
+Git must be installed and signed in with access to the private data repository. The command reads its
+manifest, downloads only missing required files, verifies original bytes, and removes the temporary Git
+download afterward. About 701 MB of test inputs remain installed; old research is not downloaded.
+Different local files are never overwritten. `--check` downloads only the manifest and verifies installed
+inputs; it fails if a required file is missing or changed. Correct existing files are not downloaded again.
+
+If the full data repository is already available locally, the original offline workflow still works:
+`python tools/restore_test_data.py ../msxp-test-data`, with `--check` to verify the data repository and
+installed fixtures. Use the project's Python environment (`.venv/Scripts/python.exe` on Windows,
+`.venv/bin/python` on Linux) for these Python commands. The full local clone can be removed once its
+contents are pushed and verified; it is not needed by `msxp test-data`.
 
 The three multi-GB source recordings are **not required** once these fixtures are restored. Keep the
 lossless full-frame cache, crop manifests, digit/profile data and saved-log fixtures. The extra frame at

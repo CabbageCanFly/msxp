@@ -66,6 +66,7 @@ msxp: MapleStory Classic EXP tracker
                  msxp health      missed captures in the last hour, and why
                  msxp cleanup     keep only the last 24 h of raw readings (add --apply)
                  msxp test        run the test suite
+                 msxp test-data   download only the private files needed by tests
                  msxp where       where your settings, database, logs and backups are
                  msxp logs        follow the log (on a server: tracker, api or cleanup)
                  msxp sql         open your database in a read-only SQLite shell
@@ -167,6 +168,7 @@ def build(name, args, s, extra=()):
         'cleanup': ([py, '-m', 'exp_tracker.retention', '--db', db,
                      *(['--apply', '--log-root', 'private/multi-alpha/runs'] if getattr(args, 'apply', False) else [])], False),
         'test': ([py, '-m', 'pytest'], False),
+        'test-data': ([py, 'tools/restore_test_data.py', '--download', *(['--check'] if getattr(args, 'check', False) else [])], False),
     }[name]
     return [*command, *extra], url if opens and not args.no_browser else None
 
@@ -342,7 +344,8 @@ def main(argv=None):
                        ('tracker', 'capture streams + local website'), ('api', 'website only'),
                        ('dashboard', 'operator view of every capture'),
                        ('health', 'missed captures and why'), ('cleanup', 'keep only the last 24 h'),
-                       ('test', 'run the test suite'), ('where', 'where files are'), ('logs', 'follow or browse the log'),
+                       ('test', 'run the test suite'), ('test-data', 'download only required private test files'),
+                       ('where', 'where files are'), ('logs', 'follow or browse the log'),
                        ('sql', 'open a read-only SQLite shell'),
                        ('server', 'run a command on your server over SSH')):
         sub = commands.add_parser(name, help=text, aliases=['diag'] if name == 'doctor' else [])
@@ -367,9 +370,10 @@ def main(argv=None):
         if name == 'health':sub.add_argument('--minutes', type=int, default=60)
         if name == 'cleanup':sub.add_argument('--apply', action='store_true', help='actually delete; default is a dry run')
         if name == 'install':sub.add_argument('--no-ocr', action='store_true', help='skip the RapidOCR environment')
+        if name == 'test-data':sub.add_argument('--check', action='store_true', help='verify installed files; downloads only the manifest')
     args, extra = parser.parse_known_args(argv)
     name = {'diag': 'doctor', None: 'help'}.get(args.command, args.command)
-    if extra and name not in ('demo', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'test'):parser.error(f'unknown option {extra[0]}')
+    if extra and name not in ('demo', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'test', 'test-data'):parser.error(f'unknown option {extra[0]}')
     s = settings()
     if name == 'help':print(HELP, end='');return 0
     if name == 'doctor':return doctor(s)

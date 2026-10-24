@@ -46,6 +46,8 @@ def test_each_command_runs_the_documented_tool():
     assert build('api', port=9000, no_browser=True) == ([str(msxp.VENV), '-m', 'exp_tracker.server', '--db', db, '--port', '9000', '--public-only'], None)
     assert build('cleanup', apply=False)[0][-2:] == ['--db', db]
     assert build('cleanup', apply=True)[0][-3:] == ['--apply', '--log-root', 'private/multi-alpha/runs']
+    assert build('test-data') == ([str(msxp.VENV), 'tools/restore_test_data.py', '--download'], None)
+    assert build('test-data', check=True)[0][-1] == '--check'
     twitch = dict(msxp.settings('missing', {'TWITCH_CLIENT_ID': 'a', 'TWITCH_CLIENT_SECRET': 'b'}, ()))
     assert build('tracker', twitch)[0][-1] == '--twitch-status' and build('api', twitch)[0][-1] == '--twitch-status'
 

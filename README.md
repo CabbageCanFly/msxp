@@ -75,6 +75,7 @@ Want the leaderboard to show who is live? Add free Twitch app keys to `.env` (ne
 | `msxp health` | Missed captures in the last hour, and why |
 | `msxp cleanup` | Keeps only the last 24 hours of raw readings (`--apply` to actually delete) |
 | `msxp test` | Runs the test suite |
+| `msxp test-data` | Downloads only the required private test files; `--check` verifies installed files |
 | `msxp where` | Where your settings, database, logs and backups are |
 | `msxp logs` | Follow or browse logs; filter by time or text (on a server: `tracker`, `api` or `cleanup`) |
 | `msxp sql` | Open the configured database in a read-only SQLite shell; optionally supply a quoted SQL query |
@@ -86,6 +87,11 @@ environments (`msxp where` shows which) while still running the worktree's code.
 
 Tool wrappers print the command they run and pass extra options to their underlying project tool
 (for example `msxp tracker --check` only checks, without capturing). Logs and SQL use the options below.
+
+Private regression inputs are optional for running the tracker. Maintainers with access to the private
+test-data repository can run `msxp test-data`, then `msxp test`. Only missing required files are downloaded
+and checked; the full research archive and a permanent data-repo clone are not kept locally.
+See [private test data](docs/private-test-data.md) for recovery details.
 
 ### Search and browse server logs
 
