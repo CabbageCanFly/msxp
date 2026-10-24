@@ -1,4 +1,5 @@
 """Shared experimental endpoint evidence. Never supplies trusted Store gains."""
+from bisect import bisect_left,bisect_right
 from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -132,18 +133,27 @@ def same_character(before,after):
     return a not in ('','None') and a==b
 
 
-def window_endpoints(points,*,start,end,level=None):
-    """Sum disjoint nonnegative intervals ending in the window and no longer than it."""
-    ordered=sorted((p for p in points if usable_endpoint(p) and datetime.fromisoformat(p['timestamp'])<=end),
-                   key=lambda p:datetime.fromisoformat(p['timestamp']))
+def window_endpoints(points,*,start,end,level=None,memo=None):
+    """Sum disjoint nonnegative intervals ending in the window and no longer than it.
+
+    memo: a dict shared only by calls over the same unchanged points. It keeps their sorted
+    order and each pair's interval, which a full day's windows otherwise recomputed per call.
+    """
+    memo={} if memo is None else memo
+    if 'ordered' not in memo:
+        memo['ordered']=sorted(((datetime.fromisoformat(p['timestamp']),p) for p in points if usable_endpoint(p)),key=lambda t:t[0])
+        memo['times']=[t for t,_ in memo['ordered']];memo['pairs']={}
+    ordered,times,pairs=memo['ordered'],memo['times'],memo['pairs']
     used=[];gains=[];coverage=Fraction(0);reason='two_distinct_observation_times_required'
-    for before,after in zip(ordered,ordered[1:]):
-        a,b=datetime.fromisoformat(before['timestamp']),datetime.fromisoformat(after['timestamp'])
-        if not start<=b<=end or b<=a:continue
+    # Sorted, so the skipped pairs are exactly those ending before start or after end.
+    for i in range(max(0,bisect_left(times,start)-1),bisect_right(times,end)-1):
+        (a,before),(b,after)=ordered[i],ordered[i+1]
+        if b<=a:continue
         if b-a>end-start:
             reason='gap_exceeds_window';continue
         if level is not None and (before['level']['value']!=level or after['level']['value']!=level):continue
-        gain,why=endpoint_interval(before,after)
+        if i not in pairs:pairs[i]=endpoint_interval(before,after)
+        gain,why=pairs[i]
         if gain is None:
             reason=why;continue
         if gain['value']['numerator']<0:

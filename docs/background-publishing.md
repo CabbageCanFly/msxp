@@ -35,14 +35,36 @@ store, card cache and historical-ETA cache are now used only by the refresher.
 
 1. cold channels a viewer is waiting for;
 2. other cold channels;
-3. changed revisions and expired entries together, oldest publication first.
+3. changed revisions, and entries at least 30 s old, together, oldest publication first;
+4. other time-only expiries, oldest publication first.
 
 An entry expires on the unchanged `Diagnostics.due` rule: rolling windows that can still
 age, rebuilt after 10 s. Tracked windows are refreshed every 30 s, as the former request
-cache did. One build per step means an expiring idle channel waits at most for the
-builds ranked above it. A continuously changing channel cannot repeatedly outrank an
-older due publication. Cold-start work grows with the visible roster; there is no
-fixed channel-count publication limit.
+cache did. With many live channels something is always expiring. Ranking new captures
+ahead of those 10 s expiries keeps a new reading from queueing behind them; before, viewers
+received two or three captures at once. An expired entry joins the new captures once it is
+30 s old, so a continuously changing channel cannot repeatedly outrank an older due
+publication. Cold-start work grows with the visible roster; there is no fixed
+channel-count publication limit.
+
+**Shared window work.** One `recent_windows` pass (5 min to 24 h, current and basis
+clocks) used to re-sort and re-evaluate every pair of the day's endpoints for each window.
+`window_endpoints(memo=)` keeps one sorted order and each pair's interval for calls over the
+same unchanged points; results are identical (`tests/test_window_endpoints_memo.py`).
+
+Measured 2026-10-24, Windows workstation, synthetic full-day channels
+(`tools/benchmark_homepage.py --channels 10 20 --viewers 40 --seconds 90`), capture to
+published entry:
+
+| Channels | p50 / p95 / max, before → after | Captures still unpublished at end | Mean build |
+|---:|---|---|---:|
+| 10 | 6.3 / 12.4 / 13.5 s → **1.6 / 3.6 / 6.2 s** | 3 → 0 | 1.09 → 0.75 s |
+| 20 | 25.4 / 41.2 / 42.2 s → **22.6 / 24.8 / 25.7 s** | 19 → 10 | 1.69 → 1.47 s |
+
+At 20 channels the refresher is still saturated (≈88 % busy): one capture per channel per
+20 s needs more builds than one process completes. Oldest-entry age p95 at 10 channels rose
+13.9 → 27.9 s, as intended, because time-only refreshes now wait up to 30 s; ages are still
+presented honestly. Untested on the VPS.
 
 **Presentation.** Requests only time-present published entries:
 

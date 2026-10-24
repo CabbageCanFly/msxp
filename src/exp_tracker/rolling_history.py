@@ -420,8 +420,9 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
             run_id=last['run_id'] if last else None,percentage_progress=dict(reason='public_endpoint_window'))
         collected=dict(points=state['rows'],latest=state['rows'][-1] if state['rows'] else None,
             excluded=[],recoveries=[])
-        result['windows']=recent_windows(head,dict(value=level),now=now,collected=collected)
-        result['current_level_windows']=recent_windows(head,dict(value=level),now=now,current_level_only=True,collected=collected)
+        memo={}
+        result['windows']=recent_windows(head,dict(value=level),now=now,collected=collected,memo=memo)
+        result['current_level_windows']=recent_windows(head,dict(value=level),now=now,current_level_only=True,collected=collected,memo=memo)
         for metrics in (result['windows'],result['current_level_windows']):
             for key,metric in list(metrics.items()):
                 pace=metric.get('pace')

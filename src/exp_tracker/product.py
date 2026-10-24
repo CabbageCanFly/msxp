@@ -21,7 +21,7 @@ OBSERVED_MAX_GAP_SECONDS=60
 OBSERVED_MAX_MISSING=2
 
 
-def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=False,retain_history=True,collected=None,current_level_only=False):
+def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=False,retain_history=True,collected=None,current_level_only=False,memo=None):
     """Eligible whole-interval gains, normalized over the selected lookback duration."""
     from .pace_intervals import collect_observed,window_endpoints,PUBLIC_POLICY
     rows=snapshot['observations'];reference=next((r.get('received_at') or r.get('attempted_at') for r in reversed(rows)),None)
@@ -31,14 +31,14 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
     points=collected['points'];current=(display_level or {}).get('value')
     if current is None and points:current=points[-1]['level']['value']
     if current_level_only and current is None:return None
-    selected,gain,reason=window_endpoints(points,start=now-timedelta(minutes=minutes),end=now,level=current if current_level_only else None)
+    selected,gain,reason=window_endpoints(points,start=now-timedelta(minutes=minutes),end=now,level=current if current_level_only else None,memo=memo)
     retained=False
     if gain is None and retain_history:
         eligible=[p for p in points if not current_level_only or p['level']['value']==current]
         for a,b in reversed(list(zip(eligible,eligible[1:]))):
             reference=datetime.fromisoformat(b['timestamp'])
             if reference-datetime.fromisoformat(a['timestamp'])>timedelta(minutes=minutes):continue
-            selected,gain,reason=window_endpoints(points,start=reference-timedelta(minutes=minutes),end=reference,level=current if current_level_only else None)
+            selected,gain,reason=window_endpoints(points,start=reference-timedelta(minutes=minutes),end=reference,level=current if current_level_only else None,memo=memo)
             if gain:retained=True;break
     if gain is None:return None
     first,last=selected[0],selected[-1];elapsed=elapsed_seconds(datetime.fromisoformat(first['timestamp']),datetime.fromisoformat(last['timestamp']))
@@ -79,14 +79,15 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
         aging_allowed=False,reason=snapshot['percentage_progress']['reason'],identity_verified=False,denominator='selected_window_duration')
 
 
-def recent_windows(snapshot,display_level,*,now,current_level_only=False,collected=None):
+def recent_windows(snapshot,display_level,*,now,current_level_only=False,collected=None,memo=None):
     """Whole eligible intervals and window-normalized rates for each lookback."""
     from .pace_intervals import collect_observed as collect,window_endpoints
     collected=collected or collect(snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
+    memo={} if memo is None else memo  # Shared only by calls over these same collected points.
     result={}
     for minutes in WINDOWS:
         pace=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,
-            retain_history=False,collected=collected,current_level_only=current_level_only)
+            retain_history=False,collected=collected,current_level_only=current_level_only,memo=memo)
         observed=dict(available=False)
         if pace:
             percentage=pace['estimates']['percentage_per_hour']
@@ -107,10 +108,10 @@ def recent_windows(snapshot,display_level,*,now,current_level_only=False,collect
         if pace is None:
             level=(display_level or {}).get('value')
             if level is None and collected['points']:level=collected['points'][-1]['level']['value']
-            _,_,reason=window_endpoints(collected['points'],start=now-timedelta(minutes=minutes),end=now,level=level if current_level_only else None)
+            _,_,reason=window_endpoints(collected['points'],start=now-timedelta(minutes=minutes),end=now,level=level if current_level_only else None,memo=memo)
             result[str(minutes)]['reason']=reason
         if pace is None:
-            previous=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only)
+            previous=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only,memo=memo)
             result[str(minutes)]['last_observed_pace']=({k:v for k,v in previous.items()
                 if k not in ('intervals','conditional_recoveries','excluded','latest_endpoint')} if previous else None)
             if previous is None:
@@ -122,7 +123,7 @@ def recent_windows(snapshot,display_level,*,now,current_level_only=False,collect
         # Date the estimate at an observation, not at a poll that merely removes
         # old intervals. The gain/rate cards keep their actual current windows.
         basis=responsive_pace(snapshot,display_level,now=datetime.fromisoformat(current_basis.get('eta_at',current_basis['end'])),
-            minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only) if current_basis else None
+            minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only,memo=memo) if current_basis else None
         eta=basis and basis['last_observed_eta']
         # An old duration survives missing OCR, never an affirmative new level or
         # confirmed reset. No subtraction or countdown crosses the boundary.
@@ -570,10 +571,11 @@ def player(snapshot,*,now=None,recent_snapshot=None):
     from .pace_intervals import collect_observed as collect
     # Both scopes use the same public observations, clock and limit.
     collected=collect(recent_snapshot or snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
-    result['recent_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now,collected=collected)
+    memo={}
+    result['recent_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now,collected=collected,memo=memo)
     transition=(result.get('level_context') or {}).get('transition') or {}
     filter_level=dict(value=transition['to_level']) if transition.get('phase')=='possible' and not transition.get('evidence_exhausted') else display_level
-    result['current_level_windows']=recent_windows(recent_snapshot or snapshot,filter_level,now=now,current_level_only=True,collected=collected)
+    result['current_level_windows']=recent_windows(recent_snapshot or snapshot,filter_level,now=now,current_level_only=True,collected=collected,memo=memo)
     if recent_snapshot is not None:result['level_events']=level_events(recent_snapshot['observations'])
     result['recent_history']=dict(status=(recent_snapshot or snapshot).get('recent_history_status','ready'),
         source='sqlite_time_range' if recent_snapshot is not None else 'provided_snapshot',

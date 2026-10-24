@@ -398,6 +398,17 @@ def test_changed_channel_cannot_starve_expired_channel(tracking,clock):
         assert p.entry('quiet')['built_at']!=before
 
 
+def test_new_capture_is_published_before_time_only_expiry(tracking,clock,monkeypatch):
+    path,store,d=tracking;store.add_channel('aaa')  # Sorts first, so only the rank can put alpha ahead.
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;p.settle();before=p.entry('aaa')['built_at']
+        monkeypatch.setattr('exp_tracker.publisher.due',lambda *a:True)  # Every rolling window has aged.
+        clock.at+=timedelta(seconds=11)
+        save(d,'run',1,20,3301)
+        p.step()
+        assert p.entry('alpha')['built_at']==clock.at.isoformat() and p.entry('aaa')['built_at']==before
+
+
 def test_unknown_requests_do_not_allocate_unbounded_presentation_state(tracking,clock):
     path,store,d=tracking
     with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:

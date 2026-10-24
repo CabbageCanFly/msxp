@@ -241,16 +241,18 @@ class Publisher:
             self.wanted &= logins; self.checkpoints_restored &= logins
 
     def due(self, heads, now):
-        """Cold (wanted first), then all due publications oldest first."""
+        """Cold (wanted first), then new captures and expired entries older than TRACKED_SECONDS,
+        oldest first, then other time-only expiries. With many live channels something always
+        expires, and new readings queued behind those reached viewers several captures at once."""
         ranked = []
         for head in heads:
             login = head['login']; entry = self.entries.get(login); failure = self.failures.get(login)
             if failure and now < failure[1]:continue
             if entry is None or entry.get('restored'):rank = (0 if login in self.wanted else 1, '')
             elif entry['key'] != tuple(head):rank = (2, entry['built_at'])
-            elif (due(entry['card']['player'], entry['card']['recent_as_of'], now)
-                    or not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=TRACKED_SECONDS)):
+            elif not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=TRACKED_SECONDS):
                 rank = (2, entry['built_at'])
+            elif due(entry['card']['player'], entry['card']['recent_as_of'], now):rank = (3, entry['built_at'])
             else:continue
             ranked.append((rank, login))
         return [login for _, login in sorted(ranked)]
