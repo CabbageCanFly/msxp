@@ -286,7 +286,7 @@ def collect(snapshot, *, now, read, max_interval_seconds,state=None):
             seen_frames[frame]=frame_time
         localization_gap=bool(row.get('overlapping_hud_gap') is True and frame and row.get('capture_acquired') is True
             and row.get('received_at') and row.get('local_age_seconds') is not None and 0<=row['local_age_seconds']<=15)
-        if (row.get('crop_suspect') or row.get('candidate_invalid') or row.get('percentage_only_invalid')
+        if (row.get('reading_invalidated') or row.get('crop_suspect') or row.get('candidate_invalid') or row.get('percentage_only_invalid')
                 or row.get('timing_mode')=='simulated' or (row.get('hud_count') or 0)>1 and not localization_gap
                 or (row.get('neural_level') or {}).get('source_complete') is False
                 or row.get('status')=='stale_local_frame'):

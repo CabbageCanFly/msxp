@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 
 from exp_tracker.diagnostics import Diagnostics
+from exp_tracker.character_automation import original
+from exp_tracker.product import observed_display, reading as displayed_reading
 from exp_tracker.recognition import configure_tesseract
 from exp_tracker.server import CHANNEL, create_server
 from exp_tracker.shadow_view import observation
@@ -49,14 +51,21 @@ def initialize(database, channel, character, say):
         return store.state(channel)
 
 
-def latest_status(latest):
-    return (f"{latest['age_seconds']:.1f}s old / {'STALE' if latest['stale'] else 'local age only'}"
-            if latest else 'no complete candidate yet')
+def latest_status(snapshot):
+    now=datetime.now(timezone.utc)
+    latest=observed_display(snapshot,now=now)['reading'] or snapshot.get('retention_display',{}).get('reading')
+    if latest is None:return 'no eligible reading yet'
+    age=(now-datetime.fromisoformat(latest['timestamp'])).total_seconds()
+    stale=age<0 or age>snapshot['stale_after_seconds'] or not latest.get('fresh_at_capture',True)
+    return f"{max(0,age):.1f}s old / {'STALE' if stale else 'local age only'}"
 
 
 def report_attempt(record, committed, *, database, channel, neural_enabled):
-    row = observation(record)
-    reasons = row['reasons']
+    seen=original(record)
+    row = observation(seen)
+    reasons = list(row['reasons'])
+    held=record.get('level_hold') or record.get('identity_hold')
+    if held:reasons.append('held: '+str(held.get('reason') or ', '.join(held.get('hold_reasons') or ['identity_unverified'])))
     explanations = {
         'offline_or_unavailable': 'stream offline or not playable (not confirmed offline)',
         'access_denied': 'Twitch denied access; no bypass attempted',
@@ -72,7 +81,7 @@ def report_attempt(record, committed, *, database, channel, neural_enabled):
         'local_receipt_age_exceeded': 'local frame expired during processing',
     }
     captured = row['received_at'] is not None
-    localization = record.get('localization') or {}
+    localization = seen.get('localization') or {}
     count = localization.get('count')
     hud = 'unique' if count == 1 else 'missing' if count == 0 else 'ambiguous' if count else 'not run'
     pair = row['candidate']
@@ -84,8 +93,20 @@ def report_attempt(record, committed, *, database, channel, neural_enabled):
     freshness = 'unknown'
     if committed:
         with Store(database, read_only=True) as store:
-            latest = Diagnostics(store).snapshot(channel)['latest_reading']
-        freshness = latest_status(latest)
+            snapshot = Diagnostics(store).snapshot(channel)
+        freshness = latest_status(snapshot)
+        current=next((saved for saved in reversed(snapshot['observations'])
+            if saved['index']==row['index'] and saved['received_at']==row['received_at']),None)
+        accepted=displayed_reading(current) if current is not None else None
+        if accepted and (current.get('timestamp_ordered') is False or
+                datetime.fromisoformat(accepted['timestamp'])>datetime.now(timezone.utc)):accepted=None
+        if accepted:
+            value=(f"{int(accepted['exp']):,} [{accepted['percentage']}%]" if accepted['exp'] is not None else
+                   f"[{accepted['percentage']}%] (percentage-only; EXP unavailable)")
+            if accepted['evidence'] in ('grammar_recovered','conditional_symbol'):value+=' (recovered)'
+            reasons=[reason for reason in reasons if reason!='strict_pair_unavailable']
+        elif (pair or only) and not held:value+=' (not eligible)'
+    if held:value='HELD ('+value+')'
     return (f"#{row['index']:02d} frame={'acquired' if captured else 'FAILED'}; HUD={hud}; EXP={value}; "
         f"Tesseract={row['visual_level'] if row['visual_level'] is not None else 'unavailable'}; "
         f"neural level={level}; SQLite={'committed' if committed else 'NOT COMMITTED'}; latest={freshness}. "
@@ -153,7 +174,7 @@ def main(argv=None):
         say(f'Selected: ttv/{args.channel} / {args.character!r} / session {state["session"]["id"]}')
         with Store(database, read_only=True) as store:
             saved = Diagnostics(store).snapshot(args.channel)
-        say(f'Saved history: {len(saved["observations"])} recent attempts; latest={latest_status(saved["latest_reading"])}')
+        say(f'Saved history: {len(saved["observations"])} recent attempts; latest={latest_status(saved)}')
         httpd = create_server(database, port=args.port, diagnostic_dashboard=True,twitch_status=args.twitch_status,background=True)
         httpd.quiet = True
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)

@@ -43,3 +43,64 @@ hidden fields and processing-age timeouts can still withhold readings.
 
 Frames, raw diagnostic outputs, enlarged review and the disposable replay stay
 in ignored `private/plaguegms-debug/`; they are not committed.
+
+## Operator log follow-up
+
+The original journal summary only displayed strict raw OCR candidates and aged
+the latest strict candidate. This could report unavailable EXP and a long stale
+age while the public player had a fresh grammar-recovered reading. Held evidence
+was also hidden, so a level or identity hold could incorrectly look like OCR had
+not run at all.
+
+Capture reporting now uses the existing eligible-reading projection for recovered
+values and freshness, labels recovered values explicitly, and shows original HUD
+and level diagnostics with `HELD` and the hold reason when appropriate. Startup's
+saved-history age uses the same display projection. Stored raw OCR, numerical
+checks, holds, capture behavior and public tracking calculations are unchanged.
+Logging itself never repairs letters. Future, out-of-order and rejected readings
+do not refresh the logged reading age. The grammar recovery below can supply a
+numeric interpretation before the normal display and progress checks run.
+
+## Single numeric glyph recovery
+
+`bounded_exp_v10` can interpret one uppercase `S` → `5`, `O` → `0` or `B` → `8`
+inside either numeric field of a complete EXP/percentage pair, or a complete
+percentage-only field. The limit is one glyph across the whole reading. Existing
+bounded punctuation recovery may accompany it. The corrected text must satisfy
+the existing whole-field grammar, including percentage range, decimal precision,
+EXP grouping and a literal `%`. No missing digit or decimal position is guessed.
+Multiple letter repairs, unknown letters, extra words and reviewed clipped
+sources abstain. Malformed EXP grouping cannot supply a full EXP pair; an
+independently bounded percentage may remain available.
+
+This revision replaces the initial requirement for numerical EXP plus two prior
+supported full readings. `[6S.30%]` can now propose `65.30%` without either. The
+EXP table may convert that percentage to estimated EXP, but cannot independently
+verify it when numerical EXP is absent. When both fields are available, existing
+level/EXP arithmetic vetoes remain in force. Existing character assignment,
+freshness, duplicate/crop, level confirmation and numerical-continuity policies
+still decide whether a proposal can update a display or contribute progress.
+A level conflict may leave a percentage visible without a usable level or gain.
+
+One exception requires positive arithmetic confirmation: when the captured text
+starts with `S` or `B` as the first EXP digit, the repaired EXP must match the
+displayed percentage at an independently read or supported level. Missing or
+unsupported levels and mismatches hide the numerical EXP, including on a first
+capture without history. These repairs cannot infer a level to verify themselves.
+The independently readable percentage remains eligible under normal rules.
+Labels or other text before the initial letter do not establish a complete EXP field.
+
+Eligible values use the existing `grammar_recovered` label and journal output.
+Raw OCR, saved strict candidates and trusted accounting remain unchanged. No
+additional OCR pass, dependency or separate display/graph recovery path is needed.
+
+For plaguegms's saved level-39 captures, `174.13216S.30%1` proposes
+`174,132[65.30%]`, and `175,30516S.74%1` proposes `175,305[65.74%]`. Both rounded
+percentages agree with the current 266,682-EXP requirement. Replaying 45 saved VPS
+attempts in a fresh local database adds those two public graph readings, loses no
+previously readable graph points and leaves trusted observations empty. Synthetic
+tests cover all three letters in both fields, percentage-only recovery without
+prior history, malformed grouping, multiple repairs, arithmetic contradictions,
+normal endpoint exclusions, API restart, chart presentation, logs and unchanged
+SQLite payloads. This is not an empirical false-positive rate: a letter can still
+be misinterpreted, and percentage-only text has no independent arithmetic check.

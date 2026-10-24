@@ -392,6 +392,7 @@ def project(rows, *, state=None, allow_context=True):
                     exp=manual['current_exp'],bp=seed['bp'],timestamp=manual['effective_at'])
                 derived=_established(manual['level'],sample,row['received_at'],'manual_admin')
         full=full_reading(row)
+        leading_exp_repair=bool(full and (row.get('raw_text') or '')[:1] in ('S','B'))
         direct=consistency(full,neural) if row.get('candidate') and neural is not None else None
         # Zero/zero fits every requirement and supplies no identifying level evidence.
         strict_support=bool(direct and direct['status']=='consistent' and full['exp']!='0' and full['percentage']!='0.00')
@@ -466,6 +467,12 @@ def project(rows, *, state=None, allow_context=True):
         # The derived/retained level never outranks a selected reader level, verifies its
         # own pairs or survives a disagreement with recent reader-supported context.
         derived_safe=fresh and not row.get('candidate_invalid') and not row.get('percentage_only_invalid')
+        # A leading letter may be a label tail; these pairs cannot establish their own level.
+        leading_verified=not leading_exp_repair
+        if leading_exp_repair:
+            independent=selected if selected is not None else anchor['value'] if anchor and anchor['samples']>=2 and safe else None
+            leading_verified=bool(safe and consistency(full,independent)['status']=='consistent')
+            if not leading_verified:full=None
         inference=exp_derived(full) if derived_safe and full else None
         if inference:evidence['exp_derived']=inference
         pct=_percentage(row,full) if derived_safe else None
@@ -552,6 +559,8 @@ def project(rows, *, state=None, allow_context=True):
         if evidence['status']=='exp_derived':
             # The level came from these same OCR pairs; agreement would be circular.
             row['exp_validity'].update(status='indeterminate',reason='level_derived_from_exp_pairs')
+        if leading_exp_repair and (not leading_verified or row['exp_validity']['status']!='consistent'):
+            row['exp_validity'].update(status='invalid',reason='leading_exp_glyph_requires_independent_arithmetic')
         if row.get('manual_epoch') is not None:
             row['manual_resume_eligible']=bool(fresh and not row.get('candidate_invalid')
                 and not row.get('percentage_only_invalid') and row['exp_validity']['status']!='invalid'

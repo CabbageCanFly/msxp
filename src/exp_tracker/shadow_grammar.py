@@ -88,12 +88,12 @@ def _interpret_memo(text, source_complete):
 def _interpret_exp(text, *, source_complete=None):
     """Versioned diagnostic interpretations; v1 and both strict parsers stay frozen.
 
-    Only punctuation is interpreted, never a missing digit. A standalone DD.DD%
-    token needs no invented opener. Decimal-comma recovery makes no full-EXP claim.
+    Complete numeric fields may recover one S/O/B glyph. Missing digits and
+    decimal placement are never inferred; normal downstream validation still applies.
     """
     base = dict(classification='rejected', proposals=[], trusted=False,
                 numerical_identity_verified=False, reason='no_bounded_interpretation')
-    result = dict(policy='bounded_exp_v9', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
+    result = dict(policy='bounded_exp_v10', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
                   strict_full=None, strict_percentage_only=None, full_exp={**base}, percentage={**base},
                   symbol_hypotheses=[], percentage_hypotheses=[], source_complete=source_complete, trusted=False)
     if not isinstance(text, str) or not text or len(text) > MAX_TEXT:
@@ -118,6 +118,27 @@ def _interpret_exp(text, *, source_complete=None):
         result.update(strict_full=strict, strict_percentage_only=only)
         for field in ('full_exp', 'percentage'):
             result[field] = {**base, 'classification': 'raw_strict', 'reason': 'original_strict_result_unchanged'}
+        return result
+    # One known glyph across both numeric fields; re-use the complete-field grammar.
+    digit=re.fullmatch(r'(?:([0-9SOB.,]+)([\[1|])|\[)?([0-9SOB]{1,2}\.[0-9SOB]{2})%([\]1|Il]{0,3})',text)
+    if digit and source_complete is not False and sum(c in 'SOB' for c in text)==1:
+        index=next(i for i,c in enumerate(text) if c in 'SOB')
+        corrected=text[:index]+{'S':'5','O':'0','B':'8'}[text[index]]+text[index+1:]
+        parsed=interpret_exp(corrected,source_complete=source_complete)
+        for field in ('full_exp','percentage'):
+            prior=parsed[field]['proposals']
+            full=parsed['strict_full']
+            reading=(full if field=='full_exp' else parse_percentage_only(f'[{full["percentage"]}%]')) if full else (
+                parsed['strict_percentage_only'] if field=='percentage' else None)
+            if reading is None and parsed[field]['classification']=='unique_proposal':reading=prior[0]['reading']
+            if reading is None:continue
+            edits=[dict(index=index,old=text[index],new=corrected[index],
+                category='percentage_digit' if index>=digit.start(3) else 'exp_digit')]+(prior[0]['edits'] if prior else [])
+            if len(edits)>5:continue
+            result[field]={**base,'classification':'unique_proposal','reason':'single_numeric_glyph_recovery',
+                'proposals':[dict(reading=reading,interpretation=prior[0]['interpretation'] if prior else corrected,
+                    edits=edits,field_span=prior[0]['field_span'] if prior else [0,len(text)],
+                    trusted=False,numerical_identity_verified=False,image_verification='required',source_completeness_verified=False)]}
         return result
     # Whole-string anchoring prevents extracting a plausible tail from clipped
     # digits or competing fields. A single leading digit needs an actual opener.

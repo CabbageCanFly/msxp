@@ -120,7 +120,7 @@ def test_recognition_failures_are_distinct_and_untrusted(alpha, monkeypatch, mod
             row.update(candidate=None, neural=None, status='unavailable',
                        localization=dict(count=0 if mode == 'missing_hud' else 2), reasons=[mode])
         elif mode == 'malformed':
-            row.update(candidate=None, neural=dict(text='[70.63%1'), status='malformed_or_unavailable',
+            row.update(candidate=None, neural=dict(text='[70.Z3%1'), status='malformed_or_unavailable',
                        reasons=['strict_pair_unavailable'])
         else:
             row.update(current=False, status='stale_local_frame', reasons=['local_receipt_age_exceeded'])
@@ -131,7 +131,7 @@ def test_recognition_failures_are_distinct_and_untrusted(alpha, monkeypatch, mod
     output = capsys.readouterr().out
     assert 'frame=acquired' in output and 'SQLite=committed' in output
     if mode == 'stale':
-        assert 'STALE' in output
+        assert 'local frame expired during processing' in output and 'no eligible reading yet' in output
     elif mode == 'malformed':
         assert 'EXP=unavailable/rejected' in output
     else:
@@ -212,6 +212,112 @@ def test_schema_mismatch_does_not_migrate_saved_database(alpha):
     assert module.main(args) == 1
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
     assert not calls
+
+
+@pytest.fixture
+def log_store(alpha):
+    from datetime import timedelta
+    module,_,database,_=alpha
+    database.parent.mkdir(parents=True,exist_ok=True)
+    with Store(database) as store:
+        store.add_channel('alpha')
+        character=store.add_character('alpha','Alpha')
+        at=datetime.now(timezone.utc)-timedelta(hours=3)
+        store.select_character('alpha',character,at=at)
+        store.start_session('alpha',at=at)
+        diagnostics=Diagnostics(store)
+        diagnostics.begin('log-test','alpha',dict(type='configuration',trusted=False,interval=30,source_kind='file'))
+        yield module,database,diagnostics
+
+
+def test_capture_log_reports_recovered_exp_and_freshness_instead_of_old_strict_ocr(log_store):
+    from datetime import timedelta
+    from tests.test_autonomous_characters import record as capture
+    module,database,diagnostics=log_store
+    now=datetime.now(timezone.utc)
+    before=capture(1,level=39,bp=5600,at=now-timedelta(hours=2))
+    diagnostics.append('log-test',before)
+    current=capture(2,level=39,bp=5615,at=now)
+    exp,pct=current['candidate']
+    current.update(candidate=None,status='malformed_or_unavailable',reasons=['strict_pair_unavailable'])
+    current['neural']['text']=f'{exp:,}1{pct:.2f}%1'
+    diagnostics.append('log-test',current)
+    assert diagnostics.snapshot('alpha')['latest_reading']['age_seconds']>7000  # Raw strict diagnostics stay unchanged.
+    report=module.report_attempt(current,True,database=database,channel='alpha',neural_enabled=True)
+    assert f'EXP={exp:,} [{pct:.2f}%] (recovered)' in report
+    assert 'STALE' not in report and 'local age only' in report
+    assert 'no strict full EXP pair' not in report
+
+
+@pytest.mark.parametrize('kind',['level','identity','nested'])
+def test_capture_log_shows_held_hud_levels_and_reason_without_publishing_them(log_store,kind):
+    from tests.test_autonomous_characters import record as capture
+    from exp_tracker.character_automation import level_held
+    from exp_tracker.diagnostics import identity_held
+    module,database,diagnostics=log_store
+    current=capture(1,level=39,at=datetime.now(timezone.utc))
+    current['neural_level']=dict(status='numeric_candidate',text='39',level=39,score=.99,preprocessing='neutral4',trusted=False)
+    if kind in ('identity','nested'):
+        current['character_name'].update(reading_hold_recommended=True,hold_reasons=['name_mismatch'])
+        current=identity_held(current)
+    if kind in ('level','nested'):current=level_held(current,'level_regression',39)
+    diagnostics.append('log-test',current)
+    report=module.report_attempt(current,True,database=database,channel='alpha',neural_enabled=True)
+    assert 'HUD=unique' in report and 'Tesseract=39' in report and 'neural level=39' in report
+    assert 'EXP=HELD (' in report
+    assert ('held: level regression' if kind!='identity' else 'held: name mismatch') in report
+    assert 'no eligible reading yet' in report
+    assert all(row['candidate'] is None for row in diagnostics.snapshot('alpha')['observations'])
+
+
+def test_capture_log_does_not_refresh_multiple_numeric_letter_repairs(log_store):
+    from datetime import timedelta
+    from tests.test_autonomous_characters import record as capture
+    module,database,diagnostics=log_store
+    now=datetime.now(timezone.utc)
+    before=capture(1,level=39,bp=5600,at=now-timedelta(minutes=5))
+    diagnostics.append('log-test',before)
+    bad=capture(2,level=39,bp=5615,at=now)
+    bad.update(candidate=None,status='malformed_or_unavailable',reasons=['strict_pair_unavailable'])
+    bad['neural']['text']='149.7S3156.1O%1'
+    diagnostics.append('log-test',bad)
+    report=module.report_attempt(bad,True,database=database,channel='alpha',neural_enabled=True)
+    assert 'EXP=unavailable/rejected' in report and '(recovered)' not in report
+    assert 'STALE' in report
+
+
+@pytest.mark.parametrize('percentage_only',[False,True])
+def test_capture_log_shows_numeric_glyph_recovery(log_store,percentage_only):
+    from datetime import timedelta
+    from tests.test_autonomous_characters import record as capture
+    module,database,diagnostics=log_store
+    now=datetime.now(timezone.utc)
+    steps=(6530,) if percentage_only else (6462,6489,6530)
+    for index,bp in enumerate(steps,1):
+        current=capture(index,level=39,bp=bp,at=now-timedelta(seconds=(len(steps)-index)*20))
+        current['neural_level']=dict(status='numeric_candidate',text='39',level=39,score=.99,preprocessing='neutral4')
+        if index==len(steps):
+            current.update(candidate=None,status='malformed_or_unavailable',reasons=['strict_pair_unavailable'])
+            current['neural']['text']='[6S.30%]' if percentage_only else '174.13216S.30%1'
+        diagnostics.append('log-test',current)
+    report=module.report_attempt(current,True,database=database,channel='alpha',neural_enabled=True)
+    assert ('EXP=[65.30%] (percentage-only; EXP unavailable) (recovered)' if percentage_only else
+            'EXP=174,132 [65.30%] (recovered)') in report
+    assert 'STALE' not in report and 'no strict full EXP pair' not in report
+
+
+@pytest.mark.parametrize('offset',[300,-600])
+def test_capture_log_does_not_refresh_from_future_or_out_of_order_readings(log_store,offset):
+    from datetime import timedelta
+    from tests.test_autonomous_characters import record as capture
+    module,database,diagnostics=log_store
+    now=datetime.now(timezone.utc)
+    before=capture(1,level=39,bp=5600,at=now-timedelta(minutes=5))
+    diagnostics.append('log-test',before)
+    current=capture(2,level=39,bp=5615,at=now+timedelta(seconds=offset))
+    diagnostics.append('log-test',current)
+    report=module.report_attempt(current,True,database=database,channel='alpha',neural_enabled=True)
+    assert '(not eligible)' in report and 'STALE' in report
 
 
 @pytest.mark.parametrize('extra', [['--count', '61'], ['--interval', 'nan'], ['--port', '-1']])
