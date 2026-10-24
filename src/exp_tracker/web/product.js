@@ -692,9 +692,8 @@ function drawPercentageHistory() {
     if(previous)shape('line',{x1:x(previous.time),y1:y(previous.reading.bp/100),x2:x(p.time),y2:y(p.reading.bp/100),class:'trend'});
   });
   points.forEach(p=>{
-    if(visible(p))inspect(shape('circle',{cx:x(p.time),cy:y(p.reading.bp/100),r:4,class:'sample'}),
-      `point:${p.event_id}`,`${localTime(p.timestamp)}\n${p.level.value!=null?'Lv. '+p.level.value+' · ':''}${p.reading.percentage}%\n${p.reading.exp!=null || p.reading.estimated_exp?displayedExp(p.reading,true)+' EXP':'EXP unavailable'}`);
-    else inspect(shape('path',{d:`M${x(p.time)-3} 194l6 6m0-6-6 6`,class:'missing'}),`point:${p.event_id}`,`${localTime(p.timestamp)}\nCouldn't read EXP`);
+    if(visible(p))shape('circle',{cx:x(p.time),cy:y(p.reading.bp/100),r:4,class:'sample'});
+    else shape('path',{d:`M${x(p.time)-3} 194l6 6m0-6-6 6`,class:'missing'});
   });
   let previousLevel=null;
   for(const p of windowPoints.filter(p=>p.reading && p.level.value!=null)) {
@@ -711,6 +710,15 @@ function drawPercentageHistory() {
     const time=first+(last-first)*i/(ticks-1);
     shape('text',{x:60+plotWidth*i/(ticks-1),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=clockSeconds.format(new Date(time));
   }
+  // Full-height strips choose the nearest capture by time, including unreadable captures.
+  points.forEach((p,i)=>{
+    const left=i?(x(points[i-1].time)+x(p.time))/2:60;
+    const right=i+1<points.length?(x(p.time)+x(points[i+1].time))/2:width-40;
+    inspect(shape('rect',{x:left,y:20,width:right-left,height:182,fill:'transparent',class:'point-hit'}),
+      `point:${p.event_id}`,visible(p)?`${localTime(p.timestamp)}\n${p.level.value!=null?'Lv. '+p.level.value+' · ':''}${p.reading.percentage}%\n${p.reading.exp!=null || p.reading.estimated_exp?displayedExp(p.reading,true)+' EXP':'EXP unavailable'}`:
+        `${localTime(p.timestamp)}\nCouldn't read EXP`);
+    shape('line',{x1:x(p.time),x2:x(p.time),y1:20,y2:202,class:'point-guide','aria-hidden':'true'});
+  });
   svg.dataset.start=new Date(first).toISOString();svg.dataset.end=new Date(last).toISOString();
   const readable=points.filter(visible).length,unavailable=points.length-readable;
   el('history-note').textContent=`${currentLevelOnly && level!=null?'Lv. '+level+' · ':''}Last ${lineWindow} min · times in ${zoneLabel()}${readable?'':' · no data in this period'}${unavailable?' · ✕ couldn\'t read EXP':''}`;

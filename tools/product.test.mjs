@@ -471,6 +471,38 @@ test('recent graph has a fixed selected time axis, all supported levels and reta
   assert.equal(p.elements['history-chart'].children.filter(n=>n.tag==='text' && n.attributes.y==='218').length,3);
 });
 
+test('line chart hover strips cover the plot height and split at capture-time midpoints',()=>{
+  const p=page('player');p.render(player());
+  p.context.points=[
+    {event_id:'a',timestamp:'2026-01-01T00:00:00Z',level:{value:60},reading:{bp:590,percentage:'5.90'}},
+    {event_id:'b',timestamp:'2026-01-01T00:00:30Z',level:{value:null},reading:null},
+    {event_id:'c',timestamp:'2026-01-01T00:01:30Z',level:{value:60},reading:{bp:592,percentage:'5.92'}}];
+  p.run('el("history-chart")');
+  for(const width of [960,340]){
+    p.elements['history-chart'].clientWidth=width;p.run('chartMode="percentage";data.history=points;drawHistory()');
+    const shapes=p.elements['history-chart'].children,hits=shapes.filter(n=>n.attributes.class==='point-hit');
+    const guides=shapes.filter(n=>n.attributes.class==='point-guide');
+    assert.equal(guides.length,3);
+    assert.equal(guides[0].attributes.x1,shapes.find(n=>n.tag==='circle').attributes.cx);
+    for(let i=0;i<hits.length;i++){
+      assert.equal(shapes[shapes.indexOf(hits[i])+1],guides[i]);
+      assert.equal(guides[i].attributes.x1,guides[i].attributes.x2);
+      assert.equal(guides[i].attributes['aria-hidden'],'true');
+    }
+    const dots=shapes.filter(n=>n.tag==='circle'),x=n=>Number(n.attributes.x),right=n=>x(n)+Number(n.attributes.width);
+    assert.equal(hits.length,3);assert.equal(x(hits[0]),60);assert.equal(right(hits[2]),width-40);
+    assert.equal(right(hits[0]),x(hits[1]));assert.equal(right(hits[1]),x(hits[2]));
+    assert.equal(x(hits[1]),Number(dots[0].attributes.cx)+(width-100)*15/300);
+    for(const hit of hits){assert.equal(hit.attributes.y,'20');assert.equal(hit.attributes.height,'182');assert.equal(hit.attributes.tabindex,'0');}
+    hits[0].listeners.pointerenter({pointerType:'mouse',clientX:100,clientY:25});
+    assert.match(p.run('tip.textContent'),/5\.90%/);assert.equal(p.run('tip.hidden'),false);
+    hits[1].listeners.pointerenter({pointerType:'mouse',clientX:120,clientY:180});
+    assert.match(p.run('tip.textContent'),/Couldn't read EXP/);
+    hits[2].listeners.focus();assert.match(p.run('tip.textContent'),/5\.92%/);
+    assert.equal(dots.filter(n=>n.attributes.tabindex==='0').length,0);
+  }
+});
+
 test('pooled pace discloses sampled seconds and separate sequences, not the whole extent',()=>{
   const p=page('player'),base=player();
   base.responsive_pace={active:true,tentative:false,age_seconds:1,start:'2026-01-01T00:00:00Z',end:'2026-01-01T00:04:00Z',

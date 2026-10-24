@@ -216,6 +216,8 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .chart-tooltip { position:fixed; z-index:20; width:max-content; max-width:min(280px,calc(100vw - 16px)); box-sizing:border-box; padding:10px 13px; background:#1c2435; border:1px solid var(--gold-deep); border-radius:var(--radius-sm); color:var(--text); font:600 13px/1.55 var(--font-ui); font-variant-numeric:tabular-nums; white-space:pre-line; overflow-wrap:anywhere; pointer-events:none; box-shadow:0 8px 22px #000a; }
 .history-chart [data-tip-key] { cursor:crosshair; }
 .history-chart [data-tip-key]:focus-visible { outline:2px solid var(--gold); }
+.history-chart .point-guide { stroke:#c0cad8; stroke-width:1; vector-effect:non-scaling-stroke; opacity:0; pointer-events:none; }
+.history-chart .point-hit:hover + .point-guide { opacity:.65; }
 .history-chart :is(.trend,.chart-grid,.chart-axis) { pointer-events:none; }
 .history-chart .chart-axis { stroke:var(--line-strong); stroke-width:1; }
 .history-chart circle.sample { stroke:transparent; stroke-width:12px; }
