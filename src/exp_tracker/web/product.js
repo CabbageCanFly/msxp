@@ -396,7 +396,7 @@ function renderCharacters() {
     const row=node('li','entry character-entry');row.dataset.channel=r.channel;row.dataset.character=r.id;row.dataset.rank=order==='level'?index+1:'';
     const badge=node('span','rank',index+1);badge.dataset.medal=order==='level' && index<3?index+1:'';badge.setAttribute('aria-label',`Rank ${index+1}`);
     const level=levelPill(r.level ?? '—',!!r.online,r.online?'Online':r.current?'Offline':'Not currently tracked');
-    const identity=node('div','identity'),link=node('a','character',r.label);link.href=`/stream/${encodeURIComponent(r.channel)}?character=${r.id}`;
+    const identity=node('div','identity'),link=node('a','character',r.label);link.href=`/stream/${encodeURIComponent(r.channel)}${r.current?'':`?character=${r.id}`}`;  // The plain profile shows the current character.
     identity.append(link,sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},link.href));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
     const at=r.reading?.timestamp ?? r.last_seen_at,ago=at?ageText(Math.max(0,(now-Date.parse(at))/1000)):null;

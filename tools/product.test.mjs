@@ -1261,7 +1261,8 @@ test('homepage Characters uses compact records, scoped links and no stale pace r
   assert.equal(p.elements['character-sort-control'].hidden,false);
   // Highest level first by default.
   const [other,alpha,beta]=p.elements.entries.children;assert.equal(other.dataset.character,9);
-  assert.equal(alpha.children[1].children[0].href,'/stream/alpha?character=2');
+  assert.equal(alpha.children[1].children[0].href,'/stream/alpha');  // Current character: the plain profile.
+  assert.equal(beta.children[1].children[0].href,'/stream/alpha?character=3');
   assert.equal(other.children[1].children[0].href,'/stream/other?character=9');
   assert.deepEqual([alpha,beta].map(r=>[r.children[0].children[2].dataset.on,r.children[0].children[2].title,r.children[1].children.length]),
     [['true','Online',2],['false','Not currently tracked',2]]);
