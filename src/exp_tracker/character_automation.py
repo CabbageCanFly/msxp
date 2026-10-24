@@ -127,9 +127,16 @@ def guard_level(store, character, record, *, support=None):
         if floor is None or highest['level'] > floor:
             floor, proof = highest['level'], dict(level=highest['level'], received_at=highest['effective_at'],
                                                 basis='manual_admin', event_id=highest['event_id'])
-    qualified = level_evidence(record)
-    reason = None
     normalized = observation(record)
+    # A reader below the floor that this frame's own strict EXP pair contradicts misread the digits
+    # (Tesseract read Lv. 19 as 13 twice); it is no regression, and the frame is judged without it.
+    strict = full_reading(normalized) if normalized.get('candidate') else None
+    misread = [k for k, v in (('visual_level', normalized['visual_level']), ('neural_level', (normalized.get('neural_level') or {}).get('level')))
+               if floor and v is not None and v < floor and strict and consistency(strict, v)['status'] == 'invalid']
+    judged = {**record, **dict.fromkeys(misread)}  # Evaluation only; the stored record keeps both readings.
+    if misread:normalized = observation(judged)
+    qualified = level_evidence(judged)
+    reason = None
     claims = [v for v in (normalized['visual_level'], (normalized.get('neural_level') or {}).get('level'),
                          (qualified or {}).get('level')) if v is not None]
     if floor and any(v < floor for v in claims):

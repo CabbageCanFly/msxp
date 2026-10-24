@@ -751,7 +751,14 @@ Managed characters retain a monotone level independently of sessions, coordinato
 state, rolling history and 24-hour evidence deletion. Both diagnostic writers and
 trusted ingestion honor an established floor. A SQL trigger prevents lowering or
 clearing it. A lower-level frame is retained under `level_hold.evidence` and excluded
-from EXP/level/pace projection; the next valid frame can resume immediately. An empty
+from EXP/level/pace projection; the next valid frame can resume immediately.
+One exception: a lower reader level that the frame's own strict EXP pair contradicts at
+that level is a digit misread, not a regression. The frame is judged on its other reader,
+and the stored record keeps both readings. Live 2026-10-24, Streamer_I: Tesseract read
+Lv. 19 as 13 twice beside neural 19 (601 [3.60%] is 14.3% at Lv. 13), which reset the
+level-up twice; replaying those attempts through the guard confirms Lv. 19 two minutes
+sooner. A lower frame whose pair fits the lower level, or that has no strict pair, is
+still held. An empty
 new session displays the dated validated level without inventing EXP or pace.
 
 Initial OCR validation and each higher level require two distinct, increasing frames

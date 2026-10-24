@@ -126,6 +126,22 @@ def test_single_high_ocr_does_not_poison_floor_and_old_clip_cannot_regress(auto)
     assert 80 not in [r['visual_level'] for r in snapshot['observations']]
 
 
+@pytest.mark.parametrize('strict_pair',[True,False])
+def test_lower_misread_contradicted_by_its_own_exp_pair_does_not_reset_a_level_up(auto,strict_pair):
+    """Live Streamer_I: Tesseract read Lv. 19 as 13 twice right after a level-up, beside neural 19."""
+    _,store,policy=auto;run='first';reasons=[]
+    for i,level in enumerate([30,30,31,31],1):
+        value=record(i,level=level,bp=9900 if level==30 else 300+i*100,at=AT+timedelta(seconds=i*15))
+        if i==4:
+            value.update(visual_level=13,neural_level=dict(status='numeric_candidate',text='31',level=31,score=.99,preprocessing='neutral4'))
+            if not strict_pair:value.update(candidate=None,status='malformed_or_unavailable',neural=dict(text='unreadable'))
+        r=policy.append(run,value,f'next{i}',config(f'next{i}'));run=r['run_id'];reasons.append((r['record'].get('level_hold') or {}).get('reason'))
+    assert reasons[2]=='level_confirmation_pending'
+    floor=store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]
+    # Only the frame's own arithmetic can show the lower reading is a misread.
+    assert (reasons[3],floor)==((None,31) if strict_pair else ('level_regression',30))
+
+
 def test_level_up_unreadability_and_same_level_death_loss(auto):
     rows=sequence(auto,['Alpha','Alpha',None,None,None,'Alpha'],
                   levels=[30,30,31,31,31,31],bps=[9900,9950,100,200,150,250])
