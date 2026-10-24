@@ -138,15 +138,23 @@ function expTitle(r) {
 }
 function percentageText(r) { return r?.percentage!=null?`${r.estimated_percentage?'~':''}${r.percentage}%`:'—'; }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
-// On a phone the channel sits right beside the name, so it opens the same profile instead of Twitch (the profile links there).
+function rowContent(row,profile) {
+  if(!globalThis.matchMedia?.('(max-width:650px)').matches)return row;
+  const link=node('a','row-profile');link.href=profile;row.append(link);return link;
+}
+// The mobile row already links to its profile; keep its labels free of nested links.
 function sourceLink(p,profile) {
   if(profile && globalThis.matchMedia?.('(max-width:650px)').matches) {
-    const source=node('a','channel',sourceText(p));source.href=profile;source.tabIndex=-1;return source;  // The name is the keyboard stop.
+    return node('span','channel',sourceText(p));
   }
   const source=node(p.source_kind==='twitch'?'a':'span','channel',sourceText(p));
   if(p.source_kind==='twitch') {
     source.href=`https://www.twitch.tv/${encodeURIComponent(p.channel)}`;source.target='_blank';source.rel='noopener noreferrer';
     source.title=`Watch ${p.channel} on Twitch`;
+    const icon=document.createElementNS('http://www.w3.org/2000/svg','svg'),path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    for(const [key,value] of Object.entries({class:'channel-glyph',viewBox:'0 0 24 24',width:13,height:15,'aria-hidden':'true'}))icon.setAttribute(key,value);
+    path.setAttribute('d','M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0 1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z');
+    icon.append(path);source.append(icon);
   }
   return source;
 }
@@ -338,15 +346,17 @@ function entry({player:p,value,rank}) {
   row.dataset.metric=sort;
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
-  const identity=node('div','identity'),name=node('a','character',p.character?.label ?? 'Character not selected');name.href=`/stream/${p.channel}`;name.title=name.textContent;
-  identity.append(name,sourceLink(p,name.href));
+  const profile=`/stream/${p.channel}`,content=rowContent(row,profile);
+  const identity=node('div','identity'),name=node(content===row?'a':'span','character',p.character?.label ?? 'Character not selected');
+  if(content===row)name.href=profile;name.title=name.textContent;
+  identity.append(name,sourceLink(p,profile));
   const ago=r?ageText(s.age):null,seenAt=r?.timestamp?localTime(r.timestamp):'';
   const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta:rowETA(p),age:ago?'Updated '+ago:'No reading yet',ageTitle:seenAt});
-  row.append(badge,level,identity,section);
+  content.append(badge,level,identity,section);
   if(sort==='level')value=metricValue(p,'exp_hour',5);
   const score=node('div','score');score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label',sort==='day'?'EXP · 24h':'EXP / hour'));
   score.title=sort!=='day'?rateTitle(value):value==null?'No tracked EXP in the last 24 hours':`${expText(value,true)} EXP in the last 24 hours while tracked`;
-  scoreAge(score,ago,seenAt);row.append(score);return row;
+  scoreAge(score,ago,seenAt);content.append(score);return row;
 }
 // Rows update in place instead of being replaced, so hover, open tooltips and selections survive the 1 s refresh.
 function patch(live,fresh) {
@@ -396,15 +406,17 @@ function renderCharacters() {
     const row=node('li','entry character-entry');row.dataset.channel=r.channel;row.dataset.character=r.id;row.dataset.rank=order==='level'?index+1:'';
     const badge=node('span','rank',index+1);badge.dataset.medal=order==='level' && index<3?index+1:'';badge.setAttribute('aria-label',`Rank ${index+1}`);
     const level=levelPill(r.level ?? '—',!!r.online,r.online?'Online':r.current?'Offline':'Not currently tracked');
-    const identity=node('div','identity'),link=node('a','character',r.label);link.href=`/stream/${encodeURIComponent(r.channel)}${r.current?'':`?character=${r.id}`}`;  // The plain profile shows the current character.
-    identity.append(link,sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},link.href));
+    const profile=`/stream/${encodeURIComponent(r.channel)}${r.current?'':`?character=${r.id}`}`,content=rowContent(row,profile);
+    const identity=node('div','identity'),link=node(content===row?'a':'span','character',r.label);
+    if(content===row)link.href=profile;  // The plain profile shows the current character.
+    identity.append(link,sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},profile));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
     const at=r.reading?.timestamp ?? r.last_seen_at,ago=at?ageText(Math.max(0,(now-Date.parse(at))/1000)):null;
     const section=expSection(shownReading(r.reading,r.display_level) ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,eta:rowETA(r,5),empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
       age:ago?`Updated ${ago}`:'Not seen yet',ageTitle:at?localTime(at):''});
     const value=metricValue(r,'exp_hour',5),score=node('div','score');
     score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label','EXP / hour'));score.title=rateTitle(value);scoreAge(score,ago,at?localTime(at):'');
-    row.append(level,identity,section,badge,score);return row;
+    content.append(level,identity,section,badge,score);return row;
   }));
   if(focus)[...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
@@ -843,12 +855,21 @@ function filterRoster() {
   const text=el('roster-search').value.trim().toLowerCase();
   for(const item of el('roster-list').children)item.hidden=!!text && !item.dataset.name.includes(text);
 }
+function playerListBackSteps() {
+  const saved=history.state?.playerListBack;
+  if(Number.isSafeInteger(saved) && saved>0 && saved<history.length)return saved;
+  if(saved!==undefined || history.length<=1 || !document.referrer)return 0;
+  const from=new URL(document.referrer);
+  return from.origin===location.origin && from.pathname==='/'?1:0;
+}
 function selectCharacter(id,mode='push') {
   if(id===viewCharacter)return;
   viewCharacter=id;
   if(mode!=='none') {
     const url=new URL(location.href);if(id)url.searchParams.set('character',id);else url.searchParams.delete('character');
-    history[mode==='replace'?'replaceState':'pushState'](null,'',url);
+    const steps=playerListBackSteps();
+    const state=steps?{...history.state,playerListBack:steps+(mode==='replace'?0:1)}:history.state;
+    history[mode==='replace'?'replaceState':'pushState'](state,'',url);
   }
   // Never show the previous character's numbers while the chosen one loads.
   data=null;rollingData=null;rollingRevision=null;warming=true;
@@ -879,6 +900,17 @@ document.addEventListener?.('visibilitychange',()=>{if(!document.hidden)poll();}
 globalThis.addEventListener?.('pageshow',poll);
 if(view==='board')globalThis.addEventListener?.('resize',renderBoard);
 if(view==='board') {
+  const saved=history.state?.board;
+  if(saved){
+    if(sorts.has(saved.sort))sort=saved.sort;
+    if(['name','level','recent'].includes(saved.characterSort))characterSort=saved.characterSort;
+    if(Object.hasOwn(PRESENCE,saved.presence))presence=saved.presence;
+    if([5,10,15,30].includes(saved.windowMinutes))windowMinutes=saved.windowMinutes;
+    if(typeof saved.search==='string')el('character-filter').value=saved.search.slice(0,100);
+  }
+  globalThis.addEventListener?.('pagehide',()=>{
+    try {history.replaceState({...history.state,board:{sort,characterSort,presence,windowMinutes,search:el('character-filter').value}},'');} catch {}
+  });
   document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>selectBoard(button.dataset.mode)));
   el('character-filter').addEventListener('input',renderBoard);
   document.querySelectorAll('[data-character-sort]').forEach(button=>button.addEventListener('click',()=>{
@@ -894,6 +926,11 @@ document.querySelectorAll('[data-window]').forEach(button=>button.addEventListen
   if(view==='board')renderBoard();else if(data?.player){renderPlayer();drawHistory();}
 }));
 if(view==='player') {
+  el('back-to-list').addEventListener('click',event=>{
+    if(event.button!==0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)return;
+    const steps=playerListBackSteps();if(!steps)return;
+    event.preventDefault();history.go(-steps);
+  });
   const overlayTip=el('history-overlay-tip');
   let tipStrikes=0;
   overlayTip.addEventListener('click',()=>{

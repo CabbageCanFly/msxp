@@ -10,7 +10,7 @@ class Element {
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v,options){(this.listeners??={})[k]=v;(this.listenerOptions??={})[k]=options;}
   getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
 }
-function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,random=Math.random,decodeImage=()=>Promise.resolve(),storage=new Map(),clock=Date){
+function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,random=Math.random,decodeImage=()=>Promise.resolve(),storage=new Map(),clock=Date,historyState=null){
   const elements={},timers=[],events={},visits=[],images=[];
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const bucketButtons=[60,300,1800].map(seconds=>Object.assign(new Element(),{dataset:{bucket:String(seconds)}}));
@@ -20,7 +20,7 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,
   const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
   const context=vm.createContext({Intl,Date:clock,BigInt,AbortController,URL,URLSearchParams,Math:Object.assign(Object.create(Math),{random}),performance:{now:()=>0},
     location:{pathname,search,href:'http://127.0.0.1:8765'+pathname+search,origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
-    history:{pushState:(s,t,u)=>visits.push(['push',String(u)]),replaceState:(s,t,u)=>visits.push(['replace',String(u)])},
+    history:{state:historyState,length:1,go:steps=>visits.push(['go',steps]),pushState:(s,t,u)=>{context.history.state=s;context.history.length++;visits.push(['push',String(u)]);},replaceState:(s,t,u)=>{context.history.state=s;visits.push(['replace',String(u)]);}},
     sessionStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
     navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{documentElement:{dataset:api==null?{}:{api}},body:Object.assign(new Element('body'),{dataset:view==='overlay'?{view}:{view,loading:''}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
       querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:selector==='[data-character-sort]'?characterSortButtons:[],createElement:tag=>Object.assign(new Element(tag),tag==='img'?{decode(){images.push(this);return decodeImage(this.src);}}:{}),createElementNS:(ns,tag)=>new Element(tag)},
@@ -231,18 +231,35 @@ test('homepage Twitch labels link to the channel in a new tab; video labels stay
     assert.equal(source.tag,kind==='twitch'?'a':'span');
     assert.equal(source.textContent,kind==='twitch'?'ttv/alpha':'Video · alpha');
     assert.equal(source.href,kind==='twitch'?'https://www.twitch.tv/alpha':undefined);
-    if(kind==='twitch'){assert.equal(source.target,'_blank');assert.equal(source.rel,'noopener noreferrer');}
+    if(kind==='twitch'){
+      assert.equal(source.target,'_blank');assert.equal(source.rel,'noopener noreferrer');
+      assert.equal(source.children[0].tag,'svg');assert.equal(source.children[0].attributes['aria-hidden'],'true');
+    }else assert.equal(source.children.length,0);
   }
 });
 
-test('on a phone the channel label opens the same profile as the name, in the same tab',()=>{
+test('on a phone each streamer row is one native profile link without nested links or click handlers',()=>{
   const p=page('board');p.context.matchMedia=query=>({matches:query==='(max-width:650px)'});
   for(const kind of ['twitch','file']){
     p.context.fixture=player({source_kind:kind});
-    const [name,source]=p.run('entry({player:fixture,rank:1,value:60})').children[2].children;
-    assert.equal(source.tag,'a');assert.equal(source.href,name.href);assert.equal(source.href,'/stream/alpha');
-    assert.equal(source.target,undefined);assert.equal(source.tabIndex,-1);
+    const row=p.run('entry({player:fixture,rank:1,value:60})'),link=row.children[0];
+    assert.equal(row.children.length,1);assert.equal(link.tag,'a');assert.equal(link.href,'/stream/alpha');
+    assert.equal(link.target,undefined);assert.equal(link.listeners,undefined);assert.equal(link.children.length,5);
+    const [name,source]=link.children[2].children;
+    assert.equal(name.tag,'span');assert.equal(source.tag,'span');
     assert.equal(source.textContent,kind==='twitch'?'ttv/alpha':'Video · alpha');
+  }
+});
+
+test('mobile character rows retain current and saved profile URLs as native full-row links',()=>{
+  const p=page('board');p.context.matchMedia=query=>({matches:query==='(max-width:650px)'});
+  p.context.characters=[{id:1,label:'Main',channel:'alpha',current:true},{id:2,label:'Alt',channel:'alpha',current:false}];
+  p.run("data={characters};renderCharacters()");
+  const links=p.elements.entries.children.map(row=>row.children[0]);
+  assert.deepEqual(links.map(link=>link.href).sort(),['/stream/alpha','/stream/alpha?character=2']);
+  for(const link of links){
+    assert.equal(link.tag,'a');assert.equal(link.children.length,5);assert.equal(link.listeners,undefined);
+    assert.ok(link.children[1].children.every(label=>label.tag==='span'));
   }
 });
 
@@ -1378,6 +1395,67 @@ test('homepage toggle is view-only, preserves default cards and handles Back/For
   p.context.location.search='?mode=characters';p.events.popstate();await settle();
   assert.equal(p.run('boardMode'),'characters');assert.equal(p.visits.length,1);
   assert.deepEqual(api.urls,['/api/players','/api/players?mode=characters','/api/players','/api/players?mode=characters']);
+});
+
+test('profile title pill returns to its player list and leaves direct or modified navigation native',()=>{
+  for(const [referrer,length,changes,back] of [
+    ['http://127.0.0.1:8765/?mode=characters',2,{},true],
+    ['http://127.0.0.1:8765/stream/beta',2,{},false],
+    ['',2,{},false],['https://example.org/',2,{},false],
+    ['http://127.0.0.1:8765/',1,{},false],
+    ...['ctrlKey','metaKey','shiftKey','altKey'].map(key=>['http://127.0.0.1:8765/',2,{[key]:true},false]),
+    ['http://127.0.0.1:8765/',2,{button:1},false],
+  ]){
+    const p=page('player');p.context.document.referrer=referrer;p.context.history.length=length;
+    let prevented=false;
+    p.elements['back-to-list'].listeners.click({button:0,preventDefault(){prevented=true;},...changes});
+    assert.equal(prevented,back);assert.equal(p.visits.some(v=>v[0]==='go' && v[1]===-1),back);
+  }
+});
+
+test('profile title skips roster history while replacements and native Back retain the right distance',()=>{
+  const p=page('player');p.context.document.referrer='http://127.0.0.1:8765/?mode=characters';p.context.history.length=2;
+  p.run("selectCharacter('2');selectCharacter('3')");
+  assert.equal(p.context.history.state.playerListBack,3);
+  let prevented=false;
+  const click=()=>p.elements['back-to-list'].listeners.click({button:0,preventDefault(){prevented=true;}});
+  click();assert.equal(prevented,true);assert.deepEqual(p.visits.at(-1),['go',-3]);
+  p.run("selectCharacter(null,'replace')");
+  assert.equal(p.context.history.state.playerListBack,3);
+  p.context.history.state={playerListBack:2};p.context.location.search='?character=2';p.events.popstate();
+  assert.equal(p.context.history.state.playerListBack,2);click();assert.deepEqual(p.visits.at(-1),['go',-2]);
+});
+
+test('direct profiles do not invent a player-list destination after roster selections',()=>{
+  const p=page('player');p.context.document.referrer='https://example.org/';p.context.history.length=2;
+  p.run("selectCharacter('2');selectCharacter('3')");
+  assert.equal(p.run('playerListBackSteps()'),0);
+  for(const value of [-1,0,1.5,999]){
+    p.context.history.state={playerListBack:value};assert.equal(p.run('playerListBackSteps()'),0);
+  }
+});
+
+test('list filters survive a new document loaded from the same browser-history entry',()=>{
+  const p=page('board');p.context.history.state={other:'retained'};
+  p.run("sort='exp_hour';characterSort='recent';presence='offline';windowMinutes=30;el('character-filter').value='Quiet'");
+  p.events.pagehide();
+  const state=JSON.parse(JSON.stringify(p.context.history.state));
+  assert.equal(state.other,'retained');
+  const restored=page('board',undefined,'?mode=characters',null,Math.random,undefined,new Map(),Date,state);
+  assert.equal(restored.run('boardMode'),'characters');
+  assert.equal(restored.run('sort'),'exp_hour');assert.equal(restored.run('characterSort'),'recent');
+  assert.equal(restored.run('presence'),'offline');assert.equal(restored.run('windowMinutes'),30);
+  assert.equal(restored.elements['character-filter'].value,'Quiet');
+  p.context.history.replaceState=()=>{throw new Error('History unavailable');};
+  assert.doesNotThrow(()=>p.events.pagehide());
+});
+
+test('restored list settings validate sort, presence, time window and search length',()=>{
+  const p=page('board',undefined,'',null,Math.random,undefined,new Map(),Date,
+    {board:{sort:'unknown',characterSort:'unknown',presence:'__proto__',windowMinutes:999,search:'x'.repeat(300)}});
+  assert.equal(p.run('sort'),'level');assert.equal(p.run('characterSort'),'level');
+  assert.equal(p.run('presence'),'all');assert.equal(p.run('windowMinutes'),5);
+  assert.equal(p.elements['character-filter'].value.length,100);
 });
 
 test('switching lists keeps the current one until the other arrives, then swaps everything at once',async()=>{
