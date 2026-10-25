@@ -334,6 +334,7 @@ def parser():
     cli.add_argument('--character-names',action='store_true',help='No-DB review of name suggestions from local video or authorized Twitch; use multi_alpha for isolated automatic tracking')
     cli.add_argument('--name-interval',type=float,default=0,help='Name check interval in seconds; 0 checks every eligible capture. Numeric events and confirmation bypass it')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse the existing neural worker for EXP, level and optional names')
+    cli.add_argument('--visual-hud',action='store_true',help='Experimental visual HUD proposals with full-frame OCR fallback; implies resident neural')
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Optional existing regional HUD cache; competing HUDs can go unseen until refresh')
     cli.add_argument('--db', type=Path, help='Opt in to separate SQLite diagnostic persistence; initialize/select/start first')
     cli.add_argument('--tracking-channel', help='Explicit DB channel assignment for a local video only')
@@ -391,6 +392,11 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
                      experimental_neural_level=True,resident=resident)) if experimental else (
                      lambda crop: neural_line(crop,args.ocr_python,args.ocr_timeout,resident=resident))
             options={'experimental_neural_level':True} if experimental else {}
+            visual=None
+            if getattr(args,'visual_hud',False):
+                from visual_hud import VisualLocator
+                visual=VisualLocator(frame.png,args.ocr_python,resident,reader,experimental=experimental,timeout=min(10,args.ocr_timeout))
+                options['locator']=visual;reader=visual.read
             if identity is not None:
                 def read_name(crop):
                     return neural_line(crop,args.ocr_python,min(2,args.ocr_timeout),
@@ -401,6 +407,7 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
                 crop_dir=args.output.with_suffix('') / f'{index:04d}' if args.save_crops else None,**options)
             record['timings'].update(analyzed.pop('timings'))
             record.update(analyzed)
+            if visual is not None:record['visual_hud']=dict(visual.info)
         except (OSError, RuntimeError, ValueError) as error:
             # Only CaptureError carries a safe reason; library messages may contain URLs.
             record.update(status='recognition_failed', current=False,
@@ -511,6 +518,7 @@ def configuration(args, table_bytes, table, run_id=None):
         **({'automatic_characters':True,'level_policy':'monotone_two_frame_v1'}
            if getattr(args,'automatic_characters',False) else {}),
         **({'resident_neural':True} if getattr(args,'resident_neural',False) or getattr(args,'character_names',False) else {}),
+        **({'visual_hud':True} if getattr(args,'visual_hud',False) else {}),
         **({'hud_cache_seconds':args.hud_cache_seconds} if getattr(args,'hud_cache_seconds',0) else {}))
 
 
@@ -520,6 +528,10 @@ def main(argv=None, *, on_record=None, on_activity=None):
     stack = ExitStack()
     try:
         source, table_bytes, table, requirements = prepare(args)
+        if args.visual_hud:
+            if args.hud_cache_seconds:raise ValueError('Visual HUD cannot use the region cache')
+            from visual_hud import check
+            check(args.ocr_python);args.resident_neural=True
         if args.db and not args.db.is_file():
             raise ValueError('Existing --db is required; initialize/select/start first')
         diagnostics = Diagnostics(stack.enter_context(Store(args.db))) if args.db else None

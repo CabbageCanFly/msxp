@@ -275,3 +275,70 @@ pixels for RGB, RGBA and grayscale sources, including a cropped search.
 Larger savings need a detector that can replace expensive full-frame recognition
 while still finding competing HUDs. The measurements above do not justify making
 label-seeded search the default.
+
+## Visual HUD prototype
+
+`msxp tracker --visual-hud` enables an experimental alternative on this branch.
+It is off by default. Add `--check` to check the setup without starting capture.
+The standalone `tools/shadow_capture.py` command accepts the same flag.
+
+The first successful full-frame localization supplies a tiny image of the static
+EXP label. A separate worker finds groups of three similarly spaced meter frames,
+infers their scale, and checks the label with fuzzy image matching. It keeps at most
+eight representative label images in memory, shared across streams; it stores no
+readings or templates on disk. Different scales and minor compression changes can
+use the same label shape. Unknown styles can be learned after a full-frame fallback.
+
+The proposed regions form a mask over the current frame. The original two-scale
+Tesseract detector still confirms the HUD, and EXP, level and character-name reads
+use the original current pixels. No last-frame position or value is reused. The
+existing freshness, identity, arithmetic and grammar policies remain in place.
+
+Fallback uses the original full frame when the worker is unavailable, the label
+style is unfamiliar, meter evidence is missing, the mask is too broad, the masked
+OCR is incomplete/ambiguous, or EXP needs grammar recovery. A complete percentage-only
+field does not require a numerical EXP pair. A separate whole-frame check looks
+for matching EXP labels beside text rows outside the mask, including a second HUD
+whose meters are covered. A detected competing label forces the full detector.
+
+This reuses OpenCV and NumPy in the existing isolated OCR environment; it adds no
+packages to the main environment. Startup checks those dependencies before database
+changes. `--visual-hud` implies `--resident-neural` and cannot be combined with the
+region cache or historical replay. Remove the flag to return to the current detector.
+
+### Local results
+
+The real resident worker was compared with the original detector on 225 saved
+images. It kept all 171 correct strict EXP pairs from the labelled recordings,
+introduced no new wrong pairs, and lost no previously available visual levels.
+The one known tiny-font misread remains present in both paths. The fast path was
+used on 101/225 images; the rest used full-frame fallback, including startup.
+All 22 scaled, partly covered and JPEG-compressed competing-HUD trials kept an
+existing multiple-HUD rejection. A generated partial-second-HUD regression is also
+in the test suite; private images and learned templates are not committed.
+The full suite passed: **3332 passed, 75 skipped, 1 known xfail**. Skips are 68
+absent private crop cases, six Linux-only cases and one Windows symlink permission.
+
+Two paired CPU measurements used the standard 61-image selection, alternating
+baseline/candidate order on three isolated workers. Each includes mask construction
+and any full-frame retry. The two rows have different calibration schedules and CPU
+scopes, so compare only the before/after values within a row.
+
+| Replay and CPU scope | Original | Visual prototype | Reduction |
+| --- | ---: | ---: | ---: |
+| Calibration during the 225-image replay; parent/Tesseract + visual worker, neural child excluded | 144.06 s | 126.56 s | 12.1% |
+| Workers warmed and calibrated by an ordinary full-frame read before the 61-image replay; all recognition processes | 124.48 s | 93.41 s | 25.0% |
+
+The warmed run sums parent and resident child process CPU counters, including
+RapidOCR and extra field reads on fallback. Worker/model startup is outside its
+timer. Neither run includes stream acquisition, FFmpeg, API publication or the
+rest of the VPS. Fallback frequency and learned label styles materially affect
+the savings; these results are not a guarantee of a 25% service CPU reduction.
+The confirmation field read currently falls inside `localization_seconds`; use
+total recognition time and process CPU rather than individual stage timings here.
+
+This is a proposal heuristic, not proof that every HUD is visible. A second HUD with
+an unfamiliar font or heavily damaged labels may escape its checks, and the full
+detector already misses some small second HUDs. The saved fixtures do not establish
+90–95% coverage of Twitch streams. Keep this opt-in until Linux and live behaviour
+have been reviewed; local CPU measurements cannot predict the VPS capture interval.

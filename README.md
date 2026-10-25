@@ -172,6 +172,10 @@ the tracker, or pass `--no-preload-streamlink` to `msxp tracker`. Remove that ov
 or set `auto` to restore the default. Automatic mode falls back to ordinary startup
 if the preload check fails. See [capture performance](docs/capture-performance.md).
 
+Experimental: `msxp tracker --visual-hud` uses visual HUD proposals before OCR, with
+the original detector as a fallback. It is off by default; see the measured results
+and limits in [HUD localization performance](docs/hud-localization-performance.md#visual-hud-prototype).
+
 ## Put it online
 
 The live site runs the tracker on a small Ubuntu server, around the clock, and the website on

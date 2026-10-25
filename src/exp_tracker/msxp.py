@@ -94,6 +94,7 @@ Browse logs      msxp logs tracker --browse
   SQL keys       .tables    .schema TABLE    SELECT ...;    .quit
 
 Every command prints the tool it runs; unknown options pass through (msxp tracker --check).
+Experimental HUD detection: msxp tracker --visual-hud (off by default; docs/hud-localization-performance.md).
 Stop a running command with Ctrl+C. More: README.md, docs/README.md
 """
 

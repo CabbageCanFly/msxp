@@ -506,6 +506,7 @@ def main(argv=None):
     cli.add_argument('--stagger-capture',action='store_true',help='Spread first captures across each channel interval instead of starting all channels at once; roster additions take the widest free gap. Off by default')
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
+    cli.add_argument('--visual-hud',action='store_true',help='Experimental learned visual HUD proposals with full-frame OCR fallback; implies resident neural')
     cli.add_argument('--resident-tesseract',action='store_true',help='Reuse isolated native libtesseract worker processes (at most min(workers, 4)) instead of one tesseract CLI process per OCR call; off by default')
     preload=os.environ.get('MSXP_PRELOAD_STREAMLINK') or 'auto'
     if preload not in ('auto','0','1'):cli.error('MSXP_PRELOAD_STREAMLINK must be auto, 0 or 1')
@@ -522,6 +523,9 @@ def main(argv=None):
     args = cli.parse_args(argv)
     httpd = thread = streamlink = None
     try:
+        if args.visual_hud:
+            if args.replay or args.hud_cache_seconds:raise ValueError('Visual HUD requires fresh capture without the region cache')
+            args.resident_neural=True
         db_mode=args.db_roster is not None
         if args.capture_only:
             if not db_mode or not args.continuous or not args.runtime_state:
@@ -609,6 +613,8 @@ def main(argv=None):
         def make_lane(row):
             output=directory/row['channel']/uuid.uuid4().hex/'capture.jsonl' if db_mode else directory/row['channel']/'capture.jsonl'
             opts = options(row, database, output)
+            opts.visual_hud=args.visual_hud
+            if args.visual_hud:opts.resident_neural=True
             if args.ocr_python:opts.ocr_python=args.ocr_python.absolute()  # Never follow a venv's interpreter symlink.
             if args.continuous: opts.count=60
             if not args.replay:
@@ -626,6 +632,10 @@ def main(argv=None):
         native=None
         if not args.replay:
             configure_tesseract()
+            if args.visual_hud:
+                from visual_hud import check
+                check(args.ocr_python or shadow.ROOT/'private/rapidocr/.venv'/('Scripts/python.exe' if os.name=='nt' else 'bin/python'))
+                print('Experimental visual HUD: learns static labels; full-frame fallback enabled.',flush=True)
             if args.preload_streamlink:
                 from exp_tracker.preloaded_streamlink import PreloadedStreamlink
                 try:
