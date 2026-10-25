@@ -12,7 +12,7 @@ from exp_tracker.exp_consistency import MODES, assess, displayed_bp
 from exp_tracker.jobs import match, next_level, tier
 from exp_tracker.models import Reading
 from exp_tracker.validation import Observation, validate_transition
-from character_name_ocr import job_region, name_region, name_text, second_look
+from character_name_ocr import clean_name_crop, job_region, name_region, name_text, second_look
 
 
 # Numeric changes another character could explain; the rest stay ordinary EXP-validity questions.
@@ -231,7 +231,7 @@ class IdentityCapture:
                         return scores[0], name_text(texts[0]) if scores[0] >= .5 else None
                     return None
                 crop = image.crop(region['box'])
-                response = read_name(crop); read = parsed(response)
+                response = read_name(clean_name_crop(crop)); read = parsed(response)
                 reference = self.suggestions.reference
                 if reference and (read or (0, None))[1] != reference:
                     # Only an exact match with the current character replaces the plain read.

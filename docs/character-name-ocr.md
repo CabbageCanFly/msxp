@@ -44,6 +44,33 @@ to 1080 reads the name while preserving the level and EXP result. This is a
 single-frame development check, not a confirmed identity or live recovery trial.
 Server deployment, live recovery and capture cadence are untested by this fix.
 
+## Job-line remnants in name crops (2026-10-25)
+
+Faint pixels from the job above the own-name line can turn a final `l` into a
+high-confidence `i` reading. Automatic status-name crops now replace the top 8%
+with the sampled left-margin background, keeping their original dimensions and
+OCR scale. The shared cleanup serves capture identity checks and standalone
+automatic name review. Explicit manual regions retain their supplied pixels.
+The existing case-sensitive name syntax, confidence thresholds, distinct-frame
+confirmation and character-switch rules are preserved.
+The known-name second look retains its original, uncleaned pixels: applying the
+cleanup there lost an earlier touching-letter confirmation in replay.
+
+Validation: **3407 passed, 75 skipped, 1 known expected failure**. Across 651 saved
+frames, 615 supplied an eligible name region. Cleanup corrected all 12 fresh
+target readings and one older spelling error; the other 602 normalized names
+and their eligibility at the 0.5/0.9 thresholds were unchanged. Six target crops
+also read correctly using the existing Linux/VPS OCR environment in an isolated
+read-only check. This is development replay evidence, not general accuracy proof.
+There are no additional OCR calls, model changes, or name substitution rules.
+
+Disposable-database replay confirmed correct automatic discovery after two fresh
+frames. For a character already registered under the wrong spelling, pause its
+tracking, rename that existing record to the exact in-game name, deploy the fix,
+then resume. Renaming preserves its ID and history; replay confirmed that capture
+continues without creating a second character. Existing records require this
+reviewed correction because a different name can also mean a genuine switch.
+
 ## Run it
 
 Run from this worktree. Its optional environments and footage remain at their
