@@ -39,14 +39,19 @@ attempts, but overall CPU remained saturated while more live frames were acquire
 
 The earlier throughput measurements below predate these changes.
 
-## Streamlink import preloading (Linux, opt-in)
+## Streamlink import preloading (automatic on Linux)
 
-Set `MSXP_PRELOAD_STREAMLINK=1` in the tracker's environment, or pass
-`--preload-streamlink` to `multi_alpha.py` / `msxp tracker`. It is off by default.
-On the VPS, edit `/etc/msxp/msxp.env`, add the setting and restart `msxp-tracker`;
-the API needs no restart for this change. Startup confirms
-`Preloaded Streamlink: fresh CLI children via Linux forkserver.` Set the value to
-`0` and restart the tracker to use the ordinary launcher again. No packages are added.
+Linux network capture enables this automatically (`MSXP_PRELOAD_STREAMLINK=auto`).
+Windows, macOS, file-only configurations and historical replay do not preload by default.
+An empty database roster on Linux also preloads, ready for streamers added later.
+Startup confirms `Preloaded Streamlink: fresh CLI children via Linux forkserver.`
+To disable, set `MSXP_PRELOAD_STREAMLINK=0` or pass `--no-preload-streamlink` to
+`multi_alpha.py` / `msxp tracker`; `1` or `--preload-streamlink` explicitly enables it.
+Explicit enablement on unsupported systems still fails with an explanation.
+Automatic mode falls back to ordinary CLI startup if the preload check fails, so
+an unsupported environment does not stop capture; explicit enablement still fails preflight.
+On the VPS, settings live in `/etc/msxp/msxp.env`; restart `msxp-tracker` after a change.
+The API needs no restart. No packages are added.
 
 The coordinator starts a separate Linux forkserver, imports the CLI/Twitch plugin
 once, and requests a fresh playback child for every capture. The running tracker
@@ -75,6 +80,16 @@ Validation: **3,253 passed, 75 skipped, 1 expected failure** on Windows. Of the 
 69 are the existing missing-crop/Windows-permission cases; six exercise Linux-only
 behavior. The native Linux run (Python 3.14.4, Streamlink 8.6.2) passes **35 tests**,
 including those six, followed by the actual coordinator's successful offline preflight.
+
+The later automatic-default change passes a full Windows run of **3,304 tests, with
+75 skips and 1 expected failure**, plus a separately added historical-replay regression
+test. The skips remain the 69 existing fixture/permission cases and six Linux-only cases.
+Local Ubuntu/Python 3.12 validation passes **46 tests**, with two FFmpeg-dependent
+checks skipped because that WSL environment has no FFmpeg. Tests cover Linux/network
+defaults, Windows/macOS and local-file defaults, an empty database roster, environment
+and CLI overrides, automatic fallback, and explicit-enable startup failure. The current
+round was not deployed or tested on the VPS; the native VPS checks above describe the
+earlier opt-in version.
 
 ### Startup benchmark
 

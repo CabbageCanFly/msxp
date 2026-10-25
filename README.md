@@ -158,17 +158,19 @@ Everything personal lives in **`.env`** in the project folder. `msxp install` cr
 | `MSXP_ADMIN_PORT` | `8766` | The admin page (only reachable from your computer) |
 | `MSXP_DASHBOARD_PORT` | `8767` | The operator dashboard (only reachable from your computer) |
 | `MSXP_WORKERS` | `2` | Streams captured at the same time |
-| `MSXP_PRELOAD_STREAMLINK` | `0` | Linux: set `1` to preload imports while keeping a fresh Streamlink child for every capture |
+| `MSXP_PRELOAD_STREAMLINK` | `auto` | Preload imports on Linux for network capture; `0` disables, `1` explicitly enables |
 | `MSXP_SERVER` | none | Your server's SSH login, for `msxp server` (e.g. `root@203.0.113.7`) |
 | `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | none | Optional. Shows who is live. Create a free app at [dev.twitch.tv/console/apps](https://dev.twitch.tv/console/apps) |
 
 Your data stays in the ignored `private/` folder. Keys never appear on the website or in overlay links.
 
-On Linux, Streamlink import preloading is optional: set `MSXP_PRELOAD_STREAMLINK=1`
-in `.env` (or `/etc/msxp/msxp.env` on the VPS), then restart the tracker. You can also
-pass `--preload-streamlink` to `msxp tracker`. Each capture still opens and closes a
-fresh playback connection with the same settings. Set the value back to `0` (or remove the CLI flag) and
-restart the tracker to return to ordinary subprocess startup. See [capture performance](docs/capture-performance.md).
+Linux network capture preloads Streamlink imports automatically. Each capture still
+opens and closes a fresh playback connection with the same settings. Windows, macOS,
+local videos and historical replay keep ordinary startup. To disable preloading, set
+`MSXP_PRELOAD_STREAMLINK=0` in `.env` (or `/etc/msxp/msxp.env` on the VPS) and restart
+the tracker, or pass `--no-preload-streamlink` to `msxp tracker`. Remove that override
+or set `auto` to restore the default. Automatic mode falls back to ordinary startup
+if the preload check fails. See [capture performance](docs/capture-performance.md).
 
 ## Put it online
 

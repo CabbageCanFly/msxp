@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -190,3 +191,97 @@ def test_preload_failure_stops_before_database_or_capture(multi,monkeypatch):
     monkeypatch.setattr(module.shadow,'capture_attempt',lambda *a,**kw:pytest.fail('capture started'))
     assert run_main(multi,'--preload-streamlink')==1
     assert closed==[True] and not (path.parent/'shared.sqlite3').exists()
+
+
+@pytest.mark.parametrize('platform,source,setting,flags,expected',[
+    ('linux','twitch',None,[],True),
+    ('linux','file',None,[],False),
+    ('win32','twitch',None,[],False),
+    ('darwin','twitch',None,[],False),
+    ('linux','twitch','auto',[],True),
+    ('linux','twitch','0',[],False),
+    ('linux','twitch',None,['--no-preload-streamlink'],False),
+    ('linux','twitch','1',['--no-preload-streamlink'],False),
+    ('linux','twitch','0',['--preload-streamlink'],True),
+])
+def test_platform_and_source_defaults_allow_environment_and_cli_overrides(
+        multi,monkeypatch,platform,source,setting,flags,expected):
+    module,path,config,_,_=multi;made=[]
+    monkeypatch.setattr(module.sys,'platform',platform)
+    monkeypatch.delenv('MSXP_PRELOAD_STREAMLINK',raising=False)
+    if setting is not None:monkeypatch.setenv('MSXP_PRELOAD_STREAMLINK',setting)
+    if source=='twitch':
+        for row in config['streams']:
+            row.update(source='twitch',authorized=True)
+            row.pop('file')
+        path.write_text(json.dumps(config))
+    class Launcher:
+        def __init__(self):made.append('start')
+        def check(self):made.append('check')
+        def close(self):made.append('close')
+    monkeypatch.setattr(preload,'PreloadedStreamlink',Launcher)
+    assert run_main(multi,'--check',*flags)==0
+    assert made==(['start','check','close'] if expected else [])
+    assert not (path.parent/'shared.sqlite3').exists()
+
+
+def test_invalid_preload_environment_is_rejected(multi,monkeypatch):
+    monkeypatch.setenv('MSXP_PRELOAD_STREAMLINK','typo')
+    with pytest.raises(SystemExit):run_main(multi,'--check')
+
+
+def test_empty_database_roster_preloads_for_future_streamers_without_writing(multi,monkeypatch):
+    from exp_tracker import streamer_roster
+    from exp_tracker.store import Store
+    module,path,_,_,_=multi
+    database=path.parent/'empty.sqlite3';streamer_roster.create(database)
+    with Store(database,read_only=True) as store:before=streamer_roster.database_digest(store)
+    monkeypatch.setattr(module.sys,'platform','linux')
+    monkeypatch.delenv('MSXP_PRELOAD_STREAMLINK',raising=False)
+    made=[]
+    class Launcher:
+        def check(self):made.append('check')
+        def close(self):made.append('close')
+    monkeypatch.setattr(preload,'PreloadedStreamlink',Launcher)
+    assert module.main(['--db-roster',str(database),'--port','0','--continuous','--check'])==0
+    assert made==['check','close']
+    with Store(database,read_only=True) as store:assert streamer_roster.database_digest(store)==before
+
+
+@pytest.mark.parametrize('stage',['construction','check'])
+def test_automatic_preload_falls_back_but_explicit_enablement_fails(multi,monkeypatch,capsys,stage):
+    module,path,config,_,_=multi
+    monkeypatch.setattr(module.sys,'platform','linux')
+    monkeypatch.delenv('MSXP_PRELOAD_STREAMLINK',raising=False)
+    for row in config['streams']:
+        row.update(source='twitch',authorized=True);row.pop('file')
+    path.write_text(json.dumps(config));closed=[]
+    class Launcher:
+        def __init__(self):
+            if stage=='construction':raise OSError('unsupported process setup')
+        def check(self):raise ValueError('preflight failed')
+        def close(self):closed.append(True)
+    monkeypatch.setattr(preload,'PreloadedStreamlink',Launcher)
+    assert run_main(multi,'--check')==0
+    assert 'using ordinary CLI startup' in capsys.readouterr().err
+    assert closed==([True] if stage=='check' else [])
+    assert run_main(multi,'--preload-streamlink','--check')==1
+    assert closed==([True,True] if stage=='check' else [])
+    assert not (path.parent/'shared.sqlite3').exists()
+
+
+def test_automatic_preload_does_not_launch_during_historical_replay(multi,monkeypatch):
+    module,path,config,_,_=multi
+    for row in config['streams']:
+        row.update(source='twitch',authorized=True);row.pop('file')
+    path.write_text(json.dumps(config))
+    assert run_main(multi,'--no-preload-streamlink')==0
+    flags=[]
+    for row in config['streams']:
+        log=next((path.parent/'multi-alpha/runs').glob(f"*/{row['channel']}/capture.jsonl"))
+        flags.extend(['--replay',f"{row['channel']}={log}"])
+    monkeypatch.setattr(module.sys,'platform','linux')
+    monkeypatch.delenv('MSXP_PRELOAD_STREAMLINK',raising=False)
+    monkeypatch.setattr(preload,'PreloadedStreamlink',lambda:pytest.fail('replay launched playback'))
+    monkeypatch.setattr(module.shadow,'capture_attempt',lambda *a,**kw:pytest.fail('replay captured'))
+    assert run_main(multi,*flags)==0

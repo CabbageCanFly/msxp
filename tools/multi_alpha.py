@@ -507,8 +507,10 @@ def main(argv=None):
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
     cli.add_argument('--resident-tesseract',action='store_true',help='Reuse isolated native libtesseract worker processes (at most min(workers, 4)) instead of one tesseract CLI process per OCR call; off by default')
-    cli.add_argument('--preload-streamlink',action='store_true',default=os.environ.get('MSXP_PRELOAD_STREAMLINK')=='1',
-        help='Linux: preload Streamlink imports, keeping a fresh CLI process per capture; also MSXP_PRELOAD_STREAMLINK=1. Off by default')
+    preload=os.environ.get('MSXP_PRELOAD_STREAMLINK') or 'auto'
+    if preload not in ('auto','0','1'):cli.error('MSXP_PRELOAD_STREAMLINK must be auto, 0 or 1')
+    cli.add_argument('--preload-streamlink',action=argparse.BooleanOptionalAction,default={'auto':None,'0':False,'1':True}[preload],
+        help='Preload imports for fresh playback children; defaults on for Linux network capture. --no-preload-streamlink or MSXP_PRELOAD_STREAMLINK=0 disables')
     cli.add_argument('--ocr-python',type=Path,help='Reuse the existing isolated OCR Python, including at its original checkout path')
     cli.add_argument('--log-root',type=Path,help='Private root for new per-process capture directories; required for isolated live name trials')
     cli.add_argument('--character-names',action='store_true',help='Opt in to own-name evidence/holds; Twitch requires isolated live trial settings; implies --resident-neural')
@@ -617,13 +619,23 @@ def main(argv=None):
                 return {**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes}
         for row in streams:
             if not args.replay:lanes.append(make_lane(row))
+        automatic_preload=args.preload_streamlink is None
+        if automatic_preload:
+            args.preload_streamlink=(sys.platform=='linux' and not args.replay
+                and (db_mode or any(row['source']=='twitch' for row in streams)))
         native=None
         if not args.replay:
             configure_tesseract()
             if args.preload_streamlink:
                 from exp_tracker.preloaded_streamlink import PreloadedStreamlink
-                streamlink=PreloadedStreamlink();streamlink.check()
-                print('Preloaded Streamlink: fresh CLI children via Linux forkserver.',flush=True)
+                try:
+                    streamlink=PreloadedStreamlink();streamlink.check()
+                except (OSError,ValueError,RuntimeError):
+                    if not automatic_preload:raise
+                    if streamlink:streamlink.close()
+                    streamlink=None;args.preload_streamlink=False
+                    print('Streamlink preloading unavailable; using ordinary CLI startup.',file=sys.stderr,flush=True)
+                else:print('Preloaded Streamlink: fresh CLI children via Linux forkserver.',flush=True)
             if args.resident_tesseract:
                 from resident_tesseract import TesseractPool, worker_command
                 preflight=TesseractPool(worker_command(),1)
