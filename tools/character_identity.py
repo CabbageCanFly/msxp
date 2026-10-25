@@ -9,15 +9,18 @@ import time
 
 from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS, WRAP_FROM_BP, WRAP_TO_BP
 from exp_tracker.exp_consistency import MODES, assess, displayed_bp
+from exp_tracker.jobs import match, next_level, tier
 from exp_tracker.models import Reading
 from exp_tracker.validation import Observation, validate_transition
-from character_name_ocr import name_region, name_text, second_look
+from character_name_ocr import job_region, name_region, name_text, second_look
 
 
 # Numeric changes another character could explain; the rest stay ordinary EXP-validity questions.
 OWNERSHIP_RISK = {'reset_loss_or_character_switch', 'level_decrease',
                   'level_change_requires_confirmation', 'possible_offstream_progression'}
 PENDING_TTL_SECONDS = 600
+JOB_RETRY_SECONDS = 60  # Until two job reads agree, or after one disagreed with the known job.
+JOB_RECHECK_SECONDS = 600  # Once the level allows the next job advancement.
 
 
 class IdentitySuggestions:
@@ -125,11 +128,40 @@ class IdentityCapture:
         self.last_check = None
         self.previous = None
         self.latest = None
+        self.job = self.job_seen = self.job_checked = None
 
     def select(self, name, at, *, source='operator_confirmed'):
         """After a committed switch/new session; numbers never compare across characters."""
         self.suggestions.select(name, at, source=source)
         self.previous = None
+        self.job = self.job_seen = self.job_checked = None
+
+    def job_due(self, level, now):
+        """Rare by design: each minute until two reads agree (or one disagrees with the known job),
+        every 10 minutes once the level allows the next job, otherwise never."""
+        if self.job is None or self.job_seen != self.job:
+            wait = JOB_RETRY_SECONDS
+        elif level is not None and (advance := next_level(self.job)) is not None and level >= advance:
+            wait = JOB_RECHECK_SECONDS
+        else:
+            return False
+        return self.job_checked is None or now - self.job_checked >= wait
+
+    def read_job(self, image, layout, read_name, now):
+        """One read of the job line; two agreeing reads make it known, and it only moves up a tier."""
+        self.job_checked = now
+        box = job_region(layout, image.size)
+        raw = read_name(image.crop(box)).get('raw') or {}
+        texts, scores = raw.get('txts'), raw.get('scores')
+        text = texts[0] if isinstance(texts, list) and len(texts) == 1 and isinstance(texts[0], str) and len(texts[0]) <= 160 else None
+        score = (scores[0] if isinstance(scores, list) and len(scores) == 1 and type(scores[0]) in (int, float)
+                 and math.isfinite(scores[0]) else None)
+        job = match(text) if score is not None and score >= .9 else None
+        if job and job == self.job_seen and (self.job is None or tier(job) > tier(self.job)):
+            self.job = job
+        self.job_seen = job
+        return dict(status='candidate' if job else 'unrecognized', job=job, tier=job and tier(job),
+                    text=text, score=score, box=box)
 
     def numeric_check(self, result, received_at, requirements):
         """Use the existing transition validator and both existing rounding hypotheses."""
@@ -211,10 +243,14 @@ class IdentityCapture:
                 if read:
                     evidence['score'], evidence['name'] = read
                 evidence['status'] = 'candidate' if evidence['name'] else 'unreadable_or_conflicting'
+                level = result.get('visual_level') or (result.get('neural_level') or {}).get('level')
+                if self.job_due(level, started):
+                    evidence['job'] = self.read_job(image, layouts[0], read_name, started)
             except (OSError, RuntimeError, ValueError, KeyError) as error:
                 evidence.update(status='failed', error=type(error).__name__)
         if clock() - frame.arrived_monotonic > max_age:
             evidence.update(status='stale_local_frame', name=None)
+            if evidence.get('job'):evidence['job'].update(status='stale_local_frame', job=None, tier=None)
         evidence['seconds'] = clock() - started
         if evidence['status'] == 'not_due':
             # Skipping work must not manufacture another vote or break a real confirmation.

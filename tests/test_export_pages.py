@@ -22,7 +22,8 @@ EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'index.h
             'static/fonts/OFL-Fredoka.txt', 'static/fonts/OFL-Nunito.txt', 'static/fonts/fredoka-latin.woff2',
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
             'static/product.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp',
-            'static/kerning.webp', 'static/kerning-sky.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')}
+            'static/kerning.webp', 'static/kerning-sky.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')} \
+    | {f'static/jobs/{p.name}' for p in (export_pages.WEB / 'jobs').glob('*.png')}
 ROUTES = ['/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
           '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200']
 
@@ -94,8 +95,9 @@ def test_product_js_contacts_only_the_configured_api_origin():
     assert re.search(r"const endpoint=channel\?`\$\{apiOrigin\}/api/players/\$\{encodeURIComponent\(channel\)\}`:`\$\{apiOrigin\}/api/players`;", source)
     for channel in ('XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'import(', 'importScripts', 'new Image'):
         assert channel not in source, channel
-    # Loaded URLs besides the API: the overlay preview, mob sprites and decoded town layers, all same-origin.
-    assert set(re.findall(r'\.src=([^;]*);', source)) == {'url', "sprite(slug,'move')", "sprite(slug,'hit')", "sprite(slug,'die')", "sprite(pick(BOSSES),'stand')", '`/static/${file}`'}
+    # Loaded URLs besides the API: the overlay preview, mob sprites, decoded town layers and job icons, all same-origin.
+    assert set(re.findall(r'\.src=([^;]*);', source)) == {'url', "sprite(slug,'move')", "sprite(slug,'hit')", "sprite(slug,'die')", "sprite(pick(BOSSES),'stand')", '`/static/${file}`',
+                                                         "`/static/jobs/${job.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}.png`"}
     assert "const files=[`${town}.webp`,town==='sleepywood'?'sleepywood-forest.webp':'kerning-sky.webp'];" in source
     assert "['sleepywood','kerning'].includes(background)?background:" in source
     assert 'return `${location.origin}/live/overlay/${encodeURIComponent(channel)}' in source and "sprite=(slug,action)=>`/static/mobs/${slug}-${action}.${slug==='slime'?'webp':'gif'}`" in source

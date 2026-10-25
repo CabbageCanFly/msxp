@@ -663,3 +663,13 @@ def test_cross_origin_viewer_can_read_warming_and_published_bodies(tracking,cloc
         for route in ('/api/players','/api/players/alpha','/api/players/alpha/history'):
             status,headers,_=request((server,None),route,origin=pages)
             assert status==200 and headers['Access-Control-Allow-Origin']==pages,route
+
+
+def test_a_job_change_republishes_a_channel_without_new_captures(tracking, clock):
+    path, store, d = tracking
+    with server_module.create_server(path, port=0, diagnostic_dashboard=True) as server:
+        p = server.publisher; p.settle()
+        assert 'job' not in json.loads(p.character('alpha'))['player']['character']
+        store.set_character_job(store.state('alpha')['selected_character_id'], 'Cleric', source='manual_admin')
+        p.settle()
+        assert json.loads(p.character('alpha'))['player']['character']['job'] == 'Cleric'

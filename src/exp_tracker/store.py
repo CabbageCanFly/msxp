@@ -12,7 +12,7 @@ import sqlite3
 
 from .glyphs import GlyphProfile
 from .models import Reading, Recognition, PLACEHOLDER_CHARACTER
-from .schema import CHARACTER_INVALIDATIONS, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, MIGRATION_8, MIGRATION_9, MIGRATION_10, MIGRATION_11, STATEMENTS, VERSION
+from .schema import CHARACTER_INVALIDATIONS, CHARACTER_JOBS, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, MIGRATION_7, MIGRATION_8, MIGRATION_9, MIGRATION_10, MIGRATION_11, STATEMENTS, VERSION
 from .statistics import tracking_statistics
 from .trust import guard_unverified_exp
 from .validation import Observation, Transition, validate_transition
@@ -96,7 +96,7 @@ class Store:
                     version = 11
                 if version not in (10,VERSION):
                     raise ValueError(f"unsupported schema version {version}")
-                self.db.execute(CHARACTER_INVALIDATIONS)
+                self.db.execute(CHARACTER_INVALIDATIONS);self.db.execute(CHARACTER_JOBS)
                 self.db.execute(f"PRAGMA user_version={version}")
                 self.schema_version=version
             self.db.execute("PRAGMA journal_mode=WAL")
@@ -423,6 +423,22 @@ class Store:
             row_id=self.db.execute('''INSERT INTO character_invalidations(streamer_id,character_id,action,label,reason,recorded_at)
                 VALUES(?,?,?,?,?,?)''',(streamer['id'],character_id,'restore' if restore else 'invalidate',character['label'],reason,utc())).lastrowid
             return dict(self.db.execute('SELECT * FROM character_invalidations WHERE id=?',(row_id,)).fetchone())
+
+    def character_job(self, character_id):
+        """The character's job with its source and time, or None. Read-only stores may predate the table."""
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='character_jobs'").fetchone():return None
+        row=self.db.execute('SELECT job,source,recorded_at FROM character_jobs WHERE character_id=? ORDER BY id DESC LIMIT 1',(character_id,)).fetchone()
+        return dict(row) if row and row['job'] else None
+
+    def set_character_job(self, character_id, job, *, source, evidence=None):
+        """Record the character's job (None clears it); only jobs in the job list are accepted."""
+        from .jobs import table
+        if job is not None and job not in table()['jobs']:raise ValueError('unknown job')
+        if source not in ('ocr','manual_admin'):raise ValueError('invalid job source')
+        with self._transaction():
+            if self.db.execute('SELECT 1 FROM characters WHERE id=?',(character_id,)).fetchone() is None:raise ValueError('unknown character')
+            self.db.execute('INSERT INTO character_jobs(character_id,job,source,evidence_json,recorded_at) VALUES(?,?,?,?,?)',
+                (character_id,job,source,json.dumps(evidence) if evidence else None,utc()))
 
     def character_invalidation_history(self, character_id):
         if not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='character_invalidations'").fetchone():return []

@@ -402,6 +402,7 @@ def test_multiple_channels_keep_independent_lifecycles():
 def test_second_look_may_only_confirm_the_current_character(second, used):
     """Live Streamer_J: touching "yv" read as "w"; a padded second look reads the confirmed name."""
     state = IdentityCapture('channel', confirmed='Kayvenmoor'); sizes = []
+    state.job = state.job_seen = 'Cleric'  # Known job, level unknown: no job read on this frame.
     def read(crop):
         sizes.append(crop.size)
         return response('Kaywenmoor' if len(sizes) == 1 else second)
@@ -416,8 +417,37 @@ def test_second_look_may_only_confirm_the_current_character(second, used):
 
 def test_matching_reads_and_unconfirmed_channels_take_no_second_look():
     for state, name in ((IdentityCapture('channel', confirmed='Alpha'), 'Alpha'), (IdentityCapture('channel'), 'Beta')):
-        calls = []
+        calls = []; state.job = state.job_seen = 'Cleric'  # No job read either.
         f = make_frame(0)
         state.inspect(dict(current=True, candidate=None, visual_level=None), f, f.image(), candidate(),
                       lambda crop: calls.append(crop) or response(name), {1: 10000, 2: 20000}, max_age=15, clock=lambda: 101)
         assert len(calls) == 1
+
+
+def test_job_line_sits_directly_above_the_name_line():
+    from character_name_ocr import job_region
+    layout = candidate(x=780, y=1054.5, step=100)[0]
+    assert job_region(layout, (1920, 1080)) == [652, 1048, 774, 1064]  # Name: [652, 1064, 774, 1080].
+
+
+def test_job_reads_are_rare_and_only_move_up_a_tier():
+    state, image, layout = IdentityCapture('channel'), make_frame(0).image(), candidate()[0]
+    def read(text):
+        return state.read_job(image, layout, lambda crop: response(text), now)
+    now = 0
+    assert state.job_due(None, now) and read('Magiclan')['job'] == 'Magician' and state.job is None  # One read is not enough.
+    assert not state.job_due(None, 59)
+    now = 60; assert state.job_due(None, now); read('Magician'); assert state.job == 'Magician'
+    assert not state.job_due(29, 10_000)  # Below the second-job level: never re-read.
+    now = 10_000; assert state.job_due(30, now); assert read('Cleric')['tier'] == 2 and state.job == 'Magician'
+    now = 10_060; assert state.job_due(30, now); read('Cleric'); assert state.job == 'Cleric'
+    assert not state.job_due(99, 20_000)  # No further job is known yet.
+    for now in (20_000, 20_060):read('Beginner')
+    assert state.job == 'Cleric'  # A lower tier is a misread, never a demotion.
+    assert read('Alpha') == dict(status='unrecognized', job=None, tier=None, text='Alpha', score=.99, box=job_region_box(layout))
+    state.select('Other', NOW.isoformat()); assert state.job is None and state.job_due(None, 0)
+
+
+def job_region_box(layout):
+    from character_name_ocr import job_region
+    return job_region(layout, (1920, 1080))

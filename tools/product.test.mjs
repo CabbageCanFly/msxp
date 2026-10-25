@@ -193,6 +193,21 @@ for(const view of ['player','overlay'])test(`${view} starts a newer level at 0 i
   }
 });
 
+test('overlay shows the job text; its visibility is the job option',()=>{
+  const p=page('overlay');p.render(player({character:{label:'Main',job:'Hunter'}}));
+  assert.equal(p.elements['overlay-job'].textContent,'Hunter');
+  p.run('applyOverlay(overlayOptions("?job=on"))');assert.equal(p.run('document.body.dataset.job'),'on');
+});
+
+test('profile header shows the job icon and name between the name and the Twitch link, only when known',()=>{
+  const p=page('player');
+  p.render(player({character:{label:'Main',job:'Wizard (Ice,Lightning)'}}));
+  assert.equal(p.elements['player-job-name'].textContent,'Wizard (Ice,Lightning)');assert.equal(p.elements['player-job'].title,'Wizard (Ice,Lightning)');
+  assert.equal(p.elements['player-job-icon'].src,'/static/jobs/wizard-ice-lightning.png');assert.equal(p.elements['player-job'].hidden,false);
+  p.render(player({character:{label:'Main'}}));
+  assert.equal(p.elements['player-job'].hidden,true);
+});
+
 test('offline last-seen EXP fills the bar and ages its original timestamp',()=>{
   const p=page('player'),reading=player().reading;
   p.render(player({reading:null,stale:true,age_seconds:null,twitch:{status:'offline'},
@@ -1654,9 +1669,10 @@ test('character page defaults: 15 min cards, 24h bar chart and a 15 min line cha
 test('overlay URL options fall back on unknown values and accept only six-digit hex colours',()=>{
   const p=page('overlay');
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions("?layout=rates&name=nope&title=tracker&bar=ABCDEF&accent=red&header=%23123456"))')),
-    {layout:'rates',title:'tracker',icon:'off',name:'both',theme:'night',interval:'60',range:'60',bar:'abcdef'});
-  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',icon:'off',name:'both',theme:'night',interval:'60',range:'60'});
+    {layout:'rates',title:'tracker',icon:'off',job:'off',name:'both',theme:'night',interval:'60',range:'60',bar:'abcdef'});
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',icon:'off',job:'off',name:'both',theme:'night',interval:'60',range:'60'});
   assert.equal(p.run('overlayOptions("?icon=on").icon'),'on');
+  assert.equal(p.run('overlayOptions("?job=on").job'),'on');assert.equal(p.run('overlayOptions("?job=yes").job'),'off');
   assert.equal(p.run('overlayOptions("?layout=bar").layout'),'bar');
   assert.equal(p.run('overlayOptions("?layout=unknown").layout'),'card');
   assert.equal(p.run('overlayOptions("?interval=1800&range=15").range'),'1440');

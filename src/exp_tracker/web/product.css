@@ -427,6 +427,13 @@ html, body.product { overflow-x:clip; }
 /* The character's name is the player page's headline. */
 .player-board #player-name { min-width:0; font-size:28px; font-weight:700; line-height:1.15; overflow-wrap:anywhere; text-shadow:0 2px 0 #4b3423; }
 @media(max-width:650px) { .player-board #player-name { font-size:23px; } }
+/* The job sits beside it: its skill icon plus the name, quieter but plainly readable. Narrow screens keep only the icon. */
+.player-board #player-job { display:inline-flex; align-items:center; gap:6px; flex:0 1 auto; min-width:0;
+  font-family:var(--font-display); font-size:17px; font-weight:600; color:var(--text-soft); text-shadow:0 1px 0 #4b3423; }
+.player-board #player-job[hidden] { display:none; }
+.player-board #player-job-icon { flex:none; width:32px; height:32px; }  /* 64 px source: full detail on 2x screens. */
+.player-board #player-job-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media(max-width:650px) { .player-board #player-job-name { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); } }
 
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .1s; }
 /* Switching characters: a gentler fade from the old numbers to the new ones. */

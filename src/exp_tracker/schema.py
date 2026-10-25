@@ -236,6 +236,13 @@ CHARACTER_INVALIDATIONS = '''CREATE TABLE IF NOT EXISTS character_invalidations 
     FOREIGN KEY(character_id, streamer_id) REFERENCES characters(id, streamer_id)
 )'''
 
+# Each character's job, read from the status panel or set by the operator. Append-only and
+# additive like character_invalidations; the latest row is the job (NULL clears an entry).
+CHARACTER_JOBS = '''CREATE TABLE IF NOT EXISTS character_jobs (
+    id INTEGER PRIMARY KEY, character_id INTEGER NOT NULL REFERENCES characters(id), job TEXT,
+    source TEXT NOT NULL CHECK(source IN ('ocr','manual_admin')), evidence_json TEXT, recorded_at TEXT NOT NULL
+)'''
+
 # Desired settings are separate from immutable capture ownership and operational status.
 MIGRATION_11 = (
     '''CREATE TABLE streamer_capture (

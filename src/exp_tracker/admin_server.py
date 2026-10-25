@@ -23,7 +23,8 @@ CHARACTER_ACTIONS = ('invalidate_character', 'restore_character')
 CHARACTER_NOTICES = dict(
     invalidate_character="Hides this character from public pages within about 30 seconds, and automatic tracking won't switch to "
         "this name again (those frames are held). Its readings are kept, and Restore character undoes this.",
-    restore_character='Shows this character on public pages again within about 30 seconds; automatic tracking may switch to this name again.')
+    restore_character='Shows this character on public pages again within about 30 seconds; automatic tracking may switch to this name again.',
+    set_job="Shows on the profile within about 30 seconds. Automatic reading can still move it up a tier later; it never lowers it.")
 ROSTER_NOTICE = ('Rename preserves the character ID. A database-managed roster reconciles the name at a safe capture boundary. '
                  'For JSON-managed capture, update the private roster character label before restarting. '
                  'This dashboard does not restart capture.')
@@ -51,11 +52,13 @@ def operation(data):
     if not isinstance(data, dict):
         raise ValueError('expected a JSON object')
     action = data.get('action')
-    if action not in ('set', 'correct', 'amend', 'undo', 'clear', 'rename', *CHARACTER_ACTIONS):
+    if action not in ('set', 'correct', 'amend', 'undo', 'clear', 'rename', 'set_job', *CHARACTER_ACTIONS):
         raise ValueError('unknown administration action')
     allowed = {'action', 'channel', 'character_id', 'reason'}
     if action == 'rename':
         allowed |= {'new_name'}
+    elif action == 'set_job':
+        allowed |= {'job'}
     elif action == 'undo':
         allowed |= {'correction_id'}
     elif action in CHARACTER_ACTIONS:
@@ -76,7 +79,7 @@ def operation(data):
         raise ValueError('select an existing Twitch channel')
     integer(data.get('character_id'), 'character ID')
     result = dict(data, event_id=uuid.uuid4().hex)
-    if action not in ('rename', 'undo', *CHARACTER_ACTIONS):
+    if action not in ('rename', 'undo', 'set_job', *CHARACTER_ACTIONS):
         now = data.get('use_now', False)
         if type(now) is not bool or now and 'effective_at' in data:
             raise ValueError('choose an explicit timestamp or Use current timestamp, exclusively')
@@ -93,6 +96,9 @@ def apply(store, data):
     reason = data.get('reason') or None
     if action == 'rename':
         return store.rename_character(channel, selected['id'], data.get('new_name'), reason=reason)
+    if action == 'set_job':  # An empty choice clears the operator's entry.
+        store.set_character_job(selected['id'], data.get('job') or None, source='manual_admin')
+        return dict(action='set_job', label=selected['label'], job=data.get('job') or None)
     if action in CHARACTER_ACTIONS:
         return store.invalidate_character(channel, selected['id'], reason=reason, restore=action == 'restore_character')
     if action == 'undo':
@@ -147,6 +153,8 @@ def details(store, channel, cid, session=None):
     result['renames'] = [dict(r) for r in store.db.execute(
         'SELECT * FROM character_renames WHERE character_id=? ORDER BY id DESC', (selected['id'],))] if store.schema_version >= 6 else []
     result['invalidated_characters']=sorted(store.invalidated_characters(store._channel(channel)['id']))
+    from .jobs import table
+    result['job'],result['jobs']=store.character_job(selected['id']),list(table()['jobs'])
     result['character_invalidations']=store.character_invalidation_history(selected['id'])
     result['invalidated']=invalidations.excluded(channel,selected['id'])
     result['invalidation_history']=invalidations.history(channel,selected['id'])

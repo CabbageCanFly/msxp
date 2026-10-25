@@ -51,6 +51,13 @@ def name_region(layout, size):
                 anchors=layout['anchors'], anchor_step=step)
 
 
+def job_region(layout, size):
+    """The job line directly above the name; same left and right edges."""
+    hp, step = layout['anchors']['hp'], layout['anchor_step']
+    name = name_region(layout, size)['box']
+    return checked_box([name[0], round(hp['y'] - .065 * step), name[2], round(hp['y'] + .10 * step)], size)
+
+
 def second_look(crop):
     """The name crop without its right panel edge, with background margin all round.
     It reads touching glyphs ("yv" read as "w") that the plain crop misses, but it also

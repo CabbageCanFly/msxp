@@ -317,3 +317,21 @@ def test_invalidated_character_leaves_public_pages_until_restored(admin):
     assert public_ids() == ({selected}, 404)
     commit(server, dict(data, action='restore_character', reason='It was theirs after all'))
     assert store.invalidated_characters(streamer) == set() and public_ids()[0] == {selected, other}
+
+
+def test_operator_sets_and_clears_a_job_that_the_profile_shows(admin):
+    server, store, d = admin
+    save(d, 'run', 1, 0, 3300)
+    selected = store.state('alpha')['selected_character_id']
+    data = dict(action='set_job', channel='alpha', character_id=str(selected), job='Cleric')
+    assert preview(server, data)['event'] == dict(action='set_job', label=store.state('alpha')['characters'][0]['label'], job='Cleric')
+    assert store.character_job(selected) is None  # A preview never writes.
+    assert request(server, '/api/preview', 'POST', dict(data, job='Bishop'))[0] == 400
+    assert request(server, '/api/preview', 'POST', dict(data, effective_at=at(1).isoformat()))[0] == 400
+    assert 'profile' in commit(server, data)['notice'] and store.character_job(selected)['source'] == 'manual_admin'
+    inspected = request(server, f'/api/inspect?channel=alpha&character_id={selected}')[2]
+    assert inspected['job']['job'] == 'Cleric' and 'Wizard (Ice,Lightning)' in inspected['jobs']
+    with create_server(server.database, port=0, public_only=True) as public:
+        assert json.loads(public_request((public, None), '/api/players/alpha')[2])['player']['character']['job'] == 'Cleric'
+    commit(server, dict(data, job=''))
+    assert store.character_job(selected) is None

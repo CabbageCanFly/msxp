@@ -24,8 +24,10 @@ from .twitch_auth import AppTokens
 WEB = Path(__file__).with_name("web")
 # Wandering mob sprites for product.js (credited in README); the folder holds only these GIF/WebP files.
 MOB_ASSETS = {f"/static/mobs/{p.name}" for p in WEB.glob("mobs/*.*")}
+# Skill icon per job for the profile header (web/jobs/<slug>.png, named in data/jobs.json).
+JOB_ASSETS = {f"/static/jobs/{p.name}" for p in WEB.glob("jobs/*.png")}
 ASSETS = {
-    **{path: (path.removeprefix("/static/"), f"image/{path.rsplit('.', 1)[1]}") for path in MOB_ASSETS},
+    **{path: (path.removeprefix("/static/"), f"image/{path.rsplit('.', 1)[1]}") for path in MOB_ASSETS | JOB_ASSETS},
     "/static/overlay.css": ("overlay.css", "text/css"),
     "/static/live-overlay.css": ("live-overlay.css", "text/css"),
     "/static/overlay.js": ("overlay.js", "text/javascript"),
@@ -50,11 +52,11 @@ PRODUCT_ASSETS = {'/static/product.css':('product.css','text/css'),'/static/prod
 PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css', '/static/live-overlay.css', '/static/steely.png',
                  '/static/sleepywood.webp', '/static/sleepywood-forest.webp',
                  '/static/kerning.webp', '/static/kerning-sky.webp',
-                 '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'} | MOB_ASSETS
+                 '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'} | MOB_ASSETS | JOB_ASSETS
 # Unchanging binary assets may be cached briefly so page changes don't re-download them and re-flow text.
 CACHED_ASSETS = {'/static/steely.png', '/static/sleepywood.webp', '/static/sleepywood-forest.webp',
                  '/static/kerning.webp', '/static/kerning-sky.webp',
-                 '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'} | MOB_ASSETS
+                 '/static/fonts/fredoka-latin.woff2', '/static/fonts/nunito-latin.woff2'} | MOB_ASSETS | JOB_ASSETS
 CHANNEL = re.compile(r"[A-Za-z0-9_]{1,25}")
 # Exact browser origins allowed to read responses cross-origin (a separately hosted frontend).
 # https only; plain http only for a local development origin. Never a wildcard.
