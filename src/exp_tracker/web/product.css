@@ -366,6 +366,12 @@ html, body.product { overflow-x:clip; }
 @media(hover:hover) { :is(.streamer-entry,.character-entry):hover .job-icon { opacity:.85; } }
 :is(.streamer-entry,.character-entry):is([data-touched],:has(:focus-visible)) .job-icon { opacity:.85; }
 @media(max-width:650px) { :is(.streamer-entry,.character-entry) .job-icon { width:20px; height:20px; } }
+/* Wide screens: the whole name column opens the profile (phones link the whole row); the Twitch link and the job icon's tooltip stay on top. */
+@media(min-width:651px) {
+  :is(.streamer-entry,.character-entry) .identity { position:relative; }
+  :is(.streamer-entry,.character-entry) .identity a.character::after { content:''; position:absolute; inset:0; }
+  :is(.streamer-entry,.character-entry) .identity :is(a.channel,.job-icon) { position:relative; z-index:1; }
+}
 .product :is(.streamer-entry,.character-entry) .character { font-family:var(--font-display); font-size:22px; font-weight:600; line-height:1.15; letter-spacing:-.2px; }
 /* Wide screens: the EXP block and the score both sit at the row's bottom and the label matches the age's size and line height,
    so "EXP / hour" shares a baseline with "Updated 3m ago", even when the footer wraps to a second line. */
