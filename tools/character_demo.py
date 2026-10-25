@@ -41,8 +41,8 @@ STREAMS = [('synthetic_ember', 'Ember', 61, 7200, 30, 40, 0), ('synthetic_frost'
 # The job each generated status panel shows; the real two-read confirmation records it.
 # Every job appears once; Quiet (an ended stream) repeats Cleric because there are 16 characters and 15 jobs.
 JOBS = {'Alpha': 'Cleric', 'Beta': 'Hunter', 'Gamma': 'Bandit', 'Delta': 'Page', 'Epsilon': 'Wizard (Fire,Poison)', 'Zeta': 'Crossbowman',
-        'Eta': 'Spearman', 'Theta': 'Assassin', 'Iota': 'Fighter', 'Kappa': 'Magician', 'Lambda': 'Warrior', 'Mu': 'Wizard (Ice,Lightning)',
-        'Ember': 'Bowman', 'Frost': 'Thief', 'Sprout': 'Beginner', 'Quiet': 'Cleric'}
+        'Eta': 'Spearman', 'Theta': 'Assassin', 'Iota': 'Fighter', 'Kappa': 'Magician', 'Lambda': 'Swordsman', 'Mu': 'Wizard (Ice,Lightning)',
+        'Ember': 'Archer', 'Frost': 'Rogue', 'Sprout': 'Beginner', 'Quiet': 'Cleric'}
 LIVE_SECONDS = INTERVAL  # Same spacing as the generated history, so live paces match it.
 OFFLINE = ('synthetic_frost', 'synthetic_quiet')  # `serve --offline` without names: one recent and one ended stream.
 # Earlier sessions that fill the 24 h charts: (hours ago, readings) per half-hour slot, 30 s apart.
