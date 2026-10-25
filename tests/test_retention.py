@@ -13,6 +13,23 @@ from tests.test_diagnostic_history import config
 from tests.test_tracked_exp_totals import save
 
 
+def test_checkpoint_serialization_keeps_primitive_subclasses_and_typed_containers():
+    from collections import deque
+    from datetime import datetime
+    from fractions import Fraction
+    from exp_tracker.retention import dumps,loads,pack
+    class Number(int):pass
+    class Text(str):pass
+    value=dict(primitives=[None,True,False,0,123,-2,1.5,'text',Number(7),Text('subclass')],
+        typed=(NOW,Fraction(2,3),deque([1,'x'],maxlen=4),{3,1}))
+    expected={'primitives':[None,True,False,0,123,-2,1.5,'text',7,'subclass'],
+        'typed':{'$tuple':[{'$datetime':NOW.isoformat()},{'$fraction':[2,3]},
+            {'$deque':[[1,'x'],4]},{'$set':[1,3]}]}}
+    assert pack(value)==expected and loads(dumps(value))==value
+    assert isinstance(loads(dumps(value))['typed'][0],datetime)
+    with pytest.raises(ValueError):dumps(float('nan'))
+
+
 def chain(d, count=8, first=0):
     if not first:d.append('run',dict(type='summary',trusted=False,attempts=0,interrupted=True))
     for n in range(first,first+count):

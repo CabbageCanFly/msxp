@@ -78,6 +78,9 @@ The homepage uses the same player presenter as profiles, avoiding an extra deep 
 the full internal card. Time, stale, activity, Twitch and tracked-window presentation
 keep the same values; the published entries remain immutable.
 
+The later [publication CPU pass](#publication-cpu-pass) also reuses the 24-hour
+window total and speeds up restart-cache serialization.
+
 The encoded body is reused for every viewer while the publication generation, the
 coordinator runtime (activity, active runs) and the clock (< `PRESENT_SECONDS` = 1 s)
 are unchanged. One lock per body key means simultaneous viewers wait for one encoding
@@ -238,3 +241,50 @@ invalidation or makes a newly built packet use the pre-network timestamp.
 
 See [review findings and validation](background-publishing-review.md). Numerical
 eligibility, tracked-EXP policy, history checkpoints and historical ETA are unchanged.
+
+## Publication CPU pass
+
+A local profile of a warm, full-day synthetic channel found repeated interval work
+and substantial restart-cache serialization cost. Two small changes remove work:
+
+- `rolling_history.aggregate()` takes the 24-hour total from the 24-hour window it
+  already calculates. The current-level chart also shares the existing interval memo.
+  Each aggregation gets a new memo, and the total keeps its own result dictionary.
+- `retention.pack()` immediately returns ordinary strings, numbers, booleans and
+  nulls. Typed values and containers keep the existing encoding and validation.
+
+Every publication still calculates at the current clock and saves its restart snapshot.
+No new setting or dependency is needed.
+
+### Paired local measurement
+
+Windows workstation, one synthetic channel with 4,321 attempts at 20-second cadence.
+Old functions from `b9de5aa` and the new functions run alternately in one process pinned
+to the same CPU core. Each case has one warm-up pair and eight measured pairs; numbers
+are median process CPU per publication, including restart-cache saves when enabled.
+
+| Workload | Before | After | CPU saved |
+| --- | ---: | ---: | ---: |
+| New capture, restart cache enabled | 875 ms | 789 ms | 10% |
+| Time-only refresh, restart cache enabled | 953 ms | 867 ms | 9% |
+| New capture, memory-only cache | 672 ms | 531 ms | 21% |
+| Time-only refresh, memory-only cache | 656 ms | 570 ms | 13% |
+
+The restart-cache cases most closely match the VPS configuration. These are publication
+CPU savings; the whole server's benefit depends on how much CPU publication consumes.
+Other local tests were running, so treat the figures as one paired workstation run.
+
+All **36 paired comparisons** returned byte-identical character API responses and equal
+internal publication entries after excluding the measured build duration. The databases
+were temporary and automatically removed. Profiling reports and the disposable comparison
+script remain ignored under `private/cpu-efficiency/`.
+
+Validation: **3,307 passed, 75 skipped, 1 expected failure** in the full Python run.
+The skips remain 68 missing private live-crop cases, one Windows symlink-permission case
+and six Linux-only playback cases. A final focused run passes **94 tests**, including
+independent window calculations across rotation, restart, level changes and time expiry;
+separate result objects; typed checkpoint round trips; restart-cache recovery and EXP totals.
+
+This pass was not deployed or benchmarked on the VPS. Card projection and full-day
+interval aggregation still dominate publication cost; a larger reduction would require
+further measured changes to those calculations.

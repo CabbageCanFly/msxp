@@ -410,9 +410,6 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
         result.update(status='history_limit',tracked_exp=None,basis_counts={});versions.clear()
         bins=[dict(b,amount=None,chart_amount=None,coverage=Fraction(0),intervals=0) for b in bins]
         coverage=Fraction(0);result['intervals']=0
-    else:
-        _,daily,_=window_endpoints(state['rows'],start=start,end=now)
-        result['tracked_exp']=daily['value'] if daily else None
     if not limited:
         result['current_level']=level
         from .product import recent_windows
@@ -422,6 +419,8 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
             excluded=[],recoveries=[])
         memo={}
         result['windows']=recent_windows(head,dict(value=level),now=now,collected=collected,memo=memo)
+        daily=result['windows']['1440']['gain']
+        result['tracked_exp']=dict(daily) if daily is not None else None
         result['current_level_windows']=recent_windows(head,dict(value=level),now=now,current_level_only=True,collected=collected,memo=memo)
         for metrics in (result['windows'],result['current_level_windows']):
             for key,metric in list(metrics.items()):
@@ -434,7 +433,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
         result['chart_intervals']=deepcopy([{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
             for g in gains if now-timedelta(minutes=60)<=datetime.fromisoformat(g['end'])<=now
             and datetime.fromisoformat(g['end'])-datetime.fromisoformat(g['start'])<=timedelta(minutes=60)])
-        _,current,_=window_endpoints(state['rows'],start=now-timedelta(minutes=60),end=now,level=level)
+        _,current,_=window_endpoints(state['rows'],start=now-timedelta(minutes=60),end=now,level=level,memo=memo)
         result['current_level_chart_intervals']=[{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
             for g in current['intervals']] if current else []
         result['chart_status']='ready' if max(len(result['chart_intervals']),len(result['current_level_chart_intervals']))<=4096 else 'history_limit'
