@@ -245,7 +245,10 @@ class IdentityCapture:
                 evidence['status'] = 'candidate' if evidence['name'] else 'unreadable_or_conflicting'
                 level = result.get('visual_level') or (result.get('neural_level') or {}).get('level')
                 if self.job_due(level, started):
-                    evidence['job'] = self.read_job(image, layouts[0], read_name, started)
+                    try:  # The job is a bonus: a failed job read never costs this frame its name read.
+                        evidence['job'] = self.read_job(image, layouts[0], read_name, started)
+                    except (OSError, RuntimeError, ValueError, KeyError) as error:
+                        evidence['job'] = dict(status='failed', error=type(error).__name__)
             except (OSError, RuntimeError, ValueError, KeyError) as error:
                 evidence.update(status='failed', error=type(error).__name__)
         if clock() - frame.arrived_monotonic > max_age:
