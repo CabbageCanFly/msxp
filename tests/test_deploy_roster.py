@@ -41,7 +41,7 @@ def preflight(managed,monkeypatch):
     pools=[]
     def pool(command,workers):
         pools.append(workers)
-        return SimpleNamespace(check=lambda:dict(version='test',model_sha256='a'*64),close=lambda:None)
+        return SimpleNamespace(check=lambda **kwargs:dict(version='test',model_sha256='a'*64),close=lambda:None)
     monkeypatch.setattr(importlib.import_module('resident_tesseract'),'TesseractPool',pool)
     monkeypatch.setattr(module,'available_port',lambda port,**kwargs:None)
     def forbidden(*args,**kwargs):raise AssertionError('Preflight must not connect or capture')

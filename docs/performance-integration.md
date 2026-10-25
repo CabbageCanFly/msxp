@@ -1,5 +1,10 @@
 # Staggered capture and resident Tesseract
 
+**Current update:** resident Tesseract now enables
+[layout-first HUD recognition](layout-first-hud.md) by default. The older detector
+description below is retained for the original integration; use
+`--no-layout-first-hud` to run it for comparison.
+
 Integration of two researched, opt-in throughput changes into the schema-11 tracker
 (`tools/multi_alpha.py`), for both legacy JSON configs and `--db-roster` mode. Both flags
 are **off by default**. Without them, `capture_attempt` receives exactly the arguments it

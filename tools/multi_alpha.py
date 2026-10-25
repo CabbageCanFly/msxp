@@ -507,6 +507,8 @@ def main(argv=None):
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
     cli.add_argument('--resident-tesseract',action='store_true',help='Reuse isolated native libtesseract worker processes (at most min(workers, 4)) instead of one tesseract CLI process per OCR call; off by default')
+    cli.add_argument('--layout-first-hud',action=argparse.BooleanOptionalAction,default=True,
+        help='With resident Tesseract, recognize HUD labels after full-frame layout and fall back to full OCR when needed. On by default; --no-layout-first-hud restores normal OCR. Disabled with HUD cache')
     preload=os.environ.get('MSXP_PRELOAD_STREAMLINK') or 'auto'
     if preload not in ('auto','0','1'):cli.error('MSXP_PRELOAD_STREAMLINK must be auto, 0 or 1')
     cli.add_argument('--preload-streamlink',action=argparse.BooleanOptionalAction,default={'auto':None,'0':False,'1':True}[preload],
@@ -610,6 +612,7 @@ def main(argv=None):
             output=directory/row['channel']/uuid.uuid4().hex/'capture.jsonl' if db_mode else directory/row['channel']/'capture.jsonl'
             opts = options(row, database, output)
             if args.ocr_python:opts.ocr_python=args.ocr_python.absolute()  # Never follow a venv's interpreter symlink.
+            opts.layout_first_hud=args.resident_tesseract and args.layout_first_hud and not args.hud_cache_seconds
             if args.continuous: opts.count=60
             if not args.replay:
                 source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
@@ -639,10 +642,12 @@ def main(argv=None):
             if args.resident_tesseract:
                 from resident_tesseract import TesseractPool, worker_command
                 preflight=TesseractPool(worker_command(),1)
-                try:engine=preflight.check()  # Fails clearly here; no system changes.
+                try:engine=preflight.check(layout=args.layout_first_hud and not args.hud_cache_seconds)
                 finally:preflight.close()
                 native=dict(version=engine['version'],model_sha256=engine['model_sha256'],workers=min(args.workers,4))
                 print(f"Resident Tesseract: libtesseract {native['version']}, model {native['model_sha256'][:12]}, up to {native['workers']} worker(s)",flush=True)
+                if args.layout_first_hud and not args.hud_cache_seconds:
+                    print('Layout-first HUD: enabled, with full-frame OCR fallback.',flush=True)
             if any(row['source']=='twitch' for row in streams) and importlib.util.find_spec('streamlink') is None:
                 raise ValueError('Existing capture extra (Streamlink) is missing')
             for lane in lanes:
@@ -709,6 +714,7 @@ def main(argv=None):
                                 previous_run_id=previous,offline_fast_test=args.offline_fast_test,timing_mode='real',
                                 **({'stagger_capture':True} if args.stagger_capture else {}),
                                 **({'resident_tesseract':native} if native else {}),
+                                **({'layout_first_hud':True} if lane['args'].layout_first_hud else {}),
                                 **({'preloaded_streamlink':True} if streamlink else {}))
                             if db_mode:header.update(database_roster=True,roster_revision=lane['roster_revision'])
                             lane['log'].write(json.dumps(header)+'\n'); lane['log'].flush()
@@ -729,7 +735,7 @@ def main(argv=None):
                                     following=uuid.uuid4().hex
                                     header=shadow.configuration(lane['args'],lane['table_bytes'],lane['table'],following)
                                     old_header=json.loads(store.db.execute('SELECT configuration_json FROM diagnostic_runs WHERE run_id=?', (lane['run_id'],)).fetchone()[0])
-                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode','database_roster','roster_revision','stagger_capture','resident_tesseract','preloaded_streamlink') if k in old_header})
+                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode','database_roster','roster_revision','stagger_capture','resident_tesseract','layout_first_hud','preloaded_streamlink') if k in old_header})
                                     pending={}
                                     def write(receipt, payload):
                                         handle=lane['log']

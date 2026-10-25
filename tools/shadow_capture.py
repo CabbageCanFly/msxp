@@ -226,7 +226,8 @@ def analyze(frame, requirements, read_line, *, max_age=15, locator=locate,
         result['reasons'].append('localization_failed')
         if isinstance(error,CaptureError) and str(error) in {
                 'tesseract_worker_request_timeout','tesseract_worker_start_timeout',
-                'tesseract_worker_failed','tesseract_worker_unavailable','tesseract_worker_closed'}:
+                'tesseract_worker_failed','tesseract_worker_unavailable','tesseract_worker_closed',
+                'tesseract_worker_invalid_layout_reply'}:
             result['reasons'].append(str(error))
         result['timings']['localization_seconds'] = clock() - started
         fresh()
@@ -396,9 +397,17 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
                     return neural_line(crop,args.ocr_python,min(2,args.ocr_timeout),
                         experimental_neural_level=experimental,resident=resident,metrics={})
                 options.update(identity=identity,read_name=read_name)
-            analyzed = analyze_frame(frame, requirements, reader,
-                max_age=args.max_age,
-                crop_dir=args.output.with_suffix('') / f'{index:04d}' if args.save_crops else None,**options)
+            with ExitStack() as stack:
+                layout=None
+                if tesseract is not None and getattr(args,'layout_first_hud',False):
+                    from layout_first_hud import LayoutLocator
+                    pages=stack.enter_context(tesseract.layout_pages(metrics=ocr))
+                    layout=LayoutLocator(None,None,reader,experimental=experimental,pages=pages)
+                    options['locator']=layout;reader=layout.read
+                analyzed = analyze_frame(frame, requirements, reader,
+                    max_age=args.max_age,
+                    crop_dir=args.output.with_suffix('') / f'{index:04d}' if args.save_crops else None,**options)
+                if layout is not None:analyzed['hud_layout']=layout.info
             record['timings'].update(analyzed.pop('timings'))
             record.update(analyzed)
         except (OSError, RuntimeError, ValueError) as error:

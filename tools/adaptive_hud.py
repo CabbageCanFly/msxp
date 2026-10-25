@@ -199,8 +199,13 @@ def scan(image, box=None, *, batched=False):
 
 def locate(image, box=None, *, batched=False):
     """Search the whole frame so a small/offset game isn't tied to stream borders."""
+    return locate_from_tokens(image,scan(image,box,batched=batched))
+
+
+def locate_from_tokens(image,pages):
+    """Apply the same geometry and badge checks to already-recognized scale pages."""
     candidates=[]
-    for tokens in scan(image, box, batched=batched):
+    for tokens in pages:
         candidates.extend(layouts(tokens, image.size,deduplicate=False))
     # Both scales must contribute to uniqueness, including partly obscured HUDs.
     found=merge_layouts(candidates,image.size)

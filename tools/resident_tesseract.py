@@ -11,16 +11,19 @@ exp_tracker.recognition._ocr builds, without starting a Tesseract process per ca
 - TSV comes from TessBaseAPIGetTsvText and is parsed by pytesseract's own file_to_dict.
 - Page segmentation mode and the whitelist are set on EVERY request (including an empty
   whitelist), and results plus adaptive-classifier state are cleared after each one.
-- The worker (`--serve`) owns one engine. A timeout, crash or malformed reply kills it;
+- The worker (`--serve`) owns an engine and lazily adds two retained layout handles.
+  A timeout, crash or malformed reply kills it;
   the next request starts a fresh one, as ResidentNeural does. No engine runs in-process.
 - Parity evidence, limits and operation: docs/performance-integration.md.
 """
 
 import ctypes
 import ctypes.util
+from contextlib import contextmanager
 import glob
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import queue
@@ -39,6 +42,7 @@ HEADER = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twi
 MAX_PIXELS = 20_000_000       # scan() caps at 1080p-equivalent x 3 per side = 18.7 MP.
 MAX_REPLY = 8 * 1024 * 1024
 REQUEST = struct.Struct('!IIII')  # psm, whitelist bytes, width, height; then whitelist, pixels.
+LAYOUT_START, LAYOUT_FULL, LAYOUT_CLEAR = 100, 101, 102
 
 
 def installation(command):
@@ -160,12 +164,15 @@ def serve(command):
         raise SystemExit(1) from None
     _send(stdout, json.dumps(dict(info, version=engine.version, init_seconds=engine.init_seconds,
                                   pid=os.getpid())).encode())
+    layout = None
     while True:
         try:
             header = stdin.read(REQUEST.size)
         except OSError:
             return
         if not header:
+            if layout:
+                for page in layout.engines:page.close()
             engine.close()
             return
         psm, length, width, height = REQUEST.unpack(header)
@@ -175,7 +182,20 @@ def serve(command):
         pixels = stdin.read(width * height)
         if len(pixels) != width * height:
             raise EOFError
-        _send(stdout, engine.tsv('L', (width, height), pixels, psm, whitelist).encode('utf-8'))
+        if psm in (LAYOUT_START, LAYOUT_FULL, LAYOUT_CLEAR):
+            if whitelist:raise ValueError('Layout does not accept a whitelist')
+            if layout is None:
+                from layout_first_hud import LayoutEngine,LayoutPages
+                layout=LayoutPages([LayoutEngine(info),LayoutEngine(info)],engine)
+            if psm==LAYOUT_START:
+                from PIL import Image
+                pages,details=layout.start(Image.frombytes('L',(width,height),pixels))
+                reply=dict(pages=pages,details=details)
+            elif psm==LAYOUT_FULL:reply=dict(pages=layout.full())
+            else:layout.clear();reply=dict(cleared=True)
+            _send(stdout,json.dumps(reply,allow_nan=False).encode())
+        else:
+            _send(stdout, engine.tsv('L', (width, height), pixels, psm, whitelist).encode('utf-8'))
 
 
 class ResidentTesseract:
@@ -314,7 +334,19 @@ class TesseractPool:
         finally:
             self.idle.put(worker)
 
-    def check(self):
+    @contextmanager
+    def layout_pages(self, *, metrics=None):
+        """Lease one worker for both scale pages; release before normal field OCR."""
+        queued=time.monotonic();worker=self.idle.get();waited=time.monotonic()-queued
+        with self.lock:
+            self.calls+=1;self.wait_seconds+=waited;self.max_wait_seconds=max(self.max_wait_seconds,waited)
+        if metrics is not None:
+            metrics['tesseract_queue_wait_seconds']=metrics.get('tesseract_queue_wait_seconds',0)+waited
+        pages=RemoteLayoutPages(worker,lambda:self.idle.put(worker),metrics)
+        try:yield pages
+        finally:pages.clear()
+
+    def check(self, *, layout=False):
         """Start one worker now, so a missing library or version mismatch stops startup clearly."""
         worker = self.idle.get()
         try:
@@ -325,6 +357,11 @@ class TesseractPool:
                                'nothing was installed or changed. Or run without --resident-tesseract') from None
         finally:
             self.idle.put(worker)
+        if layout:
+            from PIL import Image
+            with self.layout_pages() as pages:
+                pages.start(Image.new('L',(32,32),255))
+                pages.full()
         return worker.identity
 
     def snapshot(self):
@@ -337,6 +374,64 @@ class TesseractPool:
         # Lock-free, as ResidentNeural: at shutdown an abandoned attempt may still hold a worker.
         for worker in self.workers:
             worker.close()
+
+
+class RemoteLayoutPages:
+    """Frame-local retained pages in a leased, timeout-controlled native worker."""
+    def __init__(self,worker,release,metrics):
+        self.worker,self.release,self.metrics=worker,release,metrics
+        self.process=None;self.released=False
+
+    def request(self,operation,image=None):
+        if self.released:raise CaptureError('tesseract_worker_closed')
+        if operation!=LAYOUT_START and (self.process is None or self.worker.process is not self.process):
+            raise CaptureError('tesseract_worker_failed')
+        from PIL import Image
+        image=image if image is not None else Image.new('L',(1,1))
+        failures=self.worker.failures
+        try:
+            raw=self.worker.tsv('L',image.size,image.tobytes(),operation,
+                timeout=min(1,self.worker.timeout) if operation==LAYOUT_CLEAR else 2*self.worker.timeout)
+            self.process=self.worker.process
+            reply=json.loads(raw)
+            if not isinstance(reply,dict):raise ValueError('Invalid layout reply')
+            if operation==LAYOUT_CLEAR:
+                if reply!={'cleared':True}:raise ValueError('Invalid clear reply')
+            else:
+                pages=reply['pages']
+                if not isinstance(pages,list) or len(pages)!=2 or any(not isinstance(p,list) for p in pages):
+                    raise ValueError('Invalid layout pages')
+                if any(not isinstance(t,dict) or not isinstance(t.get('text'),str)
+                       or any(type(t.get(k)) not in (int,float) or not math.isfinite(t[k])
+                              for k in ('x','y','width','height','confidence')) for page in pages for t in page):
+                    raise ValueError('Invalid layout tokens')
+                if operation==LAYOUT_START:
+                    details=reply['details']
+                    if (not isinstance(details,list) or len(details)!=2
+                            or any(not isinstance(d,dict) or type(d.get('fallback')) is not bool for d in details)):
+                        raise ValueError('Invalid layout details')
+            if self.metrics is not None:
+                self.metrics['tesseract_layout_requests']=self.metrics.get('tesseract_layout_requests',0)+1
+            return reply
+        except (KeyError,TypeError,ValueError):
+            if self.worker.failures==failures:self.worker.failures+=1
+            self.worker._stop()
+            raise CaptureError('tesseract_worker_invalid_layout_reply') from None
+
+    def start(self,image):
+        if image.width*image.height>4096*2160:raise ValueError('Frame exceeds pixel limit')
+        reply=self.request(LAYOUT_START,image.convert('L'))
+        return reply['pages'],reply['details']
+
+    def full(self):return self.request(LAYOUT_FULL)['pages']
+
+    def clear(self):
+        if self.released:return
+        try:
+            if self.process is not None and self.worker.process is self.process and self.process.poll() is None:
+                self.request(LAYOUT_CLEAR)
+        finally:
+            self.released=True;self.release()
 
 
 def worker_command():

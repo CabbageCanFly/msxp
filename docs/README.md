@@ -38,6 +38,8 @@ grouped so you can find one without opening a hundred files.
 ## Capture and OCR
 
 - [Merged HP/MP labels in 720p HUDs](720p-hud-label-recovery.md)
+- [Layout-first HUD recognition](layout-first-hud.md): resident-worker default,
+  full-frame fallback, measured results and rollback.
 - [Live capture](live-capture.md) · [OCR consolidation](ocr-consolidation.md) ·
   [OCR reliability](ocr-reliability.md) · [OCR to SQLite verification](ocr-sqlite-verification.md)
 - [Capture throughput](capture-performance.md) · [HUD localization performance](hud-localization-performance.md) ·
