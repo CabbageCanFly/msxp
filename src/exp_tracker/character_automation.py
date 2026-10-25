@@ -5,15 +5,53 @@ from datetime import datetime
 import hashlib
 import json
 import math
+import sys
 
 from .diagnostic_evidence import project, consistency, full_reading, CONFIRM_GAP_SECONDS, NEURAL_SEED_SCORE
 from .diagnostics import Diagnostics, HELD_ENVELOPE, encoded, identity_held
+from .jobs import match, min_level, tier
 from .manual import active
 from .models import PLACEHOLDER_CHARACTER
 from .shadow_view import observation
 from .store import utc
 
 MAX_AUTOMATIC_CHARACTERS = 16
+JOB_GAP_SECONDS = 300  # Job reads are a minute or more apart, so two agreeing ones may span several captures.
+
+
+def job_vote(record):
+    """This capture's job read, if it is current and its text still matches the job list."""
+    evidence = (record.get('character_name') or {}).get('evidence') or {}
+    job = evidence.get('job') or {}
+    if (not record.get('current') or job.get('status') != 'candidate' or type(job.get('score')) not in (int, float)
+            or not .9 <= job['score'] <= 1 or match(job.get('text')) != job.get('job') or job.get('job') is None):
+        return None
+    return dict(job=job['job'], received_at=evidence.get('received_at'), pixel_sha256=evidence.get('pixel_sha256'))
+
+
+def confirm_job(store, character, record):
+    """Two agreeing job reads of different frames within JOB_GAP_SECONDS record the job. It only moves
+    up a tier and never above what the character's validated level allows."""
+    vote = job_vote(record)
+    if vote is None or not vote['received_at'] or not vote['pixel_sha256']:
+        return None
+    prior = None
+    for (payload,) in store.db.execute('''SELECT a.payload_json FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id
+            WHERE r.character_id=? ORDER BY a.id DESC LIMIT 30''', (character,)):
+        found = job_vote(json.loads(payload))
+        if found and found['pixel_sha256'] != vote['pixel_sha256']:
+            prior = found
+            break
+    if prior is None or prior['job'] != vote['job'] or not prior['received_at']:
+        return None
+    gap = (datetime.fromisoformat(vote['received_at']) - datetime.fromisoformat(prior['received_at'])).total_seconds()
+    known = store.character_job(character)
+    floor = store.db.execute('SELECT level FROM character_level_guard WHERE character_id=?', (character,)).fetchone()
+    if (not 0 < gap <= JOB_GAP_SECONDS or known and tier(known['job']) >= tier(vote['job'])
+            or floor and floor[0] is not None and floor[0] < min_level(vote['job'])):
+        return None
+    store.set_character_job(character, vote['job'], source='ocr', evidence=[prior, vote])
+    return vote['job']
 
 
 def original(record):
@@ -293,6 +331,11 @@ class AutonomousCharacters:
             self.diagnostics._append(target_run, result)
             result = json.loads(self.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE run_id=? AND attempt_index=?',
                                                (target_run, result['index'])).fetchone()[0])
+            if not switch and current_name and current_name['name'] == selected:  # A job read counts only for the named character.
+                try:
+                    confirm_job(self.store, target, result)
+                except Exception as error:  # The job is a bonus: it must never stop this capture from being saved.
+                    print(f'job not recorded for character {target}: {type(error).__name__}: {error}', file=sys.stderr, flush=True)
             receipt = dict(run_id=target_run, character_id=target, session_id=target_session,
                            name=current_name['name'] if switch else selected, switched=switch,
                            summary=summary, configuration=configuration if switch else None)

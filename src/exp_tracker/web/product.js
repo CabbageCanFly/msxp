@@ -49,7 +49,7 @@ let data=null,receivedAt=0,failed=false,sort='level',characterSort='level',windo
 // The character page's charts keep their own time windows, separate from the stat cards above them.
 let chartWindow=60,longChartWindow=1440,lineWindow=15;
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
-const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],name:['both','character','twitch','none'],theme:['night','day'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
+const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],job:['off','on'],name:['both','character','twitch','none'],theme:['night','day'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
 const OVERLAY_COLORS=['header','bar','accent'];
 const THEME_COLORS={night:{header:'705035',bar:'a6ef2e',accent:'ffc56b'},day:{header:'8a6440',bar:'7fcc12',accent:'a8520a'}};
 function headerInk(hex) {
@@ -69,7 +69,7 @@ function overlayOptions(search) {
 }
 // Also called by the character page's live preview (same origin) as options change.
 function applyOverlay(o) {
-  Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon,interval:o.interval,range:o.range});
+  Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon,job:o.job,interval:o.interval,range:o.range});
   document.body.dataset.headerInk=headerInk(o.header ?? THEME_COLORS[o.theme].header);
   const historyLabel=`${Number(o.interval)/60} min · ${o.range==='1440'?'24h':o.range==='720'?'12h':o.range==='60'?'last hour':`last ${o.range} min`}`;
   if(view==='overlay'){
@@ -448,6 +448,7 @@ function renderPlayer() {
         document.querySelectorAll('[data-rate-window]').forEach(n=>{n.textContent='—';});
       }
       for(const id of ['player-name','player-source','streamer','character'])if(el(id)){el(id).textContent=channel;el(id).title='';}
+      if(el('player-job'))el('player-job').hidden=true;
       if(!data?.summary?.day_buckets)el('history-chart')?.replaceChildren();if(el('level-event'))el('level-event').hidden=true;
       // A chosen saved character keeps its roster name, level and last sighting while its history loads.
       const chosen=view==='player' && roster.find(r=>viewCharacter?String(r.id)===viewCharacter:r.current);
@@ -470,9 +471,12 @@ function renderPlayer() {
     el('status').textContent=warming?'Preparing saved history…':failed?'Tracker unavailable':'Waiting for EXP';return;
   }
   const s=current(p),pace=publicPace(p),m=pace?.estimates ?? (p.recent_windows?null:s.metrics),last=lastSeenReading(p);
-  if(view==='overlay') { el('streamer').textContent=p.channel;el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String((s.stale||failed) && faded(s.age));el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
+  if(view==='overlay') { el('overlay-job').textContent=p.character?.job ?? '';el('streamer').textContent=p.channel;el('character').textContent=p.character?.label ?? p.channel;el('character').title=el('character').textContent;el('streamer').title=sourceText(p);el('card').dataset.stale=String((s.stale||failed) && faded(s.age));el('card').dataset.recovered=String(['grammar_recovered','conditional_symbol'].includes(r?.evidence)); }
   else {
     el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=p.channel;
+    // Each job shows its skill icon from web/jobs (slug of the job name); the name stays readable for assistive tech and tooltips.
+    const job=p.character?.job;el('player-job').hidden=!job;el('player-job').title=job ?? '';el('player-job-name').textContent=job ?? '';
+    if(job)el('player-job-icon').src=`/static/jobs/${job.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}.png`;
     // Video and demo sources have no channel page, so they link to Twitch itself.
     el('twitch-link').href=p.source_kind==='twitch'?`https://www.twitch.tv/${encodeURIComponent(p.channel)}`:'https://www.twitch.tv/';
     el('twitch-link').title=p.source_kind==='twitch'?`Watch ${p.channel} on Twitch`:'Open Twitch';

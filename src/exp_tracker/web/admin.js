@@ -35,7 +35,7 @@ function block() {
   for (const id of ['session', 'refresh', 'new-correction']) $(id).disabled = busy || loading;
   $('save').disabled = busy || loading || !previewId;
   $('preview-button').disabled = !scope?.character;
-  $('rename').disabled = !scope?.character; $('invalidate').disabled = !scope?.character;
+  $('rename').disabled = !scope?.character; $('invalidate').disabled = !scope?.character; $('set-job').disabled = !scope?.character;
 }
 function invalidate() {
   previewId = null; $('preview').hidden = true; $('save').disabled = true;
@@ -271,6 +271,7 @@ function showReview(value) {
   $('preview-summary').textContent = value.action === 'rename' ? `You're renaming ${e.previous_label} to ${e.label}.` :
     value.action === 'invalidate_character' ? `You're marking ${name} as not ${value.channel}'s own character.` :
     value.action === 'restore_character' ? `You're restoring ${name} as one of ${value.channel}'s characters.` :
+    value.action === 'set_job' ? (e.job ? `You're setting ${name}'s job to ${e.job}.` : `You're clearing ${name}'s job.`) :
     value.action === 'undo' ? `You're undoing the correction for ${name} on ${at}.` :
     value.action === 'clear' ? `You're stopping the manual starting point for ${name} from ${at}.` :
     `You're ${value.action === 'amend' ? 'changing the correction for' : 'setting'} ${name} to level ${e.level}${pct} on ${at}.`;
@@ -281,7 +282,7 @@ function showReview(value) {
   if (e.reason) text($('preview-values'), `Reason: ${e.reason}`);
   $('preview-warning').hidden = r?.exp_validity?.status !== 'invalid';
   $('preview-warning').textContent = "EXP values don't match. Check the level and any EXP values you've entered. Your entered values will be kept.";
-  $('preview-notice').textContent = ['rename', 'invalidate_character', 'restore_character'].includes(value.action) ? value.notice :
+  $('preview-notice').textContent = ['rename', 'invalidate_character', 'restore_character', 'set_job'].includes(value.action) ? value.notice :
     value.action === 'undo' ? 'Original game readings are kept. Earlier versions of this correction will not be restored.' :
     'This corrects the recorded information. It does not add earned EXP or erase game readings.';
   $('preview-audit').textContent = JSON.stringify(value, null, 2);
@@ -305,12 +306,15 @@ async function submit(save = false, rename = false) {
       const message = value.action === 'rename' ? `Saved. Character renamed to ${value.event.label}. ${value.notice}` :
         value.action === 'invalidate_character' ? `Saved. ${value.event.label} is invalidated. ${value.notice}` :
         value.action === 'restore_character' ? `Saved. ${value.event.label} is restored. ${value.notice}` :
+        value.action === 'set_job' ? `Saved. ${value.event.label}'s job is ${value.event.job ?? 'cleared'}. ${value.notice}` :
         value.action === 'undo' ? 'Saved. Correction undone.' : 'Saved. Your changes have been applied.';
       status(scope ? message : `${message} Refresh failed: ${$('status').textContent}`, !scope);
       $('status').scrollIntoView({block: 'nearest'});
     } else {
       const data = !rename ? payload() : nameAction === 'rename' ? {action: 'rename', channel: $('channel').value, character_id: $('character').value,
         new_name: $('new-name').value, ...($('rename-reason').value ? {reason: $('rename-reason').value} : {})} :
+        nameAction === 'set_job' ? {action: 'set_job', channel: $('channel').value, character_id: $('character').value, job: $('job-choice').value,
+        ...($('rename-reason').value ? {reason: $('rename-reason').value} : {})} :
         {action: nameAction, channel: $('channel').value, character_id: $('character').value, reason: $('rename-reason').value};
       invalidate(); showReview(await api('/api/preview', data));
       $('preview').dataset.rename = String(rename);
@@ -345,26 +349,30 @@ $('save').addEventListener('click', () => submit(true));
 $('cancel').addEventListener('click', () => {
   const rename = $('preview').dataset.rename === 'true'; invalidate();
   $('rename-form').hidden = !rename; $('editor').hidden = rename;
-  (rename ? $(nameAction === 'rename' ? 'new-name' : 'rename-reason') : $('level')).focus(); status('Nothing saved. You can keep editing.');
+  (rename ? $(nameAction === 'rename' ? 'new-name' : nameAction === 'set_job' ? 'job-choice' : 'rename-reason') : $('level')).focus(); status('Nothing saved. You can keep editing.');
 });
 // Rename, invalidate and restore share the character form. Invalidating rules out a wrongly detected name, e.g. another player's video.
 let nameAction = 'rename';
 function nameForm(action) {
   invalidate(); $('rename-form').reset(); nameAction = action;
-  const naming = action === 'rename';
+  const naming = action === 'rename', job = action === 'set_job';
   $('new-name-field').hidden = !naming; $('new-name').disabled = !naming;
-  $('rename-reason').required = !naming; $('rename-reason-note').textContent = naming ? '(optional)' : '(required)';
-  $('name-title').textContent = {rename: 'Rename character', invalidate_character: 'Invalidate character', restore_character: 'Restore character'}[action];
+  $('job-field').hidden = !job; $('job-choice').disabled = !job;
+  if (job) {$('job-choice').replaceChildren(option('', 'Not set'), ...(scope.jobs ?? []).map(j => option(j, j))); $('job-choice').value = scope.job?.job ?? '';}
+  $('rename-reason').required = !naming && !job; $('rename-reason-note').textContent = naming || job ? '(optional)' : '(required)';
+  $('name-title').textContent = {rename: 'Rename character', invalidate_character: 'Invalidate character', restore_character: 'Restore character', set_job: 'Set job'}[action];
   $('name-help').textContent = {
     rename: 'All readings and corrections stay with this character. Database-managed capture reconciles the name automatically. For JSON-managed capture, update its roster label before restarting.',
     invalidate_character: "For a name that isn't this streamer's, e.g. when they watch another player's video. It disappears from public pages and automatic tracking won't switch to it again. Readings are kept; Restore character undoes this.",
-    restore_character: 'Shows this character on public pages again, and automatic tracking may switch to this name again.'}[action];
-  $('name-submit').textContent = naming ? 'Review name change' : action === 'invalidate_character' ? 'Review invalidation' : 'Review restore';
+    restore_character: 'Shows this character on public pages again, and automatic tracking may switch to this name again.',
+    set_job: `Currently ${scope.job ? `${scope.job.job} (${scope.job.source === 'ocr' ? 'read from the stream' : 'set here'})` : 'not set'}. Shown on the profile; automatic reading can move it up a tier later.`}[action];
+  $('name-submit').textContent = naming ? 'Review name change' : job ? 'Review job' : action === 'invalidate_character' ? 'Review invalidation' : 'Review restore';
   $('rename-form').hidden = false; $('editor').hidden = true;
   if (naming) {$('new-name').value = scope.character.label; $('new-name').focus(); $('new-name').select();}
-  else $('rename-reason').focus();
+  else $(job ? 'job-choice' : 'rename-reason').focus();
 }
 $('rename').addEventListener('click', () => nameForm('rename'));
+$('set-job').addEventListener('click', () => nameForm('set_job'));
 $('invalidate').addEventListener('click', () =>
   nameForm((scope.invalidated_characters ?? []).includes(scope.character.id) ? 'restore_character' : 'invalidate_character'));
 $('cancel-rename').addEventListener('click', () => {reset(); $('character').focus();});

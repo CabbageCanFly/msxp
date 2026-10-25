@@ -13,6 +13,7 @@ import pytest
 import exp_tracker.publisher as publisher_module
 import exp_tracker.server as server_module
 from exp_tracker.diagnostics import Diagnostics
+from exp_tracker.jobs import table
 from exp_tracker.publisher import PRIVATE_FIELDS, public, public_character, public_roster
 from exp_tracker.retention import prune
 from exp_tracker.store import Store
@@ -100,7 +101,7 @@ def test_public_profile_shows_current_and_inactive_views_without_mutation(db, cl
         code, current = get(httpd, f'/api/players/{CHANNEL}')
         assert code == 200 and current['view'] == dict(character_id=ALPHA, current=True)
         assert [(r['id'], r['label'], r['level'], r['current']) for r in current['roster']] == [(ALPHA, 'Alpha', 67, True), (BETA, 'Beta', 43, False)]
-        assert current['player']['character'] == dict(id=ALPHA, label='Alpha')
+        assert current['player']['character'] == dict(id=ALPHA, label='Alpha', job='Cleric')
         # Single-reader frames: the level floor is the display level, with the evidence the page reads.
         assert current['player']['display_level']['evidence'] == dict(value=67, status='validated_level_floor', reason='validated_level_floor', trusted=False)
         assert current['tracked_history']['character_id'] == ALPHA
@@ -110,7 +111,7 @@ def test_public_profile_shows_current_and_inactive_views_without_mutation(db, cl
             {k:v for k,v in r.items() if k != 'last_exp_at'} for r in current['roster']]
         assert next(r for r in inactive['roster'] if r['id'] == BETA)['last_exp_at'] == inactive['player']['reading']['timestamp']
         player = inactive['player']
-        assert player['character'] == dict(id=BETA, label='Beta') and player['reading']['level']['value'] == 43
+        assert player['character'] == dict(id=BETA, label='Beta', job='Hunter') and player['reading']['level']['value'] == 43
         assert player['activity'] == dict(state='historical_session') and player['twitch']['status'] == 'not_applicable'
         assert player['stale'] and player['reading']['timestamp'] == current['roster'][1]['last_seen_at']
         tracked = inactive['tracked_history']
@@ -123,7 +124,7 @@ def test_public_profile_shows_current_and_inactive_views_without_mutation(db, cl
         code, same = get(httpd, f"/api/players/{CHANNEL}?character={ALPHA}&history={current['history_revision']}&tracked={current['tracked_revision']}")
         assert code == 200 and same['view']['current'] and 'history' not in same and 'tracked_history' not in same
         code, home = get(httpd, '/api/players')
-        assert [(p['channel'], p['character']) for p in home['players']] == [(CHANNEL, dict(id=ALPHA, label='Alpha'))]
+        assert [(p['channel'], p['character']) for p in home['players']] == [(CHANNEL, dict(id=ALPHA, label='Alpha', job='Cleric'))]
         assert request((httpd, None), f'/live/overlay/{CHANNEL}')[0] == request((httpd, None), f'/stream/{CHANNEL}?character={BETA}')[0] == 200
         assert request((httpd, None), f'/dashboard/{CHANNEL}')[0] == 404
         assert request((httpd, None), f'/api/players/{CHANNEL}?character={BETA}', 'POST')[0] == 405
@@ -557,3 +558,15 @@ def test_a_database_without_the_invalidation_table_reads_as_none_invalidated(db)
         assert store.invalidated_characters(1) == set() and len(Diagnostics(store).roster(CHANNEL)) == 3
     with Store(db) as store:assert store.invalidated_characters(1) == set()  # Any writer creates it again.
     with sqlite3.connect(db) as con:assert con.execute("SELECT 1 FROM sqlite_master WHERE name='character_invalidations'").fetchone()
+
+
+def test_demo_characters_get_their_jobs_through_the_ocr_confirmation(tmp_path):
+    path = tmp_path / 'jobs.sqlite3'
+    demo.create(now=NOW, path=path, characters=12, streamers=5)
+    with Store(path) as store:
+        jobs = {label: (job or {}).get('job') for label, job in
+                ((r[0], store.character_job(r[1])) for r in store.db.execute('SELECT label, id FROM characters'))}
+        sources = {r[0] for r in store.db.execute('SELECT source FROM character_jobs')}
+    names = set(demo.NAMES) | {s[1] for s in demo.STREAMS}
+    assert {k: v for k, v in jobs.items() if v} == demo.JOBS and set(demo.JOBS) == names and sources == {'ocr'}
+    assert {j['name'] for j in table()['jobs'].values()} == set(demo.JOBS.values())  # Every job, so every icon, shows somewhere.

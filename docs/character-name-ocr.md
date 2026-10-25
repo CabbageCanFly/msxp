@@ -740,6 +740,48 @@ Setup for such a channel: rename the current character to the real name, and kee
 remaining misspelling as a ruled-out character so two misreads in a row cannot switch to
 it. Untested: other fonts, resolutions and names.
 
+### Job (class) from the status panel
+
+The job is printed on the line directly above the name. `job_region()` uses the name
+crop's left and right edges and spans `hp.y - 0.065·step` to `hp.y + 0.10·step`. It is read
+with the same worker as the name, on the same eligible frame, only when due
+(`IdentityCapture.job_due`): every minute until two reads agree (or after one disagrees
+with the known job), every 10 minutes once the level allows the next advancement, and
+otherwise never. A tracker restart or character switch re-reads it twice.
+
+`exp_tracker.jobs` holds the closed list (`data/jobs.json`: job, tier, parent and the
+advancement levels 8 for first job and 30 for second job). OCR text is matched ignoring
+case and spaces; otherwise it snaps to the one job within `max(1, len//8)` edits that is
+at least 2 edits closer than every other job, and anything else is rejected.
+`confirm_job()` records a job in `character_jobs` (append-only, created like
+`character_invalidations`, no schema version change) when two reads of different frames
+within 5 minutes agree, on captures whose name matches the current character. A job only
+moves up a tier and is never recorded below its advancement level for the character's
+validated floor. The operator can set or clear it on the admin page (`set_job`,
+`manual_admin`); automatic reading may still move it up a tier later.
+
+The profile header shows it between the character name and the Twitch link as a skill icon
+plus the job name; below 650 px only the icon shows (the name stays in its tooltip and for
+screen readers). Each job's skill is the `icon` field in `jobs.json`; the image is
+`web/jobs/<slug>.png`. The icons are the 64×64 skill icons from Nexon's official Classic World class pages
+(`g.nexonstatic.com/media/.../<class>-skill-N.png`). They are the same drawings as the 32×32
+in-game icons (MeowDB's extractions) at twice the size, with softer edges and stronger colours.
+They render at 32 CSS px, so 2x screens get every source pixel. The OBS overlay
+shows the job name after the character name when its "Job" option is on (off by default).
+
+The synthetic demo (`tools/character_demo.py`, used by `msxp demo` and the Pages preview) puts a
+job read in every generated frame (`JOBS`: each of the 15 jobs at least once), so its
+characters get their jobs through the same two-read confirmation, with no admin step.
+
+Measured 2026-10-24 on live frames from 18 streams (720p and 1080p), production worker:
+every frame with a HUD read the job exactly (score 0.97–1.00): Spearman, Page, Cleric,
+Wizard (Ice,Lightning), Hunter, Crossbowman, Assassin, Bandit, and Beginner on saved
+frames. Through `IdentityCapture.inspect` in capture order, each stream with two HUD
+frames confirmed its job after exactly two reads and read it no more; frames without a HUD
+cost nothing; names were unchanged. Not yet seen on stream: Warrior, Magician, Bowman,
+Thief, Fighter and "Wizard (Fire,Poison)" (spelling assumed from the Ice,Lightning one).
+Third and fourth jobs are not in the list yet.
+
 ### Transaction, restart and audit boundaries
 
 `exp_tracker.character_automation.AutonomousCharacters` runs on the existing serialized

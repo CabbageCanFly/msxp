@@ -848,3 +848,63 @@ def test_brief_coordinator_restart_keeps_session_and_normal_unreadable_name_leve
         assert result['record']['current'] and result['session_id']==session
         assert cold.db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0]==1
         assert cold.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==68
+
+
+def with_job(value, text):
+    value['character_name']['evidence']['job'] = dict(status='candidate', job=text, tier=None, text=text, score=.99, box=[1, 2, 50, 20])
+    return value
+
+
+@pytest.mark.parametrize('jobs,level,expected', [
+    ([None, 'Cleric', None, 'Cleric'], 30, 'Cleric'),        # Two agreeing reads of different frames.
+    ([None, 'Cleric', None, None], 30, None),                # One read is not enough.
+    ([None, 'Cleric', None, 'Bishop'], 30, None),            # Not a job: never stored.
+    ([None, 'Cleric', None, 'Priest'], 30, None),
+    ([None, 'Hunter', None, 'Cleric'], 30, None),            # Disagreeing reads.
+    ([None, 'Cleric', None, 'Cleric'], 20, None),            # A second job below level 30 is a misread.
+    ([None, 'Magician', None, 'Magician'], 20, 'Magician'),
+])
+def test_two_agreeing_job_reads_record_the_job(auto, jobs, level, expected):
+    _, store, policy = auto; run = 'first'
+    for i, job in enumerate(jobs, 1):
+        value = record(i, level=level, bp=4000 + i * 10, at=AT + timedelta(seconds=i * 15))
+        if job: with_job(value, job)
+        run = policy.append(run, value, f'next{i}', config(f'next{i}'))['run_id']
+    cid = store._channel('alpha')['selected_character_id']
+    assert (store.character_job(cid) or {}).get('job') == expected
+
+
+def test_job_only_moves_up_a_tier_and_the_operator_can_set_it(auto):
+    _, store, policy = auto; run = 'first'; cid = store._channel('alpha')['selected_character_id']
+    def frames(start, jobs):
+        nonlocal run
+        for i, job in enumerate(jobs, start):
+            value = record(i, level=35, bp=4000 + i * 10, at=AT + timedelta(seconds=i * 15))
+            if job: with_job(value, job)
+            run = policy.append(run, value, f'next{i}', config(f'next{i}'))['run_id']
+    frames(1, [None, 'Magician', None, 'Magician']); assert store.character_job(cid)['job'] == 'Magician'
+    frames(5, ['Cleric', 'Cleric']); assert store.character_job(cid)['job'] == 'Cleric'
+    frames(7, ['Beginner', 'Beginner']); assert store.character_job(cid)['job'] == 'Cleric'
+    store.set_character_job(cid, 'Cleric', source='manual_admin')
+    assert store.character_job(cid)['source'] == 'manual_admin'
+    store.set_character_job(cid, None, source='manual_admin'); assert store.character_job(cid) is None
+    with pytest.raises(ValueError):store.set_character_job(cid, 'Bishop', source='manual_admin')
+
+
+def test_a_job_read_on_a_frame_named_for_another_character_is_not_counted(auto):
+    _, store, policy = auto; run = 'first'
+    for i in (1, 2, 3, 4):
+        value = with_job(record(i, 'Beta' if i == 4 else 'Alpha', level=30, bp=4000 + i * 10, at=AT + timedelta(seconds=i * 15)), 'Hunter')
+        if i in (1, 3): value['character_name']['evidence'].pop('job')
+        run = policy.append(run, value, f'next{i}', config(f'next{i}'))['run_id']
+    assert store.character_job(store._channel('alpha')['selected_character_id']) is None
+
+
+def test_a_failing_job_record_never_blocks_the_capture(auto, monkeypatch, capsys):
+    import exp_tracker.character_automation as automation
+    _, store, policy = auto; run = 'first'
+    monkeypatch.setattr(automation, 'confirm_job', lambda *a: (_ for _ in ()).throw(RuntimeError('broken')))
+    for i in (1, 2):
+        run = policy.append(run, with_job(record(i, level=30, at=AT + timedelta(seconds=i * 15)), 'Cleric'), f'next{i}', config(f'next{i}'))['run_id']
+    assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0] == 2
+    assert 'job not recorded' in capsys.readouterr().err

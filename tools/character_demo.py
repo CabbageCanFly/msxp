@@ -38,6 +38,11 @@ NAMES = ('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', '
 # Ember and Frost share a level so level ties break on EXP %; Quiet ended hours ago, so it has a 24h total but no live pace.
 STREAMS = [('synthetic_ember', 'Ember', 61, 7200, 30, 40, 0), ('synthetic_frost', 'Frost', 61, 4800, 9, 40, 0),
            ('synthetic_sprout', 'Sprout', 32, 1500, 70, 30, 0), ('synthetic_quiet', 'Quiet', 70, 3000, 6, 40, 180)]
+# The job each generated status panel shows; the real two-read confirmation records it.
+# Every job appears once; Quiet (an ended stream) repeats Cleric because there are 16 characters and 15 jobs.
+JOBS = {'Alpha': 'Cleric', 'Beta': 'Hunter', 'Gamma': 'Bandit', 'Delta': 'Page', 'Epsilon': 'Wizard (Fire,Poison)', 'Zeta': 'Crossbowman',
+        'Eta': 'Spearman', 'Theta': 'Assassin', 'Iota': 'Fighter', 'Kappa': 'Magician', 'Lambda': 'Warrior', 'Mu': 'Wizard (Ice,Lightning)',
+        'Ember': 'Bowman', 'Frost': 'Thief', 'Sprout': 'Beginner', 'Quiet': 'Cleric'}
 LIVE_SECONDS = INTERVAL  # Same spacing as the generated history, so live paces match it.
 OFFLINE = ('synthetic_frost', 'synthetic_quiet')  # `serve --offline` without names: one recent and one ended stream.
 # Earlier sessions that fill the 24 h charts: (hours ago, readings) per half-hour slot, 30 s apart.
@@ -62,6 +67,7 @@ def attempt(index, name, level, bp, at, selected):
     stamp = at.isoformat()
     digest = hashlib.sha256(f'synthetic:{stamp}:{name}:{bp}'.encode()).hexdigest()
     text = f'{exp}[{pct:.2f}%]'
+    job = JOBS.get(name)
     return dict(type='attempt', trusted=False, index=index, current=True, status='diagnostic_pair',
         attempted_at=stamp, received_at=stamp, frame_sha256=digest, local_age_seconds=0,
         source=dict(kind='file', channel=None), visual_level=level, visual_status='available',
@@ -69,7 +75,8 @@ def attempt(index, name, level, bp, at, selected):
         character_name=dict(reading_hold_recommended=name != selected, hold_reasons=['name_mismatch'] if name != selected else [],
             identity_conflict=None, evidence=dict(status='candidate', name=name, score=.99, received_at=stamp,
                 pixel_sha256=digest, box=[1, 2, 50, 20], provenance=dict(layout_count=1, search='full_frame'),
-                raw=dict(raw=dict(txts=[name], scores=[.99])))))
+                raw=dict(raw=dict(txts=[name], scores=[.99])),
+                **({'job': dict(status='candidate', job=job, text=job, score=.99, box=[1, 0, 50, 2])} if job else {}))))
 
 
 def latest_run(store, channel):

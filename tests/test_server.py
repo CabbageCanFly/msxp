@@ -308,7 +308,8 @@ def test_simulated_leaderboard_assets_keep_existing_http_security(database, http
                        ("/static/fonts/fredoka-latin.woff2", "font/woff2"), ("/static/fonts/nunito-latin.woff2", "font/woff2"),
                        ("/static/steely.png", "image/png"), ("/static/sleepywood.webp", "image/webp"),
                        ("/static/sleepywood-forest.webp", "image/webp"), ("/static/kerning.webp", "image/webp"),
-                       ("/static/kerning-sky.webp", "image/webp"), ("/static/mobs/blue-snail-move.gif", "image/gif")):
+                       ("/static/kerning-sky.webp", "image/webp"), ("/static/mobs/blue-snail-move.gif", "image/gif"),
+                       ("/static/jobs/cleric.png", "image/png")):
         code, headers, body = request(http_server, path)
         assert code == 200 and headers["Content-Type"].startswith(mime) and body
         assert headers["Cache-Control"] == ("public, max-age=86400" if path in server.CACHED_ASSETS else "no-store")

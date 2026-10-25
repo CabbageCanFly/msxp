@@ -359,6 +359,7 @@ class Diagnostics:
             raise ValueError('Unknown session run')
         run = self.db.execute('SELECT rowid,* FROM diagnostic_runs WHERE session_id=?'+(' AND run_id=?' if run_id else '')+
             ' ORDER BY rowid DESC LIMIT 1', (session['id'],run_id) if run_id else (session['id'],)).fetchone() if session else None
+        if selected and (job:=self.store.character_job(selected['id'])):selected=dict(selected,job=job['job'])
         result = dict(trusted=False, storage='sqlite_diagnostics', served_at=utc(now), log_status='ready',
             channel=state['channel'], selected_character=selected, session=session,
             source_status='waiting' if session else 'unconfigured', run_status='waiting', run_id=None,
@@ -539,10 +540,12 @@ class Diagnostics:
         floor='(SELECT level FROM character_level_guard WHERE character_id=c.id)' if self.store.schema_version>=10 else 'NULL'
         saved_level="(SELECT json_extract(checkpoint_json,'$.display.display_level.value') FROM retention_state WHERE character_id=c.id)" if self.store.schema_version>=8 else 'NULL'
         saved_seen="(SELECT COALESCE(json_extract(checkpoint_json,'$.display.reading.timestamp'),json_extract(checkpoint_json,'$.display.display_level.timestamp')) FROM retention_state WHERE character_id=c.id)" if self.store.schema_version>=8 else 'NULL'
+        jobs=('(SELECT job FROM character_jobs WHERE character_id=c.id ORDER BY id DESC LIMIT 1)'
+              if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='character_jobs'").fetchone() else 'NULL')
         rows=[];invalid=self.store.invalidated_characters(streamer['id'])  # Never public (e.g. another player's video).
         # Per-session subqueries walk the attempt indexes; a character has one session per switch.
         # Failed/stale captures, absent HUDs and identity-held frames are not character sightings.
-        for row in self.db.execute(f'''SELECT c.id,c.label,{floor} AS floor,{saved_level} AS saved_level,{saved_seen} AS saved_seen,
+        for row in self.db.execute(f'''SELECT c.id,c.label,{floor} AS floor,{saved_level} AS saved_level,{saved_seen} AS saved_seen,{jobs} AS job,
                 MAX((SELECT attempted_at FROM diagnostic_attempts WHERE {owner}
                      AND received_at IS NOT NULL
                      AND json_extract(payload_json,'$.identity_hold') IS NULL
@@ -553,7 +556,7 @@ class Diagnostics:
                 FROM characters c LEFT JOIN sessions s ON s.character_id=c.id
                 WHERE c.streamer_id=? GROUP BY c.id ORDER BY c.id LIMIT 64''',(streamer['id'],)):
             if row['id'] in invalid:continue
-            rows.append(dict(id=row['id'],label=row['label'],level=row['floor'] or row['saved_level'],
+            rows.append(dict(id=row['id'],label=row['label'],job=row['job'],level=row['floor'] or row['saved_level'],
                 last_seen_at=row['seen'] or row['saved_seen'],revision=row['revision'],
                 current=row['id']==streamer['selected_character_id']))
         return rows
@@ -564,6 +567,9 @@ class Diagnostics:
         rename='(SELECT MAX(id) FROM character_renames WHERE streamer_id=s.id)' if self.store.schema_version>=6 else 'NULL'
         invalidation='(SELECT MAX(c.id) FROM reading_commits c JOIN reading_batches b ON b.id=c.batch_id WHERE b.streamer_id=s.id)' if self.store.schema_version>=7 else 'NULL'
         retention='(SELECT revision FROM retention_meta WHERE id=1)' if self.store.schema_version>=8 else 'NULL'
+        # Last, so a job change rebuilds the page without the ownership checks on the revisions above.
+        job=('(SELECT MAX(j.id) FROM character_jobs j JOIN characters c ON c.id=j.character_id WHERE c.streamer_id=s.id)'
+             if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='character_jobs'").fetchone() else 'NULL')
         latest='SELECT MAX(id) FROM diagnostic_attempts WHERE session_id=se.id' if self.store.schema_version>=4 else (
             'SELECT MAX(a.id) FROM diagnostic_attempts a JOIN diagnostic_runs dr ON dr.run_id=a.run_id WHERE dr.session_id=se.id')
         where='WHERE s.login=? ' if login else ''
@@ -578,7 +584,8 @@ class Diagnostics:
             '''+manual+''' AS manual_revision,
             '''+rename+''' AS rename_revision,
             '''+invalidation+''' AS invalidation_revision,
-            '''+retention+''' AS retention_revision
+            '''+retention+''' AS retention_revision,
+            '''+job+''' AS job_revision
             FROM streamers s LEFT JOIN sessions se ON se.streamer_id=s.id AND se.ended_at IS NULL
             LEFT JOIN diagnostic_runs r ON r.rowid=(SELECT MAX(rowid) FROM diagnostic_runs WHERE session_id=se.id)
             '''+where+'ORDER BY s.login',(login,) if login else ()))

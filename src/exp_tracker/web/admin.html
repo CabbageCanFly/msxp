@@ -53,12 +53,13 @@
   <section class="panel" aria-labelledby="edit-title">
     <div id="pickers" class="fields selectors">
       <label>Twitch channel<select id="channel" required></select></label>
-      <div><div class="label-line"><label for="character">Character name</label><span><button id="rename" type="button" class="text-button">Rename character</button> <button id="invalidate" type="button" class="text-button">Invalidate character</button></span></div>
+      <div><div class="label-line"><label for="character">Character name</label><span><button id="rename" type="button" class="text-button">Rename character</button> <button id="invalidate" type="button" class="text-button">Invalidate character</button> <button id="set-job" type="button" class="text-button">Set job</button></span></div>
         <select id="character" required></select></div>
     </div>
     <form id="rename-form" hidden>
       <h2 id="name-title">Rename character</h2>
       <label id="new-name-field">New name<input id="new-name" maxlength="100" required></label>
+      <label id="job-field" hidden>Job<select id="job-choice"></select></label>
       <label>Reason <span id="rename-reason-note" class="optional">(optional)</span><input id="rename-reason" maxlength="1000"></label>
       <p id="name-help" class="muted">All readings and corrections stay with this character. Database-managed capture reconciles the name automatically. For JSON-managed capture, update its roster label before restarting.</p>
       <button id="name-submit" type="submit" class="primary">Review name change</button><button id="cancel-rename" type="button">Cancel</button>

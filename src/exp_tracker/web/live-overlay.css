@@ -35,6 +35,8 @@ header { display: flex; align-items: center; gap: 7px; height: 28px; flex: none;
 .separator { opacity: .6; font-size: 11px; }
 [data-name="character"] :is(#streamer, .separator), [data-name="twitch"] :is(#character, .separator), [data-name="none"] .identity { display: none; }
 [data-name="twitch"] #streamer { max-width: 100%; font-size: 13px; }
+#overlay-job { flex: none; font-size: 11px; font-weight: 600; opacity: .8; white-space: nowrap; }
+[data-job="off"] #overlay-job, #overlay-job:empty, [data-name="twitch"] #overlay-job { display: none; }
 
 .reading { display: flex; align-items: center; gap: 8px; padding: 7px 10px 0; font-variant-numeric: tabular-nums; }
 #level { flex: none; min-width: 64px; padding: 0 8px; text-align: center; line-height: 32px; border-radius: 8px; background: var(--badge); color: var(--level);
