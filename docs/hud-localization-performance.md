@@ -1,5 +1,8 @@
 # HUD localization performance
 
+Historical batching experiment. For the current resident-worker optimization,
+fresh-stream validation and rollout, see [layout-first HUD recognition](layout-first-hud.md).
+
 Follows [capture performance](capture-performance.md) and the VPS offline runs (4 vCPU,
 15 channels, 30 s requested, cache off), where mean localization grew from 4.47 s at 4
 workers to 5.84 s at 6 and 7.75 s at 8. The question: can `adaptive_hud.locate()` cost less

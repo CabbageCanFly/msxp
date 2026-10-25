@@ -55,6 +55,10 @@ With those keys, continuous tracking also checks live status and category about 
 skipping playback while a stream is confirmed offline or outside MapleStory. Unknown or expired
 status allows capture. `--any-category` permits other live categories while still skipping offline streams.
 
+For lower OCR CPU usage, `msxp tracker --resident-tesseract` uses isolated, reused
+Tesseract workers with layout-first HUD recognition and full-frame OCR fallback.
+Existing VPS roster services already enable it. See [results and rollback](docs/layout-first-hud.md).
+
 ![Player profile showing recent pace, next-level estimates and EXP history](docs/images/player-profile.png)
 
 *Player profile with recent pace, next-level estimates and EXP history.*

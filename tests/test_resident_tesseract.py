@@ -316,7 +316,8 @@ class FakePool:
         pool.command, pool.size, pool.closed = command, size, False
         self.made.append(pool)
         return pool
-    def check(self):
+    def check(self, *, layout=False):
+        self.layout_checked=layout
         if self.error: raise RuntimeError(self.error)
         return dict(version='5.4.0', model_sha256='a'*64)
     def snapshot(self): return dict(size=self.size, calls=0, workers=[])
