@@ -91,6 +91,14 @@ let boardMode=boardParam(),shownMode=boardMode;  // shownMode: the list on scree
 const inactiveView=()=>view!=='board' && data?.view?.current===false;
 const el=id=>document.getElementById(id);
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
+// Each job's skill icon is web/jobs/<slug of the job name>.png.
+const jobSrc=job=>`/static/jobs/${job.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}.png`;
+// A list row's name line: the name, then the job icon when known (its alt text and tooltip are the job).
+function nameLine(name,job) {
+  const line=node('span','name-line');line.append(name);
+  if(job){const icon=node('img','job-icon');icon.src=jobSrc(job);icon.alt=job;icon.title=job;icon.setAttribute('width',24);icon.setAttribute('height',24);line.append(icon);}
+  return line;
+}
 function hideTip() { if(tip)tip.hidden=true;tipKey=null;tipPosition=null; }
 function showTip(target,position=null) {
   if(tipDismissed)return;
@@ -349,7 +357,7 @@ function entry({player:p,value,rank}) {
   const profile=`/stream/${p.channel}`,content=rowContent(row,profile);
   const identity=node('div','identity'),name=node(content===row?'a':'span','character',p.character?.label ?? 'Character not selected');
   if(content===row)name.href=profile;name.title=name.textContent;
-  identity.append(name,sourceLink(p,profile));
+  identity.append(nameLine(name,p.character?.job),sourceLink(p,profile));
   const ago=r?ageText(s.age):null,seenAt=r?.timestamp?localTime(r.timestamp):'';
   const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta:rowETA(p),age:ago?'Updated '+ago:'No reading yet',ageTitle:seenAt});
   content.append(badge,level,identity,section);
@@ -371,6 +379,15 @@ function patchChildren(parent,nodes) {
   nodes.forEach((n,i)=>{const live=parent.childNodes[i];if(live)patch(live,n);else parent.append(n);});
   while(parent.childNodes.length>nodes.length)parent.lastChild.remove();
 }
+// Phones have no hover: a finger on a row (a tap, or the start of a scroll) shows its job icon until shortly after it lifts.
+// Kept by key, because the 1 s refresh patches rows and would drop a plain attribute.
+let touchedRow=null,touchTimer;
+const rowKey=row=>`${row.dataset.channel}:${row.dataset.character ?? ''}`;
+function touchMark(row) { if(touchedRow===rowKey(row))row.dataset.touched='';return row; }
+function touchRow(row) {
+  clearTimeout(touchTimer);for(const live of el('entries').children)delete live.dataset.touched;
+  touchedRow=row?rowKey(row):null;if(row)row.dataset.touched='';
+}
 function renderBoard() {
   const characters=shownMode==='characters';
   el('board-count').dataset.loading=String(!failed && (!data || !!data.warming?.length));
@@ -383,7 +400,7 @@ function renderBoard() {
   const search=el('character-filter').value.trim().toLowerCase();
   const all=data?.players ?? [],rows=ranked(all.filter(p=>shown(statusText(p)==='Online') && `${p.character?.label ?? ''} ${p.channel}`.toLowerCase().includes(search)),sort);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
-  patchChildren(el('entries'),rows.map(entry));
+  patchChildren(el('entries'),rows.map(entry).map(touchMark));
   [...el('entries').querySelectorAll('.exp-number')].filter(n=>n.clientWidth>0 && n.scrollWidth>n.clientWidth+1).forEach(n=>{n.textContent=n.dataset.compactNumber;});
   if(focus) [...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
@@ -409,14 +426,14 @@ function renderCharacters() {
     const profile=`/stream/${encodeURIComponent(r.channel)}${r.current?'':`?character=${r.id}`}`,content=rowContent(row,profile);
     const identity=node('div','identity'),link=node(content===row?'a':'span','character',r.label);
     if(content===row)link.href=profile;  // The plain profile shows the current character.
-    identity.append(link,sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},profile));
+    identity.append(nameLine(link,r.job),sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},profile));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
     const at=r.reading?.timestamp ?? r.last_seen_at,ago=at?ageText(Math.max(0,(now-Date.parse(at))/1000)):null;
     const section=expSection(shownReading(r.reading,r.display_level) ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,eta:rowETA(r,5),empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
       age:ago?`Updated ${ago}`:'Not seen yet',ageTitle:at?localTime(at):''});
     const value=metricValue(r,'exp_hour',5),score=node('div','score');
     score.append(node('strong','score-value',value==null?'—':expText(value)),node('small','score-label','EXP / hour'));score.title=rateTitle(value);scoreAge(score,ago,at?localTime(at):'');
-    content.append(level,identity,section,badge,score);return row;
+    content.append(level,identity,section,badge,score);return touchMark(row);
   }));
   if(focus)[...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
@@ -476,7 +493,7 @@ function renderPlayer() {
     el('player-name').textContent=p.character?.label ?? p.channel;el('player-source').textContent=p.channel;
     // Each job shows its skill icon from web/jobs (slug of the job name); the name stays readable for assistive tech and tooltips.
     const job=p.character?.job;el('player-job').hidden=!job;el('player-job').title=job ?? '';el('player-job-name').textContent=job ?? '';
-    if(job)el('player-job-icon').src=`/static/jobs/${job.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}.png`;
+    if(job)el('player-job-icon').src=jobSrc(job);
     // Video and demo sources have no channel page, so they link to Twitch itself.
     el('twitch-link').href=p.source_kind==='twitch'?`https://www.twitch.tv/${encodeURIComponent(p.channel)}`:'https://www.twitch.tv/';
     el('twitch-link').title=p.source_kind==='twitch'?`Watch ${p.channel} on Twitch`:'Open Twitch';
@@ -917,6 +934,8 @@ if(view==='board') {
   });
   document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>selectBoard(button.dataset.mode)));
   el('character-filter').addEventListener('input',renderBoard);
+  el('entries').addEventListener('touchstart',event=>touchRow(event.target.closest?.('.entry') ?? null),{passive:true});
+  for(const name of ['touchend','touchcancel'])el('entries').addEventListener(name,()=>{clearTimeout(touchTimer);touchTimer=setTimeout(()=>touchRow(null),1200);},{passive:true});
   document.querySelectorAll('[data-character-sort]').forEach(button=>button.addEventListener('click',()=>{
     if(!['name','level','recent'].includes(button.dataset.characterSort))return;
     characterSort=button.dataset.characterSort;renderBoard();

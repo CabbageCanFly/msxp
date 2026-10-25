@@ -12,11 +12,16 @@ from exp_tracker.diagnostics import Diagnostics
 from exp_tracker.exp_requirements import community_table
 from exp_tracker.store import Store
 from exp_tracker.video import Source
+from exp_tracker import twitch_auth
 
 
 @pytest.fixture
 def multi(tmp_path,monkeypatch):
     monkeypatch.setenv('MSXP_PRELOAD_STREAMLINK','0')  # Scheduler tests use fake capture, never a real launcher.
+    tokens=twitch_auth.AppTokens
+    # Fake lanes must not consult the developer's Twitch credentials, even in background checks.
+    monkeypatch.setattr(twitch_auth,'AppTokens',lambda **kwargs:tokens(
+        **{**kwargs,'environ':{},'env_file':tmp_path/'no-twitch.env'}))
     monkeypatch.syspath_prepend(str(Path('tools').resolve()))
     module=importlib.import_module('multi_alpha')
     monkeypatch.setattr(module.shadow,'ROOT',tmp_path)
@@ -54,6 +59,16 @@ def record(index,**changes):
 def main(multi,*extra):
     module,path,_,_,_=multi
     return module.main(['--config',str(path),'--exit-after-capture',*extra])
+
+
+def test_fake_capture_never_uses_developer_twitch_credentials(multi,monkeypatch):
+    developer_env=multi[1].parent/'developer.env'
+    developer_env.write_text('TWITCH_CLIENT_ID=synthetic-id\nTWITCH_CLIENT_SECRET=synthetic-secret\n')
+    monkeypatch.setattr(twitch_auth,'DEFAULT_ENV_FILE',developer_env)
+    for key in twitch_auth.KEYS:monkeypatch.setenv(key,'synthetic-value')
+    monkeypatch.setattr(twitch_auth,'oauth_json',lambda *_:pytest.fail('fake capture attempted Twitch authentication'))
+    with pytest.raises(twitch_auth.AuthError,match='missing_credentials'):
+        twitch_auth.AppTokens().get()
 
 
 def test_shared_database_runs_restart_and_read_only_directory(multi):

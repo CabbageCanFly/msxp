@@ -114,7 +114,9 @@ def public_roster(rows, level):
             for r in rows if r['label'] != PLACEHOLDER_CHARACTER]
     rows.sort(key=lambda r: (not r['current'], r['last_seen_at'] is None,
         -datetime.fromisoformat(r['last_seen_at']).timestamp() if r['last_seen_at'] else 0, r['id']))
-    return [{k: r[k] for k in ('id', 'label', 'level', 'last_seen_at', 'current')} for r in rows]
+    # The job only when known, like the profile's character; rows restored from an older cache have none.
+    return [{**{k: r[k] for k in ('id', 'label', 'level', 'last_seen_at', 'current')}, **({'job': r['job']} if r.get('job') else {})}
+            for r in rows]
 
 
 def revision(value):

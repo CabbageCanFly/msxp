@@ -1293,9 +1293,9 @@ test('homepage Characters uses compact records, scoped links and no stale pace r
   assert.equal(p.elements['character-sort-control'].hidden,false);
   // Highest level first by default.
   const [other,alpha,beta]=p.elements.entries.children;assert.equal(other.dataset.character,9);
-  assert.equal(alpha.children[1].children[0].href,'/stream/alpha');  // Current character: the plain profile.
-  assert.equal(beta.children[1].children[0].href,'/stream/alpha?character=3');
-  assert.equal(other.children[1].children[0].href,'/stream/other?character=9');
+  assert.equal(alpha.children[1].children[0].children[0].href,'/stream/alpha');  // Current character: the plain profile.
+  assert.equal(beta.children[1].children[0].children[0].href,'/stream/alpha?character=3');
+  assert.equal(other.children[1].children[0].children[0].href,'/stream/other?character=9');
   assert.deepEqual([alpha,beta].map(r=>[r.children[0].children[2].dataset.on,r.children[0].children[2].title,r.children[1].children.length]),
     [['true','Online',2],['false','Not currently tracked',2]]);
   assert.equal(other.children[2].children[1].children.at(-1).textContent,'Not seen yet');  // Under its EXP bar.
@@ -1850,4 +1850,27 @@ test('the Pages export calls its configured API origin; backend-served pages sta
   assert.equal(page('overlay',undefined,'','http://127.0.0.1:8890').run('endpoint'),'http://127.0.0.1:8890/api/players/alpha');
   for(const bad of ['http://api.example.org','https://api.example.org/','https://api.example.org/api','javascript:alert(1)','//evil.example','https://API.example.org'])
     assert.throws(()=>page('board',undefined,'',bad),/Invalid data-api origin/);
+});
+
+test('both homepage lists show the job icon after the name, only when the job is known',()=>{
+  const p=page('board'),icons=()=>p.elements.entries.children.map(row=>{
+    const line=row.children.find(c=>c.className==='identity').children[0],icon=line.children[1];
+    return [line.children[0].textContent,icon?.src ?? null,icon?.alt ?? null];
+  });
+  p.run(`data=${JSON.stringify({players:[player({channel:'a',character:{label:'Alpha',job:'Wizard (Ice,Lightning)'}}),player({channel:'b',character:{label:'Beta'}})]})};renderBoard()`);
+  assert.deepEqual(icons().sort(),[['Alpha','/static/jobs/wizard-ice-lightning.png','Wizard (Ice,Lightning)'],['Beta',null,null]]);
+  p.run(`boardMode=shownMode='characters';data=${JSON.stringify({characters:[{...ALPHA,channel:'a',online:true,job:'Bandit'},{...BETA,channel:'a',online:true,job:null}]})};renderBoard()`);
+  assert.deepEqual(icons().sort(),[['Alpha','/static/jobs/bandit.png','Bandit'],['Beta',null,null]]);
+});
+
+test('a finger on a list row shows its job icon through refreshes, then lets it go after lifting',()=>{
+  const p=page('board'),list={players:[player({channel:'a',character:{label:'Alpha',job:'Cleric'}}),player({channel:'b',character:{label:'Beta',job:'Page'}})]};
+  const touched=()=>p.elements.entries.children.filter(r=>'touched' in r.dataset).map(r=>r.dataset.channel);
+  p.run(`data=${JSON.stringify(list)};renderBoard()`);
+  const rows=()=>p.elements.entries.children,on=row=>p.elements.entries.listeners.touchstart({target:{closest:()=>row}});
+  const first=rows()[0].dataset.channel;on(rows()[0]);assert.deepEqual(touched(),[first]);
+  p.run('renderBoard()');assert.deepEqual(touched(),[first]);  // The 1 s refresh keeps it (the stand-in DOM rebuilds rows).
+  on(rows()[1]);assert.deepEqual(touched(),[rows()[1].dataset.channel]);
+  p.elements.entries.listeners.touchend();assert.equal(p.timers.at(-1),1200);
+  assert.equal(p.elements.entries.listenerOptions.touchstart.passive,true);  // Never delays scrolling.
 });

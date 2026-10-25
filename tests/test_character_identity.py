@@ -448,6 +448,19 @@ def test_job_reads_are_rare_and_only_move_up_a_tier():
     state.select('Other', NOW.isoformat()); assert state.job is None and state.job_due(None, 0)
 
 
+def test_a_failed_job_read_keeps_the_name_read():
+    state, reads = IdentityCapture('channel'), []
+    def read(crop):
+        reads.append(crop.size)
+        if len(reads) == 2:raise RuntimeError('worker stopped')  # The second crop is the job line.
+        return response('Alpha')
+    f = make_frame(0)
+    value = state.inspect(dict(current=True, candidate=None, visual_level=None), f, f.image(), candidate(), read,
+                          {1: 10000, 2: 20000}, max_age=15, clock=lambda: 101)
+    assert len(reads) == 2 and value['evidence']['status'] == 'candidate' and value['evidence']['name'] == 'Alpha'
+    assert value['evidence']['job'] == dict(status='failed', error='RuntimeError')
+
+
 def job_region_box(layout):
     from character_name_ocr import job_region
     return job_region(layout, (1920, 1080))
