@@ -8,10 +8,9 @@ import math
 from PIL import Image
 
 from adaptive_hud import label,locate_from_tokens
-from analyze_temporal_ocr import complete_pair
 from benchmark_rapidocr import context_box
 from exp_tracker.recognition import _tokens
-from exp_tracker.shadow_types import parse_percentage_only
+from exp_tracker.shadow_grammar import interpret_exp
 from resident_tesseract import NativeTesseract,MAX_PIXELS,as_data
 
 
@@ -122,6 +121,28 @@ def mapped(tokens,scale):
     return [{**token,**{key:token[key]/scale for key in ('x','y','width','height')}} for token in tokens]
 
 
+def confirmed_field(response):
+    """Ask the existing grammar for one complete field; never rewrite its raw evidence."""
+    text=response.get('text') if isinstance(response,dict) else None
+    if not isinstance(text,str):return False
+    parsed=interpret_exp(text,source_complete=response.get('source_complete'))
+    if parsed['strict_full'] is not None or parsed['strict_percentage_only'] is not None:return True
+    if response.get('source_complete') is False:return False
+    full=parsed['full_exp']
+    if full['classification']=='unique_proposal' and len(full['proposals'])==1:
+        proposal=full['proposals'][0]
+        if proposal.get('required_context'):return False
+        edits=proposal['edits']
+        # These two existing repairs need independent arithmetic/context, not just text.
+        return not any(e['category']=='ungrouped_exp_opener' or
+            e['category']=='exp_digit' and e['index']==0 and e['old'] in ('S','B') for e in edits)
+    percentage=parsed['percentage']
+    # A percentage alone cannot prove that an accompanying absolute EXP field is complete.
+    return bool(percentage['classification']=='unique_proposal' and len(percentage['proposals'])==1
+        and not percentage['proposals'][0].get('required_context')
+        and percentage['proposals'][0]['field_span'][0]==(1 if text.startswith('P[') else 0))
+
+
 class LayoutPages:
     """Two retained full-frame pages, exclusively held until confirmation or fallback."""
     def __init__(self,engines,crop_engine):
@@ -180,8 +201,7 @@ class LayoutLocator:
             # Confirmation is included in localization timing; compare total recognition time.
             try:response=self.reader(*crops)
             except (OSError,RuntimeError,ValueError):return self.full(image,'field_failed')
-            text=response.get('text') if isinstance(response,dict) else None
-            if complete_pair(text) is None and parse_percentage_only(text) is None:return self.full(image,'imperfect_exp')
+            if not confirmed_field(response):return self.full(image,'imperfect_exp')
             self.cached=(self.key(crops),response);self.info.update(path='selective',reason='confirmed_field')
             return found
         finally:
