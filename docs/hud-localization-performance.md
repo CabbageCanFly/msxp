@@ -364,12 +364,9 @@ These are small, single-pass workstation comparisons, not a validated speedup.
 
 The [upstream API](https://github.com/tesseract-ocr/tesseract/blob/main/src/api/baseapi.cpp)
 explicitly separates `AnalyseLayout()` from `Recognize()`. Layout-only cost about
-42% of full recognition here. **It is not a replacement localizer:** it returns
-positions, not HP/MP/EXP/LV text or a verified HUD. The next experiment would use
-those whole-frame word positions to shortlist plausible HUD rows, then read their
-labels. Cropped recognition can change results, and centre coverage is much weaker
-than pixel/token parity. Neither selective recognition nor competing-HUD safety
-has been validated for this route. It remains a credible next research direction.
+42% of full recognition here. It returns positions, not HP/MP/EXP/LV text or a
+verified HUD. The completed prototype below follows this lead; the initial centre
+coverage check alone did not establish accuracy or a pipeline speed gain.
 The [dictionary/decoder parameters](https://github.com/tesseract-ocr/tesseract/blob/main/doc/tesseract.1.asc)
 are real supported options; availability does not establish a useful speed gain.
 
@@ -385,4 +382,86 @@ Two eye-catching alternatives do not justify a library switch from current evide
 detection but slower recognition-only, which is our existing neural worker's mode.
 [TurboOCR](https://github.com/aiptimizer/TurboOCR) currently ships its NVIDIA backend;
 its advertised GPU document throughput does not apply to the CPU-only VPS.
-No runtime or deployment changes were made for this research.
+No capture integration or deployment changes were made for this research.
+
+## Layout-first prototype: offline only
+
+The research implementation is [layout_first_hud.py](../tools/layout_first_hud.py),
+with a reproducible [saved-image comparison tool](../tools/evaluate_layout_hud.py).
+It is not enabled by `msxp tracker`, and adds no dependency, model or live flag.
+The default HUD detector keeps the same scans; its existing token-to-HUD binding
+was extracted into `locate_from_tokens()` so both paths share the same rules.
+
+Both original 2x/3x binary pages get whole-frame native layout analysis. A loose
+text-row geometry search proposes EXP word positions, including rows without LV.
+Short original-pixel prefixes are read for EXP first; matching rows then supply
+HP, MP and optional LV candidates. The existing binder confirms the HUD and supplies
+the original-frame EXP/level crops. No prior frame, HUD position or numerical value
+is reused. A field response is reused once only for the exact same current crops.
+
+Incomplete/ambiguous candidates, a missing level region or EXP requiring grammar
+recovery finish the original whole-frame read. Complete percentage-only text remains
+eligible for the selective path. Two analyzed native pages are retained until that
+decision, so fallback reuses segmentation instead of repeating it. Prefix reads and
+field retries still add work. Word-crop or field-confirmation errors fall back too,
+preserving the original path's ability to retain visual-level evidence. Native
+recognition is explicitly called before TSV
+after `AnalyseLayout()`; requesting TSV directly can assert in Tesseract 5.4.
+
+### Complete replay results
+
+Two paired 225-image runs alternated baseline/candidate order on three isolated
+Windows workers. They include preprocessing, localization, actual field confirmation,
+fallback/retries, visual and neural levels, and recursive OCR-child CPU. Windows
+venv launcher children are included. Model initialization and the neural warmup
+are outside the timers. Stream capture/FFmpeg, character identity/jobs, SQLite and
+API publication are not measured. Each comparison uses its own paired control.
+
+| Complete HUD + EXP/level OCR replay | Original CPU | Candidate CPU | Reduction |
+| --- | ---: | ---: | ---: |
+| Development prototype | 751.02 s | 544.31 s | 27.5% |
+| Clean tracked implementation | 797.70 s | 578.00 s | 27.5% |
+
+The clean implementation matched the development prototype's readings on all 225
+images. It used selective recognition on **172/225**, with **53** full-frame fallbacks
+(34 imperfect EXP fields, 17 incomplete/ambiguous HUDs, two page-budget/no-proposal
+fallbacks). It kept all **171** previously correct strict EXP pairs and read **five
+additional labelled frames** correctly. It introduced no new wrong full EXP pairs,
+visual/neural levels or grammar-recovered percentages, and lost no previously
+correct level or percentage reading. Existing baseline OCR errors remain.
+
+All **22** scaled, partly covered and compressed competing-HUD cases kept the
+baseline's multiple-HUD rejection. These are development/regression fixtures, not
+a claim about population coverage. The original detector already misses some small
+second HUDs; this study does not prove general multi-HUD recall.
+
+### Costs and next step
+
+Fallback can be slower: the 22-case competing-HUD replay used **66.80 s to 74.17 s**
+CPU (about 11% more). The largest observed extra cost on an individual ordinary
+fixture was 1.11 CPU seconds. Those observations are not worst-case bounds, and
+there is no automatic backoff. A different stream mix could reduce or erase the gain.
+
+The prototype uses **three exclusive native handles per offline worker**. Service
+memory/queue effects, Ubuntu/Tesseract 5.5 output and live capture intervals are
+unmeasured. Before production integration, run an isolated Linux replay, then keep
+the native per-frame operation inside timeout-controlled worker processes. Routing
+every word crop through a separate existing worker request would add unmeasured IPC
+overhead. No native engine should be moved into the live coordinator process.
+
+From an installed tracker Python environment, for one restored private sample:
+
+```sh
+python tools/evaluate_layout_hud.py samples/maplestory-classic-stream2.png --output private/layout-first/check-1.json --workers 1
+```
+
+The tool accepts saved images only, never opens a stream/database, writes a new
+private result file and refuses overwrites. `--ocr-python` can reuse the existing
+isolated environment. Native crashes are isolated to benchmark worker processes;
+this offline tool is not the service's bounded worker protocol.
+
+Validation: **3348 passed, 75 skipped, 1 known xfail**. The skips remain 68 absent
+private-crop cases, six Linux-only cases and one Windows symlink permission. The
+16 new tests cover native layout/full-read parity and reset, exact crop-response
+reuse, stale-frame rejection, partial second-HUD proposals, retained-page fallback,
+crop/field failures and private-output/no-overwrite checks.
