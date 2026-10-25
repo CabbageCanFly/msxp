@@ -359,6 +359,13 @@ html, body.product { overflow-x:clip; }
 :is(.streamer-entry,.character-entry) .exp-section { grid-area:exp; }
 :is(.streamer-entry,.character-entry) .score { grid-area:score; }
 /* Names in the same face as the score, close to its size, so a player reads as prominently as their number. */
+/* The job icon follows the name, shown only on hover, keyboard focus, or a finger on the row (phones: data-touched). */
+:is(.streamer-entry,.character-entry) .name-line { display:flex; align-items:center; gap:6px; min-width:0; }
+:is(.streamer-entry,.character-entry) .name-line .character { flex:0 1 auto; min-width:0; }
+:is(.streamer-entry,.character-entry) .job-icon { flex:none; width:24px; height:24px; opacity:0; transition:opacity .15s; }
+@media(hover:hover) { :is(.streamer-entry,.character-entry):hover .job-icon { opacity:.85; } }
+:is(.streamer-entry,.character-entry):is([data-touched],:has(:focus-visible)) .job-icon { opacity:.85; }
+@media(max-width:650px) { :is(.streamer-entry,.character-entry) .job-icon { width:20px; height:20px; } }
 .product :is(.streamer-entry,.character-entry) .character { font-family:var(--font-display); font-size:22px; font-weight:600; line-height:1.15; letter-spacing:-.2px; }
 /* Wide screens: the EXP block and the score both sit at the row's bottom and the label matches the age's size and line height,
    so "EXP / hour" shares a baseline with "Updated 3m ago", even when the footer wraps to a second line. */

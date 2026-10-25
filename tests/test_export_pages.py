@@ -97,7 +97,7 @@ def test_product_js_contacts_only_the_configured_api_origin():
         assert channel not in source, channel
     # Loaded URLs besides the API: the overlay preview, mob sprites, decoded town layers and job icons, all same-origin.
     assert set(re.findall(r'\.src=([^;]*);', source)) == {'url', "sprite(slug,'move')", "sprite(slug,'hit')", "sprite(slug,'die')", "sprite(pick(BOSSES),'stand')", '`/static/${file}`',
-                                                         "`/static/jobs/${job.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}.png`"}
+                                                         'jobSrc(job)'}
     assert "const files=[`${town}.webp`,town==='sleepywood'?'sleepywood-forest.webp':'kerning-sky.webp'];" in source
     assert "['sleepywood','kerning'].includes(background)?background:" in source
     assert 'return `${location.origin}/live/overlay/${encodeURIComponent(channel)}' in source and "sprite=(slug,action)=>`/static/mobs/${slug}-${action}.${slug==='slime'?'webp':'gif'}`" in source
