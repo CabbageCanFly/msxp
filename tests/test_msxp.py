@@ -58,6 +58,13 @@ def test_unknown_options_pass_through_and_workers_override():
     assert command[command.index('--db-roster') + 1] == str(msxp.ROOT / 'other.sqlite3')
 
 
+def test_streamlink_preload_setting_is_opt_in_for_tracker_only():
+    settings=msxp.settings('missing',{'MSXP_PRELOAD_STREAMLINK':'1'},())
+    assert '--preload-streamlink' in build('tracker',settings)[0]
+    assert '--preload-streamlink' not in build('api',settings)[0]
+    assert '--preload-streamlink' not in build('tracker')[0]
+
+
 def test_setup_creates_an_empty_ready_roster_and_never_overwrites(tmp_path, capsys):
     db = tmp_path / 'mine' / 'tracker.sqlite3'
     assert msxp.setup(Namespace(db=str(db)), {}) == 0

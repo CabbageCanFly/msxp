@@ -117,7 +117,7 @@ class Frame:
 class VideoSession:
     """One connection and decoder, one latest frame, bounded stderr and byte counters."""
 
-    def __init__(self, source, *, ffmpeg="ffmpeg", file_offset=0, keyframes_only=True):
+    def __init__(self, source, *, ffmpeg="ffmpeg", file_offset=0, keyframes_only=True, producer_factory=None):
         self.condition = threading.Condition()
         self.latest = None
         self.error = None
@@ -130,7 +130,7 @@ class VideoSession:
         self.decoder = None
         try:
             if source.kind != "file":
-                self.producer = subprocess.Popen(source.streamlink_command(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.producer = (producer_factory or subprocess.Popen)(source.streamlink_command(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 self._thread(self._logs, self.producer.stderr, "streamlink")
             self.decoder = subprocess.Popen(ffmpeg_command(ffmpeg, source, file_offset=file_offset,
                                                            keyframes_only=keyframes_only),
@@ -150,9 +150,11 @@ class VideoSession:
         thread.start()
 
     def _logs(self, pipe, name):
-        while chunk := pipe.read1(1024):
-            self.logs[name].extend(chunk)
-            del self.logs[name][:-16384]
+        try:
+            while chunk := pipe.read1(1024):
+                self.logs[name].extend(chunk)
+                del self.logs[name][:-16384]
+        except OSError:pass  # A terminated producer can reset a socket-backed stderr pipe.
 
     def _relay(self):
         try:
