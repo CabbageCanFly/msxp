@@ -229,8 +229,10 @@ def label_reader(monkeypatch):
 
 
 @pytest.mark.parametrize('scale',[1,2])
-def test_missing_exp_label_is_read_from_scaled_pixels_and_bound_normally(label_reader,scale):
+@pytest.mark.parametrize('merged',[False,True])
+def test_missing_exp_label_is_read_from_scaled_pixels_and_bound_normally(label_reader,scale,merged):
     source=anchors()
+    if merged:source[0]['text']='HP11/12';source[1]['text']='MP15/16'
     tokens=[{**t,**{k:t[k]*scale for k in ('x','y','width','height')}} for t in source]
     image=Image.new('L',(800*scale,250*scale))
     found,retries=layout.recover_exp_label(tokens,image,label_reader)
@@ -238,6 +240,13 @@ def test_missing_exp_label_is_read_from_scaled_pixels_and_bound_normally(label_r
     assert found[:-1]==tokens and len(tokens)==3
     assert found[-1]['x']==447*scale+4 and found[-1]['y']==97*scale+3
     assert len(layout.locate_from_tokens(image,[found]))==1
+
+
+@pytest.mark.parametrize('index,text',[(0,'HPSWORD'),(1,'MPNAME')])
+def test_exp_label_retry_rejects_words_that_only_start_like_hud_labels(label_reader,index,text):
+    source=anchors();source[index]['text']=text
+    found,retries=layout.recover_exp_label(source,Image.new('L',(800,250)),label_reader)
+    assert retries==0 and found==source and not label_reader.calls
 
 
 @pytest.mark.parametrize('text,confidence',[('EXPERT',.99),('HP',.99),('EXP',.39),('',1)])
@@ -291,6 +300,42 @@ def test_label_recovery_never_changes_existing_or_competing_hud_geometry(setup,m
     def unexpected(*_):pytest.fail('Existing HUD geometry must bypass label recovery')
     monkeypatch.setattr(layout,'recover_exp_label',unexpected)
     assert locator(image)==found
+
+
+@pytest.mark.parametrize('already_full',[False,True])
+def test_full_fallback_retries_label_using_anchors_missing_from_selective_read(monkeypatch,label_reader,already_full):
+    image=Image.new('L',(800,250))
+    def scaled(scale):
+        return [{**t,**{k:t[k]*scale for k in ('x','y','width','height')}} for t in anchors()]
+    class Engine:
+        def __init__(self,scale):self.scale=scale;self.finished=0
+        def finish(self):self.finished+=1;return scaled(self.scale)
+        def clear(self):pass
+    engines=[Engine(2),Engine(3)]
+    monkeypatch.setattr(layout,'prepared_pages',lambda _:iter([(image.resize((1600,500)),2.),(image.resize((2400,750)),3.)]))
+    def recognize(engine,*_):
+        full=already_full and engine is engines[0]
+        return (scaled(engine.scale) if full else []),dict(fallback=full)
+    monkeypatch.setattr(layout,'recognize_page',recognize)
+    pages=layout.LayoutPages(engines,label_reader)
+    initial,_=pages.start(image)
+    if not already_full:assert not label_reader.calls
+    assert len(layout.locate_from_tokens(image,pages.full()))==1
+    assert [e.finished for e in engines]==[0 if already_full else 1,1]
+    assert label_reader.calls and pages.image is image
+    pages.clear()
+    assert pages.image is None and pages.states==[]
+
+
+@pytest.mark.parametrize('found',[[candidate()],[candidate(False)],[candidate(),candidate()]])
+def test_full_label_retry_preserves_existing_partial_or_competing_geometry(setup,monkeypatch,found):
+    image,locator,_,_=setup
+    locator.pages.start(image)
+    monkeypatch.setattr(layout,'locate_from_tokens',lambda *_:found)
+    def unexpected(*_):pytest.fail('Full OCR already has HUD geometry')
+    monkeypatch.setattr(layout,'recover_exp_label',unexpected)
+    assert locator.pages.full()[0][0]['text']=='full'
+    locator.pages.clear()
 
 
 @pytest.mark.ocr

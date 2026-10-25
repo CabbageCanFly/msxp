@@ -135,9 +135,16 @@ identity and history checks still decide whether a reading is usable. The retry
 is limited to eight in-bounds regions per scale and uses the existing native
 worker and timeout. It temporarily holds both prepared images; it adds no native
 engines or state shared between frames. Page diagnostics report the number of
-regions retried as `anchor_label_retries`.
+regions retried during selective recognition as `anchor_label_retries`.
 
-Validation: **3391 passed, 75 skipped, 1 known expected failure**. A final replay
+Full-page fallback also runs the same bounded label retry if neither scale binds
+a HUD. Full OCR can find HP, MP and LV anchors that the selective probes missed.
+HP/MP labels use the ordinary HUD parser, including labels joined to their numeric
+values. The missing EXP label must still be read from pixels at the same confidence
+threshold; this does not combine anchors across scales or change EXP grammar.
+The original frame is held only until confirmation or fallback finishes.
+
+Initial label-recovery validation: **3391 passed, 75 skipped, 1 known expected failure**. A final replay
 of 499 saved images, including 22 competing-HUD cases and a 36-frame live sequence,
 lost no correct readings, introduced no incorrect readings, and added no unique-HUD
 acceptance in the competing-HUD checks. The target sequence improved from 30/36
@@ -152,6 +159,25 @@ unchanged cost versus deployed, about 32% below the original path in this batch.
 An in-memory Linux/Tesseract 5.5.0 check recovered the missed EXP pair and level,
 preserved ordinary gameplay, and rejected a browser page without the game HUD.
 These saved-frame checks do not measure loaded-VPS capture cadence.
+
+Follow-up full-page retry validation: **3400 passed, 75 skipped, 1 known expected
+failure**. Replaying 603 previously reviewed images plus a fresh 36-frame stream
+sequence lost no correct readings, introduced no new wrong readings, changed no
+unlabelled outputs, and preserved the competing-HUD rejections. In the new sequence,
+34 of 35 readable EXP pairs were recovered, versus 17 with the deployed detector
+and 16 with the original detector before layout-first optimization. An additional
+frame had its EXP covered by an inventory tooltip and was correctly rejected;
+one otherwise readable frame still could not be localized. An isolated
+Linux/Tesseract 5.5.0 replay confirmed the accept/reject decisions on eight selected
+frames, including both remaining failures. No stream-specific coordinates or new
+digit substitutions were added.
+
+An interleaved 48-frame local comparison used identical pixels and frozen deployed
+code. The 36-frame target sequence averaged 1.525 s deployed versus 1.600 s with
+the fix (about 0.074 s extra); total process-tree CPU increased 4.6%. Twelve
+controls, four each for selective, full fallback and competing-HUD cases, differed
+by less than 1% CPU in each group. This is a reliability improvement with a small
+measured local cost, not a loaded-VPS throughput measurement.
 
 ## Observing a rollout
 
