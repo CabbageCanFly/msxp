@@ -126,9 +126,9 @@ def recover_exp_label(tokens,binary,engine):
     """Verify a missing label in pixels, using three already-read HUD anchors."""
     boxes=[]
     for hp in tokens:
-        if not re.fullmatch(r'HP[.:]?',hp['text'],re.I):continue
+        if label(hp)!='HP':continue
         for mp in tokens:
-            if not re.fullmatch(r'MP[.:]?',mp['text'],re.I):continue
+            if label(mp)!='MP':continue
             step=mp['x']-hp['x']
             if step<5*max(hp['height'],mp['height']) or abs(mp['y']-hp['y'])>.08*step:continue
             if not any(re.fullmatch(r'LV[.:]?',lv['text'],re.I)
@@ -182,10 +182,10 @@ class LayoutPages:
         if len(engines)!=2 or len({id(e) for e in (*engines,crop_engine)})!=3:
             raise ValueError('Two layout engines and a separate crop engine required')
         self.engines,self.crop_engine=engines,crop_engine
-        self.states=[]
+        self.states=[];self.image=None
 
     def start(self,image):
-        self.states=[];pages=[];details=[];original=[]
+        self.states=[];self.image=image;pages=[];details=[];original=[]
         prepared=list(prepared_pages(image))
         for engine,(binary,scale) in zip(self.engines,prepared):
             tokens,detail=recognize_page(engine,self.crop_engine,binary)
@@ -195,18 +195,26 @@ class LayoutPages:
             for index,((binary,scale),tokens) in enumerate(zip(prepared,original)):
                 tokens,retries=recover_exp_label(tokens,binary,self.crop_engine)
                 if retries:details[index]['anchor_label_retries']=retries
+                original[index]=tokens
                 pages[index]=mapped(tokens,scale)
-        for engine,(_,scale),tokens,detail in zip(self.engines,prepared,pages,details):
+        for engine,(_,scale),tokens,detail in zip(self.engines,prepared,original,details):
             self.states.append((engine,scale,tokens if detail['fallback'] else None))
         return pages,details
 
     def full(self):
         if len(self.states)!=2:raise RuntimeError('No retained layout pages')
-        return [previous if previous is not None else mapped(engine.finish(),scale) for engine,scale,previous in self.states]
+        original=[previous if previous is not None else engine.finish() for engine,_,previous in self.states]
+        pages=[mapped(tokens,scale) for tokens,(_,scale,_) in zip(original,self.states)]
+        # Full OCR can find the three anchors that selective probes missed.
+        if not locate_from_tokens(self.image,pages):
+            for index,((binary,scale),tokens) in enumerate(zip(prepared_pages(self.image),original)):
+                tokens,_=recover_exp_label(tokens,binary,self.crop_engine)
+                pages[index]=mapped(tokens,scale)
+        return pages
 
     def clear(self):
         for engine in self.engines:engine.clear()
-        self.states=[]
+        self.states=[];self.image=None
 
 
 class LayoutLocator:
