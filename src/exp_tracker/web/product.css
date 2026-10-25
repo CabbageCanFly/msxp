@@ -149,7 +149,7 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .player-reading .exp-section { flex:1; min-width:0; }
 .player-reading .exp-bar { height:34px; border-radius:9px; }
 .player-reading .exp-label { font-size:16px; gap:8px; }
-.player-reading .status-line { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; margin:9px 0 0; }
+.player-reading .status-line { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 4px; margin:9px 0 0; }
 .player-reading .status { font-size:13px; }
 .player-reading .status-line .exp-detail { margin:0; }
 .player-reading .status-line .exp-detail:not(:empty)::before { content:"· "; }
