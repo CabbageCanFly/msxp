@@ -4,6 +4,8 @@
 [layout-first HUD recognition](layout-first-hud.md) by default. The older detector
 description below is retained for the original integration; use
 `--no-layout-first-hud` to run it for comparison.
+Continuous Twitch tracking also uses the automatic
+[missing-HUD recheck cadence](#streams-without-a-classic-hud) described below.
 
 Integration of two researched, opt-in throughput changes into the schema-11 tracker
 (`tools/multi_alpha.py`), for both legacy JSON configs and `--db-roster` mode. Both flags
@@ -65,6 +67,44 @@ and automatically switched runs. `tools/summarize_capture_run.py` now also repor
 **`--ocr-python` fix.** The supplied path is made absolute but no longer passed through
 `resolve()`. A Linux virtualenv's `bin/python` is a symlink to the base interpreter, and
 following it lost the venv's RapidOCR packages.
+
+## Streams without a Classic HUD
+
+Continuous Twitch tracking keeps its configured interval until explicit
+`missing_hud` results span two minutes and at least three captured frames. It then
+slows intervals shorter than 60 seconds to one check per minute. A detected HUD
+restores the configured interval immediately, even if its EXP is unreadable.
+Capture errors, stale frames and ambiguous HUDs also restore normal checks.
+Non-continuous runs and local-video replays retain their configured cadence.
+
+Every recheck runs the normal detector on a newly acquired frame. A real Classic
+stream with persistent HUD-detection failures also qualifies, so returning
+gameplay may wait roughly a minute for the next check; ordinary scheduler/load
+delays can add to that. The 60-second cap limits this tradeoff. Pausing/resuming or
+changing roster settings starts a new grace period; rotating capture logs retains
+the current cadence. Existing slower requested intervals remain unchanged.
+
+Logs announce entry into minute checks and the return to normal checks. Attempts
+record `hud_backoff` with `active`, `missing_seconds`, and `next_interval_seconds`;
+coordinator activity includes `effective_interval_seconds`. Intentional slower
+checks do not count as missed deadlines. This policy requires only a tracker
+restart after pulling; existing interval settings continue to set the normal rate.
+
+Validation: **3422 passed, 75 skipped, 1 known expected failure**. Eight fresh
+facecam frames and eight fresh modern-MapleStory frames all produced genuine
+missing-HUD results. Actual local tracker replays used about 0.59 and 2.87 CPU
+seconds per frame respectively. A ten-minute read-only VPS sample showed 30
+facecam checks costing 50.2 seconds in HUD scanning and 25 modern-game checks
+costing 178.8 seconds. Together these were 13.4% of accumulated HUD-scanning
+worker time across 16 channels; this is elapsed worker time, not CPU utilization.
+Both channels still reported the MapleStory category.
+
+A virtual-clock replay using the saved receipts reduced each persistently
+irrelevant channel from 30 to 14 checks in ten minutes, including the initial
+grace period; a healthy Classic channel retained all 30 checks. After the grace
+period, the steady-state reduction is two thirds. Gameplay returning at simulated
+second 145 was found at 180 and subsequent checks resumed every 20 seconds.
+The loaded-VPS CPU and throughput improvement remains unmeasured.
 
 ## `--resident-tesseract`
 
