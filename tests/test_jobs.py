@@ -37,3 +37,17 @@ def test_every_job_has_its_game_icon():
     slugs = {re.sub(r'[^a-z0-9]+', '-', j['name'].lower()).strip('-') for j in jobs}
     assert all(j['icon'] for j in jobs) and {p.stem for p in (data / 'web' / 'jobs').glob('*')} == slugs
     assert all(Image.open(data / 'web' / 'jobs' / f'{s}.png').size == (64, 64) for s in slugs)
+
+
+def test_home_job_filter_lists_every_job_under_its_class():
+    """product.js's JOB_CLASSES (the homepage job filter) must follow jobs.json: each first job with its advancements."""
+    import json, re
+    from pathlib import Path
+    source = (Path(__file__).parents[1] / 'src' / 'exp_tracker' / 'web' / 'product.js').read_text(encoding='utf-8')
+    classes = json.loads(re.search(r'const JOB_CLASSES=(\[.*?\]);', source, re.S)[1])
+    jobs = table()['jobs'].values()
+    expected = {j['name']: [j['name'], *[k['name'] for k in jobs if k['parent'] == j['name']]] for j in jobs if j['tier'] == 1}
+    assert {c['class']: c['jobs'] for c in classes} == expected
+    assert 'Beginner' in source and {j['name'] for j in jobs} == {'Beginner'} | {n for c in classes for n in c['jobs']}
+    badges = Path(__file__).parents[1] / 'src' / 'exp_tracker' / 'web' / 'classes'
+    assert {p.name for p in badges.iterdir()} == {'beginner.gif'} | {f"{c['class'].lower()}.gif" for c in classes}  # One old badge per top-level pick.

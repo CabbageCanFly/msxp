@@ -23,7 +23,7 @@ EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'index.h
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
             'static/product.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp',
             'static/kerning.webp', 'static/kerning-sky.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')} \
-    | {f'static/jobs/{p.name}' for p in (export_pages.WEB / 'jobs').glob('*.png')}
+    | {f'static/jobs/{p.name}' for p in (export_pages.WEB / 'jobs').glob('*.png')}     | {f'static/classes/{p.name}' for p in (export_pages.WEB / 'classes').glob('*.gif')}
 ROUTES = ['/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
           '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200']
 
@@ -97,7 +97,7 @@ def test_product_js_contacts_only_the_configured_api_origin():
         assert channel not in source, channel
     # Loaded URLs besides the API: the overlay preview, mob sprites, decoded town layers and job icons, all same-origin.
     assert set(re.findall(r'\.src=([^;]*);', source)) == {'url', "sprite(slug,'move')", "sprite(slug,'hit')", "sprite(slug,'die')", "sprite(pick(BOSSES),'stand')", '`/static/${file}`',
-                                                         'jobSrc(job)'}
+                                                         'jobSrc(job)', 'jobBadgeSrc(pick)', 'jobBadgeSrc(value)'}
     assert "const files=[`${town}.webp`,town==='sleepywood'?'sleepywood-forest.webp':'kerning-sky.webp'];" in source
     assert "['sleepywood','kerning'].includes(background)?background:" in source
     assert 'return `${location.origin}/live/overlay/${encodeURIComponent(channel)}' in source and "sprite=(slug,action)=>`/static/mobs/${slug}-${action}.${slug==='slime'?'webp':'gif'}`" in source

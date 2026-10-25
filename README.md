@@ -226,6 +226,7 @@ and the monster sprites in `src/exp_tracker/web/mobs/` are MapleStory artwork ©
 game data by [maplestory.io](https://maplestory.io) (GMS v55 and v83); the Slime is the animated WebP
 from [meowdb.com](https://meowdb.com/msclassic/es/monsters/7). The job icons in `src/exp_tracker/web/jobs/`
 are MapleStory Classic skill icons © Nexon, from the official
-[Classic World class pages](https://www.nexon.com/maplestory/game/mscw/classes-and-jobs).
+[Classic World class pages](https://www.nexon.com/maplestory/game/mscw/classes-and-jobs); the class badges in
+`src/exp_tracker/web/classes/` are Nexon's old website job icons (`nxcache.nexon.net/maplestory/img/icons/`).
 They only decorate the website.
 Details: [website background sources](docs/website-background.md).

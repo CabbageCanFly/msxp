@@ -94,9 +94,15 @@ function node(tag,className,text) { const n=document.createElement(tag);if(class
 // Each job's skill icon is web/jobs/<slug of the job name>.png.
 const jobSrc=job=>`/static/jobs/${job.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}.png`;
 // A list row's name line: the name, then the job icon when known (its alt text and tooltip are the job).
-function nameLine(name,job) {
+function nameLine(name,job,interactive) {
   const line=node('span','name-line');line.append(name);
-  if(job){const icon=node('img','job-icon');icon.src=jobSrc(job);icon.alt=job;icon.title=job;icon.setAttribute('width',24);icon.setAttribute('height',24);line.append(icon);}
+  if(job){
+    const image=node('img');image.src=jobSrc(job);image.alt=job;image.setAttribute('width',24);image.setAttribute('height',24);
+    // Desktop rows: the icon is a button that adds its job to the filter; phone rows are one profile link, so it stays an image there.
+    const icon=interactive?node('button','job-icon'):image;
+    if(interactive){icon.type='button';icon.dataset.job=job;icon.title=`${job} · show only ${job}`;icon.append(image);}else{icon.className='job-icon';icon.title=job;}
+    line.append(icon);
+  }
   return line;
 }
 function hideTip() { if(tip)tip.hidden=true;tipKey=null;tipPosition=null; }
@@ -338,6 +344,54 @@ const PRESENCE={all:{label:'All',next:'online',title:'Showing everyone · click 
   online:{label:'Online',next:'offline',title:'Showing online only · click for offline only'},
   offline:{label:'Offline',next:'all',title:'Showing offline only · click to show everyone'}};
 let presence='all';
+// Job filter, a multiselect: each pick is 'class:Thief' (the class with its advancements) or 'job:Thief' (exactly that job);
+// a row shows when it matches any pick, and no picks shows everyone. Rows without a known job never match a pick.
+// Mirrors data/jobs.json (checked by tests/test_jobs.py). Top-level picks (a class, or Beginner) show their old badge
+// (web/classes/<name>.gif); an exact job shows its skill icon, as in the rows.
+const JOB_CLASSES=[{"class":"Warrior","all":"All Warriors","jobs":["Warrior","Fighter","Page","Spearman"]},
+  {"class":"Magician","all":"All Magicians","jobs":["Magician","Wizard (Fire,Poison)","Wizard (Ice,Lightning)","Cleric"]},
+  {"class":"Bowman","all":"All Bowmen","jobs":["Bowman","Hunter","Crossbowman"]},
+  {"class":"Thief","all":"All Thieves","jobs":["Thief","Assassin","Bandit"]}];
+const JOB_FILTERS=new Set(['','job:Beginner',...JOB_CLASSES.flatMap(c=>[`class:${c.class}`,...c.jobs.map(j=>`job:${j}`)])]);
+let jobFilter=[],jobBoxes=[],jobAllBox=null;  // Picks in the order chosen.
+function jobMatches(job) {
+  return !jobFilter.length || jobFilter.some(pick=>{
+    const [kind,name]=pick.split(':');
+    return kind==='job'?job===name:!!JOB_CLASSES.find(c=>c.class===name)?.jobs.includes(job);
+  });
+}
+const jobLabel=pick=>{const [kind,name]=pick.split(':');return kind==='class'?JOB_CLASSES.find(c=>c.class===name).all:name;};
+// Top-level picks (a class, or Beginner) show their old badge; an exact job shows its skill icon, as in the rows.
+const jobBadgeSrc=pick=>{const [kind,name]=pick.split(':');return kind==='class' || name==='Beginner'?`/static/classes/${name.toLowerCase()}.gif`:jobSrc(name);};
+// The menu is a <details> panel of checkboxes, so several can be ticked while it stays open.
+function buildJobFilter() {
+  const option=value=>{
+    const row=node('label','job-option'),box=node('input'),icon=node('img');box.type='checkbox';box.value=value;jobBoxes.push(box);
+    icon.src=jobBadgeSrc(value);icon.alt='';icon.loading='lazy';icon.setAttribute('width',22);icon.setAttribute('height',22);
+    row.append(box,icon,node('span',null,jobLabel(value)));return row;
+  };
+  // "All jobs" is ticked exactly when nothing is picked; ticking it clears the picks.
+  const all=node('label','job-option job-all'),spacer=node('span','job-all-spacer');jobAllBox=node('input');jobAllBox.type='checkbox';jobAllBox.value='';
+  all.append(jobAllBox,spacer,node('span',null,'All jobs'));
+  el('job-panel').replaceChildren(all,option('job:Beginner'),...JOB_CLASSES.map(c=>{
+    const group=node('div','job-group');group.append(node('span','job-group-name',c.class),option(`class:${c.class}`),...c.jobs.map(j=>option(`job:${j}`)));return group;
+  }));
+}
+function setJobs(picks) { jobFilter=picks;showJobFilter();renderBoard(); }
+function addJob(pick) { if(pick && JOB_FILTERS.has(pick) && !jobFilter.includes(pick))setJobs([...jobFilter,pick]); }
+function showJobFilter() {
+  for(const box of jobBoxes)box.checked=jobFilter.includes(box.value);
+  jobAllBox.checked=!jobFilter.length;
+  el('job-summary').textContent=jobFilter.length>1?'Multiple jobs':jobFilter.length?jobLabel(jobFilter[0]):'All jobs';
+  el('job-filter-control').dataset.active=String(jobFilter.length>0);
+  // Each pick's icon removes it; focus returns to the menu so keyboard users are not dropped.
+  el('job-filter-icons').replaceChildren(...jobFilter.map(pick=>{
+    const chip=node('button','job-chip'),icon=node('img');chip.type='button';chip.title=`Remove ${jobLabel(pick)}`;chip.setAttribute('aria-label',chip.title);
+    icon.src=jobBadgeSrc(pick);icon.alt='';icon.setAttribute('width',26);icon.setAttribute('height',26);chip.append(icon);
+    chip.addEventListener('click',()=>{setJobs(jobFilter.filter(p=>p!==pick));el('job-summary').focus();});
+    return chip;
+  }));
+}
 const shown=online=>presence==='all' || online===(presence==='online');
 function showPresence() {
   const toggle=el('presence'),{label,title}=PRESENCE[presence];toggle.dataset.presence=presence;toggle.title=title;toggle.setAttribute('aria-label',title);
@@ -357,7 +411,7 @@ function entry({player:p,value,rank}) {
   const profile=`/stream/${p.channel}`,content=rowContent(row,profile);
   const identity=node('div','identity'),name=node(content===row?'a':'span','character',p.character?.label ?? 'Character not selected');
   if(content===row)name.href=profile;name.title=name.textContent;
-  identity.append(nameLine(name,p.character?.job),sourceLink(p,profile));
+  identity.append(nameLine(name,p.character?.job,content===row),sourceLink(p,profile));
   const ago=r?ageText(s.age):null,seenAt=r?.timestamp?localTime(r.timestamp):'';
   const section=expSection(r,{label:p.character?.label ?? p.channel,buckets:p.day_buckets,day:metricValue(p,'day'),eta:rowETA(p),age:ago?'Updated '+ago:'No reading yet',ageTitle:seenAt});
   content.append(badge,level,identity,section);
@@ -398,13 +452,13 @@ function renderBoard() {
   showPresence();
   if(characters){renderCharacters();return;}
   const search=el('character-filter').value.trim().toLowerCase();
-  const all=data?.players ?? [],rows=ranked(all.filter(p=>shown(statusText(p)==='Online') && `${p.character?.label ?? ''} ${p.channel}`.toLowerCase().includes(search)),sort);
+  const all=data?.players ?? [],rows=ranked(all.filter(p=>shown(statusText(p)==='Online') && jobMatches(p.character?.job) && `${p.character?.label ?? ''} ${p.channel}`.toLowerCase().includes(search)),sort);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
   patchChildren(el('entries'),rows.map(entry).map(touchMark));
   [...el('entries').querySelectorAll('.exp-number')].filter(n=>n.clientWidth>0 && n.scrollWidth>n.clientWidth+1).forEach(n=>{n.textContent=n.dataset.compactNumber;});
   if(focus) [...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
-  el('empty').textContent=search?'No streamers match your search.':all.length?`No ${presence} players right now.`:'No players are being tracked yet.';
+  el('empty').textContent=search?'No streamers match your search.':jobFilter.length && all.length?'No streamers with these jobs.':all.length?`No ${presence} players right now.`:'No players are being tracked yet.';
   el('board-count').textContent=data?`${rows.length<all.length?`${rows.length} of `:''}${all.length} player${all.length===1?'':'s'}${data.warming?.length?` · ${data.warming.length} more loading`:''}`:failed?'Tracker unavailable':'Loading players…';
   el('ranking-count').textContent='';el('ranking-note').textContent='';
   document.querySelectorAll('[data-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.sort===sort)));
@@ -414,7 +468,7 @@ function renderBoard() {
 function renderCharacters() {
   const search=el('character-filter').value.trim().toLowerCase(),order=characterSort;
   document.querySelectorAll('[data-character-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.characterSort===order)));
-  const all=data?.characters ?? [],rows=all.filter(r=>shown(!!r.online) && `${r.label} ${r.channel}`.toLowerCase().includes(search));
+  const all=data?.characters ?? [],rows=all.filter(r=>shown(!!r.online) && jobMatches(r.job) && `${r.label} ${r.channel}`.toLowerCase().includes(search));
   rows.sort((a,b)=>(order==='level'?(b.level ?? -1)-(a.level ?? -1):order==='name'?a.label.localeCompare(b.label):
     (Date.parse(b.reading?.timestamp) || 0)-(Date.parse(a.reading?.timestamp) || 0)) || a.channel.localeCompare(b.channel) || a.id-b.id);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
@@ -426,7 +480,7 @@ function renderCharacters() {
     const profile=`/stream/${encodeURIComponent(r.channel)}${r.current?'':`?character=${r.id}`}`,content=rowContent(row,profile);
     const identity=node('div','identity'),link=node(content===row?'a':'span','character',r.label);
     if(content===row)link.href=profile;  // The plain profile shows the current character.
-    identity.append(nameLine(link,r.job),sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},profile));
+    identity.append(nameLine(link,r.job,content===row),sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},profile));
     // The refresher's saved summary: undefined until it is built, null reading if nothing was ever read.
     const at=r.reading?.timestamp ?? r.last_seen_at,ago=at?ageText(Math.max(0,(now-Date.parse(at))/1000)):null;
     const section=expSection(shownReading(r.reading,r.display_level) ?? null,{label:r.label,buckets:r.day_buckets,day:r.day,eta:rowETA(r,5),empty:r.reading===undefined?'Loading EXP…':'No saved EXP',
@@ -437,7 +491,7 @@ function renderCharacters() {
   }));
   if(focus)[...el('entries').querySelectorAll('a')].find(a=>a.getAttribute('href')===focus)?.focus({preventScroll:true});
   el('empty').hidden=rows.length>0 || !data;
-  el('empty').textContent=search?'No characters match your search.':all.length?`No ${presence} characters right now.`:'No saved characters yet.';
+  el('empty').textContent=search?'No characters match your search.':jobFilter.length && all.length?'No characters with these jobs.':all.length?`No ${presence} characters right now.`:'No saved characters yet.';
   el('board-count').textContent=data?`${rows.length<all.length?`${rows.length} of `:''}${all.length} character${all.length===1?'':'s'}${data.warming?.length?` · ${data.warming.length} more loading`:''}`:failed?'Tracker unavailable':'Loading characters…';
   el('ranking-note').textContent='';el('ranking-count').textContent='';  // The header count covers search and filter results.
 }
@@ -928,9 +982,22 @@ if(view==='board') {
     if(Object.hasOwn(PRESENCE,saved.presence))presence=saved.presence;
     if([5,10,15,30].includes(saved.windowMinutes))windowMinutes=saved.windowMinutes;
     if(typeof saved.search==='string')el('character-filter').value=saved.search.slice(0,100);
+    if(Array.isArray(saved.jobFilter))jobFilter=[...new Set(saved.jobFilter.filter(p=>p && JOB_FILTERS.has(p)))];
   }
+  buildJobFilter();showJobFilter();
+  el('job-panel').addEventListener('change',event=>{  // Ticking adds a pick, unticking removes it; the menu stays open.
+    const value=event.target.value;
+    if(event.target===jobAllBox){setJobs([]);return;}  // Clears the picks; with none left it stays ticked.
+    if(!value || !JOB_FILTERS.has(value))return;
+    setJobs(event.target.checked?[...jobFilter.filter(p=>p!==value),value]:jobFilter.filter(p=>p!==value));
+  });
+  // The menu closes on Escape or a click elsewhere, like a dropdown.
+  el('job-menu').addEventListener('keydown',event=>{if(event.key==='Escape' && el('job-menu').open){el('job-menu').open=false;el('job-summary').focus();}});
+  document.addEventListener('click',event=>{if(el('job-menu').open && !el('job-menu').contains(event.target))el('job-menu').open=false;});
+  // Desktop: a row's job icon adds that job to the filter (on phones the whole row opens the profile).
+  el('entries').addEventListener('click',event=>{const icon=event.target.closest?.('button.job-icon');if(icon){event.preventDefault();addJob(`job:${icon.dataset.job}`);}});
   globalThis.addEventListener?.('pagehide',()=>{
-    try {history.replaceState({...history.state,board:{sort,characterSort,presence,windowMinutes,search:el('character-filter').value}},'');} catch {}
+    try {history.replaceState({...history.state,board:{sort,characterSort,presence,windowMinutes,search:el('character-filter').value,jobFilter}},'');} catch {}
   });
   document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>selectBoard(button.dataset.mode)));
   el('character-filter').addEventListener('input',renderBoard);

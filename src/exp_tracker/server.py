@@ -24,8 +24,8 @@ from .twitch_auth import AppTokens
 WEB = Path(__file__).with_name("web")
 # Wandering mob sprites for product.js (credited in README); the folder holds only these GIF/WebP files.
 MOB_ASSETS = {f"/static/mobs/{p.name}" for p in WEB.glob("mobs/*.*")}
-# Skill icon per job for the profile header (web/jobs/<slug>.png, named in data/jobs.json).
-JOB_ASSETS = {f"/static/jobs/{p.name}" for p in WEB.glob("jobs/*.png")}
+# Skill icon per job (web/jobs/<slug>.png, named in data/jobs.json) and the old class badges for the home job filter.
+JOB_ASSETS = {f"/static/{p.parent.name}/{p.name}" for p in (*WEB.glob("jobs/*.png"), *WEB.glob("classes/*.gif"))}
 ASSETS = {
     **{path: (path.removeprefix("/static/"), f"image/{path.rsplit('.', 1)[1]}") for path in MOB_ASSETS | JOB_ASSETS},
     "/static/overlay.css": ("overlay.css", "text/css"),

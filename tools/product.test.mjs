@@ -1854,7 +1854,7 @@ test('the Pages export calls its configured API origin; backend-served pages sta
 
 test('both homepage lists show the job icon after the name, only when the job is known',()=>{
   const p=page('board'),icons=()=>p.elements.entries.children.map(row=>{
-    const line=row.children.find(c=>c.className==='identity').children[0],icon=line.children[1];
+    const line=row.children.find(c=>c.className==='identity').children[0],button=line.children[1],icon=button?.children[0];  // Desktop: a button around the image.
     return [line.children[0].textContent,icon?.src ?? null,icon?.alt ?? null];
   });
   p.run(`data=${JSON.stringify({players:[player({channel:'a',character:{label:'Alpha',job:'Wizard (Ice,Lightning)'}}),player({channel:'b',character:{label:'Beta'}})]})};renderBoard()`);
@@ -1873,4 +1873,35 @@ test('a finger on a list row shows its job icon through refreshes, then lets it 
   on(rows()[1]);assert.deepEqual(touched(),[rows()[1].dataset.channel]);
   p.elements.entries.listeners.touchend();assert.equal(p.timers.at(-1),1200);
   assert.equal(p.elements.entries.listenerOptions.touchstart.passive,true);  // Never delays scrolling.
+});
+
+test('job filter menu: ticking several adds them, unticking or an icon removes one, a desktop row icon adds its job, All jobs clears',()=>{
+  const p=page('board'),panel=p.elements['job-panel'],box=value=>p.run('jobBoxes').find(b=>b.value===value);
+  const tick=(value,on=true)=>{const b=box(value);b.checked=on;panel.listeners.change({target:b});};
+  const names=()=>p.elements.entries.children.map(r=>r.dataset.channel).sort(),chips=()=>p.elements['job-filter-icons'].children;
+  const label=()=>p.elements['job-summary'].textContent;
+  const players=[['t','Thief'],['a','Assassin'],['b','Bandit'],['c','Cleric'],['s','Beginner'],['u',undefined]].map(([channel,job])=>player({channel,character:{label:channel,job}}));
+  p.run(`data=${JSON.stringify({players})};renderBoard()`);
+  assert.equal(p.run('jobBoxes').length,19);  // Beginner, then each class's "All ..." and its jobs (5+5+4+4).
+  assert.deepEqual(names(),['a','b','c','s','t','u']);assert.equal(chips().length,0);assert.equal(label(),'All jobs');
+  const all=p.run('jobAllBox');assert.equal(all.checked,true);  // "All jobs" starts ticked...
+  tick('class:Thief');assert.deepEqual(names(),['a','b','t']);assert.equal(label(),'All Thieves');assert.equal(all.checked,false);  // ...and unticks on a pick.
+  assert.equal(chips()[0].children[0].src,'/static/classes/thief.gif');assert.equal(p.elements['job-filter-control'].dataset.active,'true');
+  tick('job:Cleric');assert.deepEqual(names(),['a','b','c','t']);assert.equal(label(),'Multiple jobs');
+  tick('job:Beginner');assert.deepEqual(chips().map(c=>[c.title,c.children[0].src]),
+    [['Remove All Thieves','/static/classes/thief.gif'],['Remove Cleric','/static/jobs/cleric.png'],['Remove Beginner','/static/classes/beginner.gif']]);
+  tick('job:Cleric',false);assert.deepEqual(names(),['a','b','s','t']);  // Unticking removes it.
+  chips()[0].listeners.click();assert.deepEqual(names(),['s']);assert.equal(label(),'Beginner');assert.equal(box('class:Thief').checked,false);  // So does its icon.
+  panel.listeners.change({target:{value:'nonsense',checked:true}});assert.deepEqual(names(),['s']);  // Unknown values change nothing.
+  // Desktop rows: the job icon is a button carrying its job; clicking it adds that job, once.
+  const rowIcon=p.elements.entries.children[0].children.find(c=>c.className==='identity').children[0].children[1];
+  assert.equal(rowIcon.tag,'button');assert.equal(rowIcon.dataset.job,'Beginner');
+  const click=job=>{let prevented=false;p.elements.entries.listeners.click({target:{closest:()=>({dataset:{job}})},preventDefault:()=>{prevented=true;}});return prevented;};
+  assert.equal(click('Bandit'),true);assert.deepEqual(names(),['b','s']);click('Bandit');assert.equal(chips().length,2);assert.equal(box('job:Bandit').checked,true);
+  p.run(`boardMode=shownMode='characters';data=${JSON.stringify({characters:[{...ALPHA,channel:'a',online:true,job:'Bandit'},{...BETA,channel:'a',online:true}]})};renderBoard()`);
+  assert.deepEqual(p.elements.entries.children.map(r=>String(r.dataset.character)),['2']);  // The same picks apply to Characters.
+  all.checked=true;panel.listeners.change({target:all});  // Ticking "All jobs" clears the picks.
+  assert.equal(chips().length,0);assert.equal(p.elements.entries.children.length,2);assert.equal(p.elements['job-filter-control'].dataset.active,'false');
+  assert.equal(all.checked,true);assert.equal(box('job:Bandit').checked,false);
+  all.checked=false;panel.listeners.change({target:all});assert.equal(all.checked,true);  // With nothing picked it cannot be unticked.
 });
