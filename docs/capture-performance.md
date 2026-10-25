@@ -39,6 +39,66 @@ attempts, but overall CPU remained saturated while more live frames were acquire
 
 The earlier throughput measurements below predate these changes.
 
+## Further CPU research: screenshot transport
+
+**Research only, 2026-10-25. No runtime defaults changed.** The visual HUD prototype
+remains [an archived experiment](hud-localization-performance.md#visual-hud-prototype).
+The next lower-risk candidate is less compression of the lossless PNG sent from
+FFmpeg to Python. Python immediately decodes it; no image quality is gained by
+spending extra CPU on that temporary compressed representation.
+
+`ffmpeg_command()` currently leaves PNG compression at the encoder default. The
+[FFmpeg encoder source](https://ffmpeg.org/doxygen/trunk/pngenc_8c_source.html)
+uses zlib's default compression unless an explicit level is supplied. The candidate
+adds only `-compression_level 1` as a PNG output option. It keeps the same decoder,
+keyframe selection, resolution, color format and PNG framing.
+
+Local comparison: Windows, FFmpeg `2026-08-17-git-426841da9d`, three tiny H.264 clips
+made from existing screenshots. Five shuffled repetitions of four settings gave
+60 launches, each decoding the same two-frame burst. All settings produced the
+same frame counts and identical decoded RGB hashes for each clip. The second run
+disabled thread-count sampling and counted Python CPU too, including pipe reads,
+PNG parsing, decoding and the harness's pixel hashes.
+
+| Median per two-frame burst | Current default | PNG level 1 |
+| --- | ---: | ---: |
+| FFmpeg-reported CPU | 0.203 s | 0.078 s |
+| FFmpeg CPU + Python harness CPU | 0.312 s | 0.187 s |
+| Wall time including Python decode/hash | 0.310 s | 0.207 s |
+| Total local PNG pipe bytes | 4.07 MB | 5.84 MB |
+
+This is about 62% less FFmpeg CPU and 40% less CPU in the measured transport
+exercise, with about 43% more bytes in the local pipe. It is **not** a 40% reduction
+in tracker CPU: full-frame OCR still dominates. Larger payloads also cost buffer
+space and pipe traffic. High-resolution/high-bit-depth inputs near the existing
+32 MiB PNG limit, real capture shutdown, concurrent workers and Ubuntu's FFmpeg
+build still need validation before changing the default. No live streams were
+opened by this benchmark, and no recordings were restored. Temporary probes and
+tiny generated clips remain under ignored `private/cpu-efficiency/`.
+
+### Other options checked
+
+- **FFmpeg filter threads:** the [official documentation](https://ffmpeg.org/ffmpeg.html#Advanced-options)
+  describes a separate filter thread pool. Explicit `-filter_threads 1` showed no
+  useful reduction in this replay, so there is no reason to add it from this evidence.
+- **Generic neural text detector before Tesseract:** the already-installed
+  PP-OCRv6 small detector can run without recognition, as supported by
+  [RapidOCR's parameters](https://rapidai.github.io/RapidOCRDocs/main/install_usage/rapidocr/parameters/).
+  Native-resolution detection alone cost roughly 2.4 CPU seconds per screenshot.
+  Smaller masks looked faster but lost HP/MP/EXP/LV evidence on 2/6 varied screenshots.
+  At maximum side 960, detector + masked Tesseract cost 8.00 s against 13.58 s,
+  but lost 24 label observations across the two OCR scales. At 1280, it cost
+  12.77 s and still lost five. Some actual HUDs disappeared. Neither setting is
+  suitable as a replacement: lost secondary labels can hide a competing HUD.
+- **Common threading/SIMD advice:** the neural worker already uses one intra/inter-op
+  thread, FFmpeg already decodes only keyframes with one codec thread, and the
+  Tesseract worker already uses `OMP_THREAD_LIMIT=1`. A read-only VPS check found
+  Tesseract 5.5.0 reporting AVX2, AVX, FMA and SSE4.1; missing SIMD is not the lead.
+
+Before another risky OCR change, deploy and measure the API publication optimization
+already merged to main if it is still pending. The observation above measured nearly
+one core in the API. Its deployment was not established in this research pass.
+
 ## Streamlink import preloading (automatic on Linux)
 
 Linux network capture enables this automatically (`MSXP_PRELOAD_STREAMLINK=auto`).
