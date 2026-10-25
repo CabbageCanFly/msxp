@@ -209,6 +209,90 @@ def test_proposals_keep_both_rows_when_secondary_lv_is_hidden():
     assert layout.exp_options(words[:2])=={}
 
 
+def anchors(y=100):
+    return [dict(text=text,x=x,y=y+dy,width=20,height=10,confidence=.9)
+            for text,x,dy in [('HP',250,0),('MP',350,0),('LV.',60,6)]]
+
+
+@pytest.fixture
+def label_reader(monkeypatch):
+    monkeypatch.setattr(layout,'as_data',lambda value:value)
+    monkeypatch.setattr(layout,'_tokens',lambda value:value)
+    class Reader:
+        calls=[]
+        response=[dict(text='EXP',x=4,y=3,width=20,height=10,confidence=.9)]
+        def tsv(self,mode,size,pixels,psm):
+            assert mode=='L' and psm in (7,8) and len(pixels)==size[0]*size[1]
+            self.calls=self.calls+[size]
+            return self.response
+    return Reader()
+
+
+@pytest.mark.parametrize('scale',[1,2])
+def test_missing_exp_label_is_read_from_scaled_pixels_and_bound_normally(label_reader,scale):
+    source=anchors()
+    tokens=[{**t,**{k:t[k]*scale for k in ('x','y','width','height')}} for t in source]
+    image=Image.new('L',(800*scale,250*scale))
+    found,retries=layout.recover_exp_label(tokens,image,label_reader)
+    assert retries==1 and label_reader.calls==[(31*scale,18*scale)]
+    assert found[:-1]==tokens and len(tokens)==3
+    assert found[-1]['x']==447*scale+4 and found[-1]['y']==97*scale+3
+    assert len(layout.locate_from_tokens(image,[found]))==1
+
+
+@pytest.mark.parametrize('text,confidence',[('EXPERT',.99),('HP',.99),('EXP',.39),('',1)])
+def test_label_retry_cannot_invent_exp_from_other_or_uncertain_text(label_reader,text,confidence):
+    label_reader.response=[dict(text=text,x=4,y=3,width=20,height=10,confidence=confidence)]
+    source=anchors();tokens,retries=layout.recover_exp_label(source,Image.new('L',(800,250)),label_reader)
+    assert retries==1 and tokens==source and layout.locate_from_tokens(Image.new('L',(800,250)),[tokens])==[]
+
+
+@pytest.mark.parametrize('case',['missing_hp','missing_mp','missing_lv','misaligned','outside','already_read'])
+def test_exp_label_retry_requires_all_three_anchors_and_missing_in_bounds_label(label_reader,case):
+    tokens=anchors();image=Image.new('L',(800,250))
+    if case.startswith('missing_'):tokens.pop({'missing_hp':0,'missing_mp':1,'missing_lv':2}[case])
+    if case=='misaligned':tokens[1]['y']+=20
+    if case=='outside':image=Image.new('L',(460,250))
+    if case=='already_read':tokens.append(dict(text='EXP',x=450,y=100,width=20,height=10,confidence=.9))
+    found,retries=layout.recover_exp_label(tokens,image,label_reader)
+    assert retries==0 and not label_reader.calls and found==tokens
+
+
+def test_exp_label_retry_preserves_competing_rows_and_bounds_extra_work(label_reader):
+    image=Image.new('L',(800,600));tokens=anchors()+anchors(140)
+    found,retries=layout.recover_exp_label(tokens,image,label_reader)
+    assert retries==2 and len(layout.locate_from_tokens(image,[found]))==2
+    label_reader.calls=[];tokens=sum((anchors(50+40*i) for i in range(9)),[])
+    found,retries=layout.recover_exp_label(tokens,image,label_reader)
+    assert retries==0 and found==tokens and not label_reader.calls
+
+
+def test_exp_label_retry_does_not_hide_native_worker_failures(label_reader):
+    def broken(*args):raise CaptureError('tesseract_worker_failed')
+    label_reader.tsv=broken
+    with pytest.raises(CaptureError,match='tesseract_worker_failed'):
+        layout.recover_exp_label(anchors(),Image.new('L',(800,250)),label_reader)
+
+
+def test_missing_exp_label_can_use_word_mode_without_lowering_confidence(label_reader):
+    modes=[]
+    def read(mode,size,pixels,psm):
+        modes.append(psm)
+        return [dict(text='EXP',x=4,y=3,width=20,height=10,confidence=.3 if psm==7 else .9)]
+    label_reader.tsv=read
+    found,retries=layout.recover_exp_label(anchors(),Image.new('L',(800,250)),label_reader)
+    assert retries==1 and modes==[7,8] and len(found)==4 and found[-1]['confidence']==.9
+
+
+@pytest.mark.parametrize('found',[[candidate()],[candidate(False)],[candidate(),candidate()]])
+def test_label_recovery_never_changes_existing_or_competing_hud_geometry(setup,monkeypatch,found):
+    image,locator,_,_=setup
+    monkeypatch.setattr(layout,'locate_from_tokens',lambda *_:found)
+    def unexpected(*_):pytest.fail('Existing HUD geometry must bypass label recovery')
+    monkeypatch.setattr(layout,'recover_exp_label',unexpected)
+    assert locator(image)==found
+
+
 @pytest.mark.ocr
 def test_real_native_layout_then_recognition_matches_direct_tokens_and_resets():
     import pytesseract

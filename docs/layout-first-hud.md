@@ -120,6 +120,39 @@ acceptance relative to baseline, but baseline can miss tiny secondary panels.
 Fallback adds overhead; an earlier mostly-fallback stress batch cost about 11%
 extra CPU. Neither method guarantees perfect OCR.
 
+### Missing EXP label recovery
+
+Sometimes whole-page segmentation groups the small EXP label with the bar artwork,
+although a cropped label is readable. If neither scale binds any HUD, the worker
+now checks a small EXP-label region beside already-read HP, MP and LV anchors.
+The actual label must be recognized with at least 0.4 confidence. Line mode is
+tried first, then word mode if needed; the latter also recovered a missed frame
+on Linux/Tesseract 5.5.0 without lowering the threshold.
+
+Existing successful, partial and competing HUD geometry bypass this retry. Both
+scales still participate in uniqueness, and the ordinary field, grammar, table,
+identity and history checks still decide whether a reading is usable. The retry
+is limited to eight in-bounds regions per scale and uses the existing native
+worker and timeout. It temporarily holds both prepared images; it adds no native
+engines or state shared between frames. Page diagnostics report the number of
+regions retried as `anchor_label_retries`.
+
+Validation: **3391 passed, 75 skipped, 1 known expected failure**. A final replay
+of 499 saved images, including 22 competing-HUD cases and a 36-frame live sequence,
+lost no correct readings, introduced no incorrect readings, and added no unique-HUD
+acceptance in the competing-HUD checks. The target sequence improved from 30/36
+to 35/36 correct EXP pairs; one frame remained unreadable by the detector.
+
+Another 104 fresh images (eight each from 13 live authorized streams) matched the
+deployed detector's interpreted EXP, percentage and level outputs exactly, including
+its existing errors. Interleaved local three-way timings averaged 3.496 s for the
+original detector, 2.366 s for deployed, and 2.365 s with label recovery. Total
+process-tree CPU was 358.500, 243.047 and 242.188 seconds respectively: essentially
+unchanged cost versus deployed, about 32% below the original path in this batch.
+An in-memory Linux/Tesseract 5.5.0 check recovered the missed EXP pair and level,
+preserved ordinary gameplay, and rejected a browser page without the game HUD.
+These saved-frame checks do not measure loaded-VPS capture cadence.
+
 ## Observing a rollout
 
 Startup logs say `Layout-first HUD: enabled, with full-frame OCR fallback.`

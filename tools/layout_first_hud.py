@@ -4,6 +4,7 @@ Live native engines run only inside the existing timeout-controlled workers.
 """
 import ctypes
 import math
+import re
 
 from PIL import Image
 
@@ -121,6 +122,38 @@ def mapped(tokens,scale):
     return [{**token,**{key:token[key]/scale for key in ('x','y','width','height')}} for token in tokens]
 
 
+def recover_exp_label(tokens,binary,engine):
+    """Verify a missing label in pixels, using three already-read HUD anchors."""
+    boxes=[]
+    for hp in tokens:
+        if not re.fullmatch(r'HP[.:]?',hp['text'],re.I):continue
+        for mp in tokens:
+            if not re.fullmatch(r'MP[.:]?',mp['text'],re.I):continue
+            step=mp['x']-hp['x']
+            if step<5*max(hp['height'],mp['height']) or abs(mp['y']-hp['y'])>.08*step:continue
+            if not any(re.fullmatch(r'LV[.:]?',lv['text'],re.I)
+                    and 1.6*step<=hp['x']-lv['x']<=2.2*step
+                    and -.04*step<=lv['y']-hp['y']<=.15*step for lv in tokens):continue
+            if any(label(t)=='EXP' and .8*step<=t['x']-mp['x']<=1.2*step
+                    and abs(t['y']-hp['y'])<=.08*step for t in tokens):continue
+            box=(math.floor(hp['x']+1.97*step),math.floor(hp['y']-.03*step),
+                 math.ceil(hp['x']+2.28*step),math.ceil(hp['y']+.15*step))
+            if box not in boxes and 0<=box[0]<box[2]<=binary.width and 0<=box[1]<box[3]<=binary.height:
+                boxes.append(box)
+                if len(boxes)>8:return tokens,0
+    extra=[]
+    for box in boxes:
+        crop=binary.crop(box)
+        # A standalone label can need word segmentation, as orange level badges do.
+        for psm in (7,8):
+            found=[t for t in _tokens(as_data(engine.tsv('L',crop.size,crop.tobytes(),psm)))
+                   if label(t)=='EXP' and t['confidence']>=.4]
+            if found:
+                extra.extend({**t,'x':t['x']+box[0],'y':t['y']+box[1]} for t in found)
+                break
+    return tokens+extra,len(boxes)
+
+
 def confirmed_field(response):
     """Ask the existing grammar for one complete field; never rewrite its raw evidence."""
     text=response.get('text') if isinstance(response,dict) else None
@@ -152,10 +185,18 @@ class LayoutPages:
         self.states=[]
 
     def start(self,image):
-        self.states=[];pages=[];details=[]
-        for engine,(binary,scale) in zip(self.engines,prepared_pages(image)):
+        self.states=[];pages=[];details=[];original=[]
+        prepared=list(prepared_pages(image))
+        for engine,(binary,scale) in zip(self.engines,prepared):
             tokens,detail=recognize_page(engine,self.crop_engine,binary)
-            tokens=mapped(tokens,scale);pages.append(tokens);details.append(detail)
+            original.append(tokens);pages.append(mapped(tokens,scale));details.append(detail)
+        # Preserve successful or competing geometry before trying to recover a missing HUD.
+        if not locate_from_tokens(image,pages):
+            for index,((binary,scale),tokens) in enumerate(zip(prepared,original)):
+                tokens,retries=recover_exp_label(tokens,binary,self.crop_engine)
+                if retries:details[index]['anchor_label_retries']=retries
+                pages[index]=mapped(tokens,scale)
+        for engine,(_,scale),tokens,detail in zip(self.engines,prepared,pages,details):
             self.states.append((engine,scale,tokens if detail['fallback'] else None))
         return pages,details
 
