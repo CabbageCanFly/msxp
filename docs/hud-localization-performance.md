@@ -347,3 +347,42 @@ an unfamiliar font or heavily damaged labels may escape its checks, and the full
 detector already misses some small second HUDs. The saved fixtures do not establish
 90–95% coverage of Twitch streams. Keep this opt-in until Linux and live behaviour
 have been reviewed; local CPU measurements cannot predict the VPS capture interval.
+
+## Further upstream leads
+
+A broader GitHub/Reddit/upstream search found untried options inside Tesseract,
+rather than another compression tweak. An offline feasibility probe used the six
+varied screenshots, identical prepared 2x/3x inputs and the resident native API.
+These are small, single-pass workstation comparisons, not a validated speedup.
+
+| Route | Sum of process CPU | Observation |
+| --- | ---: | --- |
+| Current full recognition | 17.59 s | Control |
+| Disable system/frequent dictionaries at initialization | 19.25 s | No clear saving; label evidence and HUD geometry matched these six images |
+| Disable the LSTM ratings matrix / use greedy decoding | 18.75 s | Changed label evidence on all six; changed HUD geometry on two; reject |
+| Layout analysis only, without recognizing text | 7.38 s | Layout boxes covered every baseline HUD-label centre in this small set |
+
+The [upstream API](https://github.com/tesseract-ocr/tesseract/blob/main/src/api/baseapi.cpp)
+explicitly separates `AnalyseLayout()` from `Recognize()`. Layout-only cost about
+42% of full recognition here. **It is not a replacement localizer:** it returns
+positions, not HP/MP/EXP/LV text or a verified HUD. The next experiment would use
+those whole-frame word positions to shortlist plausible HUD rows, then read their
+labels. Cropped recognition can change results, and centre coverage is much weaker
+than pixel/token parity. Neither selective recognition nor competing-HUD safety
+has been validated for this route. It remains a credible next research direction.
+The [dictionary/decoder parameters](https://github.com/tesseract-ocr/tesseract/blob/main/doc/tesseract.1.asc)
+are real supported options; availability does not establish a useful speed gain.
+
+A larger alternative is a small detector trained specifically to locate this game's
+HUD, followed by the existing field OCR. [YOLO11's CPU/ONNX benchmarks](https://docs.ultralytics.com/models/yolo11/)
+show that small object detectors can be practical without a server GPU; those
+benchmark times are not predictions for this VPS. A HUD model would need labelled
+examples, partial/secondary-HUD negatives, splits by source recording, and a
+held-out recall/cost check. No model was trained or installed in this pass.
+
+Two eye-catching alternatives do not justify a library switch from current evidence:
+[RapidOCRLite's own AVX2 table](https://github.com/RapidAI/RapidOCRLite) reports faster
+detection but slower recognition-only, which is our existing neural worker's mode.
+[TurboOCR](https://github.com/aiptimizer/TurboOCR) currently ships its NVIDIA backend;
+its advertised GPU document throughput does not apply to the CPU-only VPS.
+No runtime or deployment changes were made for this research.
