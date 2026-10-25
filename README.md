@@ -212,6 +212,12 @@ The [docs index](docs/README.md) lists the deeper server guides.
   game's EXP bar visible. `msxp health` shows what each capture saw.
 - **"Loading EXP…" right after a restart:** the website rebuilds every page; give it a few minutes.
 
+## Next improvements
+
+- [ ] Show historical level and EXP beyond 24 hours.
+- [ ] Add site-wide player stats: average level, class/job counts, EXP and daily rates by class and level range; explore Twitch streamer stats.
+- [ ] Revisit deferred OCR work: [obscured LV labels and localization timeouts](docs/stationary-level-up.md#todo-deferred-obscured-lv-labels-and-localization-timeouts).
+
 ## How it works
 
 Every 20 seconds per stream: grab one video frame with Streamlink and FFmpeg, find the game's

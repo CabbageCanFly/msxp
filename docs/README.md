@@ -6,6 +6,7 @@ grouped so you can find one without opening a hundred files.
 
 ## Start here
 
+- [Next improvements](../README.md#next-improvements): the short, current TODO list.
 - [Verified results and known limits](results.md): what works, how well, and what does not.
 - [Design](design.md): how the pieces fit together.
 - [Acquisition](acquisition.md): how frames are read from Twitch.
