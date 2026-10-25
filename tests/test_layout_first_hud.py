@@ -54,12 +54,85 @@ def test_incomplete_or_ambiguous_result_finishes_both_original_pages(setup,monke
     assert not calls and all(e.finished==1 and e.cleared==1 for e in engines)
 
 
-def test_grammar_field_retries_full_read_without_rewriting_the_text(setup):
+def test_ambiguous_grammar_field_retries_full_read_without_rewriting_the_text(setup):
     image,locator,engines,_=setup
-    locator.reader=lambda *_:dict(text='[6S.30%]')
+    locator.reader=lambda *_:dict(text='165.30%1')
     locator(image)
     assert locator.info['reason']=='imperfect_exp' and all(e.finished==1 for e in engines)
-    assert locator.read(image.crop((98,48,162,62)))['text']=='[6S.30%]'
+    assert locator.read(image.crop((98,48,162,62)))['text']=='165.30%1'
+
+
+@pytest.mark.parametrize('text',['416,675[18.15%1','466.586120.33%1','[65.30%1','7.362[0.29%1'])
+def test_existing_punctuation_repair_can_confirm_hud_without_rewriting_or_repeating_field_read(setup,text):
+    image,locator,engines,calls=setup
+    response=dict(text=text,source_complete=None)
+    def reader(*crops):calls.append(crops);return response
+    locator.reader=reader
+    assert locator(image)==[candidate()] and locator.info['path']=='selective'
+    assert locator.read(image.crop((98,48,162,62))) is response
+    assert len(calls)==1 and all(e.finished==0 and e.cleared==1 for e in engines)
+    assert response==dict(text=text,source_complete=None)
+
+
+@pytest.mark.parametrize('response',[
+    dict(text='416,675[18.15%1',source_complete=False),
+    dict(text='S16,675[18.15%1'),dict(text='B16,675[18.15%1'),
+    dict(text='416,675[18.15%1 trailing'),dict(text='165.30%1'),
+    dict(text='416,675[18.15%1 12,345[6.78%]'),
+    dict(text='[65.3%1'),dict(text='12,34[56.78%1'),
+    dict(text='19210.07%1'),dict(text='416,675[18.15X1'),
+    dict(text=None),None])
+def test_other_repairs_and_incomplete_or_ambiguous_fields_keep_full_fallback(response):
+    assert layout.confirmed_field(response) is False
+
+
+@pytest.mark.parametrize('text',[
+    '[6S.30%1','[65.O0%]','[6B.30%]','416,67S[18.15%1',
+    '4,059125.17%1','3,862[32.97%','1.234,567[12.34%1',
+    '1.,234[12.34%]','P4,059[25.17%1','P[65.30%]','65.30%1','[65,30%]'])
+def test_existing_unique_grammar_families_share_the_fast_path_without_new_substitution_rules(text):
+    from exp_tracker.shadow_grammar import interpret_exp
+    parsed=interpret_exp(text)
+    assert any(parsed[field]['classification']=='unique_proposal' for field in ('full_exp','percentage'))
+    assert layout.confirmed_field(dict(text=text)) is True
+    assert layout.confirmed_field(dict(text=text,source_complete=False)) is False
+
+
+def test_new_context_dependent_grammar_metadata_cannot_silently_bypass_fallback(monkeypatch):
+    from copy import deepcopy
+    parsed=deepcopy(layout.interpret_exp('4,059[25.17%1'))
+    for field in ('full_exp','percentage'):
+        parsed[field]['proposals'][0]['required_context']='independent_confirmation'
+    monkeypatch.setattr(layout,'interpret_exp',lambda text,**kwargs:parsed)
+    assert layout.confirmed_field(dict(text='4,059[25.17%1')) is False
+
+
+def test_repair_never_bypasses_competing_hud_or_missing_level_fallback(setup,monkeypatch):
+    image,locator,engines,calls=setup
+    locator.reader=lambda *_:dict(text='416,675[18.15%1')
+    monkeypatch.setattr(layout,'locate_from_tokens',lambda *_:[candidate(),candidate(False)])
+    assert len(locator(image))==2 and locator.info['reason']=='incomplete_or_ambiguous'
+    assert not calls and all(e.finished==1 for e in engines)
+
+
+@pytest.mark.parametrize('clean,repaired,level',[
+    ('5[1.34%]','5[1.34%1',6),
+    ('76,257[35.21%]','76.257135.21%1',37)])
+def test_strict_to_existing_grammar_keeps_normal_numeric_and_percentage_eligibility(clean,repaired,level):
+    from exp_tracker.shadow_grammar import interpret_exp
+    from exp_tracker.diagnostic_evidence import project,full_reading
+    from exp_tracker.diagnostic_progress import percentage_point
+    from tests.test_diagnostic_progress import row
+    results=[]
+    for raw in (clean,repaired):
+        parsed=interpret_exp(raw)
+        record=row(1,raw_text=raw,candidate=parsed['strict_full'],percentage_only_candidate=None,
+            status='diagnostic_pair' if parsed['strict_full'] else 'malformed_or_unavailable',
+            visual_level=level)
+        projected=project([record])[0];point,reason=percentage_point(projected)
+        assert reason is None and point['comparison_eligible'] is True
+        results.append((full_reading(projected),projected['experimental_level']['value'],projected['exp_validity']['status'],point['percentage']))
+    assert results[0]==results[1] and results[0][2]=='consistent'
 
 
 def test_late_fallback_reuses_a_page_already_fully_read(setup,monkeypatch):

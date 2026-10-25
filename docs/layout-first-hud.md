@@ -16,9 +16,24 @@ Plain CLI Tesseract and explicit HUD-region caching keep their previous behavior
 Both whole-frame scales still receive layout analysis. The worker recognizes
 likely HP/MP/EXP/LV labels first and applies the existing HUD geometry and badge
 checks. Original RGB EXP/level crops go through the existing neural reader. A
-unique HUD with a complete full EXP or percentage-only field can take this path.
+unique HUD with a complete full EXP or percentage-only field can take this path,
+including an existing, uniquely supported grammar recovery.
 Incomplete, ambiguous or imperfect results finish ordinary OCR on the retained
 full-frame pages and use the original binder.
+
+The fast gate now uses the same `interpret_exp` parser as normal reading, rather
+than requiring clean punctuation before those repairs can run. This covers the
+existing bracket/grouping rules, one supported S/O/B glyph, complete standalone
+percentages and known EXP-label tails. Raw OCR text is never rewritten. Existing
+EXP-table, level, identity and temporal checks still decide whether readings are
+usable; this gate only confirms that localization found a readable field.
+
+Fallback remains deliberate for clipped fields, ambiguous interpretations,
+missing percent signs and repairs needing independent arithmetic/history. These
+include a leading S/B in numerical EXP, an ungrouped numeral-like opener and a
+leading `1` in percentage-only text. A recoverable percentage beside an incomplete
+absolute EXP field still takes the full path, which might recover the absolute
+value. Context requirements attached to future parser proposals are also honored.
 
 Only the exact current-frame field response can be reused, once. No position,
 reading or identity is carried across frames. Character-name checks, EXP/level
@@ -34,11 +49,12 @@ localization and released before field OCR, including on early return/shutdown.
 
 ## Verification
 
-Full suite: **3341 passed, 75 skipped, 1 known expected failure**. Clean main had
-3311 passes with the same skips/expected failure; the integration adds 30 passing
-tests. Skips are 68 missing private crop cases, six Linux-only cases and one
+Full suite: **3373 passed, 75 skipped, 1 known expected failure**. Skips are
+68 missing private crop cases, six Linux-only cases and one
 Windows symlink-permission case. Worker checks cover concurrent leases, failure,
-malformed replies, recovery, stale/unused attempts, preflight and rollback.
+malformed replies, recovery, stale/unused attempts, preflight and rollback. The
+shared-grammar checks cover existing repair families, context-dependent abstention
+and normal downstream numeric/percentage eligibility.
 
 The prototype used 225 existing fixtures, then 42 fresh frames from 14 live
 authorized streamers, then another 56 fresh frames (four each). Fresh EXP and
@@ -60,6 +76,44 @@ passed three saved frames: ordinary EXP, the 720p extra-level recovery, and a
 black transition. It changed no services, files or database. Private images and
 results remain excluded from Git. This was compatibility verification, not a
 loaded-server performance trial.
+
+### Follow-up: avoid recoverable-field rescans
+
+A live rollout exposed repeated full fallback on Streamer_A despite a relatively
+uncluttered scene: the small HUD's brackets/grouping were misread, so the fast gate
+rescanned both pages before normal grammar repaired the field. On one fresh frame,
+layout returned 158/212 word boxes and label recognition made 107 probes. The
+avoidable cost was the subsequent full OCR and duplicate EXP request.
+
+Six fresh frames from Streamer_A plus eight frames from two comparison streams
+were captured locally and visually labelled. A paired replay of **359 images**
+(the prior 323, these 14, and 22 regenerated competing-HUD cases) compared the
+deployed gate with shared-grammar confirmation. No new incorrect interpreted
+EXP/percentage or level appeared, and no correct usable value was lost. One
+additional correct full EXP reading and two additional correct reader levels
+were recovered. Existing incorrect readings remained unchanged. The competing-HUD
+cases added no acceptance relative to the original detector.
+
+Four clean raw pairs became grammar-supported pairs with identical numbers.
+Single-observation projection/percentage-eligibility checks found no loss of
+eligibility; two observations gained usable level/numeric evidence. Raw text and
+the later validation policy remain unchanged. This does not measure long-running
+history behavior under every possible capture sequence.
+
+On the same six target frames, an interleaved local three-way run measured:
+
+| Detector | Mean elapsed recognition | Total process-tree CPU |
+| --- | ---: | ---: |
+| Original detector, layout-first disabled | 2.968 s | 17.516 s |
+| Deployed strict fast gate | 3.407 s | 20.094 s |
+| Shared-grammar fast gate | 2.134 s | 12.641 s |
+
+All six used the fast path with the fix; the deployed version fell back on five.
+Across all 14 fresh frames, the fixed gate used about 25% less CPU than the
+deployed gate in that run. Across the 359-image paired replay, CPU fell
+925.109 to 891.375 seconds (3.6%); fallbacks fell from 91 to 72. Different local
+runs varied in absolute timing. These results support the targeted fix, not a
+promise of an equivalent whole-VPS gain.
 
 Rare competing HUDs remain a limitation: 22 synthetic cases added no unique-HUD
 acceptance relative to baseline, but baseline can miss tiny secondary panels.
