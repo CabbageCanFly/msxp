@@ -16,6 +16,7 @@ from exp_tracker.video import Source
 
 @pytest.fixture
 def multi(tmp_path,monkeypatch):
+    monkeypatch.setenv('MSXP_PRELOAD_STREAMLINK','0')  # Scheduler tests use fake capture, never a real launcher.
     monkeypatch.syspath_prepend(str(Path('tools').resolve()))
     module=importlib.import_module('multi_alpha')
     monkeypatch.setattr(module.shadow,'ROOT',tmp_path)
