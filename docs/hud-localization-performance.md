@@ -324,21 +324,21 @@ in the test suite; private images and learned templates are not committed.
 The full suite passed: **3332 passed, 75 skipped, 1 known xfail**. Skips are 68
 absent private crop cases, six Linux-only cases and one Windows symlink permission.
 
-Two paired CPU measurements used the standard 61-image selection, alternating
-baseline/candidate order on three isolated workers. Each includes mask construction
-and any full-frame retry. The two rows have different calibration schedules and CPU
-scopes, so compare only the before/after values within a row.
+A paired CPU measurement used the standard 61-image selection, alternating
+baseline/candidate order on three isolated workers during the 225-image replay.
+It includes mask construction and full-frame retries, with the limited scope below.
 
 | Replay and CPU scope | Original | Visual prototype | Reduction |
 | --- | ---: | ---: | ---: |
 | Calibration during the 225-image replay; parent/Tesseract + visual worker, neural child excluded | 144.06 s | 126.56 s | 12.1% |
-| Workers warmed and calibrated by an ordinary full-frame read before the 61-image replay; all recognition processes | 124.48 s | 93.41 s | 25.0% |
 
-The warmed run sums parent and resident child process CPU counters, including
-RapidOCR and extra field reads on fallback. Worker/model startup is outside its
-timer. Neither run includes stream acquisition, FFmpeg, API publication or the
-rest of the VPS. Fallback frequency and learned label styles materially affect
-the savings; these results are not a guarantee of a 25% service CPU reduction.
+**Withdrawn measurement:** an earlier warmed run reported 124.48 s to 93.41 s
+(25%) as all recognition-process CPU. Its Windows accounting sampled the venv
+launcher PIDs and omitted their actual OCR children, including the visual worker.
+A direct process-tree check confirmed the omission. Do not use that percentage
+as a capacity estimate. The 12.1% row above includes the visual worker's own
+reported CPU but intentionally excludes neural inference. Neither is a VPS or
+whole-service measurement. Accuracy comparisons above are unaffected.
 The confirmation field read currently falls inside `localization_seconds`; use
 total recognition time and process CPU rather than individual stage timings here.
 

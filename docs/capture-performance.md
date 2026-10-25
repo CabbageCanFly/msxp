@@ -41,9 +41,9 @@ The earlier throughput measurements below predate these changes.
 
 ## Further CPU research: screenshot transport
 
-**Research only, 2026-10-25. No runtime defaults changed.** The visual HUD prototype
+**Archived research, 2026-10-25. Keep the runtime unchanged.** The visual HUD prototype
 remains [an archived experiment](hud-localization-performance.md#visual-hud-prototype).
-The next lower-risk candidate is less compression of the lossless PNG sent from
+This pass investigated less compression of the lossless PNG sent from
 FFmpeg to Python. Python immediately decodes it; no image quality is gained by
 spending extra CPU on that temporary compressed representation.
 
@@ -70,11 +70,41 @@ PNG parsing, decoding and the harness's pixel hashes.
 This is about 62% less FFmpeg CPU and 40% less CPU in the measured transport
 exercise, with about 43% more bytes in the local pipe. It is **not** a 40% reduction
 in tracker CPU: full-frame OCR still dominates. Larger payloads also cost buffer
-space and pipe traffic. High-resolution/high-bit-depth inputs near the existing
-32 MiB PNG limit, real capture shutdown, concurrent workers and Ubuntu's FFmpeg
-build still need validation before changing the default. No live streams were
+space and pipe traffic. The follow-up below checks capture shutdown, concurrent
+workers and frame limits on Windows; Ubuntu remains unmeasured. No live streams were
 opened by this benchmark, and no recordings were restored. Temporary probes and
 tiny generated clips remain under ignored `private/cpu-efficiency/`.
+
+### Actual capture and OCR follow-up
+
+The real `capture_attempt()` and `VideoSession` ran 108 local-file captures: 36 serial
+and 72 with six concurrent attempt threads, alternating the two settings over the
+same three clips. Four resident Tesseract workers and the resident EXP/neural-level
+worker were warmed first. CPU accounting included Python, the complete recursive
+resident process tree and final decoder CPU after cleanup. The harness also decoded
+and hashed each captured image. It did not include Streamlink, identity checks,
+SQLite or API publication. Every capture kept identical pixels, localization count,
+OCR text, reading and level for its source; every decoder and reader thread closed.
+
+| Median capture + OCR CPU per attempt | Current default | PNG level 1 |
+| --- | ---: | ---: |
+| Serial | 2.846 s | 2.883 s |
+| Six concurrent attempts | 3.293 s | 3.212 s |
+
+Decoder CPU fell by about 0.06 s per attempt in both runs, roughly 2% of the measured
+capture/OCR budget. Whole-path results were mixed (1.3% more CPU serially, 2.5% less
+with six attempts); wall-time changes were small too. This is no substantial,
+consistent whole-tracker gain, and does not promise a better live capture interval.
+
+Nine generated cases checked RGB at 720p/1080p/4096x2160, grayscale 16-bit and
+high-entropy RGBA at 4096x2160. All successful paired decodes had identical RGB
+pixels. However, two RGBA cases accepted today failed with level 1. A focused rerun
+confirmed `frame_exceeds_byte_limit`: the original PNG was about 30.36 MB, while
+faster compression crossed the existing 32 MiB cap. Generated image files were
+automatically removed; no originals or recordings were deleted.
+
+**Decision:** do not change the default or add a runtime switch for this result.
+The small measured saving does not justify fixing extra format/size handling.
 
 ### Other options checked
 
