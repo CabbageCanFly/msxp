@@ -76,6 +76,30 @@ def test_geometry_relative_to_hud_and_all_candidates_retained(monkeypatch):
     assert names.name_regions(Image.new('RGB', (800, 400)))[1] == 2
 
 
+@pytest.mark.parametrize('height,band',[(14,1),(25,2),(40,3)])
+def test_name_cleanup_removes_job_remnants_without_resizing_or_touching_name_pixels(height,band):
+    image=Image.new('RGB',(120,height),(40,50,60))
+    image.putpixel((50,0),(230,230,230))
+    image.putpixel((20,band),(210,210,210))
+    image.putpixel((40,height-1),(200,200,200))
+    cleaned=names.clean_name_crop(image)
+    assert cleaned.size==image.size
+    assert all(cleaned.getpixel((50,y))==(40,50,60) for y in range(band))
+    assert cleaned.crop((0,band,120,height)).tobytes()==image.crop((0,band,120,height)).tobytes()
+    assert image.getpixel((50,0))==(230,230,230)
+
+
+@pytest.mark.parametrize('manual',[False,True])
+def test_only_automatic_status_name_regions_receive_job_remnant_cleanup(monkeypatch,manual):
+    image=Image.new('RGB',(100,50),(40,50,60));image.putpixel((50,0),(230,230,230));seen=[]
+    monkeypatch.setattr(names,'name_regions',lambda _:(
+        [dict(box=[0,0,80,25],ownership='status_panel_candidate')],1))
+    def read(crop,box):seen.append(crop.getpixel((50,0)));return attempt('PlayerOne')
+    monkeypatch.setattr(names,'tesseract',read)
+    names.inspect_frame(image,'synthetic',region=[0,0,80,25] if manual else None,owner_field=manual)
+    assert seen==[(230,230,230) if manual else (40,50,60)]
+
+
 @pytest.mark.parametrize('height', [126, 125])
 def test_automatic_name_region_tolerates_one_pixel_bottom_overflow(height):
     layout = dict(anchors=dict(hp=dict(x=300, y=100)), anchor_step=100)

@@ -68,6 +68,14 @@ def second_look(crop):
     return padded
 
 
+def clean_name_crop(crop):
+    """Remove job-line remnants above the name without changing its OCR scale."""
+    crop = crop.convert('RGB')
+    band = max(1, round(crop.height * .08))
+    crop.paste(crop.getpixel((0, min(3, crop.height - 1))), (0, 0, crop.width, band))
+    return crop
+
+
 def name_regions(image):
     """Reuse HUD anchor agreement; retain every layout rather than choosing one."""
     layouts = locate(image)
@@ -164,6 +172,8 @@ def inspect_frame(image, source, *, engine='tesseract', rapid_python=None, regio
     candidates = []
     for field in regions:
         crop = image.crop(field['box'])
+        if field['ownership'] == 'status_panel_candidate':
+            crop = clean_name_crop(crop)
         attempts = []
         for selected in (('tesseract', 'rapidocr') if engine == 'both' else (engine,)):
             try:

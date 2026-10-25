@@ -398,6 +398,40 @@ def test_multiple_channels_keep_independent_lifecycles():
     assert not b.suggestions.history and a.suggestions.history[0]['state'] == 'dismissed'
 
 
+def test_live_identity_cleans_job_remnants_but_keeps_name_pixels_and_source_box(monkeypatch):
+    identity=importlib.import_module('character_identity')
+    monkeypatch.setattr(identity,'name_region',lambda *_:dict(box=[0,0,80,25]))
+    state=IdentityCapture('channel',confirmed='Alpha');state.job=state.job_seen='Cleric'
+    image=Image.new('RGB',(1920,1080),(40,50,60));image.putpixel((50,0),(230,230,230));image.putpixel((20,5),(210,210,210))
+    data=BytesIO();image.save(data,'PNG');frame=Frame(data.getvalue(),0,100,NOW.isoformat());calls=[]
+    def read(crop):
+        calls.append(crop.size)
+        assert crop.getpixel((50,0))==(40,50,60) and crop.getpixel((20,5))==(210,210,210)
+        return response('Alpha')
+    value=state.inspect(dict(current=True,candidate=None,visual_level=None),frame,image,candidate(),read,{},max_age=15,clock=lambda:101)
+    assert calls==[(80,25)] and value['evidence']['box']==[0,0,80,25]
+    assert value['evidence']['name']=='Alpha' and not value['reading_hold_recommended']
+    assert image.getpixel((50,0))==(230,230,230)
+
+
+def test_known_name_second_look_keeps_original_pixels_after_cleaned_first_read(monkeypatch):
+    identity=importlib.import_module('character_identity')
+    monkeypatch.setattr(identity,'name_region',lambda *_:dict(box=[0,0,80,25]))
+    state=IdentityCapture('channel',confirmed='Alpha');state.job=state.job_seen='Cleric'
+    image=Image.new('RGB',(1920,1080),(40,50,60));image.putpixel((50,0),(230,230,230))
+    data=BytesIO();image.save(data,'PNG');frame=Frame(data.getvalue(),0,100,NOW.isoformat());calls=[]
+    def read(crop):
+        calls.append(crop.size)
+        if len(calls)==1:
+            assert crop.getpixel((50,0))==(40,50,60)
+            return response('Alpna')
+        assert crop.getpixel((56,6))==(230,230,230)
+        return response('Alpha')
+    value=state.inspect(dict(current=True,candidate=None,visual_level=None),frame,image,candidate(),read,{},max_age=15,clock=lambda:101)
+    assert len(calls)==2 and value['evidence']['first_read']['text']=='Alpna'
+    assert value['evidence']['name']=='Alpha' and not value['reading_hold_recommended']
+
+
 @pytest.mark.parametrize('second,used', [('Kayvenmoor', True), ('Kaymenmoor', False)])
 def test_second_look_may_only_confirm_the_current_character(second, used):
     """Live Streamer_J: touching "yv" read as "w"; a padded second look reads the confirmed name."""
