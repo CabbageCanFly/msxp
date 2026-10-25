@@ -18,6 +18,7 @@ PRUNE_RUNS = 200  # Direct prune() callers keep the original per-call limit.
 
 
 def pack(value):
+    if value is None or type(value) in (str,int,float,bool):return value
     if isinstance(value, datetime):return {'$datetime':value.isoformat()}
     if isinstance(value, Fraction):return {'$fraction':[value.numerator,value.denominator]}
     if isinstance(value, deque):return {'$deque':[pack(list(value)),value.maxlen]}

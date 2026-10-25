@@ -3,6 +3,7 @@ from datetime import datetime,timedelta,timezone
 import random
 
 from exp_tracker.pace_intervals import window_endpoints
+from tests.test_product import tracking  # noqa: F401
 
 START=datetime(2026,1,1,tzinfo=timezone.utc)
 
@@ -28,3 +29,20 @@ def test_shared_memo_matches_independent_calls():
                 result=window_endpoints(points,memo=memo,**kwargs);seen.add(result[2] or len(result[0])>2)
                 assert result==window_endpoints(points,**kwargs)
     assert {True,'gap_exceeds_window','two_distinct_observation_times_required'}<=seen
+
+
+def test_tracked_packet_matches_fresh_window_calculations_as_time_advances(tracking,monkeypatch):
+    from exp_tracker import rolling_history,pace_intervals
+    from tests.test_incremental_history import build
+    _,store,diagnostic=tracking;checkpoints={}
+    last=build(store,diagnostic,checkpoints,compare=False)
+    def independent(*args,memo=None,**kwargs):return window_endpoints(*args,**kwargs)
+    for delta in (0,11,301,3901,90001):
+        now=last+timedelta(seconds=delta)
+        actual=diagnostic.rolling_history('alpha',now=now,checkpoints=checkpoints)
+        if actual['tracked_exp'] is not None:
+            assert actual['tracked_exp'] is not actual['windows']['1440']['gain']
+        with monkeypatch.context() as patch:
+            patch.setattr(rolling_history,'window_endpoints',independent)
+            patch.setattr(pace_intervals,'window_endpoints',independent)
+            assert actual==diagnostic.rolling_history('alpha',now=now)
