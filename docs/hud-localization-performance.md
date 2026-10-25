@@ -278,6 +278,11 @@ label-seeded search the default.
 
 ## Visual HUD prototype
 
+**Decision: retain as research only.** No production rollout is recommended yet.
+Fallback adds work before the original detector, so a fallback-heavy workload can
+cost more CPU and take longer. This prototype has no automatic backoff. The next
+validation would be an isolated server comparison before any live enablement.
+
 `msxp tracker --visual-hud` enables an experimental alternative on this branch.
 It is off by default. Add `--check` to check the setup without starting capture.
 The standalone `tools/shadow_capture.py` command accepts the same flag.
