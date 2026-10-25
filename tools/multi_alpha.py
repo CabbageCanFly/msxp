@@ -256,11 +256,10 @@ def options(row, database, output):
     return shadow.parser().parse_args(argv)
 
 
-def category_gate(lanes, availability=None, *, seconds=30):
-    """Twitch lanes live outside MapleStory start no capture. Checked in the background so scheduling never waits on Twitch;
-    unknown or blank categories never pause (fail open)."""
+def category_gate(lanes, availability=None, *, seconds=60, any_category=False):
+    """Check broadcast/category once a minute in the background; unknown or expired status allows capture."""
     from exp_tracker.twitch_auth import AppTokens
-    from exp_tracker.twitch_probe import StreamAvailability, outside_maplestory
+    from exp_tracker.twitch_probe import StreamAvailability, capture_paused
     availability=availability or StreamAvailability(enabled=True,auth=AppTokens(maintain=True))
     statuses={}
     def refresh():
@@ -269,7 +268,8 @@ def category_gate(lanes, availability=None, *, seconds=30):
             except (OSError,ValueError):pass
             time.sleep(seconds)
     threading.Thread(target=refresh,name='twitch-category',daemon=True).start()
-    return lambda lane:lane['source'].kind=='twitch' and outside_maplestory(statuses.get(lane['channel']))
+    return lambda lane:lane['source'].kind=='twitch' and capture_paused(statuses.get(lane['channel']),
+        now=datetime.now(timezone.utc),any_category=any_category)
 
 
 def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
@@ -664,7 +664,7 @@ def main(argv=None):
                 directory.mkdir(parents=True, exist_ok=False)
                 from exp_tracker.retention_files import own
                 own(directory,database)  # Lets a separate retention worker expire this directory's files later.
-                with closing(ResourceMonitor(sample_interval=.05, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database,allow_migration=trial is None and not existing_mode and not db_mode) as store:
+                with closing(ResourceMonitor(sample_interval=1, scope=f'multi-alpha coordinator, HTTP and {args.workers}-worker capture/OCR children')) as monitor, Store(database,allow_migration=trial is None and not existing_mode and not db_mode) as store:
                     diagnostic = Diagnostics(store)
                     if args.automatic_characters or existing or db_mode:
                         from exp_tracker.character_automation import AutonomousCharacters
@@ -783,10 +783,10 @@ def main(argv=None):
                                 httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(following)
                                 print(f"{lane['channel']}: scheduled rotation after 60 committed attempts; session {lane['session_id']} retained",flush=True)
                             scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate) if args.continuous else {}
-                            # Continuous Twitch capture always pauses outside MapleStory; without credentials nothing pauses.
-                            if args.continuous and not args.any_category and (db_mode or any(row['source']=='twitch' for row in streams)):
-                                scheduler_options['gate']=category_gate(lanes)
-                                print('Twitch captures pause while a stream is live outside the MapleStory category.',flush=True)
+                            # Current official status avoids offline/unrelated playback; uncertainty never blocks capture.
+                            if args.continuous and (db_mode or any(row['source']=='twitch' for row in streams)):
+                                scheduler_options['gate']=category_gate(lanes,any_category=args.any_category)
+                                print('Twitch captures pause while offline'+(' or outside the MapleStory category.' if not args.any_category else '.'),flush=True)
                             def lane_options(lane):
                                 lane['options']={'resident':resident} if resident else {}
                                 if tesseract:lane['options']['tesseract']=tesseract  # Shared bounded pool; never shares a reply.

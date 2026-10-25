@@ -74,6 +74,10 @@ presented honestly. Untested on the VPS.
 - the Twitch status merge;
 - JSON encoding.
 
+The homepage uses the same player presenter as profiles, avoiding an extra deep copy of
+the full internal card. Time, stale, activity, Twitch and tracked-window presentation
+keep the same values; the published entries remain immutable.
+
 The encoded body is reused for every viewer while the publication generation, the
 coordinator runtime (activity, active runs) and the clock (< `PRESENT_SECONDS` = 1 s)
 are unchanged. One lock per body key means simultaneous viewers wait for one encoding

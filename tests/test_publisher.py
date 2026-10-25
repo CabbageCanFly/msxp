@@ -1,5 +1,6 @@
 """Background-published public state must equal the synchronous full-replay reference."""
 from datetime import datetime,timedelta
+from copy import deepcopy
 import json
 from pathlib import Path
 import threading
@@ -209,6 +210,31 @@ def test_homepage_mini_chart_omits_long_gap_gain_but_keeps_recent_gain_and_daily
         total=sum(round(b['value']['approximate']) for b in tracked['buckets'] if b['value'] is not None)
         assert chart>0 and (chart==total if gap==3600 else chart<total)
         assert player['tracked_windows']['1440']['gain']==tracked['tracked_exp']
+
+
+@pytest.mark.parametrize('delta',[0,61,901])
+@pytest.mark.parametrize('status',['live','offline','unknown'])
+def test_homepage_matches_card_presentation_without_mutating_publications(tracking,clock,delta,status):
+    from exp_tracker.diagnostics import present_card
+    from exp_tracker.publisher import board
+    path,_,d=tracking;d.begin('one','alpha',config('one',interval=20))
+    for i in range(1,5):save(d,'one',i,i*20,3300+i*5)
+    clock.at=NOW+timedelta(seconds=80)
+    with server_module.create_server(path,port=0,public_only=True) as server:
+        p=server.publisher;p.settle();clock.at+=timedelta(seconds=delta)
+        server.coordinator_status['alpha']=dict(state='waiting',next_due_at=clock.at.isoformat(),requested_interval_seconds=20)
+        p.statuses={'alpha':dict(status=status)}
+        before=deepcopy(p.entries);entry=p.entry('alpha')
+        card=present_card(dict(entry['card'],player=entry['public']['player']),now=clock.at,
+            active_runs=server.active_run_ids,coordinator_status=server.coordinator_status)
+        value=tracked_statistics(card['player'],entry['public']['tracked'],now=clock.at,
+            pace_as_of=datetime.fromisoformat(entry['card']['recent_as_of']))
+        value['activity']=public(value['activity'])
+        value['day_buckets']=[None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in entry['public']['tracked']['buckets']]
+        expected=board(broadcast([value],p.statuses,clock.at)[0])
+        actual=json.loads(p.homepage())['players'][0]
+        assert actual==json.loads(encode(expected))
+        assert p.entries==before
 
 
 @pytest.mark.parametrize('channel',['streamer_f','streamer_e','streamer_a'])

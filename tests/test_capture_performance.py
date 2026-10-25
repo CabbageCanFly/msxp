@@ -509,3 +509,38 @@ def test_gated_lane_starts_no_capture_and_resumes_on_time(schedule):
     assert schedule(group, perform, lambda *_: None, clock=lambda: now[0], sleep=sleep, gate=lambda lane: lane['channel'] in held) is False
     assert started == [('a', 0), ('a', 10), ('b', 26), ('b', 36)]
     assert group[1]['skipped'] == 0  # Held time isn't reported as missed deadlines.
+
+
+@pytest.mark.parametrize('any_category',[False,True])
+def test_broadcast_gate_refreshes_in_background_and_never_holds_expired_status(schedule,monkeypatch,any_category):
+    from datetime import datetime,timedelta,timezone
+    multi=importlib.import_module('multi_alpha');callbacks=[];waits=[];calls=[];now=[datetime(2026,1,1,tzinfo=timezone.utc)]
+    class Clock:
+        @staticmethod
+        def now(_):return now[0]
+    monkeypatch.setattr(multi,'datetime',Clock)
+    monkeypatch.setattr(multi.threading,'Thread',lambda **kwargs:SimpleNamespace(start=lambda:callbacks.append(kwargs['target'])))
+    def sleep(seconds):
+        waits.append(seconds);raise InterruptedError('end one background iteration')
+    monkeypatch.setattr(multi.time,'sleep',sleep)
+    statuses={}
+    def snapshot(channels):
+        calls.append(channels);return statuses.copy()
+    group=lanes('alpha','beta','file');group[0]['source']=Source('twitch','alpha');group[1]['source']=Source('twitch','beta')
+    gate=multi.category_gate(group,SimpleNamespace(snapshot=snapshot),any_category=any_category)
+    assert not any(map(gate,group)) and not calls
+    def publish(state,game=None):
+        statuses.update({channel:dict(status=state,game_name=game,checked_at=now[0].isoformat(),
+            valid_until=(now[0]+timedelta(seconds=60)).isoformat()) for channel in ('alpha','beta')})
+        with pytest.raises(InterruptedError):callbacks[0]()
+        assert calls[-1]==['alpha','beta'] and waits[-1]==60
+    publish('offline')
+    assert list(map(gate,group))==[True,True,False]
+    now[0]+=timedelta(seconds=60)
+    assert not any(map(gate,group))  # A stalled checker cannot hold an old offline result.
+    publish('live','Just Chatting')
+    assert list(map(gate,group))==[not any_category,not any_category,False]
+    publish('live','MapleStory')
+    assert not any(map(gate,group))
+    publish('unknown')
+    assert not any(map(gate,group))

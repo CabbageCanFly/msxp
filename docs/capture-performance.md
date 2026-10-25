@@ -1,5 +1,37 @@
 # Capture throughput and HUD localization
 
+## Current CPU reductions
+
+Continuous capture reuses the official batched Twitch status check to skip streams confirmed
+offline or live outside MapleStory. Live status and category are checked together about once
+a minute, independently of the 20-second capture interval. Newly live streams/category changes
+may wait roughly a minute for detection, then normal capture scheduling applies. Missing keys,
+API failures and expired/future status timestamps never block capture. A live stream with
+an unknown category is still checked.
+`--any-category` still skips confirmed offline streams. Local files are unaffected.
+
+The coordinator now samples diagnostic CPU/memory once a second rather than 20 times a second.
+Short-lived subprocess CPU and brief memory peaks can be missed more often; these sampled
+statistics do not control OCR acceptance or scheduling. Use systemd CPU accounting for capacity
+comparisons, rather than comparing the old and new sampled CPU totals directly.
+
+The API homepage uses its existing player presenter rather than copying the entire card first.
+Restart-cache signatures hash length-framed exact payload bytes instead of JSON-escaping another
+copy of every payload. Source limits, closed-run memoization, restart verification and public
+values are preserved. See [restart recovery](restart-recovery.md) for cache behavior.
+
+Local synthetic CPU comparison (Windows, 2026-10-24): 16 channels with 359 attempts
+each, unchanged as-of clock and identical homepage responses. Alternating before/after
+batches of ten uncached presentations, 60 calls each, took a median **101.6 → 68.0 ms
+CPU per homepage** (33% less). Hashing a 59-attempt open run, 8,000 calls each, took
+**0.211 → 0.148 ms CPU per signature** (30% less). These measure the changed operations,
+not total API CPU, live capture throughput or VPS savings. Temporary synthetic databases
+were removed. Live before/after service measurements remain a deployment follow-up.
+
+The measurements below predate these changes.
+
+## Earlier throughput work
+
 Follows the [VPS deployment](vps-deployment.md) measurements (4 vCPU / 8 GB Ubuntu):
 15 offline channels needed **13.43 s** of sequential work per attempt (capture 6.78,
 HUD localization 4.58, neural 1.25, visual level 0.83). A requested 180 s cadence was

@@ -23,7 +23,7 @@ import threading
 import time
 
 from .character_automation import PLACEHOLDER_CHARACTER
-from .diagnostics import Diagnostics, due, operation, present_card
+from .diagnostics import Diagnostics, due, operation
 from .product import refresh, tracked_statistics
 from .store import Store, utc
 from .twitch_probe import outside_maplestory
@@ -456,11 +456,7 @@ class Publisher:
             for head in heads:
                 entry = entries.get(head['login'])
                 if entry is None:warming.append(head['login']);continue
-                card = present_card(dict(entry['card'], player=entry['public']['player']), now=now, active_runs=self.server.active_run_ids.copy(),
-                    coordinator_status=self.server.coordinator_status.copy())
-                value = tracked_statistics(card['player'], entry['public']['tracked'], now=now,
-                    pace_as_of=datetime.fromisoformat(entry['card']['recent_as_of']))
-                value['activity'] = public(value['activity'])
+                value = self.player(entry, now)
                 # Same chart-only buckets as the profile; long-gap gains remain in the 24h total.
                 value['day_buckets'] = [None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in entry['public']['tracked']['buckets']]
                 if entry.get('restored'):
