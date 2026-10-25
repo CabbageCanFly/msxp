@@ -32,6 +32,8 @@ from local_alpha import report_attempt
 APP = 'multi_alpha_v1'
 # Ceiling is half the two-frame gap so jittered consecutive frames confirm with margin.
 LIVE_TRIAL_INTERVAL = (15, CONFIRM_GAP_SECONDS/2)
+MISSING_HUD_GRACE_SECONDS = 120
+MISSING_HUD_RECHECK_SECONDS = 60
 
 
 def private(path):
@@ -292,7 +294,8 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
     def initialize_lane(lane, due):
         lane.update(due=due, attempts=0, run_attempts=0, frames=0, commits=0, stopped=False,_scheduled=True,
                     interrupted=False, skipped=0, capture_failures=0, ocr_failures=0, last_started=None,
-                    elapsed_total=0,elapsed_count=0,duration_total=0,max_delay=0)
+                    elapsed_total=0,elapsed_count=0,duration_total=0,max_delay=0,
+                    effective_interval=lane['args'].interval,hud_missing_since=None,hud_missing_count=0)
         if reconcile:lane.update(totals.get(lane['channel'],{}))
         if activity is not None:
             activity[lane['channel']]=dict(state='waiting',run_id=lane['run_id'],updated_at=utc(),
@@ -300,10 +303,10 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
     def widest_gap(now, interval, others):
         # Fold every other lane's slots over the longest interval onto the new lane's period,
         # so each of its future slots, not only the first, avoids them.
-        horizon=now+max(interval,*(other['args'].interval for other in others))
+        horizon=now+max(interval,*(other['effective_interval'] for other in others))
         points=[]
         for other in others:
-            step=other['args'].interval;due=other['due']
+            step=other['effective_interval'];due=other['due']
             due+=max(0,math.ceil((now-due)/step))*step  # Next slot on that lane's own grid.
             # That next slot always counts, even exactly on (or rounded past) the horizon.
             points.append((due-now)%interval);due+=step
@@ -332,8 +335,8 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
             source=dict(kind=lane['source'].kind, channel=lane['channel'] if lane['source'].kind=='twitch' else None))
 
     def begin(lane):
-        while lane['due']+lane['args'].interval <= clock():
-            lane['due'] += lane['args'].interval
+        while lane['due']+lane['effective_interval'] <= clock():
+            lane['due'] += lane['effective_interval']
             lane['skipped'] += 1
         requested = utc(wall+timedelta(seconds=lane['due']-started))
         delay = max(0, clock()-lane['due'])
@@ -379,6 +382,24 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
         if error is not None: raise error
         if interrupted: lane['interrupted'] = True
         elapsed=None if lane['last_started'] is None else attempt_start-lane['last_started']
+        if continuous and lane['source'].kind=='twitch':
+            previous_interval=lane['effective_interval']
+            missing=(record.get('status')=='unavailable' and record.get('reasons')==['missing_hud']
+                     and (record.get('localization') or {}).get('count')==0 and bool(record.get('received_at')))
+            if missing:
+                if lane['hud_missing_since'] is None:lane['hud_missing_since']=attempt_start
+                lane['hud_missing_count']+=1
+            else:
+                lane.update(hud_missing_since=None,hud_missing_count=0)
+            missing_seconds=attempt_start-lane['hud_missing_since'] if missing else 0
+            slow=lane['hud_missing_count']>=3 and missing_seconds>=MISSING_HUD_GRACE_SECONDS
+            lane['effective_interval']=max(lane['args'].interval,MISSING_HUD_RECHECK_SECONDS) if slow else lane['args'].interval
+            if missing or previous_interval!=lane['effective_interval']:
+                record['hud_backoff']=dict(active=lane['effective_interval']>lane['args'].interval,
+                    missing_seconds=missing_seconds,next_interval_seconds=lane['effective_interval'])
+            if previous_interval!=lane['effective_interval']:
+                reason='Classic HUD still missing; checking' if slow else 'Resuming normal checks'
+                print(f"{lane['channel']}: {reason} every {lane['effective_interval']:g}s",flush=True)
         record.update(requested_at=None if simulated else job['requested'], scheduler_delay_seconds=job['delay'],
             timing_mode='simulated' if simulated else 'real',
             actual_interval_seconds=elapsed,skipped_deadlines=lane['skipped'],
@@ -402,16 +423,16 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
             if active_runs is not None: active_runs.discard(lane['run_id'])
         if lane['interrupted'] and not lane.get('persistence_failed'):
             raise KeyboardInterrupt
-        lane['due'] += lane['args'].interval
+        lane['due'] += lane['effective_interval']
         while lane['due'] < clock():
-            lane['due'] += lane['args'].interval
+            lane['due'] += lane['effective_interval']
             lane['skipped'] += 1
         if activity is not None:
             done=lane['stopped'] or (lane['attempts']>=max_attempts if continuous and max_attempts is not None else lane['attempts']>=lane['args'].count if not continuous else False)
             activity[lane['channel']]=dict(state='stopped' if done else 'capture_failing' if record.get('status')=='capture_failed' else 'waiting',
                 run_id=lane['run_id'],updated_at=utc(),next_due_at=utc(wall+timedelta(seconds=lane['due']-started)),
                 skipped_deadlines=lane['skipped'],requested_interval_seconds=lane['args'].interval,
-                actual_interval_seconds=elapsed)
+                actual_interval_seconds=elapsed,effective_interval_seconds=lane['effective_interval'])
         if reconcile:totals[lane['channel']]={key:lane[key] for key in total_fields}
 
     def collect(timeout):
@@ -814,6 +835,7 @@ def main(argv=None):
                             if args.continuous and (db_mode or any(row['source']=='twitch' for row in streams)):
                                 scheduler_options['gate']=category_gate(lanes,any_category=args.any_category)
                                 print('Twitch captures pause while offline'+(' or outside the MapleStory category.' if not args.any_category else '.'),flush=True)
+                                print(f'After {MISSING_HUD_GRACE_SECONDS}s without a Classic HUD, live streams recheck every {MISSING_HUD_RECHECK_SECONDS}s; a detected HUD restores normal checks.',flush=True)
                             def lane_options(lane):
                                 lane['options']={'resident':resident} if resident else {}
                                 if tesseract:lane['options']['tesseract']=tesseract  # Shared bounded pool; never shares a reply.
