@@ -313,7 +313,7 @@ def test_optional_demo_rosters_and_lightweight_home_projection(tmp_path, clock, 
         assert code == 200 and len(home['characters']) == characters and 'players' not in home
         assert sum(r['current'] for r in home['characters']) == 1
         # The tracked character carries its own build's summary; inline requests never build the others'.
-        base = {'id', 'label', 'level', 'last_seen_at', 'current', 'channel', 'online'}
+        base = {'id', 'label', 'level', 'last_seen_at', 'current', 'channel', 'online', 'job'}  # Every demo character has a job.
         assert all(set(r) == (base | {'reading', 'display_level', 'as_of', 'day_buckets', 'day', 'recent_windows'} if r['current'] else base) for r in home['characters'])
         tracked = next(r for r in home['characters'] if r['current'])
         expected = current['player']['recent_windows']['5']
