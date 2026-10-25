@@ -464,6 +464,21 @@ def test_default_scan_releases_each_scale_before_building_the_next(monkeypatch):
     assert hud.scan(Image.new('RGB',(100,100)))==[[],[]] and len(previous)==2
 
 
+@pytest.mark.parametrize('mode,box',[('RGB',None),('RGBA',(11,7,74,56)),('L',None)])
+def test_shared_grayscale_preserves_both_ocr_input_images(monkeypatch,mode,box):
+    import random
+    image=Image.frombytes('RGB',(83,61),random.Random(42).randbytes(83*61*3)).convert(mode)
+    crop=image.crop(box) if box else image
+    expected=[crop.convert('L').resize((round(crop.width*s),round(crop.height*s)),
+        Image.Resampling.BICUBIC).point(lambda p:0 if p>160 else 255).tobytes() for s in (2.,3.)]
+    def ocr(binary,psm):
+        assert psm==11 and binary.mode=='L' and binary.tobytes()==expected.pop(0)
+        return []
+    monkeypatch.setattr(hud,'configure_tesseract',lambda:None)
+    monkeypatch.setattr(hud,'_ocr',ocr)
+    assert hud.scan(image,box)==[[],[]] and not expected
+
+
 @pytest.mark.parametrize('data',[
     tesseract_data([anchors()]),                                         # second page missing
     {**tesseract_data([[],anchors()]),'page_num':[2]*6},            # first page missing

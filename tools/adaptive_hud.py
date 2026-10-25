@@ -180,12 +180,12 @@ def scan(image, box=None, *, batched=False):
         return []
     configure_tesseract()
     left,top=box[:2] if box else (0,0)
-    crop=image.crop(box) if box else image
+    crop=(image.crop(box) if box else image).convert('L')
     scales=[min(magnification, math.sqrt(1920 * 1080 * magnification**2 / (image.width * image.height)))
             for magnification in (2.0,3.0)]
     def binary(scale):
-        return crop.convert("L").resize((round(crop.width*scale),round(crop.height*scale)),
-                                        Image.Resampling.BICUBIC).point(lambda p: 0 if p > 160 else 255)
+        return crop.resize((round(crop.width*scale),round(crop.height*scale)),
+                           Image.Resampling.BICUBIC).point(lambda p: 0 if p > 160 else 255)
     # The default path builds, reads and releases one scale at a time; only batching holds both.
     pages=(_ocr_pages([binary(scale) for scale in scales],11) if batched
            else [_ocr(binary(scale),11) for scale in scales])

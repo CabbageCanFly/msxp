@@ -8,7 +8,8 @@ workers to 5.84 s at 6 and 7.75 s at 8. The question: can `adaptive_hud.locate()
 Outcome: an output-identical, opt-in prototype (`locate(..., batched=True)`) saves ≈5–6 %
 CPU and ≈9–10 % wall per frame on the workstation. Every option that cuts Tesseract's
 recognition work changes, or plausibly weakens, competing-HUD evidence. Nothing is enabled
-by default, the HUD cache stays off, and no VPS measurement exists yet.
+by default, the HUD cache stays off, and no VPS measurement exists yet. The later CPU
+pass below retains only a small, pixel-identical preprocessing improvement.
 
 All figures are **workstation** measurements (i7-13700K, Windows 11, Tesseract 5.4.0 with
 4 MB `eng.traineddata`, `OMP_THREAD_LIMIT=1`), single runs, not VPS numbers.
@@ -230,3 +231,47 @@ PYTHONPATH=src:tools python tools/benchmark_hud_locate.py \
   temporary directories were left behind.
 - **Harness:** the profiling and variant harness lives outside the repository. Its private
   token dumps were not committed.
+
+## Second CPU pass: resident OCR and smaller search areas
+
+This pass uses the existing saved images, without restoring the recordings: 43 frames
+from the normal recorded-stream test selection and all 12 adaptive-HUD challenge images.
+The Windows native Tesseract API matches the resident engine used in capture. Three
+isolated workers compare baseline and candidate on each of the same 55 images; the
+table sums process CPU seconds for both scales, including resize and threshold work.
+These are offline workstation results, not VPS capture intervals.
+
+| Second-pass experiment | Baseline CPU | Candidate CPU | Result |
+| --- | ---: | ---: | --- |
+| Full-width bands around first-pass labels | 166.75 s | 111.89 s (33% less) | Same HUD counts, but two crop positions changed and some labels disappeared |
+| Four overlapping full-width strips covering the entire frame | 190.73 s | 203.47 s (7% more) | Three HUD results changed, including one lost HUD |
+
+The label-seeded experiment keeps the complete 2x pass. Each HP/MP/EXP/LV token seeds a
+band extending 12 token heights above it and 12 below its bottom; overlapping bands
+merge. With no seeds, it falls back to the complete 3x pass. Crops come from the same
+full-frame 3x binary image, so resizing pixels are identical. Cropping still changes
+Tesseract's context: 41/55 frames had changed 3x label tokens; four had fewer labels.
+One level crop moved by one pixel, and another frame's EXP crop moved by up to four.
+No capture/accounting comparison was run for those altered crops. A second HUD whose
+labels are entirely missed by 2x could also go unseen. This is promising research,
+but it is not enabled in capture.
+
+The full-coverage experiment divides the 3x image into four horizontal strips with
+40 native pixels of overlap margin on each side of a boundary. It preserves image
+coverage but still changes OCR context. It loses the embedded-game challenge HUD,
+gains a HUD on another frame and changes level availability on a third. It is rejected.
+Compare each candidate only with its own paired control; the two totals came from
+separate runs. Raw outputs and disposable probes stay in ignored
+`private/cpu-efficiency/`.
+
+The production change is deliberately small: convert the frame/crop to grayscale
+once, then reuse it for both enlargements. Both binary OCR input images remain
+byte-for-byte identical, and each enlarged image is still released before the next.
+On one 1080p image, 20 alternating pairs measured preprocessing at about 112 ms
+before and 107 ms after. This saves about 5 ms per frame in that local measurement;
+it is not a substantial reduction in total HUD OCR time. Tests compare exact input
+pixels for RGB, RGBA and grayscale sources, including a cropped search.
+
+Larger savings need a detector that can replace expensive full-frame recognition
+while still finding competing HUDs. The measurements above do not justify making
+label-seeded search the default.
