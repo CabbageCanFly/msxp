@@ -4,8 +4,9 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../src/exp_tracker/web/product.js',import.meta.url),'utf8');
 class Element {
-  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={setProperty(k,v){this[k]=v;},removeProperty(k){delete this[k];}};this.value='';}
-  append(...c){this.children.push(...c);}replaceChildren(...c){this.children=c;}
+  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.style={setProperty(k,v){this[k]=v;},removeProperty(k){delete this[k];}};this.value='';Object.defineProperty(this,'parentElement',{value:null,writable:true});}
+  append(...c){for(const child of c)if(typeof child==='object')child.parentElement=this;this.children.push(...c);}replaceChildren(...c){this.children=[];this.append(...c);}
+  get lastElementChild(){return this.children.at(-1);}
   querySelector(){return null;}querySelectorAll(){return [];}contains(){return false;}focus(){}scrollIntoView(){}
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v,options){(this.listeners??={})[k]=v;(this.listenerOptions??={})[k]=options;}
   getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
@@ -1873,6 +1874,31 @@ test('a finger on a list row shows its job icon through refreshes, then lets it 
   on(rows()[1]);assert.deepEqual(touched(),[rows()[1].dataset.channel]);
   p.elements.entries.listeners.touchend();assert.equal(p.timers.at(-1),1200);
   assert.equal(p.elements.entries.listenerOptions.touchstart.passive,true);  // Never delays scrolling.
+});
+
+test('job counts follow the displayed list, search, presence and fresh data, independently of job selections',()=>{
+  const p=page('board'),label=pick=>(pick?p.run('jobBoxes').find(b=>b.value===pick):p.run('jobAllBox')).parentElement.lastElementChild.textContent;
+  const players=[['a','Cleric',true],['b','Cleric',false],['c','Assassin',true],['d',null,true],['e','Beginner',true]].map(([channel,job,online])=>
+    player({channel,character:{label:channel,job},twitch:{status:online?'live':'offline'}}));
+  p.run(`data=${JSON.stringify({players})};renderBoard()`);
+  assert.equal(label(''),'All jobs (5)');assert.equal(label('job:Cleric'),'Cleric (2)');
+  assert.equal(label('class:Magician'),'All Magicians (2)');assert.equal(label('job:Hunter'),'Hunter (0)');
+  assert.equal(label('job:Beginner'),'Beginner (1)');
+  p.run("setJobs(['job:Cleric'])");
+  assert.equal(p.elements.entries.children.length,2);assert.equal(label('job:Assassin'),'Assassin (1)');assert.equal(label(''),'All jobs (5)');
+  p.run("presence='online';renderBoard()");assert.equal(label('job:Cleric'),'Cleric (1)');assert.equal(label(''),'All jobs (4)');
+  p.run("presence='offline';renderBoard()");assert.equal(label('job:Cleric'),'Cleric (1)');assert.equal(label('job:Assassin'),'Assassin (0)');
+  p.elements['character-filter'].value='c';p.run("presence='all';renderBoard()");
+  assert.equal(label('job:Cleric'),'Cleric (0)');assert.equal(label('job:Assassin'),'Assassin (1)');
+  p.elements['character-filter'].value='';
+  const characters=[{...ALPHA,channel:'a',online:true,job:'Cleric'},{...BETA,channel:'a',online:false,job:'Assassin'},
+    {...BETA,id:3,channel:'a',label:'Third',online:true,job:'Assassin'}];
+  p.run(`boardMode=shownMode='characters';data=${JSON.stringify({characters})};renderBoard()`);
+  assert.equal(label(''),'All jobs (3)');assert.equal(label('job:Assassin'),'Assassin (2)');assert.equal(label('class:Thief'),'All Thieves (2)');
+  p.run("presence='online';renderBoard()");assert.equal(label('job:Assassin'),'Assassin (1)');
+  p.elements['character-filter'].value='Third';p.run('renderBoard()');assert.equal(label(''),'All jobs (1)');assert.equal(label('job:Cleric'),'Cleric (0)');
+  p.elements['character-filter'].value='';p.run("data.characters[2].job='Hunter';renderBoard()");
+  assert.equal(label('job:Assassin'),'Assassin (0)');assert.equal(label('job:Hunter'),'Hunter (1)');
 });
 
 test('job filter menu: ticking several adds them, unticking or an icon removes one, a desktop row icon adds its job, All jobs clears',()=>{

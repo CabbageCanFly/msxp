@@ -354,8 +354,8 @@ const JOB_CLASSES=[{"class":"Warrior","all":"All Warriors","jobs":["Swordsman","
   {"class":"Thief","all":"All Thieves","jobs":["Rogue","Assassin","Bandit"]}];
 const JOB_FILTERS=new Set(['','job:Beginner',...JOB_CLASSES.flatMap(c=>[`class:${c.class}`,...c.jobs.map(j=>`job:${j}`)])]);
 let jobFilter=[],jobBoxes=[],jobAllBox=null;  // Picks in the order chosen.
-function jobMatches(job) {
-  return !jobFilter.length || jobFilter.some(pick=>{
+function jobMatches(job,picks=jobFilter) {
+  return !picks.length || picks.some(pick=>{
     const [kind,name]=pick.split(':');
     return kind==='job'?job===name:!!JOB_CLASSES.find(c=>c.class===name)?.jobs.includes(job);
   });
@@ -379,6 +379,14 @@ function buildJobFilter() {
 }
 function setJobs(picks) { jobFilter=picks;showJobFilter();renderBoard(); }
 function addJob(pick) { if(pick && JOB_FILTERS.has(pick) && !jobFilter.includes(pick))setJobs([...jobFilter,pick]); }
+// Count before the job selection, so other choices stay useful while filtering.
+function showJobCounts(jobs) {
+  for(const box of [jobAllBox,...jobBoxes]) {
+    const count=box.value?jobs.filter(job=>jobMatches(job,[box.value])).length:jobs.length;
+    const label=box.parentElement.lastElementChild,text=`${box.value?jobLabel(box.value):'All jobs'} (${count})`;
+    if(label.textContent!==text)label.textContent=text;
+  }
+}
 function showJobFilter() {
   for(const box of jobBoxes)box.checked=jobFilter.includes(box.value);
   jobAllBox.checked=!jobFilter.length;
@@ -452,7 +460,9 @@ function renderBoard() {
   showPresence();
   if(characters){renderCharacters();return;}
   const search=el('character-filter').value.trim().toLowerCase();
-  const all=data?.players ?? [],rows=ranked(all.filter(p=>shown(statusText(p)==='Online') && jobMatches(p.character?.job) && `${p.character?.label ?? ''} ${p.channel}`.toLowerCase().includes(search)),sort);
+  const all=data?.players ?? [],matching=all.filter(p=>shown(statusText(p)==='Online') && `${p.character?.label ?? ''} ${p.channel}`.toLowerCase().includes(search));
+  showJobCounts(matching.map(p=>p.character?.job));
+  const rows=ranked(matching.filter(p=>jobMatches(p.character?.job)),sort);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
   patchChildren(el('entries'),rows.map(entry).map(touchMark));
   [...el('entries').querySelectorAll('.exp-number')].filter(n=>n.clientWidth>0 && n.scrollWidth>n.clientWidth+1).forEach(n=>{n.textContent=n.dataset.compactNumber;});
@@ -468,7 +478,9 @@ function renderBoard() {
 function renderCharacters() {
   const search=el('character-filter').value.trim().toLowerCase(),order=characterSort;
   document.querySelectorAll('[data-character-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.characterSort===order)));
-  const all=data?.characters ?? [],rows=all.filter(r=>shown(!!r.online) && jobMatches(r.job) && `${r.label} ${r.channel}`.toLowerCase().includes(search));
+  const all=data?.characters ?? [],matching=all.filter(r=>shown(!!r.online) && `${r.label} ${r.channel}`.toLowerCase().includes(search));
+  showJobCounts(matching.map(r=>r.job));
+  const rows=matching.filter(r=>jobMatches(r.job));
   rows.sort((a,b)=>(order==='level'?(b.level ?? -1)-(a.level ?? -1):order==='name'?a.label.localeCompare(b.label):
     (Date.parse(b.reading?.timestamp) || 0)-(Date.parse(a.reading?.timestamp) || 0)) || a.channel.localeCompare(b.channel) || a.id-b.id);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
