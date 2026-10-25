@@ -27,7 +27,8 @@ on new API fields must wait for that backend to be live.
 | `static/product.js`, `product.css`, `leaderboard.css`, `live-overlay.css`, `steely.png` | Copied byte for byte |
 | `static/fonts/*.woff2`, `static/fonts/OFL-*.txt` | Self-hosted fonts and their licences |
 | `static/mobs/*.gif`, `*.webp` | Wandering mob sprites (see README credits), copied byte for byte |
-| `static/jobs/*.png` | Profile job skill icons (see README credits), copied byte for byte |
+| `static/jobs/*.png` | Job skill icons (see README credits), copied byte for byte |
+| `static/classes/*.gif` | Class badges for the home job filter (see README credits), copied byte for byte |
 | `static/sleepywood.webp`, `static/sleepywood-forest.webp` | Original town/forest background, lossless WebP (see [sources](website-background.md)) |
 | `static/kerning.webp`, `static/kerning-sky.webp` | Original Kerning City town/sunset background, lossless WebP |
 | `_redirects`, `_headers`, `404.html` | Generated: routes, security headers, not-found page |
