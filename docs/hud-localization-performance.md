@@ -465,3 +465,75 @@ private-crop cases, six Linux-only cases and one Windows symlink permission. The
 16 new tests cover native layout/full-read parity and reset, exact crop-response
 reuse, stale-frame rejection, partial second-HUD proposals, retained-page fallback,
 crop/field failures and private-output/no-overwrite checks.
+
+### Fresh live-stream check, 2026-10-25
+
+The 225-image results above used existing fixtures. A separate held-out batch now
+adds **42 new frames from 14 live, authorized production-roster streamers**, three
+rounds per streamer, captured at 09:14:41–09:15:56 UTC. All 42 captures succeeded
+and have different file hashes: 33 at 1920×1080 and nine at 1280×720. These are
+native stream frames, not Twitch thumbnails or recordings. The VPS roster was
+read with SQLite read-only mode; all video capture and OCR ran locally. Production
+was unchanged, and the prototype was not tuned against this batch.
+
+Every frame's visible EXP/percentage and level was visually transcribed from the
+original pixels, with enlarged context checked for difficult digits. Both methods
+then used the same saved frames and original field crops:
+
+| Result | Normal detector | Layout-first prototype |
+| --- | ---: | ---: |
+| Correct strict full EXP pairs | 25 | 26 |
+| Correct strict percentage-only readings | 11 | 11 |
+| Additional correct grammar proposals | 3 | 3 |
+| Wrong raw full EXP pairs | 1 | 1, same frame |
+| Correct neural levels | 39 | 41 |
+| Wrong visual or neural levels | 0 | 0 |
+| Mean local elapsed OCR time/frame | 1.465 s | 1.074 s |
+| Total measured process-tree CPU | 60.766 s | 44.672 s |
+
+No correct baseline EXP, percentage or level reading was lost. Grammar proposals
+are diagnostic interpretations, not proof of accepted ingestion. The shared
+wrong raw pair read `99,653 [9.16%]` as `99,653 [19.16%]`; the existing EXP-table
+check marks it incompatible. Neither detector is error-free.
+
+The faster path handled **36/42 frames (85.7%)**. Six fell back: four imperfect
+EXP fields and two incomplete/ambiguous layouts. On those six frames, mean local
+elapsed time increased from 1.095 s to 1.281 s; the largest observed extra time
+over the whole batch was 0.273 s. Across the batch, CPU fell 26.5% and elapsed OCR
+time fell 26.7%. Capture/network/startup time is excluded, as in the fixture replay.
+
+Private frames, capture timestamps/hashes, human labels, review sheets and paired
+results remain under `private/cpu-efficiency/fresh-live-20261025/`, excluded from
+Git. The private evaluation runner only retained extra localization/crop metadata;
+the recognition algorithm remains the committed prototype.
+
+This adds independent frames, not 42 independent HUD designs: each streamer
+contributes three nearby frames. All happened to show gameplay HUDs. This batch
+does not establish behavior during ads, absent HUDs or unusual competing HUDs, nor
+Linux/VPS performance or end-to-end website acceptance. The earlier competing-HUD
+stress tests and the production-integration limitations above still apply.
+
+### Second fresh batch: four frames per streamer
+
+Repeated with **56 additional images from the same 14 currently live streamers**,
+four rounds each at 09:23:48–09:25:42 UTC on 2026-10-25. All captures succeeded;
+all hashes differ within this batch and from the earlier 42 images. Resolution:
+44 at 1080p and 12 at 720p. Recognition code was unchanged. Human labels came from
+the original frame context before examining the paired OCR outputs; level crops
+and differing detector crops were then also reviewed.
+
+Both methods produced **35 correct strict full pairs, 14 correct strict
+percentage-only readings, four additional correct grammar proposals, and no
+observed wrong readings**. They both rejected a black transition with no game HUD,
+and returned no reading for a tooltip-obscured HUD. One other percentage-only
+field remained unreadable. The prototype lost no correct reading and recovered
+one additional correct visual/neural level (75) from a 720p frame.
+
+The faster path handled **49/56 (87.5%)**; seven fell back. Local mean elapsed OCR
+time fell **1.639 → 1.189 s** (27.4%); process-tree CPU fell **90.516 → 65.391 s**
+(27.8%). The seven fallback frames averaged **1.403 → 1.683 s**, with a largest
+observed extra time of **0.427 s** across the batch. These timings exclude live
+capture and network time. Data and verification remain ignored under
+`private/cpu-efficiency/fresh-live-20261025-batch2/`; neither main nor production
+was changed. There is now one fresh absent-HUD example, but unusual competing
+HUDs, live Linux performance and end-to-end website acceptance remain untested.
