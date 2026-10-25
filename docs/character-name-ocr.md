@@ -778,8 +778,10 @@ every frame with a HUD read the job exactly (score 0.97–1.00): Spearman, Page,
 Wizard (Ice,Lightning), Hunter, Crossbowman, Assassin, Bandit, and Beginner on saved
 frames. Through `IdentityCapture.inspect` in capture order, each stream with two HUD
 frames confirmed its job after exactly two reads and read it no more; frames without a HUD
-cost nothing; names were unchanged. Not yet seen on stream: Warrior, Magician, Bowman,
-Thief, Fighter and "Wizard (Fire,Poison)" (spelling assumed from the Ice,Lightning one).
+cost nothing; names were unchanged. Not yet seen on stream: Swordsman, Magician, Archer,
+Rogue, Fighter and "Wizard (Fire,Poison)" (spelling assumed from the Ice,Lightning one). The 1st jobs use the
+in-game names from Nexon's Classic World class pages, not the class names (Warrior, Bowman, Thief), which only
+label the classes in the homepage job filter. A "Swordman" panel spelling is one edit away and snaps to Swordsman.
 Third and fourth jobs are not in the list yet.
 
 ### Transaction, restart and audit boundaries

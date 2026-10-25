@@ -1880,7 +1880,7 @@ test('job filter menu: ticking several adds them, unticking or an icon removes o
   const tick=(value,on=true)=>{const b=box(value);b.checked=on;panel.listeners.change({target:b});};
   const names=()=>p.elements.entries.children.map(r=>r.dataset.channel).sort(),chips=()=>p.elements['job-filter-icons'].children;
   const label=()=>p.elements['job-summary'].textContent;
-  const players=[['t','Thief'],['a','Assassin'],['b','Bandit'],['c','Cleric'],['s','Beginner'],['u',undefined]].map(([channel,job])=>player({channel,character:{label:channel,job}}));
+  const players=[['t','Rogue'],['a','Assassin'],['b','Bandit'],['c','Cleric'],['s','Beginner'],['u',undefined]].map(([channel,job])=>player({channel,character:{label:channel,job}}));
   p.run(`data=${JSON.stringify({players})};renderBoard()`);
   assert.equal(p.run('jobBoxes').length,19);  // Beginner, then each class's "All ..." and its jobs (5+5+4+4).
   assert.deepEqual(names(),['a','b','c','s','t','u']);assert.equal(chips().length,0);assert.equal(label(),'All jobs');

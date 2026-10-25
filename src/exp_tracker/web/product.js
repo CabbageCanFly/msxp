@@ -344,14 +344,14 @@ const PRESENCE={all:{label:'All',next:'online',title:'Showing everyone · click 
   online:{label:'Online',next:'offline',title:'Showing online only · click for offline only'},
   offline:{label:'Offline',next:'all',title:'Showing offline only · click to show everyone'}};
 let presence='all';
-// Job filter, a multiselect: each pick is 'class:Thief' (the class with its advancements) or 'job:Thief' (exactly that job);
+// Job filter, a multiselect: each pick is 'class:Thief' (the class with its advancements) or 'job:Rogue' (exactly that job);
 // a row shows when it matches any pick, and no picks shows everyone. Rows without a known job never match a pick.
 // Mirrors data/jobs.json (checked by tests/test_jobs.py). Top-level picks (a class, or Beginner) show their old badge
 // (web/classes/<name>.gif); an exact job shows its skill icon, as in the rows.
-const JOB_CLASSES=[{"class":"Warrior","all":"All Warriors","jobs":["Warrior","Fighter","Page","Spearman"]},
+const JOB_CLASSES=[{"class":"Warrior","all":"All Warriors","jobs":["Swordsman","Fighter","Page","Spearman"]},
   {"class":"Magician","all":"All Magicians","jobs":["Magician","Wizard (Fire,Poison)","Wizard (Ice,Lightning)","Cleric"]},
-  {"class":"Bowman","all":"All Bowmen","jobs":["Bowman","Hunter","Crossbowman"]},
-  {"class":"Thief","all":"All Thieves","jobs":["Thief","Assassin","Bandit"]}];
+  {"class":"Bowman","all":"All Bowmen","jobs":["Archer","Hunter","Crossbowman"]},
+  {"class":"Thief","all":"All Thieves","jobs":["Rogue","Assassin","Bandit"]}];
 const JOB_FILTERS=new Set(['','job:Beginner',...JOB_CLASSES.flatMap(c=>[`class:${c.class}`,...c.jobs.map(j=>`job:${j}`)])]);
 let jobFilter=[],jobBoxes=[],jobAllBox=null;  // Picks in the order chosen.
 function jobMatches(job) {

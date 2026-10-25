@@ -1,22 +1,22 @@
 {
-  "version": "classic-jobs-v1",
-  "note": "Status-panel job text. Tier 0 Beginner, 1 first job, 2 second job. 'seen' marks spellings read on stream; add 3rd/4th job when Classic releases them. 'icon' names the skill whose icon (64 px, from the official Classic World class pages) is web/jobs/<slug>.png (slug: lowercase, runs of other characters become '-').",
+  "version": "classic-jobs-v2",
+  "note": "Status-panel job text. Tier 0 Beginner, 1 first job (Swordsman, Magician, Archer, Rogue: the in-game names, not the class names), 2 second job. 'seen' marks spellings read on stream; add 3rd/4th job when Classic releases them. 'icon' names the skill whose icon (64 px, from the official Classic World class pages) is web/jobs/<slug>.png (slug: lowercase, runs of other characters become '-').",
   "advancement_levels": {"1": 8, "2": 30},
   "jobs": [
     {"name": "Beginner", "tier": 0, "parent": null, "seen": true, "icon": "Three Snails"},
-    {"name": "Warrior", "tier": 1, "parent": "Beginner", "seen": false, "icon": "Power Strike"},
+    {"name": "Swordsman", "tier": 1, "parent": "Beginner", "seen": false, "icon": "Power Strike"},
     {"name": "Magician", "tier": 1, "parent": "Beginner", "seen": false, "icon": "Magic Claw"},
-    {"name": "Bowman", "tier": 1, "parent": "Beginner", "seen": false, "icon": "Arrow Blow"},
-    {"name": "Thief", "tier": 1, "parent": "Beginner", "seen": false, "icon": "Dark Sight"},
-    {"name": "Fighter", "tier": 2, "parent": "Warrior", "seen": false, "icon": "Rage"},
-    {"name": "Page", "tier": 2, "parent": "Warrior", "seen": true, "icon": "Threaten"},
-    {"name": "Spearman", "tier": 2, "parent": "Warrior", "seen": true, "icon": "Iron Will"},
+    {"name": "Archer", "tier": 1, "parent": "Beginner", "seen": false, "icon": "Arrow Blow"},
+    {"name": "Rogue", "tier": 1, "parent": "Beginner", "seen": false, "icon": "Dark Sight"},
+    {"name": "Fighter", "tier": 2, "parent": "Swordsman", "seen": false, "icon": "Rage"},
+    {"name": "Page", "tier": 2, "parent": "Swordsman", "seen": true, "icon": "Threaten"},
+    {"name": "Spearman", "tier": 2, "parent": "Swordsman", "seen": true, "icon": "Iron Will"},
     {"name": "Wizard (Fire,Poison)", "tier": 2, "parent": "Magician", "seen": false, "icon": "Fire Arrow"},
     {"name": "Wizard (Ice,Lightning)", "tier": 2, "parent": "Magician", "seen": true, "icon": "Cold Beam"},
     {"name": "Cleric", "tier": 2, "parent": "Magician", "seen": true, "icon": "Heal"},
-    {"name": "Hunter", "tier": 2, "parent": "Bowman", "seen": true, "icon": "Arrow Bomb"},
-    {"name": "Crossbowman", "tier": 2, "parent": "Bowman", "seen": true, "icon": "Iron Arrow"},
-    {"name": "Assassin", "tier": 2, "parent": "Thief", "seen": true, "icon": "Drain"},
-    {"name": "Bandit", "tier": 2, "parent": "Thief", "seen": true, "icon": "Savage Blow"}
+    {"name": "Hunter", "tier": 2, "parent": "Archer", "seen": true, "icon": "Arrow Bomb"},
+    {"name": "Crossbowman", "tier": 2, "parent": "Archer", "seen": true, "icon": "Iron Arrow"},
+    {"name": "Assassin", "tier": 2, "parent": "Rogue", "seen": true, "icon": "Drain"},
+    {"name": "Bandit", "tier": 2, "parent": "Rogue", "seen": true, "icon": "Savage Blow"}
   ]
 }
