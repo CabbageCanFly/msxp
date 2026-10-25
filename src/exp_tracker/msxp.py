@@ -41,7 +41,8 @@ OCR = ENVIRONMENTS / 'private/rapidocr/.venv' / BIN
 OCR_PACKAGES = ['rapidocr==3.10.0', 'onnxruntime==1.31.0', 'psutil==7.2.2', 'Pillow==12.3.0']  # As deploy/install-ubuntu.sh.
 SETTINGS = {'MSXP_DATABASE': 'private/msxp/tracker.sqlite3', 'MSXP_PORT': '8765', 'MSXP_ADMIN_PORT': '8766',
             'MSXP_DEMO_PORT': '8890', 'MSXP_DASHBOARD_PORT': '8767', 'MSXP_WORKERS': '2',
-            'MSXP_SERVER': '', 'MSXP_SERVER_DIR': '/opt/msxp/app', 'MSXP_SERVER_USER': 'msxp'}
+            'MSXP_SERVER': '', 'MSXP_SERVER_DIR': '/opt/msxp/app', 'MSXP_SERVER_USER': 'msxp',
+            'MSXP_PRELOAD_STREAMLINK': '0'}
 TWITCH_KEYS = ('TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET')
 SERVER_ENV = (Path('/etc/msxp/split.env'), Path('/etc/msxp/roster.env'), Path('/etc/msxp/msxp.env'))
 UNITS = {'tracker': 'msxp-tracker', 'api': 'msxp-api', 'cleanup': 'msxp-retention'}
@@ -76,6 +77,7 @@ Settings and secrets live in .env (msxp install copies .env.example; never commi
   MSXP_DATABASE   your tracker database   (default private/msxp/tracker.sqlite3)
   MSXP_PORT / MSXP_ADMIN_PORT / MSXP_DASHBOARD_PORT / MSXP_DEMO_PORT   8765 / 8766 / 8767 / 8890
   MSXP_WORKERS    streams captured at once (default 2)
+  MSXP_PRELOAD_STREAMLINK  1 enables Linux Streamlink import preloading (default 0)
   MSXP_SERVER     your server's SSH login for msxp server, e.g. root@203.0.113.7
   TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET   optional, shows who is live (docs/twitch-authentication.md)
 On a server, /etc/msxp/split.env, roster.env and msxp.env are read too, in that order.
@@ -160,7 +162,8 @@ def build(name, args, s, extra=()):
         'demo': ([py, 'tools/preview_pages.py', '--demo', '--live', '--port', port], True),
         'admin': ([py, '-m', 'exp_tracker.admin_server', '--db', db, '--port', port], True),
         'tracker': ([py, 'tools/multi_alpha.py', '--db-roster', db, '--port', port, '--continuous',
-                     '--workers', str(getattr(args, 'workers', None) or s['MSXP_WORKERS']), '--ocr-python', str(OCR), *twitch], True),
+                     '--workers', str(getattr(args, 'workers', None) or s['MSXP_WORKERS']), '--ocr-python', str(OCR),
+                     *(['--preload-streamlink'] if s['MSXP_PRELOAD_STREAMLINK']=='1' else []), *twitch], True),
         'api': ([py, '-m', 'exp_tracker.server', '--db', db, '--port', port, '--public-only', *twitch], True),
         # The same read-only server with the operator pages instead of --public-only; local connections only.
         'dashboard': ([py, '-m', 'exp_tracker.server', '--db', db, '--port', port, '--diagnostic-dashboard', *twitch], True),

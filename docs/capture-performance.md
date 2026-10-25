@@ -26,9 +26,78 @@ batches of ten uncached presentations, 60 calls each, took a median **101.6 → 
 CPU per homepage** (33% less). Hashing a 59-attempt open run, 8,000 calls each, took
 **0.211 → 0.148 ms CPU per signature** (30% less). These measure the changed operations,
 not total API CPU, live capture throughput or VPS savings. Temporary synthetic databases
-were removed. Live before/after service measurements remain a deployment follow-up.
+were removed. A controlled before/after VPS benchmark remains a follow-up.
 
-The measurements below predate these changes.
+A read-only 15-minute observation of deployed revision `1743aa2` on the 4-vCPU VPS,
+2026-10-25 01:31–01:46 UTC, found average host CPU **98.8%**: tracker **2.951 cores**,
+API **0.984 core**, no retention job. Fifteen channels produced **433 frames from
+434 attempts**, with no offline failures and one `source_ended`. Mean frame-capture
+interval was **31.25 s**, p95 **42.39 s**. Earlier observations were roughly 49 s /
+62 s with 16 frame-producing channels; the changing live mix makes this an
+observational comparison, not a controlled A/B. The capture gate removed offline
+attempts, but overall CPU remained saturated while more live frames were acquired.
+
+The earlier throughput measurements below predate these changes.
+
+## Streamlink import preloading (Linux, opt-in)
+
+Set `MSXP_PRELOAD_STREAMLINK=1` in the tracker's environment, or pass
+`--preload-streamlink` to `multi_alpha.py` / `msxp tracker`. It is off by default.
+On the VPS, edit `/etc/msxp/msxp.env`, add the setting and restart `msxp-tracker`;
+the API needs no restart for this change. Startup confirms
+`Preloaded Streamlink: fresh CLI children via Linux forkserver.` Set the value to
+`0` and restart the tracker to use the ordinary launcher again. No packages are added.
+
+The coordinator starts a separate Linux forkserver, imports the CLI/Twitch plugin
+once, and requests a fresh playback child for every capture. The running tracker
+is never forked. A startup guard refuses a preloader whose imports started extra
+threads. The child receives the same command, current environment and working
+directory. Its actual stdout/stderr file descriptors feed the existing relay,
+so imported CLI globals cannot route video into the journal. Authenticated playback
+continues through the existing private token-file launcher.
+
+Streamlink arguments, rendition selection, bounded diagnostics, byte accounting,
+FFmpeg command, PNG parser, frame timestamps/freshness, OCR and accounting are
+unchanged. File inputs bypass the launcher. The existing scheduler still bounds
+concurrent playback. Timeout/shutdown reaps children; PID identity checks also
+allow cleanup if the forkserver dies before its playback child. Run headers record
+`preloaded_streamlink: true`, including rotations and automatic character switches.
+`--check` probes CLI support for a synthetic URL without connecting or writing a database.
+
+Native validation on the VPS's Linux/Python 3.14 uses an automatically removed copy
+of the code and synthetic loopback HLS. It verifies exact ordinary/preloaded HLS
+bytes, identical decoded PNGs, three simultaneous distinct streams, fresh per-attempt
+authentication environments, timeout/decoder cleanup, closed-launcher refusal,
+forkserver crash/recovery and the real coordinator preflight. It does not capture
+real Twitch video or change production services/configuration/data.
+
+Validation: **3,253 passed, 75 skipped, 1 expected failure** on Windows. Of the skips,
+69 are the existing missing-crop/Windows-permission cases; six exercise Linux-only
+behavior. The native Linux run (Python 3.14.4, Streamlink 8.6.2) passes **35 tests**,
+including those six, followed by the actual coordinator's successful offline preflight.
+
+### Startup benchmark
+
+`tools/benchmark_streamlink_startup.py` compares ordinary CLI startup with a Linux
+forkserver that imports Streamlink once, then creates a fresh child for each probe.
+Every child runs the same Streamlink CLI entry point. It checks support for a synthetic
+Twitch URL with `--can-handle-url-no-redirect`; it makes no Twitch requests, reads no
+playback credentials and downloads no video. It measures imports separately from
+the production pipe adapter and live network work.
+
+Run from an existing Linux capture environment:
+
+```sh
+.venv/bin/python tools/benchmark_streamlink_startup.py --count 5
+```
+
+Local Ubuntu/WSL, Python 3.12.3, Streamlink 8.6.2, five paired probes: median startup
+CPU **0.2108 → 0.0370 s** (82.4% less), wall **0.5146 → 0.1085 s**. Starting the
+preloaded server and its first child took 0.7916 s wall, paid once. The temporary
+Linux environment was removed. These are startup measurements on the workstation;
+the VPS runs Python 3.14. These are not whole-tracker savings. Native synthetic
+capture parity is verified as described above; actual Twitch CPU/cadence with the
+flag enabled remains a live-trial follow-up.
 
 ## Earlier throughput work
 

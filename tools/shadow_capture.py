@@ -341,7 +341,7 @@ def parser():
 
 
 def capture_attempt(args, source, requirements, index, *, seek=None, session_factory=ShadowSession,
-                    analyze_frame=analyze, clock=time.monotonic, resident=None, identity=None, tesseract=None):
+                    analyze_frame=analyze, clock=time.monotonic, resident=None, identity=None, tesseract=None, streamlink=None):
     """One bounded acquisition/OCR operation, shared by coordinators; resident reuses a neural worker.
 
     tesseract (a resident_tesseract.TesseractPool) serves this attempt's Tesseract calls, on this
@@ -364,7 +364,8 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
     session = None
     tick = clock()
     try:
-        session = session_factory(source, file_offset=seek or 0)
+        session = session_factory(source, file_offset=seek or 0,
+            **({'producer_factory':streamlink} if streamlink is not None and source.kind!='file' else {}))
         frame = session.frame(timeout=args.timeout, max_age=min(5, args.max_age))
         record['received_at'] = frame.received_at
         record['frame_sha256'] = hashlib.sha256(frame.png).hexdigest()

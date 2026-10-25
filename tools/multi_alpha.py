@@ -507,6 +507,8 @@ def main(argv=None):
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Search near a unique full-frame HUD for up to this long before a full rescan; 0 disables. A new competing HUD goes unseen until then')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse one neural worker process instead of starting one per attempt')
     cli.add_argument('--resident-tesseract',action='store_true',help='Reuse isolated native libtesseract worker processes (at most min(workers, 4)) instead of one tesseract CLI process per OCR call; off by default')
+    cli.add_argument('--preload-streamlink',action='store_true',default=os.environ.get('MSXP_PRELOAD_STREAMLINK')=='1',
+        help='Linux: preload Streamlink imports, keeping a fresh CLI process per capture; also MSXP_PRELOAD_STREAMLINK=1. Off by default')
     cli.add_argument('--ocr-python',type=Path,help='Reuse the existing isolated OCR Python, including at its original checkout path')
     cli.add_argument('--log-root',type=Path,help='Private root for new per-process capture directories; required for isolated live name trials')
     cli.add_argument('--character-names',action='store_true',help='Opt in to own-name evidence/holds; Twitch requires isolated live trial settings; implies --resident-neural')
@@ -516,7 +518,7 @@ def main(argv=None):
     cli.add_argument('--existing-tracker',action='store_true',
         help='Use a reviewed/adopted existing tracker config/database, including another checkout private path; required there even when automation is disabled')
     args = cli.parse_args(argv)
-    httpd = thread = None
+    httpd = thread = streamlink = None
     try:
         db_mode=args.db_roster is not None
         if args.capture_only:
@@ -554,6 +556,8 @@ def main(argv=None):
             raise ValueError('--stop-after-seconds requires continuous mode and positive finite seconds')
         if args.replay and (args.continuous or args.offline_fast_test):
             raise ValueError('Historical replay cannot use continuous/fast-test capture settings')
+        if args.replay and args.preload_streamlink:
+            raise ValueError('Preloaded Streamlink requires capture, not historical replay')
         if db_mode:
             from exp_tracker import streamer_roster as roster
             from exp_tracker.automatic_adoption import ownership as adopted_owner
@@ -616,6 +620,10 @@ def main(argv=None):
         native=None
         if not args.replay:
             configure_tesseract()
+            if args.preload_streamlink:
+                from exp_tracker.preloaded_streamlink import PreloadedStreamlink
+                streamlink=PreloadedStreamlink();streamlink.check()
+                print('Preloaded Streamlink: fresh CLI children via Linux forkserver.',flush=True)
             if args.resident_tesseract:
                 from resident_tesseract import TesseractPool, worker_command
                 preflight=TesseractPool(worker_command(),1)
@@ -688,7 +696,8 @@ def main(argv=None):
                                 source_kind=source.kind,start_reason='scheduled_rotation' if previous else 'process_start',
                                 previous_run_id=previous,offline_fast_test=args.offline_fast_test,timing_mode='real',
                                 **({'stagger_capture':True} if args.stagger_capture else {}),
-                                **({'resident_tesseract':native} if native else {}))
+                                **({'resident_tesseract':native} if native else {}),
+                                **({'preloaded_streamlink':True} if streamlink else {}))
                             if db_mode:header.update(database_roster=True,roster_revision=lane['roster_revision'])
                             lane['log'].write(json.dumps(header)+'\n'); lane['log'].flush()
                             return header
@@ -708,7 +717,7 @@ def main(argv=None):
                                     following=uuid.uuid4().hex
                                     header=shadow.configuration(lane['args'],lane['table_bytes'],lane['table'],following)
                                     old_header=json.loads(store.db.execute('SELECT configuration_json FROM diagnostic_runs WHERE run_id=?', (lane['run_id'],)).fetchone()[0])
-                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode','database_roster','roster_revision','stagger_capture','resident_tesseract') if k in old_header})
+                                    header.update({k:old_header[k] for k in ('coordinator','coordinator_instance','source_identity','source_kind','offline_fast_test','timing_mode','database_roster','roster_revision','stagger_capture','resident_tesseract','preloaded_streamlink') if k in old_header})
                                     pending={}
                                     def write(receipt, payload):
                                         handle=lane['log']
@@ -790,6 +799,7 @@ def main(argv=None):
                             def lane_options(lane):
                                 lane['options']={'resident':resident} if resident else {}
                                 if tesseract:lane['options']['tesseract']=tesseract  # Shared bounded pool; never shares a reply.
+                                if streamlink:lane['options']['streamlink']=streamlink
                                 if args.hud_cache_seconds:  # Per channel; survives rotation, not restarts.
                                     lane['options']['analyze_frame']=functools.partial(shadow.analyze,
                                         locator=shadow.CachedLocator(args.hud_cache_seconds))
@@ -864,6 +874,7 @@ def main(argv=None):
         print(f'Multi-alpha stopped: {error}',file=sys.stderr)
         return 1
     finally:
+        if streamlink:streamlink.close()
         if httpd:
             if thread and thread.is_alive():
                 httpd.shutdown(); thread.join(timeout=2)
