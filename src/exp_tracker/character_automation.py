@@ -11,7 +11,7 @@ from .diagnostic_evidence import project, consistency, full_reading, CONFIRM_GAP
 from .diagnostics import Diagnostics, HELD_ENVELOPE, encoded, identity_held
 from .jobs import match, min_level, tier
 from .manual import active
-from .models import PLACEHOLDER_CHARACTER
+from .models import PLACEHOLDER_CHARACTER, same_character_name
 from .shadow_view import observation
 from .store import utc
 
@@ -75,7 +75,7 @@ def name_evidence(record):
     if (not record.get('current') or record.get('localization', {}).get('count') != 1 or value.get('status') != 'candidate'
             or value.get('received_at') != record.get('received_at')
             or record.get('character_name', {}).get('suggestion', {}).get('latest_status') in ('duplicate_frame','out_of_order')
-            or not isinstance(name, str) or name == PLACEHOLDER_CHARACTER or not name.isascii() or not name.isalnum()
+            or not isinstance(name, str) or same_character_name(name, PLACEHOLDER_CHARACTER) or not name.isascii() or not name.isalnum()
             or not name[0:1].isalpha() or not 2 <= len(name) <= 12
             or type(score) not in (int, float) or not math.isfinite(score) or not NEURAL_SEED_SCORE <= score <= 1
             or provenance.get('layout_count') != 1 or provenance.get('search') != 'full_frame'
@@ -182,7 +182,7 @@ def guard_level(store, character, record, *, support=None):
     elif qualified and (floor is None or qualified['level'] > floor):
         prior = support or pending
         identity_supported=(floor is None or qualified['level']<=floor+1 or
-                            qualified['name']==(prior or {}).get('name')==owner['label'])
+                            same_character_name(qualified['name'], (prior or {}).get('name')) and same_character_name(qualified['name'], owner['label']))
         if prior and prior['level'] == qualified['level'] and independent(prior, qualified) and identity_supported:
             floor, proof, pending = qualified['level'], {**qualified, 'support': prior}, None
         else:
@@ -244,7 +244,7 @@ class AutonomousCharacters:
                 raise ValueError('Automatic attribution assignment changed')
             selected = self.db.execute('SELECT label FROM characters WHERE id=?', (run['character_id'],)).fetchone()[0]
             reference=record.get('character_name',{}).get('suggestion',{}).get('reference_name')
-            if reference is not None and reference!=selected:
+            if reference is not None and not same_character_name(reference, selected):
                 raise ValueError('Character identity reference changed; restart after a rename or selection')
             login = streamer['login']
             from .automatic_adoption import state, save_state
@@ -262,8 +262,8 @@ class AutonomousCharacters:
             if adopted and not adopted['verified'] and (previous or {}).get(identity_scope) != identity_tag:
                 previous = None
             current_name, prior_name = name_evidence(record), name_evidence(previous or {})
-            switch = bool(current_name and current_name['name'] != selected and prior_name
-                          and prior_name['name'] == current_name['name'] and independent(prior_name, current_name))
+            switch = bool(current_name and not same_character_name(current_name['name'], selected) and prior_name
+                          and same_character_name(prior_name['name'], current_name['name']) and independent(prior_name, current_name))
             summary = None
             target, target_session, target_run = run['character_id'], run['session_id'], run_id
             result = deepcopy(record)
@@ -272,7 +272,8 @@ class AutonomousCharacters:
                 result[identity_scope] = identity_tag
             if switch:
                 target_label = current_name['name']
-                found = self.db.execute('SELECT id FROM characters WHERE streamer_id=? AND label=?', (streamer['id'], target_label)).fetchone()
+                found = self.db.execute('SELECT id,label FROM characters WHERE streamer_id=? AND label=? COLLATE NOCASE ORDER BY id LIMIT 1', (streamer['id'], target_label)).fetchone()
+                if found:target_label = found['label']
                 count = self.db.execute('SELECT COUNT(*) FROM characters WHERE streamer_id=?', (streamer['id'],)).fetchone()[0]
                 if not found and count >= MAX_AUTOMATIC_CHARACTERS:
                     switch = False  # Keep the existing mismatch hold; this exceptional case needs an operator.
@@ -285,7 +286,7 @@ class AutonomousCharacters:
                     summary = dict(type='summary', trusted=False, attempts=count, interrupted=False,
                                    completion_reason='automatic_character_switch', next_run_id=following)
                     self.diagnostics._append(run_id, summary)
-                    target = self.store.add_character(login, target_label)
+                    target = found['id'] if found else self.store.add_character(login, target_label)
                     self.store.select_character(login, target, at=when)
                     target_session = self.store.start_session(login, at=when, expected_character_id=target)
                     configuration = dict(configuration, start_reason='automatic_character_switch',
@@ -303,9 +304,9 @@ class AutonomousCharacters:
             # A known mismatch remains a risk through unreadable frames and process restarts.
             observed = result.get('character_name', {}).get('evidence', {}).get('name')
             risk = adopted['risk'] if adopted else (previous or {}).get('automatic_identity_risk')
-            if switch or current_name and current_name['name'] == selected:
+            if switch or current_name and same_character_name(current_name['name'], selected):
                 risk = None
-            elif observed and observed != selected:
+            elif observed and not same_character_name(observed, selected):
                 risk = observed
             result['automatic_identity_risk'] = risk
             if risk and result.get('current'):
@@ -313,7 +314,7 @@ class AutonomousCharacters:
                 name['reading_hold_recommended'] = True
                 name['hold_reasons'] = list(dict.fromkeys(name.get('hold_reasons', []) + ['unresolved_name_mismatch']))
             confirmed_adoption = bool(adopted and not adopted['verified'] and (switch or
-                current_name and prior_name and current_name['name'] == prior_name['name'] == selected
+                current_name and prior_name and same_character_name(current_name['name'], prior_name['name']) and same_character_name(current_name['name'], selected)
                 and independent(prior_name, current_name)))
             if adopted and not adopted['verified'] and not confirmed_adoption and result.get('current'):
                 name = result.setdefault('character_name', {})
@@ -331,13 +332,13 @@ class AutonomousCharacters:
             self.diagnostics._append(target_run, result)
             result = json.loads(self.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE run_id=? AND attempt_index=?',
                                                (target_run, result['index'])).fetchone()[0])
-            if not switch and current_name and current_name['name'] == selected:  # A job read counts only for the named character.
+            if not switch and current_name and same_character_name(current_name['name'], selected):  # A job read counts only for the named character.
                 try:
                     confirm_job(self.store, target, result)
                 except Exception as error:  # The job is a bonus: it must never stop this capture from being saved.
                     print(f'job not recorded for character {target}: {type(error).__name__}: {error}', file=sys.stderr, flush=True)
             receipt = dict(run_id=target_run, character_id=target, session_id=target_session,
-                           name=current_name['name'] if switch else selected, switched=switch,
+                           name=target_label if switch else selected, switched=switch,
                            summary=summary, configuration=configuration if switch else None)
             if switch:
                 receipt.update(decision=result.get('automatic_selection') or original(result)['automatic_selection'],

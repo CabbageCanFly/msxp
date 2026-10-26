@@ -101,6 +101,26 @@ def test_abbAA_returns_to_existing_id_without_joining_sessions(auto):
     assert len(Diagnostics(auto[1]).snapshot('alpha')['observations'])==1
 
 
+def test_case_only_reads_keep_selected_id_even_when_a_duplicate_already_exists(auto):
+    _,store,_=auto
+    selected=store._channel('alpha')['selected_character_id']
+    duplicate=store.add_character('alpha','alpha')
+    rows=sequence(auto,['Alpha','alpha','ALPHA','aLpHa'])
+    assert all(not r['switched'] and r['character_id']==selected for r in rows)
+    assert duplicate!=selected
+    assert store.db.execute('SELECT COUNT(*) FROM characters').fetchone()[0]==2
+
+
+def test_case_insensitive_return_reuses_oldest_existing_id_and_preserves_label(auto):
+    _,store,_=auto
+    selected=store._channel('alpha')['selected_character_id']
+    store.add_character('alpha','alpha')
+    rows=sequence(auto,['Beta','BETA','alpha','ALPHA'])
+    assert [r['switched'] for r in rows]==[False,True,False,True]
+    assert rows[-1]['character_id']==selected and rows[-1]['name']=='Alpha'
+    assert store.db.execute('SELECT COUNT(*) FROM characters').fetchone()[0]==3
+
+
 def test_noise_and_unreadable_names_preserve_available_progress(auto):
     rows=sequence(auto,['Alpha','Alpha','Noise','Alpha',None,None])
     assert not any(r['switched'] for r in rows)

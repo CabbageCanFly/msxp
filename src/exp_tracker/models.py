@@ -6,6 +6,10 @@ import math
 PLACEHOLDER_CHARACTER = 'PendingOCR'  # Reserved internal identity until name verification.
 
 
+def same_character_name(left, right):
+    return isinstance(left, str) and isinstance(right, str) and left.casefold() == right.casefold()
+
+
 @dataclass(frozen=True)
 class Region:
     """Normalized rectangle in its input image; coordinates are in [0, 1]."""
