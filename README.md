@@ -1,13 +1,13 @@
-# MSXP: MapleStory Classic EXP tracker
+# msxp: MapleStory Classic EXP tracker
 
-MSXP watches MapleStory Classic streams on Twitch, reads the EXP bar from the stream,
+msxp watches MapleStory Classic streams on Twitch, reads the EXP bar from the stream,
 and turns it into a live leaderboard: EXP per hour, time to the next level, recent and daily history
 and a stream overlay for OBS. It can run for free on your own computer
 or a small server. **See it live: [msxp.pages.dev](https://msxp.pages.dev)**
 
-Nobody installs anything on the streamer's side: MSXP only watches the public stream.
+Nobody installs anything on the streamer's side: msxp only watches the public stream.
 
-![MSXP leaderboard showing player levels, EXP progress and recent EXP per hour](docs/images/leaderboard.png)
+![msxp leaderboard showing player levels, EXP progress and recent EXP per hour](docs/images/leaderboard.png)
 
 *Leaderboard with player levels, EXP progress and recent EXP/hour.*
 
@@ -225,7 +225,7 @@ Restart only the services affected by the change. The [docs index](docs/README.m
 At each stream's configured interval: grab one video frame with Streamlink and FFmpeg, find the game's
 status bar, read level and EXP with Tesseract and RapidOCR, and accept the reading only when the
 numbers pass its checks. Readings go into SQLite, and a read-only web server turns them into the
-leaderboard, history charts and overlays. When a reading is uncertain, MSXP rejects it and keeps
+leaderboard, history charts and overlays. When a reading is uncertain, msxp rejects it and keeps
 the last good one rather than guessing. The [docs index](docs/README.md) covers the design, accuracy tests and operations;
 the previous, longer README is [here](docs/legacy-readme.md).
 
