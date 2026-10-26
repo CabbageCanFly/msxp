@@ -5,6 +5,10 @@ history per character: Alpha → Beta → Alpha reuses Alpha). `/stream/CHANNEL`
 visitors browse every saved character. Selection on the page is **view-only**: the
 database's selected character is changed only by automatic OCR (or an operator).
 
+Automatic name matching ignores capitalization while preserving saved display labels.
+Case-only OCR changes keep the selected ID. Switching back reuses the oldest matching
+ID for that streamer; existing case-variant duplicates and their histories are not merged.
+
 ## Page
 
 - With **two or more** saved characters, a one-row strip appears under the name: name,

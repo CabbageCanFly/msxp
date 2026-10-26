@@ -10,7 +10,7 @@ import time
 from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS, WRAP_FROM_BP, WRAP_TO_BP
 from exp_tracker.exp_consistency import MODES, assess, displayed_bp
 from exp_tracker.jobs import match, next_level, tier
-from exp_tracker.models import Reading
+from exp_tracker.models import Reading, same_character_name
 from exp_tracker.validation import Observation, validate_transition
 from character_name_ocr import clean_name_crop, job_region, name_region, name_text, second_look
 
@@ -51,7 +51,7 @@ class IdentitySuggestions:
     def select(self, name, at, *, source='operator_confirmed'):
         """Integration boundary: call only after the Store selection/session transaction commits."""
         if self.pending_switch:
-            self._resolve('confirmed' if self.pending_switch['name'] == name else 'superseded', at,
+            self._resolve('confirmed' if same_character_name(self.pending_switch['name'], name) else 'superseded', at,
                           'operator_selection' if source=='operator_confirmed' else source)
         self.confirmed, self.proposed, self.proposed_evidence, self.streak = name, None, [], []
         self.confirmation_source = source
@@ -91,20 +91,20 @@ class IdentitySuggestions:
                 self.streak = []
             else:
                 name = evidence['name']
-                if name == self.reference:
+                if same_character_name(name, self.reference):
                     self.reference_seen_at = when
-                if pending and name == pending['name']:
+                if pending and same_character_name(name, pending['name']):
                     pending['last_seen_at'] = evidence['received_at']
-                if self.streak and self.streak[-1]['name'] != name:
+                if self.streak and not same_character_name(self.streak[-1]['name'], name):
                     self.streak = []
                 reference = {k: evidence[k] for k in ('name', 'pixel_sha256', 'received_at', 'box', 'score')}
                 self.streak = (self.streak + [reference])[-2:]
                 if len(self.streak) == 2:
-                    if self.reference is None or name == self.reference:
+                    if self.reference is None or same_character_name(name, self.reference):
                         if pending:
                             self._resolve('superseded', evidence['received_at'], name)
                         self.proposed, self.proposed_evidence = name, list(self.streak)
-                    elif pending and name == pending['name']:
+                    elif pending and same_character_name(name, pending['name']):
                         pending['evidence'] = list(self.streak)
                     else:
                         if pending:
@@ -205,7 +205,7 @@ class IdentityCapture:
                                         frame_sequence=frame.sequence, owner_verified=False))
         numeric = self.numeric_check(result, frame.received_at, requirements)
         needs_confirmation = self.suggestions.reference is None or bool(self.suggestions.streak and
-            self.suggestions.streak[-1]['name'] != self.suggestions.reference)
+            not same_character_name(self.suggestions.streak[-1]['name'], self.suggestions.reference))
         due = (self.last_check is None or started - self.last_check >= self.interval
                or numeric['check_now'] or needs_confirmation)
         evidence['verification_reason'] = ('numeric_event' if numeric['check_now'] else
@@ -233,10 +233,10 @@ class IdentityCapture:
                 crop = image.crop(region['box'])
                 response = read_name(clean_name_crop(crop)); read = parsed(response)
                 reference = self.suggestions.reference
-                if reference and (read or (0, None))[1] != reference:
-                    # Only an exact match with the current character replaces the plain read.
+                if reference and not same_character_name((read or (0, None))[1], reference):
+                    # Only a matching current-character name replaces the plain read.
                     second = read_name(second_look(crop))
-                    if (parsed(second) or (0, None))[1] == reference:
+                    if same_character_name((parsed(second) or (0, None))[1], reference):
                         evidence['first_read'] = dict(text=response.get('text'), score=read and read[0])
                         response, read = second, parsed(second)
                 evidence['raw'] = response
@@ -261,8 +261,8 @@ class IdentityCapture:
         else:
             suggestion = self.suggestions.observe(evidence)
         reference, observed, pending = suggestion['reference_name'], evidence['name'], suggestion['pending_switch']
-        mismatch = bool(observed and reference and observed != reference)
-        verified = bool(observed and observed == reference)
+        mismatch = bool(observed and reference and not same_character_name(observed, reference))
+        verified = bool(observed and same_character_name(observed, reference))
         conflict = dict(reference_name=reference, reference_source=suggestion['reference_source'],
                         observed_name=observed if mismatch else None,
                         pending_name=pending['name'] if pending else None) if mismatch or pending else None

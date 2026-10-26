@@ -34,6 +34,25 @@ def test_stable_identity_and_repeated_switch_never_replace_initial_proposal():
     assert result['trusted'] is False
 
 
+def test_capitalization_changes_are_one_identity_without_mismatch_holds():
+    state = IdentityCapture('channel', confirmed='Alpha')
+    for index, name in enumerate(['alpha', 'ALPHA', 'aLpHa']):
+        result = inspect(state, index, name)
+        assert result['identity_conflict'] is None
+        assert not result['reading_hold_recommended']
+        assert result['suggestion']['pending_switch'] is None
+        assert result['suggestion']['confirmed_name'] == 'Alpha'
+
+
+def test_discovery_and_real_switch_confirm_across_capitalization_changes():
+    state = IdentitySuggestions('channel')
+    state.observe(evidence(0, 'Alpha'))
+    assert state.observe(evidence(1, 'alpha'))['proposed_name'] == 'alpha'
+    state.observe(evidence(2, 'Beta'))
+    pending = state.observe(evidence(3, 'BETA'))['pending_switch']
+    assert pending['name'] == 'BETA' and len(pending['evidence']) == 2
+
+
 def test_missing_conflicting_and_old_frames_cannot_complete_a_switch():
     state = IdentitySuggestions('channel')
     for i in range(2): state.observe(evidence(i))
