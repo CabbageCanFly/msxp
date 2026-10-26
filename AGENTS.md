@@ -21,6 +21,9 @@ until measurements establish a need for more infrastructure.
 - Keep OBS credentials on the streamer's machine and separate capture authorization
   from public, read-only overlay URLs. No disabling browser security to make capture work.
 - No provisioning, purchases, publishing or pushing without explicit authorization.
+- SSH access is limited to read-only, non-confidential files unless the user explicitly
+  authorizes a specific remote action. Never start, stop or restart services, run cleanup,
+  deploy, or change remote files/settings based on a question or implied permission.
 - Use Conventional Commits for logical local milestones. Do not add frameworks or
   services to this feasibility milestone. Document measured and untested behavior separately.
 

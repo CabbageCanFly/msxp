@@ -82,8 +82,9 @@ a malformed value. The origin is fixed at build time; no URL parameter can chang
 every script, stylesheet, font, image and frame from the Pages origin and send network
 requests only there and to the API.
 
-The Caddy allowlist (`deploy/Caddyfile`) already exposes exactly the three GET routes the
-frontend uses, and the tracker must run with `--cors-origin https://msxp.pages.dev`
+The Caddy allowlist (`deploy/Caddyfile`) already covers the player GET routes, including
+`/api/players/{channel}/daily-history`; no proxy change is needed for that endpoint.
+The tracker must run with `--cors-origin https://msxp.pages.dev`
 (see [VPS deployment](vps-deployment.md#api-contract-for-the-frontend)). Requests are
 CORS-simple GETs, so no preflight is needed.
 

@@ -1,5 +1,5 @@
 # Public read-only JSON API for the separately hosted frontend (Cloudflare Pages).
-# Only GET /api/players, /api/players/{channel} and /api/players/{channel}/history
+# Only GET /api/players and its player/history/daily-history routes
 # reach the tracker. Pages, developer diagnostics and the local admin server (8766)
 # are never proxied. CORS is answered by the tracker itself (--cors-origin), on every
 # response including errors, so it is not repeated here.
