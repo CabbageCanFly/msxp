@@ -1,6 +1,13 @@
-# Local simulated leaderboard
+# Demo previews
 
-The existing localhost-only server now serves **`/demo/leaderboard`**. This is a
+Use `msxp demo` for the current interactive site: fictional players, character rosters,
+overlays and daily History in **EXP progress**. It runs in the current terminal and
+cleans up its temporary database and servers with Ctrl+C. See the
+[preview guide](website-background.md#preview-and-tune) for ports, live edits and worktrees.
+
+## Legacy standalone leaderboard
+
+The separate localhost route **`/demo/leaderboard`** is an older
 read-only design preview with eight fictional characters. All ranks, channels,
 statuses, readings and gains are explicitly **SIMULATED**. The page has no fetch,
 polling, external assets, Twitch links or real leaderboard endpoint. It does not

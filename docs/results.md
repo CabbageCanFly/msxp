@@ -1,7 +1,7 @@
 # Verified results and known limits
 
 This page records the original screenshot prototype. Later remote capture results
-are in [live-capture.md](live-capture.md); the latest recognition comparison is in
+are in [live-capture.md](live-capture.md); its recognition follow-up is in
 [ocr-reliability.md](ocr-reliability.md). Acquisition boundaries and next steps
 below are historical, not the current implementation status.
 
@@ -107,21 +107,4 @@ lock is denied by this session's protected `.git` permissions. Nothing was pushe
 No remote screenshot acquisition is claimed to work. Follow
 [acquisition.md](acquisition.md) for executable probes and manual trials.
 
-## Needed input and next session
-
-No secrets are needed to rerun the offline tests. For the acquisition decision,
-run the OBS probe with your OBS version/OS and an exact game input name, or run a
-15-minute thumbnail probe using your own Twitch app credentials. Share redacted
-metrics and observed behavior; do not share passwords/tokens. A small set of
-consented HUD crops from changing EXP, a scene switch and obscured HUD periods
-would be more useful than more full screenshots.
-
-Suggested next prompt:
-
-> Continue from docs/results.md and docs/acquisition.md. Help me run one real
-> acquisition trial before building a service. Compare frame freshness and OCR
-> accuracy over 15 minutes, including missing HUD and scene-switch periods, and
-> record CPU/memory/bandwidth where possible. Keep OBS credentials local, upload
-> no full frames, and do not deploy. Based on the evidence, recommend the capture
-> path and the smallest local SQLite tracking-loop milestone with explicit
-> character selection and visible paused segments.
+Current follow-up work is listed only in the README's [Next improvements](../README.md#next-improvements).

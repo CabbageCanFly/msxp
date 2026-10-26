@@ -1,7 +1,7 @@
 # MSXP: MapleStory Classic EXP tracker
 
 MSXP watches MapleStory Classic streams on Twitch, reads the EXP bar from the stream,
-and turns it into a live leaderboard: EXP per hour, time to the next level, 24-hour history
+and turns it into a live leaderboard: EXP per hour, time to the next level, recent and daily history
 and a stream overlay for OBS. It can run for free on your own computer
 or a small server. **See it live: [msxp.pages.dev](https://msxp.pages.dev)**
 
@@ -50,7 +50,7 @@ browser on a leaderboard with made-up players.
 5. **Add the overlay to OBS:** open the streamer's page on your leaderboard, pick a style under
    the overlay builder, click **Copy URL**, and follow **How do I add this to OBS?** right there.
 
-Want the leaderboard to show who is live? Add free Twitch app keys to `.env` (next section).
+Want the leaderboard to show who is live? Add free Twitch app keys to `.env` ([settings](#settings-and-secrets)).
 With those keys, continuous tracking also checks live status and category about once a minute,
 skipping playback while a stream is confirmed offline or outside MapleStory. Unknown or expired
 status allows capture. `--any-category` permits other live categories while still skipping offline streams.
@@ -87,10 +87,10 @@ Existing VPS roster services already enable it. See [results and rollback](docs/
 | `msxp logs` | Follow or browse logs; filter by time or text (on a server: `tracker`, `api` or `cleanup`) |
 | `msxp sql` | Open the configured database in a read-only SQLite shell; optionally supply a quoted SQL query |
 | `msxp server ...` | Runs any command on your server over SSH (see [Put it online](#put-it-online)) |
+| `msxp help` | This list, plus where your settings live |
 
 In a `git worktree` without its own `.venv`, msxp uses the main checkout's Python and OCR
 environments (`msxp where` shows which) while still running the worktree's code.
-| `msxp help` | This list, plus where your settings live |
 
 Tool wrappers print the command they run and pass extra options to their underlying project tool
 (for example `msxp tracker --check` only checks, without capturing). Logs and SQL use the options below.
@@ -199,9 +199,10 @@ project's `.env` override these files. Check `msxp where` or the path printed by
 | `msxp server doctor` | Checks the server's setup |
 
 The admin page and dashboard are never exposed to the internet: they only listen on the server
-itself, and the tunnel brings them to your computer. The dashboard adds some CPU load while it is open. **Updating the server** after you push changes:
-`ssh root@your-server "cd /opt/msxp/app && git pull --ff-only && systemctl restart msxp-api msxp-tracker"`.
-The [docs index](docs/README.md) lists the deeper server guides.
+itself, and the tunnel brings them to your computer. The dashboard adds some CPU load while it is open.
+For server updates, use the [separate API/capture service guide](docs/restart-recovery.md) and
+[retention instructions](docs/24h-retention.md#updating-the-historical-feature-and-resuming-a-paused-vps-timer).
+Restart only the services affected by the change. The [docs index](docs/README.md) lists the deeper guides.
 
 ## When something is off
 
@@ -214,13 +215,12 @@ The [docs index](docs/README.md) lists the deeper server guides.
 
 ## Next improvements
 
-- [ ] Show historical level and EXP beyond 24 hours.
 - [ ] Add site-wide player stats: average level, class/job counts, EXP and daily rates by class and level range; explore Twitch streamer stats.
 - [ ] Revisit deferred OCR work: [obscured LV labels and localization timeouts](docs/stationary-level-up.md#todo-deferred-obscured-lv-labels-and-localization-timeouts).
 
 ## How it works
 
-Every 20 seconds per stream: grab one video frame with Streamlink and FFmpeg, find the game's
+At each stream's configured interval: grab one video frame with Streamlink and FFmpeg, find the game's
 status bar, read level and EXP with Tesseract and RapidOCR, and accept the reading only when the
 numbers pass its checks. Readings go into SQLite, and a read-only web server turns them into the
 leaderboard, history charts and overlays. When a reading is uncertain, MSXP rejects it and keeps

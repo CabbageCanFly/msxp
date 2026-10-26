@@ -1,22 +1,9 @@
-# Small service design after the feasibility prototype
+# Early service proposal (archive)
 
-Remote Streamlink/FFmpeg capture has passed a short authorized trial with zero
-streamer setup; see [live-capture.md](live-capture.md). Optional calibrated glyph
-matching improves saved live crops to 17/18 correct accepted readings; see
-[ocr-reliability.md](ocr-reliability.md). [Consolidated calibration and trust
-rules](ocr-consolidation.md) now support starting the local SQLite engine.
-The [SQLite engine](tracking.md) and [local read-only API/OBS overlay](overlay.md)
-are now implemented. The rest of this document remains a service proposal.
-
-The local [multi-stream alpha](multi-alpha.md) reuses shadow capture, separate SQLite
-diagnostics and the read-only server for sequential 2–25-channel operation.
-Its directory and displayed-percentage progress remain unverified, with no neural
-promotion into the trusted Store. The hosted design below remains a proposal.
-The [continuous local guide](continuous-alpha.md) documents rotation, history and
-capacity limits; configured channel count does not establish sustainable cadence.
-
-Public hosting, accounts, a write API and production operation remain proposals;
-the current overlay runs only on localhost with an existing tracking database.
+This pre-deployment proposal is preserved as design history. Its upload service,
+future milestones and trust/rate rules are not the current implementation.
+For current operation, use the [README](../README.md), [VPS roster runbook](vps-roster-rollout.md),
+[separate API/capture guide](restart-recovery.md) and [retention guide](24h-retention.md).
 
 ## Acquisition and service boundary
 

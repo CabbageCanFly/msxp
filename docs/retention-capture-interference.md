@@ -1,7 +1,7 @@
 # Retention without missed captures
 
-Investigation, 2026-10-22. Retention is **off** again on the local tracker; nothing here is
-deployed. Companion to [24h-retention.md](24h-retention.md).
+Investigation, 2026-10-22. Measurements and rollout notes describe that milestone;
+use [24h-retention.md](24h-retention.md) for current operation and timeout settings.
 
 ## Outcome (implemented)
 

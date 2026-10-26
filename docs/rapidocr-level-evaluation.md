@@ -11,7 +11,7 @@ all 11**, without S-to-5 substitution. No method was integrated or promoted to t
 `private/rapidocr-levels/plan.json` existed before new OCR. Selection was fixed:
 
 - All 24 frozen two-stream attempts: A at level 63 and B at level 51, including
-  the two absent level crops. References are James/ChatGPT-assisted, not independent
+  the two absent level crops. References are maintainer/ChatGPT-assisted, not independent
   expert adjudication; neighboring frames and repeated levels are correlated.
 - All 24 user-transcribed blinded-review frames, six from each original/Stream 2/
   Stream 3 windowed/Stream 3 large category. Labels were previously frozen before

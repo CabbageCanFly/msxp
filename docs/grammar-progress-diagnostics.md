@@ -12,7 +12,7 @@ documented below retain their original rules and evidence.
 No acceptance policy changes. Strict full-pair/percentage-only parsers, models,
 thresholds, shadow capture/viewer, production recognition, Store, statistics,
 OBS overlay and leaderboard remain unchanged. The two-stream reviewed trial is
-exploratory development evidence with James/ChatGPT-assisted references, not a new
+exploratory development evidence with maintainer/ChatGPT-assisted references, not a new
 independent holdout. Main-HUD/character identity remains unverified.
 
 ## Fixed grammar experiment

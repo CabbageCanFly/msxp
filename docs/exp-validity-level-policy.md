@@ -58,7 +58,7 @@ policy. No character identity, automatic level-up or maximum EXP-rate rule is in
 Input: `private/local-alpha/runs/streamer_a-20261017T195421Z-8fa57aab/capture.jsonl`.
 Database: `private/product-preview/streamer_a-manual-01.sqlite3`, containing these 30
 attempts plus one earlier failed attempt. User-confirmed level 65 is evaluation
-context only. James confirmed no source crops were saved; glyphs cannot be reviewed.
+context only. the maintainer confirmed no source crops were saved; glyphs cannot be reviewed.
 
 | Specified 30-attempt run | Before | After |
 |---|---:|---:|
@@ -88,7 +88,7 @@ Small substitutions remain undetectable: both 74,050 and 74,059 / 25.17% at leve
 40 survive nearest rounding. Existing 2345/92.74% level-6 and 1241/99.82% level-9
 negatives fail both. We cannot claim zero numeric errors without source pixels.
 
-Older unchanged shared-worker replays are familiar James/ChatGPT-assisted evidence:
+Older unchanged shared-worker replays are familiar maintainer/ChatGPT-assisted evidence:
 A/63 goes from 8 to 9 progress-eligible attempts (11 selected correct levels);
 B/51 goes from 0 to 8 (8 selected correct, zero selected wrong). B waits after
 initial capture, an excessive gap and a missing HUD. Genuine reviewed **level-50**

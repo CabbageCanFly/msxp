@@ -1,9 +1,8 @@
 # 24-hour granular-data retention
 
-Implemented on `feat/24h-retention`; not deployed or run against live data.
-The Windows production database remains untouched. The successful VPS capture/API
-trial predates this feature; the production tracker service is not yet enabled.
-Validation here uses disposable synthetic data only.
+Retention runs in a separate worker; the daily VPS timer is opt-in. See
+[operation and reporting](#operation-and-reporting) for commands, budgets and completion checks.
+Validation sections below record the fixtures and versions measured at each milestone.
 
 ## Why additional state is necessary
 
@@ -16,16 +15,14 @@ trusted invalidation also replays original accepted/baseline observations;
 
 Schema **8** adds `retention_state`, `trusted_checkpoints` and `retention_meta`.
 Schema **9** adds `daily_character_exp`. Both migrations are additive and do
-**not** prune or generate snapshots. Update every reader, writer and admin
-installation before enabling retention. Readers still accept schemas 3–8
-without migrating them. Existing schema-8 copies upgrade through the separate
-schema-9 migration; older code cannot open a schema-9 database.
+**not** prune or generate snapshots. Later roster migrations are described in
+[database-managed streamers](database-streamer-roster.md). Update readers, writers and
+admin tools together before enabling retention; older binaries may reject newer schemas.
+HTTP readers never migrate databases.
 
-Maintenance checkpoints a chronological prefix of complete runs and removes its
-raw attempts in one transaction. Only the owning coordinator may also expire
-abandoned unfinished runs: it holds the existing ownership lease and supplies
-actual active run IDs. Standalone maintenance protects unfinished runs.
-Retention never infers identity or changes OCR recognition rules.
+Maintenance checkpoints a chronological run prefix and removes its raw attempts
+in one transaction. The newest unfinished run per streamer is protected; older
+unfinished runs can expire. Retention never infers identity or changes OCR rules.
 
 | Data | Retention |
 |---|---|
@@ -40,13 +37,11 @@ Retention never infers identity or changes OCR recognition rules.
 | Corrections, renames, invalidation batches/memberships/commits | Append-only audit preserved |
 | Capture/operator JSONL and saved OCR crops | Owned, inactive, expired files only |
 
-The cutoff is **24h + 5m**, allowing existing causal warmup. A run crossing it stays
-intact (at most 60 attempts). The VPS timer runs maintenance once a day, so expired data can wait
-up to a further day before it is folded. At the usual 20s cadence the
-allowance is approximately 25h25m; at the supported 300s maximum it can approach
-30h05m. Active runs are always protected. Backlogs advance at most 200 runs per
-transaction; batch-limited sweeps repeat after 60 seconds. Reports identify each batch. Late/misordered runs can hold
-back a prefix and are not silently skipped.
+The cutoff is **24h + 5m**, allowing existing causal warmup. Runs crossing the cutoff
+and protected unfinished runs stay intact. The daily timer can leave another day's
+expired data before the next pass; a backlog can take longer. Batch sizes and budgets
+are described under [operation and reporting](#operation-and-reporting). Late/misordered
+runs can hold back a prefix and are not silently skipped.
 
 Retained 5/10/15/30/60-minute and 24-hour calculations use the existing endpoint,
 level-up and real-timestamp rules. The checkpoint preserves inference/quarantine
@@ -125,8 +120,7 @@ integer EXP as strings and omit raw OCR. The frontend bypasses HTTP cache on its
 one request so a browser refresh obtains current data. Legacy level-less rows are
 omitted; missing EXP fields are derived at read time without rewriting the database.
 Archived points can still change as cleanup catches up. Databases older than schema 9
-return `available: false` without migrating. The existing approximately 25–30-hour
-run-boundary allowance is unchanged.
+return `available: false` without migrating. Run-boundary and protected-run allowances still apply.
 
 Example footprint: an isolated in-memory SQLite measurement with **25 characters
 observed every day for 365 days** stored **9,125 rows**, using **1,073,152 additional
@@ -233,7 +227,14 @@ the updated frontend from `main`; the new History endpoint requires the updated 
 The next retention process loads the stricter level-required snapshot rule.
 
 An existing `systemctl edit msxp-retention.service` override survives `git pull`.
-For the reviewed one-hour budget it contains:
+The shipped unit allows 15 minutes of work with a 20-minute systemd timeout.
+For the reviewed **one-hour** budget, edit the service:
+
+```bash
+sudo systemctl edit msxp-retention.service
+```
+
+Replace its existing `ExecStart` and timeout overrides with:
 
 ```ini
 [Service]
@@ -242,19 +243,28 @@ ExecStart=/opt/msxp/app/.venv/bin/python -m exp_tracker.retention --db ${MSXP_DA
 TimeoutStartSec=75min
 ```
 
-If changing that override, run `sudo systemctl daemon-reload`. Otherwise no unit reload
-or reconfiguration is needed. Verify the effective `ExecStart` contains `3600` and
-`TimeoutStartUSec` is `1h 15min`, then resume the timer:
+This also replaces a temporary several-hour catch-up budget. `--max-seconds` asks
+the worker to finish its current batch and exit; `TimeoutStartSec` is systemd's outer
+limit and leaves time for final cleanup. These are ceilings: a complete pass exits early.
+
+After saving, reload and verify `3600` and `1h 15min`:
 
 ```bash
-sudo systemctl restart msxp-api.service
+sudo systemctl daemon-reload
 systemctl show msxp-retention.service -p ExecStart -p TimeoutStartUSec
+```
+
+Budget changes need no service restart; the next pass uses them. When deploying the
+historical API changes, restart `msxp-api.service`. If the daily timer was paused, resume it:
+
+```bash
 sudo systemctl enable --now msxp-retention.timer
 ```
 
 To start a catch-up pass immediately as well, explicitly run
 `sudo systemctl start --no-block msxp-retention.service`. Review its final JSON summary:
-exit 0 does not establish catch-up; `complete: true` does. Existing legacy daily rows
+exit 0 does not establish catch-up; `complete: true` does. The timer does not start a
+second instance while the same service is running. Existing legacy daily rows
 without levels are hidden by the historical API; restarting does not recover raw
 observations already pruned by older code. These are operator-run instructions;
 agents must not execute remote mutations without explicit authorization.

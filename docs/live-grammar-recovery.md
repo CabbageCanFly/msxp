@@ -45,7 +45,7 @@ Source completeness is otherwise **unknown**, not established by text grammar.
 ## Saved 30-attempt Streamer_A run
 
 Input: `private/local-alpha/runs/streamer_a-20261017T073930Z-986495bd/`.
-James acquired 30 frames at seven-second cadence, with 30 unique HUD regions and
+The maintainer acquired 30 frames at seven-second cadence, with 30 unique HUD regions and
 30 persisted attempts. No new capture or OCR inference was run here.
 
 | Classification | Count / 30 | Attempts |
@@ -64,7 +64,7 @@ one edit, twelve use two and three use three.
 Prediction-free native-RGB/nearest-neighbor sheets were visually transcribed by
 Codex after raw OCR exposure, before evaluating the new policy. All seven strict
 pairs and nineteen proposals agree with those provisional transcriptions. This is
-**not blinded or independently human-verified accuracy**. James supplied the
+**not blinded or independently human-verified accuracy**. the maintainer supplied the
 clipping findings; no full EXP is assigned to attempts 21/24. Native crops alone
 cannot establish the intended main-character identity.
 
@@ -167,6 +167,6 @@ renderer/browser tests; diagnostic persistence tests; existing grammar tool
 re-export and documentation. No capture, model, strict-parser, Store, schema,
 percentage-progress or trusted-overlay changes. No commits, pushes or deployment.
 
-Next: James reviews the nineteen hypotheses and ambiguous native percentage at 27,
+Next: the maintainer reviews the nineteen hypotheses and ambiguous native percentage at 27,
 then obtain genuinely independent punctuation/numeric negatives before considering
 an acceptance gate. Do not count grammar agreement as pixel or temporal verification.

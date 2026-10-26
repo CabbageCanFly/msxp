@@ -75,7 +75,7 @@ prove that a complete tile group was present: `source_complete` stays unknown.
 
 Reused the fixed 52 entries from [the isolated level experiment](rapidocr-level-evaluation.md):
 50 available crops, two missing. This is familiar development data, not an
-independent holdout. References retain James/ChatGPT-assisted provenance; the two
+independent holdout. References retain maintainer/ChatGPT-assisted provenance; the two
 historical original-recording errors remain separately Codex-provisional.
 
 The actual `neural_line` subprocess bridge and updated stdin interface were used,
@@ -172,7 +172,7 @@ constructed, not new genuine obstructed-stream holdouts. Seek new permitted sour
 examples of real 50 and 51, partial/obstructed tiles and varied raster geometries.
 Do not infer their level from the EXP table or prime the blinded reviewer with it.
 
-For each new consenting stream, James can run **30 attempts** (~7.5 minutes) or
+For each new consenting stream, the maintainer can run **30 attempts** (~7.5 minutes) or
 explicitly raise to **60** (~15 minutes), retaining every failure:
 
 ```powershell

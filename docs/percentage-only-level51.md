@@ -53,7 +53,7 @@ A supplied percentage-only object that contradicts raw syntax is rejected.
 
 ## Saved two-stream replay
 
-References: James's transcriptions with ChatGPT assistance; not independently
+References: the maintainer's transcriptions with ChatGPT assistance; not independently
 blinded expert adjudication. All 24 scheduled attempts remain in the denominator.
 The original `private/reliability/review-01/evaluation.json` is unchanged.
 

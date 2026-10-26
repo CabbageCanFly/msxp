@@ -134,7 +134,7 @@ from Streamlink, not total network traffic; it is zero for file capture.
 
 Fifteen-second operation fit this three-attempt local run. Twitch startup latency,
 bandwidth, denial/offline behavior, long trials, Linux/VPS performance and parallel
-channels remain unmeasured here. No new livestream trial was run. Next: James can
+channels remain unmeasured here. No new livestream trial was run. Next: the maintainer can
 run the short authorized command above and review crop identity, timestamps,
 numerical outputs and resources before proposing any production acceptance policy.
 

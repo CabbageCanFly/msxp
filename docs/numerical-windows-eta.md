@@ -42,7 +42,7 @@ intervals remain useful. At 23 the five-minute endpoint replay goes from
 9 readings / 218.746s / ~220,118 EXP/hour to 11 readings / 244.684s /
 ~222,811 EXP/hour. These are experimental estimates, not independently verified gains.
 
-James's supplied visual correction, 660,978 / 37.60%, is evaluation evidence only.
+The maintainer's supplied visual correction, 660,978 / 37.60%, is evaluation evidence only.
 It is not substituted into any observation. The community level-67 requirement
 remains 1,757,815 with unverified build applicability. An incorrect nearby integer
 such as 660,979 / 37.60% still passes arithmetic: consistency cannot verify digits.

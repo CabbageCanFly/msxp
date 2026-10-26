@@ -147,7 +147,7 @@ Where it is unreliable:
 Name OCR adds ≈0.1 CPU-s per attempt over the calibration runs. The model was not
 re-tuned for this experiment.
 
-## VPS A/B benchmark (operator-run; not run by Claude)
+## VPS A/B benchmark (operator-run)
 
 Same isolated checkout and transient-unit sandbox as the 2026-10-20 runs. All four runs
 share these settings:

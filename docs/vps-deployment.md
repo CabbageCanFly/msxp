@@ -9,15 +9,16 @@ The public frontend is hosted separately on Cloudflare Pages (`https://msxp.page
 The VPS runs Twitch capture, OCR, SQLite, EXP calculations, background publishing and a
 read-only HTTPS JSON API. Background: [VPS readiness](vps-readiness.md).
 The frontend build and Pages settings are in [Cloudflare Pages frontend](cloudflare-pages-deployment.md).
-The backend has passed the separate Ubuntu 26.04 VPS capture/API trial. The
-Windows production DB has not been migrated and the VPS production tracker service
-is not yet enabled. The [24-hour retention changes](24h-retention.md) have not been deployed.
+The original Ubuntu 26.04 capture/API trial and installation steps below are historical.
+Use the roster runbook above, [separate API/capture services](restart-recovery.md) and
+[retention guide](24h-retention.md) for subsequent setup and updates. These docs do not
+establish the current state of any running server.
 
 ```
 browser ── https://msxp.pages.dev (Cloudflare Pages: HTML/JS/CSS, tools/export_pages.py)
    │ fetch, simple GET, no credentials
    ▼
-Caddy :443 (TLS, HSTS, gzip/zstd) ── only GET /api/players[/{ch}[/history]]
+Caddy :443 (TLS, HSTS, gzip/zstd) ── only GET /api/players and /api/players/*
    ▼
 multi_alpha --public-only --cors-origin https://msxp.pages.dev   127.0.0.1:8765
    capture + OCR workers ─► SQLite (WAL) ◄─ background publisher ─► public JSON
@@ -34,6 +35,7 @@ Unchanged from the same-origin product. Base URL `https://API_HOSTNAME`.
 | `GET /api/players/{ch}` | `player`, `history`, `tracked_history`, `history_revision`, `tracked_revision`, `truncated`, `served_at`, `experimental`, `poll_seconds` |
 | `GET /api/players/{ch}?history=H&tracked=T` | As above, omitting `history` / `tracked_history` while the page holds exactly those revisions ([conditional history](vps-readiness.md#conditional-character-history)) |
 | `GET /api/players/{ch}/history` | The tracked packet plus `served_at` |
+| `GET /api/players/{ch}/daily-history?character=ID&days=365` | Compact daily progress; [contract and limits](24h-retention.md#daily-character-snapshots) |
 
 Errors are JSON with an `error` field:
 

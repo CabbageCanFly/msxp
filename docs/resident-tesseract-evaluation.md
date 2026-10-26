@@ -300,7 +300,7 @@ It changes no threshold, parser, trust rule or attribution. Before any integrati
   worker, and real-Tesseract parity and no-leak tests. These are marked `ocr` and skip
   without libtesseract.
 
-## 10. Ubuntu offline benchmark (operator-run; not run by Claude)
+## 10. Ubuntu offline benchmark (operator-run)
 
 These commands **never stop, start or change a production unit**. They only check that
 `msxp-tracker.service`, `msxp-backup.timer` and `msxp-backup.service` are inactive, and they

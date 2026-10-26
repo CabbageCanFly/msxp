@@ -118,7 +118,7 @@ visual levels and both arithmetic candidate sets against the original file.
 All matched: **12 pairs, 4 visual levels, 8 unavailable visual levels**. No value was
 filled or repaired. The input SHA-256 remained unchanged. This is functionality
 verification, not a new accuracy benchmark. See the corrected
-[review provenance](test-shadow-diagnostic.md): James ran capture; later crop
+[review provenance](test-shadow-diagnostic.md): the maintainer ran capture; later crop
 inspection was ChatGPT-assisted, not independently blinded human adjudication.
 
 Private artifacts in `artifacts/shadow-view/`:

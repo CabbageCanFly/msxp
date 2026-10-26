@@ -1,14 +1,14 @@
 # Continuous local tracking and history
 
-The [24-hour retention feature](24h-retention.md) supersedes this guide's original
-unbounded archive policy. The proposed VPS unit enables `--retention-24h` for
-continuous capture, including private logs/crops; see its checkpoint, admin and
-snapshot limits before enabling it. Migration alone never prunes.
+The [separate retention worker](24h-retention.md#operation-and-reporting) supersedes
+this guide's original unbounded archive policy. The coordinator rejects the removed
+`--retention-24h` option. Retention and its daily VPS timer are enabled separately;
+migration alone never prunes.
 
 The multi-alpha coordinator supports **1–25 explicit assignments**, bounded mode
 and opt-in continuous capture. By default one acquisition/OCR job runs at a time, with
 one shared database and localhost server; `--workers 2..8` runs that many, one per
-channel, while rotation, SQLite writes and `--retention-24h` maintenance stay on the
+channel, while rotation and capture SQLite writes stay on the
 coordinator thread ([capture performance](capture-performance.md)). All neural/grammar evidence and percentage
 progress remain **EXPERIMENTAL / UNVERIFIED**. No OCR rule/model, EXP requirement,
 trusted ingestion, accounting, OBS overlay or leaderboard behavior was changed.
@@ -227,7 +227,7 @@ node --test tools/shadow.test.mjs tools/streams.test.mjs tools/overlay.test.mjs 
 .\.venv\Scripts\python tools/benchmark_diagnostic_history.py --directory private/continuous-alpha/history-next --attempts-per-channel 12000
 ```
 
-Next: James can configure **two authorized Twitch sources**, first use `--check`,
+Next: the maintainer can configure **two authorized Twitch sources**, first use `--check`,
 then conduct a bounded 12-attempt/15–30s trial. Inspect achieved cadence, failures,
 memory, both dashboards and frozen human review. After that, explicitly choose a
 continuous stop duration. Do not promise 25-channel cadence or promote neural

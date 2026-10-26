@@ -243,5 +243,5 @@ The fresh capture/estimate screenshots remain in `browser-e2e-03/`.
 - `README.md`, `docs/multi-alpha.md`, this guide: startup and route documentation.
 
 No schema/accounting/capture/grammar/model changes, commits, pushes or deployment.
-Remaining practical check: James tests the new Browser Source in OBS and then
+Remaining practical check: the maintainer tests the new Browser Source in OBS and then
 runs a bounded, explicitly permitted one- or two-stream coordinator trial.

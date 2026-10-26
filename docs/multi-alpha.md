@@ -194,7 +194,7 @@ startup and are not a VPS capacity promise.
 Create a new private config/DB with two permitted channels and explicit characters.
 For each set `source:"twitch"`, remove file/start, use `authorized:true`,
 `interval:15`, `count:12`, neural diagnostics and optional saved crops. Run
-`--check`, then James can run the coordinator without that flag. Review both
+`--check`, then the maintainer can run the coordinator without that flag. Review both
 dashboard routes, per-channel capture/HUD/OCR/commit outcomes, skipped deadlines,
 freshness limits and memory. Freeze human-reviewed references before numerical
 scoring. No live connection was initiated during development; authorization and

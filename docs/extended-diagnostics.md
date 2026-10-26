@@ -83,9 +83,9 @@ cases remain unavailable rather than being reconstructed from neighbors.
 
 ## Saved Streamer_A replay: every attempt retained
 
-James captured 30 attempts seven seconds apart. Native crop review/labels are
+The maintainer captured 30 attempts seven seconds apart. Native crop review/labels are
 Codex-assisted provisional evidence after OCR exposure, not blinded accuracy;
-James supplied clipping findings and reported level 64. Existing frozen sidecars,
+The maintainer supplied clipping findings and reported level 64. Existing frozen sidecars,
 logs, crops, operator output and original SQLite payloads were preserved.
 
 | Evidence / 30 attempts | Before (v1) | Now (v2) |

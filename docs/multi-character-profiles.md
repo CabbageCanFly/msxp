@@ -27,7 +27,8 @@ database's selected character is changed only by automatic OCR (or an operator).
   "last observed"), 24h total and charts, with status
   `Not currently tracked · last reading …`. Charts and rolling windows remain relative
   to now, so a character not played for hours shows empty short windows and its
-  24-hour bars; beyond 24h only the saved level/reading remain (retention).
+  24-hour bars. Beyond 24h, the saved level/reading and compact daily **History** remain;
+  raw readings expire under [retention](24h-retention.md).
 - The homepage defaults to **Streamers**, preserving the existing one-row-per-channel
   cards, sorting and statistics. **Characters** lists every saved genuine character,
   including unplayed records, with saved level, channel, selected-for-tracking status

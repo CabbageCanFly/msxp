@@ -5,7 +5,7 @@ It never runs OCR, chooses a rounding rule or ingests tracking data. Review mate
 references and reports must stay under ignored `private/` or `artifacts/` directories.
 Only Pillow and existing pure parsing helpers are used; no new dependencies/models.
 
-## 1. James captures two new permitted streams
+## 1. The maintainer captures two new permitted streams
 
 Choose two NEW consenting livestreams and new filenames. Streamer permission is
 required; the platform restrictions in [shadow-capture.md](shadow-capture.md) still
@@ -150,7 +150,7 @@ practice references explicitly say **unknown**, with `practice_mechanics` proven
 no human-transcription claim, and `practice_only:true`. Freeze/evaluate completed;
 all twelve pair references remain unscored (`unknown_truth`). No accuracy result,
 new blind holdout or independent validation was fabricated. Original inputs remain
-unchanged. Actual new-stream evaluation waits for James's captures and submissions.
+unchanged. Actual new-stream evaluation waits for the maintainer's captures and submissions.
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests/test_shadow_review.py -q -rs --basetemp artifacts/pytest-shadow-review-focused-repeat

@@ -1,6 +1,6 @@
 # Shadow trial: provisional observations
 
-James ran the authorized **test-shadow** capture: **12/12 captures** completed
+The maintainer ran the authorized **test-shadow** capture: **12/12 captures** completed
 and produced **12/12 strict RapidOCR EXP/percentage pairs**. Subsequent
 ChatGPT-assisted inspection of enlarged private crops found no obvious numerical
 discrepancies. This was not an independently blinded human accuracy evaluation.
