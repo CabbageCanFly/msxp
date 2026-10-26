@@ -71,6 +71,43 @@ then resume. Renaming preserves its ID and history; replay confirmed that captur
 continues without creating a second character. Existing records require this
 reviewed correction because a different name can also mean a genuine switch.
 
+## Compressed small name text (2026-10-26)
+
+Small antialiased status text can merge adjacent letters into a different,
+high-confidence spelling. After job-remnant cleanup, automatic name crops under
+24 source pixels high now use grayscale threshold 140 before the existing 2x
+recognition. Larger crops retain their antialiasing. Crop dimensions, manual
+regions, the original-pixel known-name retry and identity confirmation rules stay
+unchanged. There are no additional OCR calls or name substitution rules.
+
+Measured on one authorized stream: the original reader returned the correct name
+on 1/20 saved frames; the new reader returns `CharN` on 20/20, including 12 later
+frames. All 20 pass the real capture pipeline and automatic-name quality checks.
+Four before/after crops also reproduce the correction using the existing VPS
+Linux OCR worker, with inputs passed through memory and no remote file changes.
+Disposable-database replay of all 20 frames confirms discovery and recovery from
+both wrong spellings on frame two. Recovery reuses the existing correct character
+ID and accepts the remaining 19 readings without another switch.
+
+Of 234 older frames scanned, 215 provide a unique eligible name region, including
+48 small crops. Their normalized names are unchanged except for one border-bearing
+crop that now abstains during discovery; the existing known-name retry still reads
+that frame correctly without holding EXP. This is a bounded development replay,
+not general accuracy proof. Private captures and reports remain in
+`private/name-debug/`; real names and images are not committed.
+
+Validation: **3,487 passed, 76 skipped, one known expected failure**, across the
+full suite and four isolated interrupt/timeout checks. The first combined run hit
+a pre-existing signal-handler interaction: importing Streamlink's CLI replaces
+SIGINT handling, causing the coordinator interrupt test to raise `SystemExit`.
+It reproduces on unchanged main; running that test separately passes. The final
+suite invocation isolates it alongside the three documented timing checks.
+
+Production code and character records were not changed. Once deployment is
+authorized, the two-frame recovery path can select an already-existing correct
+record. Any wrong-spelling records remain separate; hiding them is an explicit,
+reversible operator invalidation, not a rename, deletion or history merge.
+
 ## Run it
 
 Run from this worktree. Its optional environments and footage remain at their

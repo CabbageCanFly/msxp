@@ -76,7 +76,7 @@ def test_geometry_relative_to_hud_and_all_candidates_retained(monkeypatch):
     assert names.name_regions(Image.new('RGB', (800, 400)))[1] == 2
 
 
-@pytest.mark.parametrize('height,band',[(14,1),(25,2),(40,3)])
+@pytest.mark.parametrize('height,band',[(24,2),(25,2),(40,3)])
 def test_name_cleanup_removes_job_remnants_without_resizing_or_touching_name_pixels(height,band):
     image=Image.new('RGB',(120,height),(40,50,60))
     image.putpixel((50,0),(230,230,230))
@@ -87,6 +87,21 @@ def test_name_cleanup_removes_job_remnants_without_resizing_or_touching_name_pix
     assert all(cleaned.getpixel((50,y))==(40,50,60) for y in range(band))
     assert cleaned.crop((0,band,120,height)).tobytes()==image.crop((0,band,120,height)).tobytes()
     assert image.getpixel((50,0))==(230,230,230)
+
+
+@pytest.mark.parametrize('height',[14,18,21,23])
+def test_small_name_cleanup_binarizes_blurred_strokes_without_resizing(height):
+    image=Image.new('RGB',(120,height),(40,50,60))
+    image.putpixel((50,0),(230,230,230))
+    image.putpixel((20,5),(141,141,141))
+    image.putpixel((21,5),(140,140,140))
+    image.putpixel((20,height-1),(210,210,210))
+    cleaned=names.clean_name_crop(image)
+    assert cleaned.size==image.size and cleaned.mode=='RGB'
+    assert cleaned.getpixel((50,0))==(0,0,0)
+    assert cleaned.getpixel((20,5))==cleaned.getpixel((20,height-1))==(255,255,255)
+    assert cleaned.getpixel((21,5))==(0,0,0)
+    assert image.getpixel((50,0))==(230,230,230) and image.getpixel((21,5))==(140,140,140)
 
 
 @pytest.mark.parametrize('manual',[False,True])
