@@ -35,7 +35,7 @@ function player(changes={}){return {channel:'alpha',character:{label:'Main'},sou
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
 
-test('profile chart tip takes two strikes then poofs once; reduced motion, missing animations and cancellation still dismiss it',async()=>{
+test('profile chart tip stays visible in History, switches to EXP on each strike, then dismisses once',async()=>{
   for(const mode of ['finish','cancel','reduced','unsupported']) {
     const p=page('player'),tip=p.elements['history-overlay-tip'];
     let removed=0,animated=0,focused=0,finish,cancel;
@@ -48,12 +48,19 @@ test('profile chart tip takes two strikes then poofs once; reduced motion, missi
       animated++;assert.equal(frames.at(-1).opacity,0);assert.equal(options.duration,360);
       return {finished:new Promise((resolve,reject)=>{finish=resolve;cancel=reject;})};
     };
-    tip.listeners.click();
-    assert.equal(tip.dataset.strikes,'1');assert.match(tip.attributes['aria-label'],/again/);assert.equal(removed,0);
     p.render(player());
+    p.run("chartMode='percentage';drawHistory()");
     tip.listeners.click();
+    assert.equal(p.run('chartMode'),'exp');
+    assert.equal(tip.dataset.strikes,'1');assert.match(tip.attributes['aria-label'],/again/);assert.equal(removed,0);
+    p.run("chartMode='daily';drawHistory()");
+    assert.notEqual(tip.hidden,true);
+    tip.listeners.click();
+    assert.equal(p.run('chartMode'),'exp');
     assert.equal(tip.dataset.strikes,'2');assert.match(tip.attributes['aria-label'],/Dismiss/);assert.equal(removed,0);
+    p.run("chartMode='daily';drawHistory()");
     tip.listeners.click();tip.listeners.click();
+    assert.equal(p.run('chartMode'),'exp');
     assert.equal(tip.dataset.strikes,'3');assert.equal(tip.disabled,true);
     if(mode==='finish' || mode==='cancel') {
       assert.equal(removed,0);assert.equal(animated,1);
@@ -562,7 +569,7 @@ test('percentage chart counts numerical points separately from missing and unkno
   assert.equal(shapes.filter(n=>n.tag==='circle').length,2);
   assert.equal(shapes.filter(n=>n.tag==='path').length,2);
   assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,1);  // a joins d; b and c stay off the line
-  assert.equal(shapes.filter(n=>n.attributes.class==='chart-grid').length,4);
+  assert.equal(shapes.filter(n=>n.attributes.class==='line-grid' && n.attributes.y1===n.attributes.y2).length,4);
 });
 
 test('endpoint pace discloses elapsed gaps and conditional recovery is never strict OCR',()=>{
@@ -1439,17 +1446,67 @@ test('History pill loads once per character, with local ranges, no live refresh 
   assert.equal(requests.length,1);
   assert.equal(shapes.filter(n=>n.tag==='circle').length,3);
   assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,2);
-  assert.equal(shapes.filter(n=>n.attributes.class==='chart-grid').length,4);
+  assert.equal(shapes.filter(n=>n.attributes.class==='line-grid' && n.attributes.y1===n.attributes.y2).length,4);
   assert.equal(shapes.filter(n=>n.attributes.class==='chart-axis').length,2);
   assert.ok(shapes.some(n=>n.attributes.class==='chart-axis' && n.attributes.x1==='60' && n.attributes.x2==='60' && n.attributes.y1==='20' && n.attributes.y2==='190'));
   assert.ok(shapes.filter(n=>n.tag==='text').every(n=>!String(n.textContent).includes('+')));
-  assert.match(shapes.find(n=>n.tag==='circle' && n.dataset.tipText.includes('9,223')).dataset.tipText,/9,223,372,036,854,775,807 EXP/);
+  assert.match(shapes.find(n=>n.attributes.class==='point-hit' && n.dataset.tipText.includes('9,223')).dataset.tipText,/9,223,372,036,854,775,807 EXP/);
   p.run("setTimeZone('Pacific/Honolulu');drawHistory()");
-  const localTip=p.elements['history-chart'].children.find(n=>n.tag==='circle').dataset.tipText;
+  const localTip=p.elements['history-chart'].children.find(n=>n.attributes.class==='point-hit').dataset.tipText;
   assert.match(localTip,/Jan 1/);assert.doesNotMatch(localTip,/\(UTC\)/);
   p.run("setTimeZone('Asia/Tokyo');drawHistory()");
-  assert.match(p.elements['history-chart'].children.find(n=>n.tag==='circle').dataset.tipText,/Jan 2/);
+  assert.match(p.elements['history-chart'].children.find(n=>n.attributes.class==='point-hit').dataset.tipText,/Jan 2/);
   assert.equal(requests.length,1);
+});
+
+test('History hover strips cover the plot, split at observation midpoints and show vertical guides',()=>{
+  const p=page('player');p.render(player());p.context.dailyFixture=dailyFixture();p.run('el("history-chart")');
+  for(const count of [4,1])for(const width of [960,340]) {
+    p.elements['history-chart'].clientWidth=width;
+    p.run(`dailyData={...dailyFixture,points:dailyFixture.points.slice(0,${count})};chartMode='daily';dailyDrawKey='';drawHistory()`);
+    const shapes=p.elements['history-chart'].children,hits=shapes.filter(n=>n.attributes.class==='point-hit');
+    const guides=shapes.filter(n=>n.attributes.class==='point-guide'),dots=shapes.filter(n=>n.tag==='circle');
+    assert.equal(hits.length,count===1?1:3);assert.equal(guides.length,hits.length);
+    const x=n=>Number(n.attributes.x),right=n=>x(n)+Number(n.attributes.width);
+    assert.equal(x(hits[0]),60);assert.equal(right(hits.at(-1)),width-40);
+    hits.forEach((hit,i)=>{
+      assert.equal(hit.attributes.y,'20');assert.equal(hit.attributes.height,'182');assert.equal(hit.attributes.tabindex,'0');
+      assert.equal(shapes[shapes.indexOf(hit)+1],guides[i]);
+      assert.equal(guides[i].attributes.x1,dots[i].attributes.cx);assert.equal(guides[i].attributes.x2,dots[i].attributes.cx);
+      assert.equal(guides[i].attributes['aria-hidden'],'true');
+      if(i) {
+        assert.equal(x(hit),right(hits[i-1]));
+        assert.equal(x(hit),(Number(dots[i-1].attributes.cx)+Number(dots[i].attributes.cx))/2);
+      }
+    });
+    hits[0].listeners.pointerenter({pointerType:'mouse',clientX:100,clientY:25});
+    assert.equal(p.run('tip.hidden'),false);assert.match(p.run('tip.textContent'),/Lv\. 40 · 10\.00%/);
+    hits.at(-1).listeners.focus();assert.equal(p.run('tip.textContent'),hits.at(-1).dataset.tipText);
+    assert.ok(dots.every(dot=>dot.attributes.tabindex===undefined));
+  }
+});
+
+test('line charts have minor vertical grids and ticks for every axis label; History dates adapt to width and span',()=>{
+  const p=page('player');p.render(player());p.context.dailyFixture=dailyFixture();
+  p.run("dailyData={...dailyFixture,points:dailyFixture.points.filter(r=>r.level!=null).map((r,i)=>({...r,observed_at:['2026-01-01T23:00:00Z','2026-01-15T23:00:00Z','2026-01-30T23:00:00Z'][i]}))};el('history-chart')");
+  for(const mode of ['percentage','daily'])for(const width of [960,340]) {
+    p.elements['history-chart'].clientWidth=width;p.run(`chartMode='${mode}';drawHistory()`);
+    const shapes=p.elements['history-chart'].children,grid=shapes.filter(n=>n.attributes.class==='line-grid');
+    const dates=shapes.filter(n=>n.tag==='text' && n.attributes.y==='218');
+    assert.equal(dates.length,width===340?3:mode==='daily'?7:5);
+    const horizontal=grid.filter(n=>n.attributes.y1===n.attributes.y2),vertical=grid.filter(n=>n.attributes.x1===n.attributes.x2);
+    assert.equal(horizontal.length,4);assert.equal(vertical.length,(dates.length-1)*2-1);
+    assert.ok(vertical.every(n=>n.attributes.y1==='20' && n.attributes.y2==='190'));
+    const ticks=shapes.filter(n=>n.attributes.class==='chart-tick');
+    const xTicks=ticks.filter(n=>n.attributes.x1===n.attributes.x2),yTicks=ticks.filter(n=>n.attributes.y1===n.attributes.y2);
+    assert.deepEqual(xTicks.map(n=>n.attributes.x1),dates.map(n=>n.attributes.x));
+    assert.ok(xTicks.every(n=>n.attributes.y1==='190' && n.attributes.y2==='195'));
+    assert.equal(yTicks.length,mode==='daily'?3:5);
+    assert.ok(yTicks.every(n=>n.attributes.x1==='56' && n.attributes.x2==='60'));
+  }
+  p.run("dailyData={...dailyFixture,points:dailyFixture.points.slice(0,2).map((r,i)=>({...r,observed_at:`2026-01-01T2${i}:00:00Z`}))};dailyDrawKey='';drawHistory()");
+  const dates=p.elements['history-chart'].children.filter(n=>n.tag==='text' && n.attributes.y==='218');
+  assert.equal(dates.length,1,'A short history does not repeat the same date across the axis');
 });
 
 test('history errors stay quiet until a browser reload rather than retrying with live updates',async()=>{

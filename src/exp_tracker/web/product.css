@@ -266,6 +266,7 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .chart-modes button[aria-pressed="true"] { background:linear-gradient(#ffd68c,var(--gold-deep)); border-color:#ffdf9f; color:var(--on-gold); }
 .chart-legend { color:var(--text-muted); font-size:12px; font-weight:600; }
 .history-chart .chart-grid { stroke:#56637d; opacity:.45; }
+.history-chart :is(.line-grid,.chart-tick) { stroke:#56637d; opacity:.32; }
 .history-chart .exp-column { fill:var(--orange); }
 .history-chart .exp-column.missing { fill:#8d98ad; opacity:.45; stroke:none; }
 .history-chart .exp-column:focus { outline:2px solid #fff0ba; opacity:1; }
@@ -276,7 +277,7 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .history-chart [data-tip-key]:focus-visible { outline:2px solid var(--gold); }
 .history-chart .point-guide { stroke:#c0cad8; stroke-width:1; vector-effect:non-scaling-stroke; opacity:0; pointer-events:none; }
 .history-chart .point-hit:hover + .point-guide { opacity:.65; }
-.history-chart :is(.trend,.chart-grid,.chart-axis) { pointer-events:none; }
+.history-chart :is(.trend,.chart-grid,.line-grid,.chart-axis,.chart-tick) { pointer-events:none; }
 .history-chart .chart-axis { stroke:var(--line-strong); stroke-width:1; }
 .history-chart circle.sample { stroke:transparent; stroke-width:12px; }
 .recent-card [data-paused="true"] { opacity:.65; }

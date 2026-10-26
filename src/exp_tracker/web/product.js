@@ -755,7 +755,6 @@ function drawHistory() {
   el('history-controls').hidden=daily;el('daily-controls').hidden=!daily;
   el('history-note').hidden=false;el('history-note').style.visibility=daily?'hidden':'';
   if(daily)el('history-note').textContent='\u00a0';
-  const overlayTip=el('history-overlay-tip');if(overlayTip)overlayTip.hidden=daily;
   el('bucket-controls').hidden=chartMode!=='exp';el('line-controls').hidden=chartMode!=='percentage';
   if(daily)drawDailyHistory();else {dailyDrawKey='';if(chartMode==='exp')drawExpHistory();else drawPercentageHistory();}
   const all=data?.history ?? [],anchor=Date.parse(data?.tracked_history?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end ?? data?.player?.latest_attempt_at ?? all.at(-1)?.timestamp);
@@ -818,10 +817,16 @@ function drawDailyHistory() {
   const min=Math.min(...points.map(r=>r.value)),max=Math.max(...points.map(r=>r.value)),padding=Math.max(100,max-min)*.1;
   const low=Math.max(10000,Math.floor(min-padding)),high=Math.ceil(max+padding);
   const x=t=>left+(t-first)/(last-first)*(right-left),y=v=>190-(v-low)/(high-low)*170;
+  const ticks=Math.max(2,Math.min(7,Math.floor((right-left)/110)+1,Math.floor((last-first)/86400000)+1));
+  for(let i=1;i<(ticks-1)*2;i++) {
+    const position=left+(right-left)*i/((ticks-1)*2);
+    shape('line',{x1:position,x2:position,y1:20,y2:190,class:'line-grid'});
+  }
   for(let i=0;i<=4;i++) {
     const value=Math.round(low+(high-low)*i/4),level=Math.floor(value/10000),pct=numbers.format((value%10000)/100);
-    shape('line',{x1:left,x2:right,y1:y(value),y2:y(value),class:i?'chart-grid':'chart-axis'});
+    shape('line',{x1:left,x2:right,y1:y(value),y2:y(value),class:i?'line-grid':'chart-axis'});
     if(i%2===0) {
+      shape('line',{x1:left-4,x2:left,y1:y(value),y2:y(value),class:'chart-tick'});
       const label=shape('text',{x:left-8,y:y(value)-3,'text-anchor':'end'});label.textContent=level;
       const percent=document.createElementNS('http://www.w3.org/2000/svg','tspan');percent.setAttribute('x',left-8);percent.setAttribute('dy',14);percent.textContent=`(${pct}%)`;label.append(percent);
     }
@@ -830,14 +835,23 @@ function drawDailyHistory() {
   points.forEach((r,i)=>{
     const previous=points[i-1];
     if(previous)shape('line',{x1:x(previous.time),y1:y(previous.value),x2:x(r.time),y2:y(r.value),class:'trend'});
-    const text=`${localTime(r.observed_at)}\nLv. ${r.level} · ${(r.percentage_bp/100).toFixed(2)}%\n${expText(r.current_exp,true)} EXP`;
-    inspect(shape('circle',{cx:x(r.time),cy:y(r.value),r:4,class:'sample'}),`daily:${dailyKey}:${r.utc_date}`,text);
+    shape('circle',{cx:x(r.time),cy:y(r.value),r:4,class:'sample'});
   });
-  const ticks=width<600?2:3,dates=new Intl.DateTimeFormat(undefined,{month:'2-digit',day:'2-digit',timeZone});
+  const dates=new Intl.DateTimeFormat(undefined,{month:'2-digit',day:'2-digit',timeZone}),shownDates=new Set();
   for(let i=0;i<ticks;i++) {
-    const stamp=first+(last-first)*i/(ticks-1);
-    shape('text',{x:x(stamp),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=dates.format(new Date(stamp));
+    const stamp=first+(last-first)*i/(ticks-1),label=dates.format(new Date(stamp));
+    if(shownDates.has(label))continue;shownDates.add(label);
+    shape('line',{x1:x(stamp),x2:x(stamp),y1:190,y2:195,class:'chart-tick'});
+    shape('text',{x:x(stamp),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=label;
   }
+  points.forEach((r,i)=>{
+    const start=i?(x(points[i-1].time)+x(r.time))/2:left;
+    const end=i+1<points.length?(x(r.time)+x(points[i+1].time))/2:right;
+    const text=`${localTime(r.observed_at)}\nLv. ${r.level} · ${(r.percentage_bp/100).toFixed(2)}%\n${expText(r.current_exp,true)} EXP`;
+    inspect(shape('rect',{x:start,y:20,width:end-start,height:182,fill:'transparent',class:'point-hit'}),
+      `daily:${dailyKey}:${r.utc_date}`,text);
+    shape('line',{x1:x(r.time),x2:x(r.time),y1:20,y2:202,class:'point-guide','aria-hidden':'true'});
+  });
 }
 function drawPercentageHistory() {
   const svg=el('history-chart');svg.replaceChildren();
@@ -858,9 +872,15 @@ function drawPercentageHistory() {
   function shape(tag,attrs,title) { const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(title)n.append(node('title','',title));svg.append(n);return n; }
   if(!points.length)shape('text',{x:60,y:100}).textContent='';
   const x=t=>60+(t-first)/Math.max(1,last-first)*plotWidth,y=v=>190-(v-low)/Math.max(.01,high-low)*165;
+  const ticks=width<600?3:5;
+  for(let i=1;i<(ticks-1)*2;i++) {
+    const position=60+plotWidth*i/((ticks-1)*2);
+    shape('line',{x1:position,x2:position,y1:20,y2:190,class:'line-grid'});
+  }
   for(let i=0;i<=4;i++) {
     const value=low+(high-low)*i/4;
-    shape('line',{x1:60,x2:width-40,y1:y(value),y2:y(value),class:i?'chart-grid':'chart-axis'});
+    shape('line',{x1:60,x2:width-40,y1:y(value),y2:y(value),class:i?'line-grid':'chart-axis'});
+    shape('line',{x1:56,x2:60,y1:y(value),y2:y(value),class:'chart-tick'});
     shape('text',{x:52,y:y(value)+4,'text-anchor':'end'}).textContent=value.toFixed(2)+'%';
   }
   shape('line',{x1:60,x2:60,y1:20,y2:190,class:'chart-axis'});
@@ -883,9 +903,9 @@ function drawPercentageHistory() {
     }
     previousLevel=p.level.value;
   }
-  const ticks=width<600?3:5;
   for(let i=0;i<ticks;i++) {
     const time=first+(last-first)*i/(ticks-1);
+    shape('line',{x1:x(time),x2:x(time),y1:190,y2:195,class:'chart-tick'});
     shape('text',{x:60+plotWidth*i/(ticks-1),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=clockSeconds.format(new Date(time));
   }
   // Full-height strips choose the nearest capture by time, including unreadable captures.
@@ -1121,6 +1141,7 @@ if(view==='player') {
   let tipStrikes=0;
   overlayTip.addEventListener('click',()=>{
     if(overlayTip.disabled)return;
+    chartMode='exp';drawHistory();
     overlayTip.dataset.strikes=String(++tipStrikes);
     if(tipStrikes<3) {
       overlayTip.setAttribute('aria-label',tipStrikes===1?'Bar chart transfers below. Cross out tip again.':'Bar chart transfers below. Dismiss tip.');
