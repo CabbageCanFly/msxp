@@ -14,7 +14,7 @@ msxp test
 
 Git must be installed and signed in with access to the private data repository. The command reads its
 manifest, downloads only missing required files, verifies original bytes, and removes the temporary Git
-download afterward. About 701 MB of test inputs remain installed; old research is not downloaded.
+download afterward. About 729 MB of test inputs remain installed; old research is not downloaded.
 Different local files are never overwritten. `--check` downloads only the manifest and verifies installed
 inputs; it fails if a required file is missing or changed. Correct existing files are not downloaded again.
 
@@ -43,6 +43,15 @@ rejects a labelled `0 [0.00%]` pair. Neither its expected value nor the test was
 
 ## Two kinds of tests
 
+The compact live regression set adds 24 cases from the 2026-10-25 investigations:
+HUD-label retries, repaired EXP punctuation, percentage-only EXP, character names,
+jobs, covered EXP, competing HUDs, facecam-only screens and modern MapleStory.
+Its 23 additional full frames use lossless WebP with verified identical RGB pixels;
+one case reuses an existing screenshot. Images and private labels add about 28.5 MB.
+`msxp test-data` restores them automatically and `msxp test` runs the checks through
+the real tracker, without opening streams or writing a database. Public checkouts
+skip this set when its private manifest is absent. Existing test expectations stay unchanged.
+
 - **Public tests (about 2,950):** generated fonts, synthetic HUDs and made-up channels. They need nothing
   outside Git and cover the logic: tracking, accounting, history, the website, msxp. Anyone runs them
   with `msxp test`.
@@ -61,6 +70,7 @@ rejects a labelled `0 [0.00%]` pair. Neither its expected value nor the test was
 | Cross-stream crop sets (2 × 90 crops, recordings 2 and 3) | `private/cross-stream/stream2/`, `stream3/` | the same tool with each `manifest.json` |
 | Two-feed screenshots (percentage-only HUD, second gameplay feed): 1–21 at level 71, 23–29 at level 72 after a feed swap (70 MB) | `samples/two-feed/` | Nothing; copy `two-feed/` back from the private test-data repository |
 | Saved capture logs for replay tests | `private/test-fixtures/runs/` | A frozen copy of tracker logs. Tests read an anonymized copy built from it using the private `names.json` |
+| Compact live regressions (28.5 MB) | `samples/live-regression/` | Restore with `msxp test-data`; the private manifest holds the labels and provenance |
 
 `tools/rebuild_fixture_crops.py --check` regenerates every crop from its saved full frame (or recording fallback) and compares pixels
 without writing. On 2026-10-23 all 414 crops above came back identical.
