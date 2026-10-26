@@ -2,13 +2,30 @@
 from datetime import datetime
 
 from .store import utc
+from .exp_requirements import requirement
+
+
+def complete_progress(level, exp, bp):
+    """Fill display progress from a supported requirement; never infer a missing level."""
+    exp = int(exp) if exp is not None else None
+    total = requirement(level)['to_next']
+    if total is not None:
+        if exp is None and bp is not None:
+            exp = bp * total // 10000
+        elif bp is None and exp is not None and 0 <= exp < total:
+            bp = exp * 10000 // total
+    return exp, bp
 
 
 def save(store, character_id, observed_at, level, exp, bp, source, level_basis, exp_basis, percentage_basis):
+    if level is None or exp is None and bp is None:return
+    original_exp, original_bp = exp, bp
+    exp, bp = complete_progress(level, exp, bp)
+    if original_exp is None and exp is not None:exp_basis='derived_from_percentage'
+    if original_bp is None and bp is not None:percentage_basis='derived_from_exp'
     # Retention replays from a read snapshot; it saves these later, in the transaction that deletes the source.
     if (deferred:=getattr(store,'deferred_daily',None)) is not None:
         deferred.append((character_id,observed_at,level,exp,bp,source,level_basis,exp_basis,percentage_basis));return
-    if exp is None and bp is None:return
     if store._pending_character(character_id):return
     stamp=utc(datetime.fromisoformat(observed_at))
     store.db.execute('''INSERT INTO daily_character_exp VALUES(?,?,?,?,?,?,?,?,?,?)
@@ -20,7 +37,7 @@ def save(store, character_id, observed_at, level, exp, bp, source, level_basis, 
             (excluded.observed_at=daily_character_exp.observed_at AND
                 (excluded.source='manual_correction' AND daily_character_exp.source!='manual_correction'
                  OR excluded.source='trusted_ocr' AND daily_character_exp.source='diagnostic'))''',
-        (character_id,stamp[:10],stamp,level,int(exp) if exp is not None else None,bp,
+        (character_id,stamp[:10],stamp,level,exp,bp,
          source,level_basis,exp_basis,percentage_basis))
 
 

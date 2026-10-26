@@ -41,8 +41,8 @@ def test_utc_midnight_last_usable_percentage_and_empty_days(tracking):
     prune(store,now=NOW+timedelta(days=6),dry_run=False)
     first,second=daily(store)
     assert first['utc_date']=='2026-01-01' and first['observed_at']==utc(times[1])
-    assert first['level']==64 and first['current_exp'] is None and first['percentage_bp']==3310
-    assert first['exp_basis'] is None and first['percentage_basis']=='strict_percentage_only'
+    assert first['level']==64 and first['current_exp']==495782 and first['percentage_bp']==3310
+    assert first['exp_basis']=='derived_from_percentage' and first['percentage_basis']=='strict_percentage_only'
     assert second['utc_date']=='2026-01-02' and second['observed_at']==utc(times[4])
     assert second['level']==65 and second['current_exp'] is not None
     assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==0
@@ -110,7 +110,8 @@ def test_manual_point_is_archived_but_standalone_baseline_and_bad_capture_are_no
     row,=daily(store)
     assert row['observed_at']==utc(NOW+timedelta(hours=11))
     assert row['source']=='manual_correction' and row['level_basis']=='manual_admin'
-    assert row['level']==65 and row['current_exp'] is None and row['percentage_bp']==500
+    assert row['level']==65 and row['current_exp']==78995 and row['percentage_bp']==500
+    assert row['exp_basis']=='derived_from_percentage'
 
 
 def test_trusted_replay_excludes_invalidated_latest_and_keeps_manual_fix_of_rejected_source(tracking,profile):
@@ -177,18 +178,37 @@ def test_schema_eight_upgrade_is_additive_and_readers_do_not_migrate(tmp_path):
 
 
 @pytest.mark.parametrize('full',[True,False])
-def test_inferred_level_is_labelled_and_percentage_only_does_not_invent_exp(tracking,full):
+def test_supported_level_is_required_for_daily_progress(tracking,full):
     _,store,d=tracking
     for i in range(1,4):
         observed(d,'run',i,NOW+timedelta(seconds=i*20),bp=3300+i*5,full=full,visual_level=None,neural_level=None)
     close(d,'run',3)
     prune(store,now=NOW+timedelta(days=3),dry_run=False)
-    row,=daily(store)
     if full:
+        row,=daily(store)
         assert row['level']==64 and row['level_basis']=='exp_derived' and row['current_exp'] is not None
     else:
-        assert row['level'] is None and row['current_exp'] is None and row['percentage_bp']==3315
-        assert row['exp_basis'] is None
+        assert daily(store)==[]
+
+
+def test_missing_level_does_not_replace_an_earlier_complete_day(tracking):
+    _,store,_=tracking
+    from exp_tracker.daily_snapshots import save
+    save(store,1,NOW.isoformat(),64,None,5000,'diagnostic','agreement',None,'displayed')
+    save(store,1,(NOW+timedelta(hours=1)).isoformat(),None,None,6000,'diagnostic',None,None,'displayed')
+    row,=daily(store)
+    assert row['observed_at']==utc(NOW) and row['level']==64 and row['current_exp']>0
+
+
+def test_missing_progress_is_derived_only_with_a_supported_exp_requirement():
+    from exp_tracker.daily_snapshots import complete_progress
+    assert complete_progress(40,None,5000)==(147108,5000)
+    assert complete_progress(40,147108,None)==(147108,5000)
+    assert complete_progress(40,'147108',None)==(147108,5000)
+    assert complete_progress(40,0,None)==(0,0)
+    assert complete_progress(40,None,0)==(0,0)
+    assert complete_progress(90,None,5000)==(None,5000)
+    assert complete_progress(100,1000,None)==(1000,None)
 
 
 def test_existing_supported_conditional_recovery_is_archived_as_experimental(tracking):
