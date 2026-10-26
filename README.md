@@ -215,8 +215,10 @@ Restart only the services affected by the change. The [docs index](docs/README.m
 
 ## Next improvements
 
-- [ ] Add site-wide player stats: average level, class/job counts, EXP and daily rates by class and level range; explore Twitch streamer stats.
-- [ ] Revisit deferred OCR work: [obscured LV labels and localization timeouts](docs/stationary-level-up.md#todo-deferred-obscured-lv-labels-and-localization-timeouts).
+- [ ] Add an adjustable ETA to next level based on user input EXP rate
+- [ ] Display EXP % per hour somewhere without cluttering the leaderboard page / profile page too much
+- [ ] Add site-wide player stats: average level, class/job counts, EXP and daily rates by class and level range; explore Twitch streamer stats
+- [ ] Revisit deferred OCR work: [obscured LV labels and localization timeouts](docs/stationary-level-up.md#todo-deferred-obscured-lv-labels-and-localization-timeouts)
 
 ## How it works
 
