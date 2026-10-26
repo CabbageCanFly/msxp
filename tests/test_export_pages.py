@@ -90,8 +90,10 @@ def test_pages_load_only_their_own_static_files_and_developer_links_stay_hidden(
 
 def test_product_js_contacts_only_the_configured_api_origin():
     source = (export_pages.WEB / 'product.js').read_text(encoding='utf-8')
-    # Exactly two network calls, both built on the configured origin; no other request channels.
-    assert re.findall(r'fetch\(([^,]*),', source) == ["String(query)?`${endpoint}?${query}`:endpoint", '`${apiOrigin}/api/players/${encodeURIComponent(channel)}/history`']
+    # All three request paths use the configured origin; daily history is separate from live polling.
+    assert re.findall(r'fetch\(([^,]*),', source) == [
+        '`${apiOrigin}/api/players/${encodeURIComponent(channel)}/daily-history?character=${id}&days=365`',
+        "String(query)?`${endpoint}?${query}`:endpoint", '`${apiOrigin}/api/players/${encodeURIComponent(channel)}/history`']
     assert re.search(r"const endpoint=channel\?`\$\{apiOrigin\}/api/players/\$\{encodeURIComponent\(channel\)\}`:`\$\{apiOrigin\}/api/players`;", source)
     for channel in ('XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'import(', 'importScripts', 'new Image'):
         assert channel not in source, channel

@@ -1413,6 +1413,72 @@ test('homepage toggle is view-only, preserves default cards and handles Back/For
   assert.deepEqual(api.urls,['/api/players','/api/players?mode=characters','/api/players','/api/players?mode=characters']);
 });
 
+function dailyFixture(id=2) {
+  return {character_id:id,available:true,start:'2026-01-01',end:'2026-01-30',served_at:'2026-01-31T12:00:00Z',points:[
+    {utc_date:'2026-01-01',observed_at:'2026-01-01T23:00:00Z',level:40,current_exp:'100',percentage_bp:1000},
+    {utc_date:'2026-01-02',observed_at:'2026-01-02T22:00:00Z',level:40,current_exp:'9223372036854775807',percentage_bp:9000},
+    {utc_date:'2026-01-03',observed_at:'2026-01-03T21:00:00Z',level:null,current_exp:null,percentage_bp:9500},
+    {utc_date:'2026-01-04',observed_at:'2026-01-04T20:00:00Z',level:41,current_exp:'0',percentage_bp:0}]};
+}
+
+test('History pill loads once per character, with local ranges, no live refresh and connected observations',async()=>{
+  const requests=[],p=page('player',(url,options)=>{
+    if(!url.includes('/daily-history'))return new Promise(()=>{});
+    requests.push({url,options});return Promise.resolve({ok:true,json:async()=>dailyFixture()});
+  });
+  const render=()=>p.render(player({character:{id:2,label:'Alpha'}}));
+  render();render();assert.equal(requests.length,0);
+  p.run("chartMode='daily';syncDailyHistory();drawHistory()");await settle();
+  assert.equal(requests.length,1);assert.equal(requests[0].url,'/api/players/alpha/daily-history?character=2&days=365');
+  assert.equal(requests[0].options.cache,'no-store');assert.equal(p.elements['history-note'].hidden,false);
+  assert.equal(p.elements['history-note'].style.visibility,'hidden');assert.equal(p.elements['history-note'].textContent,'\u00a0');
+  assert.equal(p.elements['history-chart'].attributes.viewBox,'0 0 960 230');
+  const shapes=p.elements['history-chart'].children;
+  for(let i=0;i<20;i++)p.run('render()');assert.equal(requests.length,1);assert.equal(p.elements['history-chart'].children,shapes);
+  p.run("chartMode='exp';drawHistory();chartMode='daily';syncDailyHistory();drawHistory();dailyDays=90;drawHistory()");await settle();
+  assert.equal(requests.length,1);
+  assert.equal(shapes.filter(n=>n.tag==='circle').length,3);
+  assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,2);
+  assert.equal(shapes.filter(n=>n.attributes.class==='chart-grid').length,4);
+  assert.equal(shapes.filter(n=>n.attributes.class==='chart-axis').length,2);
+  assert.ok(shapes.some(n=>n.attributes.class==='chart-axis' && n.attributes.x1==='60' && n.attributes.x2==='60' && n.attributes.y1==='20' && n.attributes.y2==='190'));
+  assert.ok(shapes.filter(n=>n.tag==='text').every(n=>!String(n.textContent).includes('+')));
+  assert.match(shapes.find(n=>n.tag==='circle' && n.dataset.tipText.includes('9,223')).dataset.tipText,/9,223,372,036,854,775,807 EXP/);
+  p.run("setTimeZone('Pacific/Honolulu');drawHistory()");
+  const localTip=p.elements['history-chart'].children.find(n=>n.tag==='circle').dataset.tipText;
+  assert.match(localTip,/Jan 1/);assert.doesNotMatch(localTip,/\(UTC\)/);
+  p.run("setTimeZone('Asia/Tokyo');drawHistory()");
+  assert.match(p.elements['history-chart'].children.find(n=>n.tag==='circle').dataset.tipText,/Jan 2/);
+  assert.equal(requests.length,1);
+});
+
+test('history errors stay quiet until a browser reload rather than retrying with live updates',async()=>{
+  let attempts=0;const p=page('player',url=>{
+    if(!url.includes('/daily-history'))return new Promise(()=>{});
+    attempts++;return Promise.reject(new Error('Offline'));
+  });
+  p.render(player({character:{id:2,label:'Alpha'}}));p.run("chartMode='daily';syncDailyHistory()");await settle();
+  p.run('render();render();dailyDays=90;drawHistory()');
+  assert.equal(attempts,1);assert.match(p.elements['history-chart'].children[0].textContent,/couldn’t load/);
+});
+
+test('history discards late responses for the previous character and reuses already loaded character snapshots',async()=>{
+  const pending=[],p=page('player',(url,options)=>{
+    if(!url.includes('/daily-history'))return new Promise(()=>{});
+    return new Promise(resolve=>pending.push({url,options,resolve}));
+  });
+  p.render(player({character:{id:2,label:'Alpha'}}));p.run("chartMode='daily';syncDailyHistory()");
+  p.run("selectCharacter('3')");assert.equal(pending.length,2);assert.equal(pending[0].options.signal.aborted,true);
+  assert.equal(p.elements['history-chart'].children.filter(n=>n.tag==='circle').length,0);
+  pending[1].resolve({ok:true,json:async()=>dailyFixture(3)});await settle();
+  pending[0].resolve({ok:true,json:async()=>dailyFixture(2)});await settle();
+  assert.equal(p.run('dailyData.character_id'),3);
+  p.run('dailyDays=90;syncDailyHistory()');assert.equal(pending.length,2);
+  p.run("selectCharacter('2')");assert.equal(pending.length,3);
+  pending[2].resolve({ok:true,json:async()=>dailyFixture(2)});await settle();
+  p.run("selectCharacter('3')");assert.equal(pending.length,3);assert.equal(p.run('dailyData.character_id'),3);
+});
+
 test('profile title stays a native homepage link through roster changes, reloads and browser Back',()=>{
   const html=readFileSync(new URL('../src/exp_tracker/web/player.html',import.meta.url),'utf8');
   assert.match(html,/<a\b[^>]*id="back-to-list"[^>]*href="\/"/);

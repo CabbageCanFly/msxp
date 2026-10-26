@@ -115,8 +115,9 @@ class Handler(BaseHTTPRequestHandler):
         history_api = re.fullmatch(r'/dev/api/streams/([^/]*)/(sessions|runs)',path)
         product_api=re.fullmatch(r'/api/players/([^/]*)',path)
         product_history=re.fullmatch(r'/api/players/([^/]*)/history',path)
+        product_daily=re.fullmatch(r'/api/players/([^/]*)/daily-history',path)
         product_page=re.fullmatch(r'/(stream|live/overlay)/([^/]*)',path)
-        product = path in ('/','/streams','/api/players') or product_api or product_history or product_page or path in PRODUCT_ASSETS
+        product = path in ('/','/streams','/api/players') or product_api or product_history or product_daily or product_page or path in PRODUCT_ASSETS
         if self.server.public_only and not (product or path in PUBLIC_ASSETS):
             # Deny by default: developer, shadow, trusted-state and demo routes do not exist here.
             self.reply(404,{'error':'not_found'});return
@@ -137,8 +138,25 @@ class Handler(BaseHTTPRequestHandler):
                         self.reply(400,{'error':'invalid_mode'});return
                     self.reply(200,publisher.characters() if mode==['characters'] else publisher.homepage())
                 else:
-                    channel=(product_api[1] if product_api else product_history[1] if product_history else product_page[2]).lower()
+                    channel=(product_api or product_history or product_daily or product_page)[2 if product_page else 1].lower()
                     if not CHANNEL.fullmatch(channel):self.reply(400,{'error':'invalid_channel'});return
+                    if product_daily:
+                        try:query=parse_qs(urlsplit(self.path).query,keep_blank_values=True,max_num_fields=4)
+                        except ValueError:self.reply(400,{'error':'invalid_history_query'});return
+                        if (query.keys()-{'character','days'} or any(len(v)!=1 for v in query.values())
+                                or 'character' in query and not re.fullmatch(r'[1-9][0-9]{0,17}',query['character'][0])
+                                or 'days' in query and not re.fullmatch(r'[1-9][0-9]{0,2}',query['days'][0])):
+                            self.reply(400,{'error':'invalid_history_query'});return
+                        days=int(query.get('days',['30'])[0])
+                        if days>365:self.reply(400,{'error':'invalid_history_query'});return
+                        from .historical import daily_history
+                        try:
+                            with Store(self.server.database,read_only=True) as store:
+                                body=daily_history(store,channel,character=int(query['character'][0]) if 'character' in query else None,
+                                                   days=days,now=datetime.now(timezone.utc))
+                        except LookupError:
+                            self.reply(404,{'error':'unknown_character'});return
+                        self.reply(200,body,cache='private, max-age=86400');return
                     if product_page:
                         with Store(self.server.database,read_only=True) as store:store._channel(channel)
                         self.reply(200,self.page('live-overlay.html' if product_page[1]=='live/overlay' else 'player.html'),'text/html')

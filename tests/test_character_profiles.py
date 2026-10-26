@@ -570,3 +570,16 @@ def test_demo_characters_get_their_jobs_through_the_ocr_confirmation(tmp_path):
     names = set(demo.NAMES) | {s[1] for s in demo.STREAMS}
     assert {k: v for k, v in jobs.items() if v} == demo.JOBS and set(demo.JOBS) == names and sources == {'ocr'}
     assert {j['name'] for j in table()['jobs'].values()} == set(demo.JOBS.values())  # Every job, so every icon, shows somewhere.
+
+
+def test_interactive_demo_includes_historical_progress_for_every_character(tmp_path):
+    path=tmp_path/'history-demo.sqlite3'
+    demo.create(now=NOW,path=path,characters=12,streamers=5,history=True)
+    with Store(path,read_only=True) as store:
+        characters=list(store.db.execute("SELECT id FROM characters WHERE label!='PendingOCR'"))
+        assert len(characters)==16
+        for (cid,) in characters:
+            rows=list(store.db.execute('SELECT * FROM daily_character_exp WHERE character_id=? ORDER BY utc_date',(cid,)))
+            assert len(rows)>75 and all(r['level'] is not None and r['current_exp'] is not None and r['percentage_bp'] is not None for r in rows)
+            assert rows[0]['level']<rows[-1]['level']
+            assert datetime.fromisoformat(rows[-1]['observed_at'])<NOW-timedelta(hours=24)

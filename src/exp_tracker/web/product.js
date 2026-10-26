@@ -48,6 +48,8 @@ const sorts=new Set(['exp_hour','level','day']);
 let data=null,receivedAt=0,failed=false,sort='level',characterSort='level',windowMinutes=view==='player'?15:5,chartMode='exp',bucketSeconds=1800,pollTimer=null,activeController=null;
 // The character page's charts keep their own time windows, separate from the stat cards above them.
 let chartWindow=60,longChartWindow=1440,lineWindow=15;
+let dailyDays=30,dailyKey='',dailyData=null,dailyRequested=false,dailyController=null,dailyError=false,dailyDrawKey='';
+const dailyCache=new Map();
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
 const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],job:['off','on'],name:['both','character','twitch','none'],theme:['night','day'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
 const OVERLAY_COLORS=['header','bar','accent'];
@@ -518,6 +520,7 @@ function selectBoard(mode,historyMode='push') {
   if(activeController)activeController.abort();else poll();
 }
 function renderPlayer() {
+  if(view==='player')syncDailyHistory();
   const p=data?.player,r=p?.reading;
   if(!p) {
     if(warming || view==='overlay' && viewCharacter && failed) {
@@ -748,17 +751,93 @@ function drawHistory() {
   document.querySelectorAll('[data-bucket]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.bucket)===bucketSeconds)));
   document.querySelectorAll('[data-chart-window]').forEach(b=>{const minutes=Number(b.dataset.chartWindow);b.disabled=(minutes>=720)!==(bucketSeconds===1800);b.setAttribute('aria-pressed',String(!b.disabled && minutes===(bucketSeconds===1800?longChartWindow:chartWindow)));});
   document.querySelectorAll('[data-line-window]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.lineWindow)===lineWindow)));
-  el('bucket-controls').hidden=chartMode!=='exp';el('line-controls').hidden=chartMode==='exp';
-  if(chartMode==='exp')drawExpHistory();else drawPercentageHistory();
+  const daily=chartMode==='daily';
+  el('history-controls').hidden=daily;el('daily-controls').hidden=!daily;
+  el('history-note').hidden=false;el('history-note').style.visibility=daily?'hidden':'';
+  if(daily)el('history-note').textContent='\u00a0';
+  const overlayTip=el('history-overlay-tip');if(overlayTip)overlayTip.hidden=daily;
+  el('bucket-controls').hidden=chartMode!=='exp';el('line-controls').hidden=chartMode!=='percentage';
+  if(daily)drawDailyHistory();else {dailyDrawKey='';if(chartMode==='exp')drawExpHistory();else drawPercentageHistory();}
   const all=data?.history ?? [],anchor=Date.parse(data?.tracked_history?.as_of ?? data?.player?.recent_windows?.[String(windowMinutes)]?.end ?? data?.player?.latest_attempt_at ?? all.at(-1)?.timestamp);
   const event=(data?.player?.level_events ?? []).filter(e=>Date.parse(e.timestamp)>=anchor-(chartMode!=='exp'?lineWindow:bucketSeconds===1800?longChartWindow:chartWindow)*60000).at(-1);
   const label=!event?'':event.inferred?`Level ${event.level} reached`:`Level ${event.level} reached!`;
   if(el('level-event').textContent!==label)el('level-event').textContent=label;
-  el('level-event').hidden=!event;
+  el('level-event').hidden=daily || !event;
   el('level-event').title=!event?'':event.inferred?`Up from Lv. ${event.previous_level}, spotted when the EXP bar reset${event.status==='corroborated'?' and since confirmed':'; not confirmed yet'}.`:`Reached ${localTime(event.timestamp)}.`;
   const targets=[...document.querySelectorAll('#history-chart [data-tip-key]')];
   if(focus){targets.find(n=>n.dataset.tipKey===focus)?.focus({preventScroll:true});if(!openKey)hideTip();}
   if(openKey){const target=targets.find(n=>n.dataset.tipKey===openKey);if(target)showTip(target,position);else hideTip();}
+}
+function syncDailyHistory() {
+  const id=viewCharacter ?? data?.view?.character_id ?? data?.player?.character?.id ?? roster.find(r=>r.current)?.id;
+  const key=id?String(id):'';
+  if(key!==dailyKey) {
+    dailyController?.abort();dailyController=null;dailyKey=key;dailyDrawKey='';
+    const saved=dailyCache.get(key);dailyData=saved?.body ?? null;dailyError=saved?.error ?? false;dailyRequested=!!saved;
+    if(tipKey?.startsWith('daily:'))hideTip();
+    if(chartMode==='daily')drawHistory();
+  }
+  if(key && chartMode==='daily' && !dailyRequested)loadDailyHistory();
+}
+async function loadDailyHistory() {
+  if(!dailyKey)return;
+  dailyController?.abort();
+  const controller=dailyController=new AbortController(),key=dailyKey,id=key;
+  const timeout=setTimeout(()=>controller.abort(),10000);
+  dailyRequested=true;dailyError=false;if(chartMode==='daily')drawHistory();
+  try {
+    const response=await fetch(`${apiOrigin}/api/players/${encodeURIComponent(channel)}/daily-history?character=${id}&days=365`,
+      {signal:controller.signal,cache:'no-store'});
+    if(!response.ok)throw new Error('Daily history unavailable');
+    const body=await response.json();
+    if(String(body.character_id)!==id || !Array.isArray(body.points) || body.points.length>365)throw new Error('Invalid daily history');
+    if(dailyController!==controller || dailyKey!==key)return;
+    dailyData=body;dailyCache.set(key,{body,error:false});
+  } catch {if(dailyController===controller && dailyKey===key){dailyError=true;dailyCache.set(key,{body:null,error:true});}}
+  finally {
+    clearTimeout(timeout);
+    if(dailyController===controller){dailyController=null;if(chartMode==='daily')drawHistory();}
+  }
+}
+function drawDailyHistory() {
+  const svg=el('history-chart'),key=JSON.stringify([dailyKey,dailyDays,timeZone,svg.clientWidth,dailyData?.served_at,dailyError,!!dailyController]);
+  if(dailyDrawKey===key)return;dailyDrawKey=key;svg.replaceChildren();
+  svg.setAttribute('aria-label','Historical level and EXP progress');
+  const end=Date.parse(dailyData?.served_at),start=end-dailyDays*86400000;
+  const points=(dailyData?.points ?? []).filter(r=>r.level!=null && r.percentage_bp!=null && Date.parse(r.observed_at)>=start)
+    .map(r=>({...r,time:Date.parse(r.observed_at),value:r.level*10000+r.percentage_bp}));
+  const width=Math.max(300,Math.min(960,svg.clientWidth||960)),left=60,right=width-40;
+  svg.setAttribute('viewBox',`0 0 ${width} 230`);
+  const shape=(tag,attrs)=>{const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);svg.append(n);return n;};
+  if(!points.length) {
+    shape('text',{x:width/2,y:110,'text-anchor':'middle'}).textContent=dailyController?'Loading history…':dailyError?'History couldn’t load. Refresh the page.':'This character’s history is still building.';
+    return;
+  }
+  let first=points[0].time,last=points.at(-1).time;
+  if(first===last){first-=43200000;last+=43200000;}
+  const min=Math.min(...points.map(r=>r.value)),max=Math.max(...points.map(r=>r.value)),padding=Math.max(100,max-min)*.1;
+  const low=Math.max(10000,Math.floor(min-padding)),high=Math.ceil(max+padding);
+  const x=t=>left+(t-first)/(last-first)*(right-left),y=v=>190-(v-low)/(high-low)*170;
+  for(let i=0;i<=4;i++) {
+    const value=Math.round(low+(high-low)*i/4),level=Math.floor(value/10000),pct=numbers.format((value%10000)/100);
+    shape('line',{x1:left,x2:right,y1:y(value),y2:y(value),class:i?'chart-grid':'chart-axis'});
+    if(i%2===0) {
+      const label=shape('text',{x:left-8,y:y(value)-3,'text-anchor':'end'});label.textContent=level;
+      const percent=document.createElementNS('http://www.w3.org/2000/svg','tspan');percent.setAttribute('x',left-8);percent.setAttribute('dy',14);percent.textContent=`(${pct}%)`;label.append(percent);
+    }
+  }
+  shape('line',{x1:left,x2:left,y1:20,y2:190,class:'chart-axis'});
+  points.forEach((r,i)=>{
+    const previous=points[i-1];
+    if(previous)shape('line',{x1:x(previous.time),y1:y(previous.value),x2:x(r.time),y2:y(r.value),class:'trend'});
+    const text=`${localTime(r.observed_at)}\nLv. ${r.level} · ${(r.percentage_bp/100).toFixed(2)}%\n${expText(r.current_exp,true)} EXP`;
+    inspect(shape('circle',{cx:x(r.time),cy:y(r.value),r:4,class:'sample'}),`daily:${dailyKey}:${r.utc_date}`,text);
+  });
+  const ticks=width<600?2:3,dates=new Intl.DateTimeFormat(undefined,{month:'2-digit',day:'2-digit',timeZone});
+  for(let i=0;i<ticks;i++) {
+    const stamp=first+(last-first)*i/(ticks-1);
+    shape('text',{x:x(stamp),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=dates.format(new Date(stamp));
+  }
 }
 function drawPercentageHistory() {
   const svg=el('history-chart');svg.replaceChildren();
@@ -1030,6 +1109,12 @@ document.querySelectorAll('[data-window]').forEach(button=>button.addEventListen
   if(view==='board')renderBoard();else if(data?.player){renderPlayer();drawHistory();}
 }));
 if(view==='player') {
+  document.querySelectorAll('[data-daily-days]').forEach(button=>button.addEventListener('click',()=>{
+    const days=Number(button.dataset.dailyDays);if(![30,90,365].includes(days))return;
+    dailyDays=days;
+    document.querySelectorAll('[data-daily-days]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.dailyDays)===days)));
+    drawHistory();
+  }));
   const saved=savedBoardSettings();
   el('back-to-list').href=saved?`/?${saved.mode==='characters'?'mode=characters&':''}restore=list`:'/';
   const overlayTip=el('history-overlay-tip');
@@ -1059,7 +1144,7 @@ if(view==='player') {
   document.addEventListener('pointermove',e=>{if(!lastPointer || lastPointer.x!==e.clientX || lastPointer.y!==e.clientY)tipDismissed=false;lastPointer={x:e.clientX,y:e.clientY};});
   document.addEventListener('pointerdown',e=>{if(!e.target.closest?.('[data-tip-key]'))hideTip();});
   globalThis.addEventListener?.('scroll',hideTip,true);
-  document.querySelectorAll('[data-chart]').forEach(b=>b.addEventListener('click',()=>{if(!['exp','percentage'].includes(b.dataset.chart))return;chartMode=b.dataset.chart;drawHistory();}));
+  document.querySelectorAll('[data-chart]').forEach(b=>b.addEventListener('click',()=>{if(!['exp','percentage','daily'].includes(b.dataset.chart))return;chartMode=b.dataset.chart;syncDailyHistory();drawHistory();}));
   document.querySelectorAll('[data-bucket]').forEach(b=>b.addEventListener('click',()=>{if(![60,300,1800].includes(Number(b.dataset.bucket)))return;bucketSeconds=Number(b.dataset.bucket);drawHistory();updateBuilder();}));
   document.querySelectorAll('[data-chart-window]').forEach(b=>b.addEventListener('click',()=>{const minutes=Number(b.dataset.chartWindow);if(![15,30,60,720,1440].includes(minutes) || (minutes>=720)!==(bucketSeconds===1800))return;if(bucketSeconds===1800)longChartWindow=minutes;else chartWindow=minutes;drawHistory();updateBuilder();}));
   document.querySelectorAll('[data-line-window]').forEach(b=>b.addEventListener('click',()=>{if(![5,10,15,30,60].includes(Number(b.dataset.lineWindow)))return;lineWindow=Number(b.dataset.lineWindow);drawHistory();}));

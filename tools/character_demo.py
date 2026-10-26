@@ -146,6 +146,18 @@ def create(*, now, path=DATABASE, characters=2, streamers=1, history=False):
             if [r[3] for r in rows] != sorted(r[3] for r in rows):raise ValueError(f'{channel}: earlier sessions overlap its recent readings')
             start(store, channel, 'synthetic-start' if channel == CHANNEL else f'synthetic-start-{channel}', rows[0][3])
             switches += append(store, rows, channel)
+        from exp_tracker.daily_snapshots import save as save_daily
+        for char in store.db.execute('SELECT c.id,c.label,c.streamer_id FROM characters c WHERE c.label!=?',('PendingOCR',)).fetchall():
+            first=next((r for _,rows in streams for r in rows if r[0]==char['label']),None)
+            if first is None:continue
+            _,level,bp,at=first
+            for age in range(89,0,-1):
+                if age%13==0:continue  # Synthetic days without observations exercise the history line.
+                progress=max(10000,level*10000+bp-age*240)
+                old_level,old_bp=divmod(progress,10000)
+                total=requirement(old_level)['to_next']
+                save_daily(store,char['id'],(at-timedelta(days=age)).isoformat(),old_level,total*old_bp//10000,old_bp,
+                           'diagnostic','synthetic','synthetic','synthetic')
         return switches
 
 

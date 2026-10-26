@@ -50,6 +50,10 @@ Only that exact label matches. Records, attribution and OCR safeguards are untou
 
 ## API
 
+The **History** pill in **EXP progress** uses one separate, bounded
+`/api/players/CHANNEL/daily-history?character=ID&days=365` request per character per page load.
+It does not refresh with the live profile; see [daily snapshots](24h-retention.md#daily-character-snapshots).
+
 `GET /api/players/CHANNEL?character=ID` (with the existing `history`/`tracked`
 revision parameters). Every character body now also carries:
 
@@ -94,6 +98,10 @@ Invalid or repeated modes return 400 `invalid_mode`.
   policy, schema, deployment setting or global character linking was added.
 
 ## Synthetic demo (no Twitch, fictional streamer)
+
+`msxp demo` includes 89 days of synthetic progress for every generated character,
+including days without observations and level-ups. Open a character and select
+**History** under **EXP progress**. Restart an already running demo to generate the new history.
 
 Writes only `private/character-demo/demo.sqlite3` (with a `synthetic` marker). Uses the
 real automatic attribution path with generated frames: `PendingOCR` discovers Alpha

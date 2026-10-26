@@ -59,14 +59,14 @@ readings are invented, and last-known display values never enter interval inputs
 Public URLs and JSON shapes remain unchanged. Retention revisions
 invalidate publisher cards and in-memory replay keys include the frozen prefix.
 
-## Daily character snapshots (storage only)
+## Daily character snapshots
 
 `daily_character_exp` uses `(character_id, utc_date)` as its composite primary key
 and references the persistent character ID. Renaming a character, switching
 sessions, archiving it or restarting capture does not change its snapshots.
 The table is `WITHOUT ROWID` to avoid a redundant index/row identifier.
 
-Each row stores only the actual observation timestamp, supported level (nullable),
+Each new row requires a supported level and at least one EXP value. It stores the actual observation timestamp, level,
 numeric current EXP (nullable), percentage in integer basis points (nullable),
 and four short provenance fields: source, level basis, EXP basis and percentage
 basis. No raw OCR JSON, source events, frame hashes, images or diagnostic payloads
@@ -89,13 +89,13 @@ at the original source timestamp with `manual_correction` provenance, including
 explicit fixes of rejected trusted observations. Standalone set/clear baselines
 do not create an observed day. Superseded/undone corrections do not override OCR.
 
-Percentage-only readings retain their percentage and supported/inferred level,
-without inventing numeric EXP from an experimental estimate. A contradictory
-numeric EXP is withheld while independently eligible percentage evidence can
-remain. `level_basis` distinguishes reader support, retained/inferred context
-and manual input; integer EXP provenance distinguishes strict OCR, grammar
-recovery and manual supply. A percentage derived from a manual integer is labelled
-`derived_from_manual_exp`, rather than presented as a displayed percentage.
+Readings without a level do not replace an earlier usable daily observation.
+When a supported EXP requirement exists, a missing integer is derived from percentage
+or a missing percentage from integer EXP, using integer truncation for display.
+`derived_from_percentage` and `derived_from_exp` provenance distinguish these values
+from observed fields. Missing/disputed requirements never supply invented values.
+`level_basis` retains the original support; no new level is inferred. A percentage
+derived from a manual integer retains `derived_from_manual_exp` provenance.
 Existing eligible conditional punctuation recoveries retain `conditional_symbol`
 EXP/percentage provenance and `conditional_context` level provenance: these values
 remain experimental, not exact or trusted OCR. Recovery uses the existing causal
@@ -109,9 +109,24 @@ different sweeps, its snapshot is provisional until its last eligible retained
 reading is pruned. Transaction rollback also rolls back snapshot updates.
 
 Daily snapshots are **never read** by live inference, rolling 5/10/15/30/60-minute
-or 24-hour calculations, trusted accounting, public publishing or permanent
-last-known state. No historical API, leaderboard, frontend or graph is added.
-The existing approximately 25–30-hour run-boundary allowance is unchanged.
+or 24-hour calculations, trusted accounting or permanent last-known state.
+The **History** pill in the character profile's **EXP progress** panel reads them
+once per viewed character per page load. Range changes (30/90/365 days) use the same
+bounded snapshot in memory; only browser refresh fetches updated history. There is
+no automatic historical polling. The line connects usable observations across
+missing days. Dates and tooltips use the selected display timezone; storage days
+remain UTC. The compact axis shows level with percentage below it, without estimate
+marks or a separate readings table. These are progress snapshots, not daily gains.
+
+`GET /api/players/CHANNEL/daily-history?character=ID&days=30` reads only this compact
+table and character ownership; it never builds or replays live history. `days` is
+bounded to 1–365 (the UI fetches 365 once and filters locally). Responses preserve
+integer EXP as strings and omit raw OCR. The frontend bypasses HTTP cache on its
+one request so a browser refresh obtains current data. Legacy level-less rows are
+omitted; missing EXP fields are derived at read time without rewriting the database.
+Archived points can still change as cleanup catches up. Databases older than schema 9
+return `available: false` without migrating. The existing approximately 25–30-hour
+run-boundary allowance is unchanged.
 
 Example footprint: an isolated in-memory SQLite measurement with **25 characters
 observed every day for 365 days** stored **9,125 rows**, using **1,073,152 additional
@@ -209,6 +224,40 @@ On the VPS: `deploy/msxp-retention.service` (oneshot, low CPU/IO priority) and
 updates for a few minutes and ends with one full page rebuild). Neither is
 installed by `install-ubuntu.sh`. Not enabling the timer disables retention completely. The
 coordinator units no longer pass any retention option, and `MSXP_RETENTION` is unused.
+
+### Updating the historical feature and resuming a paused VPS timer
+
+After pulling the historical-progress changes, restart **only `msxp-api`**. Capture
+does not need restarting and no database migration is added. Cloudflare Pages builds
+the updated frontend from `main`; the new History endpoint requires the updated API.
+The next retention process loads the stricter level-required snapshot rule.
+
+An existing `systemctl edit msxp-retention.service` override survives `git pull`.
+For the reviewed one-hour budget it contains:
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/opt/msxp/app/.venv/bin/python -m exp_tracker.retention --db ${MSXP_DATABASE} --apply --log-root ${MSXP_LOG_ROOT} --max-seconds 3600
+TimeoutStartSec=75min
+```
+
+If changing that override, run `sudo systemctl daemon-reload`. Otherwise no unit reload
+or reconfiguration is needed. Verify the effective `ExecStart` contains `3600` and
+`TimeoutStartUSec` is `1h 15min`, then resume the timer:
+
+```bash
+sudo systemctl restart msxp-api.service
+systemctl show msxp-retention.service -p ExecStart -p TimeoutStartUSec
+sudo systemctl enable --now msxp-retention.timer
+```
+
+To start a catch-up pass immediately as well, explicitly run
+`sudo systemctl start --no-block msxp-retention.service`. Review its final JSON summary:
+exit 0 does not establish catch-up; `complete: true` does. Existing legacy daily rows
+without levels are hidden by the historical API; restarting does not recover raw
+observations already pruned by older code. These are operator-run instructions;
+agents must not execute remote mutations without explicit authorization.
 
 Coordinator directories always record their database owner. Legacy directories are adopted only
 while all capture headers identify runs in that DB. Cleanup never follows symlinks/junctions,
