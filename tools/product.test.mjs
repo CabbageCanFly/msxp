@@ -44,10 +44,14 @@ test('profile broadcast uptime uses server time, ticks locally and clears expire
   };
   show(live);
   assert.equal(p.elements['stream-uptime'].hidden,false);
-  assert.equal(p.elements['stream-uptime-text'].textContent,'2h 13m');
-  assert.equal(p.elements['stream-uptime'].attributes['aria-label'],'Live for 2h 13m');
+  assert.equal(p.elements['stream-uptime-text'].textContent,'2h 13m 0s');
+  assert.equal(p.elements['stream-uptime'].attributes['aria-label'],'Live for 2h 13m 0s');
+  p.context.performance.now=()=>47000;p.run('renderPlayer()');
+  assert.equal(p.elements['stream-uptime-text'].textContent,'2h 13m 47s');
+  p.context.performance.now=()=>59999;p.run('renderPlayer()');
+  assert.equal(p.elements['stream-uptime-text'].textContent,'2h 13m 59s');
   p.context.performance.now=()=>60000;p.run('renderPlayer()');
-  assert.equal(p.elements['stream-uptime-text'].textContent,'2h 14m');
+  assert.equal(p.elements['stream-uptime-text'].textContent,'2h 14m 0s');
   p.context.performance.now=()=>120000;p.run('renderPlayer()');
   assert.equal(p.elements['stream-uptime'].hidden,true);
   p.context.performance.now=()=>0;
@@ -60,8 +64,12 @@ test('profile broadcast uptime uses server time, ticks locally and clears expire
     assert.equal(p.elements['stream-uptime'].attributes['aria-label'],'');
   }
   show({...live,started_at:'2026-01-01T11:59:40Z',source:'synthetic_demo'});
-  assert.equal(p.elements['stream-uptime-text'].textContent,'<1m');
+  assert.equal(p.elements['stream-uptime-text'].textContent,'20s');
   assert.match(p.elements['stream-uptime'].title,/Simulated broadcast/);
+  show({...live,started_at:'2026-01-01T11:59:00Z'});
+  assert.equal(p.elements['stream-uptime-text'].textContent,'1m 0s');
+  show({...live,started_at:'2026-01-01T11:00:00Z'});
+  assert.equal(p.elements['stream-uptime-text'].textContent,'1h 0m 0s');
   for(const view of ['board','overlay'])assert.equal(page(view).elements['stream-uptime'],undefined);
 });
 

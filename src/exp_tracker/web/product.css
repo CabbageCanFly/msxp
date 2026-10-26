@@ -326,11 +326,10 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .twitch-link:focus-visible { outline:3px solid #bedbff; outline-offset:2px; }
 .twitch-glyph { flex:none; fill:#bf94ff; }
 .player-board > .board-header { flex-wrap:wrap; justify-content:flex-start; gap:8px 14px; }
-.player-board .twitch-link { margin-left:auto; }
 .player-board .stream-uptime { display:inline-flex; align-items:center; gap:7px; max-width:none; color:var(--text-soft);
   font-family:var(--font-display); font-size:17px; font-weight:600; line-height:1.3; white-space:nowrap; text-shadow:0 1px 0 #4b3423; font-variant-numeric:tabular-nums; }
 .stream-uptime[hidden] { display:none; }
-.live-led { flex:none; width:6px; height:6px; border-radius:50%; background:radial-gradient(circle at 35% 35%,#ffe1df,#ff665e 55%,#bb292c); box-shadow:0 0 5px 1px #ff665e80; }
+.live-led { flex:none; width:6px; height:6px; border-radius:50%; background:#eb0400; box-shadow:0 0 0 1px #30050099; }
 @media(max-width:650px) { .player-board .stream-uptime { flex-basis:100%; font-size:15px; } }
 
 /* Attribution and time zone, on every public page. */

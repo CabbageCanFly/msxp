@@ -5,7 +5,7 @@ overlays and daily History in **EXP progress**. It runs in the current terminal 
 cleans up its temporary database and servers with Ctrl+C. See the
 [preview guide](website-background.md#preview-and-tune) for ports, live edits and worktrees.
 
-Player profiles include a red broadcast light and compact uptime such as **2h 13m**
+Player profiles include a red broadcast light and compact uptime such as **2h 13m 47s**
 beside Twitch, on its own header line on phones. The demo supplies fictional live
 status and a fixed start time so the timer advances locally; it never contacts
 Twitch. Its offline examples hide the timer. Real profiles use `started_at` from
