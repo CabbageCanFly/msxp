@@ -325,6 +325,13 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .twitch-link:hover { background:#0000004a; border-color:#bf94ff; }
 .twitch-link:focus-visible { outline:3px solid #bedbff; outline-offset:2px; }
 .twitch-glyph { flex:none; fill:#bf94ff; }
+.player-board > .board-header { flex-wrap:wrap; justify-content:flex-start; gap:8px 14px; }
+.player-board .twitch-link { margin-left:auto; }
+.player-board .stream-uptime { display:inline-flex; align-items:center; gap:7px; max-width:none; color:var(--text-soft);
+  font-family:var(--font-display); font-size:17px; font-weight:600; line-height:1.3; white-space:nowrap; text-shadow:0 1px 0 #4b3423; font-variant-numeric:tabular-nums; }
+.stream-uptime[hidden] { display:none; }
+.live-led { flex:none; width:6px; height:6px; border-radius:50%; background:radial-gradient(circle at 35% 35%,#ffe1df,#ff665e 55%,#bb292c); box-shadow:0 0 5px 1px #ff665e80; }
+@media(max-width:650px) { .player-board .stream-uptime { flex-basis:100%; font-size:15px; } }
 
 /* Attribution and time zone, on every public page. */
 .site-footer { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px 16px; margin:18px 6px 0; color:var(--text-muted); font-size:12px; font-weight:600; }
@@ -471,12 +478,12 @@ html, body.product { overflow-x:clip; }
   .product :is(.streamer-entry,.character-entry) { grid-template-columns:30px 66px minmax(105px,145px) minmax(0,1fr) 70px; }
 }
 @media(max-width:650px) {
-  .product :is(.streamer-entry,.character-entry) { grid-template-columns:40px minmax(0,1fr) auto; grid-template-areas:"rank identity score" "level exp exp"; padding:10px 11px; row-gap:7px; }
+  .product :is(.streamer-entry,.character-entry) { grid-template-columns:40px minmax(0,1fr) 72px; grid-template-areas:"rank identity score" "level exp exp"; padding:10px 11px; row-gap:7px; }
   .row-profile { display:grid; grid-area:1 / 1 / -1 / -1; grid-template-columns:inherit; grid-template-areas:inherit; gap:inherit; align-items:center; align-self:stretch; min-width:0; margin:-10px -11px; padding:10px 11px; border-radius:inherit; color:inherit; text-decoration:none; }
   .row-profile:active { background:#ffffff08; }
   .row-profile:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
   /* Name over channel, like the score's value over its label. */
-  :is(.streamer-entry,.character-entry) .identity { overflow:hidden; }
+  :is(.streamer-entry,.character-entry) .identity { overflow:hidden; align-self:start; padding-top:1px; }
   :is(.streamer-entry,.character-entry) .channel { margin:2px 0 0; font-size:11px; font-weight:700; }
   .product .streamer-entry[data-metric="day"] .score strong { font-size:22px; }
   .product .entry .level { padding:10px 1px 5px; }
@@ -492,11 +499,7 @@ html, body.product { overflow-x:clip; }
   .product .entry .score-age { display:inline; order:1; white-space:nowrap; color:#7f889a; }  /* As muted as the desktop age. */
   /* A drawn ◎ (ring and dot): the site fonts lack the glyph, and fallback fonts blot it at this size. */
   .product .entry .score-age::before { content:""; display:inline-block; width:8px; height:8px; margin-right:4px; vertical-align:0; box-sizing:border-box; border:1.5px solid currentColor; border-radius:50%; background:radial-gradient(currentColor 0 1.2px, transparent 1.7px); }
-  .product .entry .score-age::after { content:"•"; margin-left:5px; color:var(--line-strong); }
   .product .entry .score-label { order:2; white-space:nowrap; }
-}
-@media(max-width:359px) {
-  .product .entry .score-age::after { content:none; }  /* Age and label wrap onto two lines here; no dangling bullet. */
 }
 /* The character's name is the player page's headline. */
 .player-board #player-name { min-width:0; font-size:28px; font-weight:700; line-height:1.15; overflow-wrap:anywhere; text-shadow:0 2px 0 #4b3423; }

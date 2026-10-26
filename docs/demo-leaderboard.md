@@ -5,6 +5,13 @@ overlays and daily History in **EXP progress**. It runs in the current terminal 
 cleans up its temporary database and servers with Ctrl+C. See the
 [preview guide](website-background.md#preview-and-tune) for ports, live edits and worktrees.
 
+Player profiles include a red broadcast light and compact uptime such as **2h 13m**
+beside Twitch, on its own header line on phones. The demo supplies fictional live
+status and a fixed start time so the timer advances locally; it never contacts
+Twitch. Its offline examples hide the timer. Real profiles use `started_at` from
+the existing Twitch status request and hide uptime when status expires or is
+unknown, offline, or missing a valid start time. Uptime covers the whole broadcast.
+
 ## Legacy standalone leaderboard
 
 The separate localhost route **`/demo/leaderboard`** is an older

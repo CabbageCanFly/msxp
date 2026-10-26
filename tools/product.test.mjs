@@ -35,6 +35,36 @@ function player(changes={}){return {channel:'alpha',character:{label:'Main'},sou
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
 
+test('profile broadcast uptime uses server time, ticks locally and clears expired or unavailable status',()=>{
+  const p=page('player'),now='2026-01-01T12:00:00Z';
+  const live={status:'live',started_at:'2026-01-01T09:47:00Z',valid_until:'2026-01-01T12:02:00Z'};
+  const show=status=>{
+    p.context.fixture={served_at:now,player:player({twitch:status})};
+    p.run('data=fixture;receivedAt=0;renderPlayer()');
+  };
+  show(live);
+  assert.equal(p.elements['stream-uptime'].hidden,false);
+  assert.equal(p.elements['stream-uptime-text'].textContent,'2h 13m');
+  assert.equal(p.elements['stream-uptime'].attributes['aria-label'],'Live for 2h 13m');
+  p.context.performance.now=()=>60000;p.run('renderPlayer()');
+  assert.equal(p.elements['stream-uptime-text'].textContent,'2h 14m');
+  p.context.performance.now=()=>120000;p.run('renderPlayer()');
+  assert.equal(p.elements['stream-uptime'].hidden,true);
+  p.context.performance.now=()=>0;
+  for(const status of [undefined,{...live,status:'offline'},{...live,status:'unknown'},
+    {...live,started_at:null},{...live,started_at:'bad'},{...live,started_at:'2026-01-01T12:01:00Z'},
+    {...live,valid_until:null}]) {
+    show(status);
+    assert.equal(p.elements['stream-uptime'].hidden,true);
+    assert.equal(p.elements['stream-uptime-text'].textContent,'');
+    assert.equal(p.elements['stream-uptime'].attributes['aria-label'],'');
+  }
+  show({...live,started_at:'2026-01-01T11:59:40Z',source:'synthetic_demo'});
+  assert.equal(p.elements['stream-uptime-text'].textContent,'<1m');
+  assert.match(p.elements['stream-uptime'].title,/Simulated broadcast/);
+  for(const view of ['board','overlay'])assert.equal(page(view).elements['stream-uptime'],undefined);
+});
+
 test('profile chart tip stays visible in History, switches to EXP on each strike, then dismisses once',async()=>{
   for(const mode of ['finish','cancel','reduced','unsupported']) {
     const p=page('player'),tip=p.elements['history-overlay-tip'];

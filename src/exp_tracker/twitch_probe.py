@@ -74,7 +74,7 @@ class StreamAvailability:
         now=now or datetime.now(timezone.utc)
         with self.lock:
             if self.clock()>=self.next_check:
-                reason=None;live=set();completed=set();delay=60;games={}
+                reason=None;live=set();completed=set();delay=60;games={};starts={}
                 if not self.enabled:reason='not_enabled'
                 elif channels:
                     try:
@@ -101,6 +101,12 @@ class StreamAvailability:
                                     # The same response names the category; it only gates MapleStory capture.
                                     game=row.get('game_name')
                                     games[row['user_login']]=game if isinstance(game,str) and len(game)<=200 else None
+                                    started=row.get('started_at')
+                                    try:
+                                        started=datetime.fromisoformat(started) if isinstance(started,str) and len(started)<=64 else None
+                                        starts[row['user_login']]=(started.astimezone(timezone.utc).isoformat()
+                                            if started and started.tzinfo and started<=now else None)
+                                    except (ValueError,OverflowError):starts[row['user_login']]=None
                                 live.update(page)
                                 if all(c in live for c in batch):break
                                 cursor=response.get('pagination',{}).get('cursor','')
@@ -124,6 +130,7 @@ class StreamAvailability:
                     except (OSError,ValueError,TypeError,KeyError,AttributeError,URLError):reason='api_unavailable'
                 self.results={c:dict(status='live' if c in live else 'offline' if c in completed else 'unknown' if reason else 'offline',
                     game_name=games.get(c),
+                    started_at=starts.get(c),
                     reason=None if c in live or c in completed else reason,checked_at=now.isoformat(),source='twitch_helix_get_streams',
                     valid_until=datetime.fromtimestamp(now.timestamp()+(60 if c in live or c in completed else delay),timezone.utc).isoformat(),
                     last_known_status=(self.results.get(c,{}).get('last_known_status') if self.results.get(c,{}).get('status')=='unknown'

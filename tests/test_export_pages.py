@@ -186,6 +186,9 @@ def test_demo_preview_ctrl_c_closes_both_servers_and_removes_temporary_database(
     monkeypatch.setattr(preview_pages.PreviewServer, 'serve_forever', stop)
     assert preview_pages.main(['--demo', '--live', '--dir', str(tmp_path / 'pages')]) == 0
     assert len(started) == 2 and all(s.socket.fileno() == -1 for s in started)
+    statuses=started[1].twitch_availability.snapshot([])
+    assert statuses['synthetic_demo']['status']=='live' and statuses['synthetic_demo']['started_at']
+    assert statuses['synthetic_quiet']['status']=='offline' and statuses['synthetic_quiet']['started_at'] is None
     assert len(databases) == 1 and not databases[0].parent.exists()
     output = capsys.readouterr().out
     assert 'Ctrl+C' in output and 'refresh' in output and '?background=kerning' in output

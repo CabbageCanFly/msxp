@@ -135,6 +135,10 @@ def main(argv=None):
             print('Using temporary fictional characters; no capture is started.', flush=True)
         if args.api_db:
             preview, api = with_api(args.api_db, args.dir or dist / 'pages-local', args.port, live=args.live)
+            if args.demo:
+                from exp_tracker.store import Store
+                with Store(args.api_db,read_only=True) as store:channels=[r[0] for r in store.db.execute('SELECT login FROM streamers')]
+                character_demo.demo_twitch(api, channels, offline=character_demo.OFFLINE)
             threading.Thread(target=api.serve_forever, daemon=True).start()
             print(f'Local API: http://127.0.0.1:{api.server_port}/api/players (CORS: this preview only)', flush=True)
         else:

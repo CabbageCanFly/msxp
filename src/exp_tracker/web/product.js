@@ -266,6 +266,13 @@ function windowNote(p) {
   if(w?.eligible)return `Based on the full ${windowMinutes} min`;
   return 'Calculating…';
 }
+function streamUptime(p) {
+  const status=p?.twitch,now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
+  const start=typeof status?.started_at==='string'?Date.parse(status.started_at):NaN,until=Date.parse(status?.valid_until);
+  if(status?.status!=='live' || !Number.isFinite(now) || !Number.isFinite(start) || start>now || !Number.isFinite(until) || now>=until)return null;
+  const minutes=Math.floor((now-start)/60000);
+  return minutes>=60?`${Math.floor(minutes/60)}h ${minutes%60}m`:minutes?`${minutes}m`:'<1m';
+}
 function statusText(p) {
   // Another character's saved state: never the tracked character's capture or Twitch status.
   if(inactiveView())return `Not currently tracked · ${p.reading?'updated '+ageText(current(p).age):'nothing saved yet'}`;
@@ -522,6 +529,13 @@ function selectBoard(mode,historyMode='push') {
 function renderPlayer() {
   if(view==='player')syncDailyHistory();
   const p=data?.player,r=p?.reading;
+  if(view==='player') {
+    const uptime=streamUptime(p),label=uptime?`Live for ${uptime}`:'';
+    el('stream-uptime').hidden=!uptime;
+    el('stream-uptime-text').textContent=uptime ?? '';
+    el('stream-uptime').setAttribute('aria-label',label);
+    el('stream-uptime').title=uptime?`${p.twitch.source==='synthetic_demo'?'Simulated broadcast · ':''}${label} · Started ${localTime(p.twitch.started_at)}`:'';
+  }
   if(!p) {
     if(warming || view==='overlay' && viewCharacter && failed) {
       // Warming can mean ownership changed: never retain another character's display.

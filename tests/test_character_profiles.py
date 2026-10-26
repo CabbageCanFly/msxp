@@ -530,13 +530,19 @@ def test_inactive_character_summaries_are_built_in_the_background_not_by_request
     assert snapshot(db) == before
 
 
-def test_demo_offline_streams_report_offline_without_asking_twitch():
+def test_demo_broadcasts_keep_a_fixed_start_and_report_offline_without_asking_twitch():
     class Availability:
-        def snapshot(self, logins, *, now=None):return {c: dict(status='unknown') for c in logins}
+        def snapshot(self, logins, *, now=None):pytest.fail('Demo must never request Twitch status')
     server = type('Server', (), {})();server.twitch_availability = Availability()
-    demo.offline_twitch(server, {'synthetic_quiet'})
-    statuses = server.twitch_availability.snapshot(['synthetic_ember'], now=NOW)
-    assert statuses['synthetic_ember'] == dict(status='unknown') and statuses['synthetic_quiet']['status'] == 'offline'
+    now=datetime.now(timezone.utc)
+    demo.demo_twitch(server, {'synthetic_ember','synthetic_quiet'}, offline={'synthetic_quiet'})
+    statuses = server.twitch_availability.snapshot([], now=now)
+    live=statuses['synthetic_ember'];offline=statuses['synthetic_quiet']
+    assert live['status']=='live' and live['source']=='synthetic_demo'
+    assert abs((now-datetime.fromisoformat(live['started_at'])).total_seconds()-7980)<1
+    assert offline['status']=='offline' and offline['started_at'] is None
+    later=server.twitch_availability.snapshot([],now=now+timedelta(minutes=2))['synthetic_ember']
+    assert later['started_at']==live['started_at'] and later['valid_until']>live['valid_until']
 
 
 def test_invalidated_name_is_never_switched_to_until_restored(db):

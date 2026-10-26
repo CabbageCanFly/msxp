@@ -94,6 +94,29 @@ def test_batched_stream_status_cache_never_confuses_api_failure_with_offline(mon
     assert status.snapshot(['alpha','beta'],now=now+timedelta(seconds=seconds[0]))['alpha']['status']=='live'
 
 
+@pytest.mark.parametrize('started,expected',[
+    ('2025-12-31T21:47:00Z','2025-12-31T21:47:00+00:00'),
+    ('2025-12-31T16:47:00-05:00','2025-12-31T21:47:00+00:00'),
+    (None,None),('',None),('invalid',None),('2025-12-31T21:47:00',None),
+    ('2026-01-01T00:00:01Z',None),(123,None),('x'*1000,None),
+    ('0001-01-01T00:00:00+14:00',None),
+])
+def test_broadcast_start_is_validated_without_losing_live_status_or_extra_requests(monkeypatch,started,expected):
+    monkeypatch.setenv('TWITCH_CLIENT_ID','private');monkeypatch.setenv('TWITCH_ACCESS_TOKEN','private')
+    calls=[]
+    def fetch(*args,**kwargs):
+        calls.append(args)
+        return dict(data=[dict(user_login='alpha',type='live',started_at=started)])
+    now=datetime(2026,1,1,tzinfo=timezone.utc)
+    cache=StreamAvailability(enabled=True,fetch=fetch,clock=lambda:0)
+    statuses=cache.snapshot(['alpha','beta'],now=now)
+    assert statuses['alpha']['status']=='live' and statuses['alpha']['started_at']==expected
+    assert statuses['beta']['status']=='offline' and statuses['beta']['started_at'] is None
+    assert cache.snapshot(['alpha','beta'],now=now+timedelta(seconds=30))==statuses
+    assert len(calls)==1
+    assert cache.snapshot(['alpha','beta'],now=now+timedelta(seconds=61))['alpha']['status']=='unknown'
+
+
 def test_disabled_missing_credentials_expired_cache_and_malformed_status_are_unknown(monkeypatch):
     monkeypatch.delenv('TWITCH_CLIENT_ID',raising=False);monkeypatch.delenv('TWITCH_ACCESS_TOKEN',raising=False)
     forbidden=lambda *a,**kw:pytest.fail('No request without credentials and opt-in')

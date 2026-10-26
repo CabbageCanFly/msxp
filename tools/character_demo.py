@@ -211,13 +211,14 @@ def switch(*, now, path=DATABASE):
         return append(store, [(name, level, bp, first), (name, level, bp + step, now)])
 
 
-def offline_twitch(server, channels):
-    """Stand-in Twitch check: these demo streams report offline. Nothing is requested from Twitch."""
-    check = server.twitch_availability.snapshot
+def demo_twitch(server, channels, *, offline=()):
+    """Fictional broadcast status and a ticking uptime; never requests Twitch."""
+    started = datetime.now(timezone.utc) - timedelta(hours=2, minutes=13)
     def snapshot(logins, *, now=None):
         now = now or datetime.now(timezone.utc)
-        return {**check(logins, now=now), **{c: dict(status='offline', reason=None, checked_at=now.isoformat(), source='synthetic_demo',
-            valid_until=(now + timedelta(seconds=60)).isoformat(), last_known_status=None) for c in channels}}
+        return {c: dict(status='offline' if c in offline else 'live', game_name='MapleStory',
+            started_at=None if c in offline else started.isoformat(), reason=None, checked_at=now.isoformat(), source='synthetic_demo',
+            valid_until=(now + timedelta(seconds=60)).isoformat(), last_known_status=None) for c in channels}
     server.twitch_availability.snapshot = snapshot
 
 
@@ -274,13 +275,14 @@ def main(argv=None):
                 Diagnostics.card = lambda self, *a, **k: time.sleep(args.slow) or card(self, *a, **k)
                 print(f'Every page build takes {args.slow:g}s longer (a simulated busy server)', flush=True)
             offline = set()
+            with Store(DATABASE, read_only=True) as store:known = {row[0] for row in store.db.execute('SELECT login FROM streamers')}
             if args.offline is not None:
-                with Store(DATABASE, read_only=True) as store:known = {row[0] for row in store.db.execute('SELECT login FROM streamers')}
                 offline = set(args.offline) if args.offline else known & set(OFFLINE)
                 if offline - known:raise ValueError(f'Unknown demo streams: {", ".join(sorted(offline - known))}')
             from exp_tracker.server import create_server
             with create_server(DATABASE, port=args.port, public_only=True, background=True) as server:
-                if offline:offline_twitch(server, offline);print(f'Offline on Twitch: {", ".join(sorted(offline))}', flush=True)
+                demo_twitch(server, known, offline=offline)
+                if offline:print(f'Offline on Twitch: {", ".join(sorted(offline))}', flush=True)
                 print(f'SYNTHETIC demo (fictional streamer, no Twitch): http://127.0.0.1:{server.server_port}/stream/{CHANNEL}', flush=True)
                 print(f'Homepage: http://127.0.0.1:{server.server_port}/   Overlay: http://127.0.0.1:{server.server_port}/live/overlay/{CHANNEL}', flush=True)
                 if args.live:threading.Thread(target=live_loop, args=(server, offline), daemon=True).start()
