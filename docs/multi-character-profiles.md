@@ -37,6 +37,10 @@ database's selected character is changed only by automatic OCR (or an operator).
 - Homepage toggles use `?mode=characters` (omitted means Streamers), update without a
   page reload and support Back/Forward. Every character entry links to
   `/stream/CHANNEL?character=ID`; identical names on different channels remain separate.
+- The profile title opens the last player list directly, restoring its mode, sorting,
+  search, presence and job filters saved for this browser tab. Browser Back/Forward
+  keeps the settings of each history entry. Direct homepage visits and the homepage's
+  own title start a fresh list with default settings.
 
 ### Placeholder
 

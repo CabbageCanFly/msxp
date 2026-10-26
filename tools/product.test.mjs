@@ -11,7 +11,7 @@ class Element {
   setAttribute(k,v){this.attributes[k]=String(v);}addEventListener(k,v,options){(this.listeners??={})[k]=v;(this.listenerOptions??={})[k]=options;}
   getBoundingClientRect(){return this.bounds??{left:100,top:200,bottom:220,width:100,height:20};}
 }
-function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,random=Math.random,decodeImage=()=>Promise.resolve(),storage=new Map(),clock=Date,historyState=null){
+function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,random=Math.random,decodeImage=()=>Promise.resolve(),storage=new Map(),clock=Date,historyState=null,navigationType=historyState?'back_forward':'navigate'){
   const elements={},timers=[],events={},visits=[],images=[];
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const bucketButtons=[60,300,1800].map(seconds=>Object.assign(new Element(),{dataset:{bucket:String(seconds)}}));
@@ -19,7 +19,7 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,
   const characterSortButtons=['name','level','recent'].map(value=>Object.assign(new Element(),{dataset:{characterSort:value}}));
   const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
   const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
-  const context=vm.createContext({Intl,Date:clock,BigInt,AbortController,URL,URLSearchParams,Math:Object.assign(Object.create(Math),{random}),performance:{now:()=>0},
+  const context=vm.createContext({Intl,Date:clock,BigInt,AbortController,URL,URLSearchParams,Math:Object.assign(Object.create(Math),{random}),performance:{now:()=>0,getEntriesByType:()=>[{type:navigationType}]},
     location:{pathname,search,href:'http://127.0.0.1:8765'+pathname+search,origin:'http://127.0.0.1:8765'},innerWidth:390,innerHeight:700,
     history:{state:historyState,length:1,go:steps=>visits.push(['go',steps]),pushState:(s,t,u)=>{context.history.state=s;context.history.length++;visits.push(['push',String(u)]);},replaceState:(s,t,u)=>{context.history.state=s;visits.push(['replace',String(u)]);}},
     sessionStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
@@ -1413,42 +1413,69 @@ test('homepage toggle is view-only, preserves default cards and handles Back/For
   assert.deepEqual(api.urls,['/api/players','/api/players?mode=characters','/api/players','/api/players?mode=characters']);
 });
 
-test('profile title pill returns to its player list and leaves direct or modified navigation native',()=>{
-  for(const [referrer,length,changes,back] of [
-    ['http://127.0.0.1:8765/?mode=characters',2,{},true],
-    ['http://127.0.0.1:8765/stream/beta',2,{},false],
-    ['',2,{},false],['https://example.org/',2,{},false],
-    ['http://127.0.0.1:8765/',1,{},false],
-    ...['ctrlKey','metaKey','shiftKey','altKey'].map(key=>['http://127.0.0.1:8765/',2,{[key]:true},false]),
-    ['http://127.0.0.1:8765/',2,{button:1},false],
-  ]){
-    const p=page('player');p.context.document.referrer=referrer;p.context.history.length=length;
-    let prevented=false;
-    p.elements['back-to-list'].listeners.click({button:0,preventDefault(){prevented=true;},...changes});
-    assert.equal(prevented,back);assert.equal(p.visits.some(v=>v[0]==='go' && v[1]===-1),back);
+test('profile title stays a native homepage link through roster changes, reloads and browser Back',()=>{
+  const html=readFileSync(new URL('../src/exp_tracker/web/player.html',import.meta.url),'utf8');
+  assert.match(html,/<a\b[^>]*id="back-to-list"[^>]*href="\/"/);
+  for(const state of [null,{playerListBack:3}]) {
+    const p=page('player',undefined,'',null,Math.random,undefined,new Map(),Date,state);
+    p.context.document.referrer='http://127.0.0.1:8765/?mode=characters';p.context.history.length=4;
+    p.run("selectCharacter('2');selectCharacter('3');selectCharacter(null,'replace')");
+    p.context.location.search='?character=2';p.events.popstate();
+    assert.equal(p.run('viewCharacter'),'2');
+    assert.equal(p.elements['back-to-list'].href,'/');
+    assert.equal(p.elements['back-to-list']?.listeners?.click,undefined);
+    assert.equal(p.visits.some(v=>v[0]==='go'),false);
   }
 });
 
-test('profile title skips roster history while replacements and native Back retain the right distance',()=>{
-  const p=page('player');p.context.document.referrer='http://127.0.0.1:8765/?mode=characters';p.context.history.length=2;
-  p.run("selectCharacter('2');selectCharacter('3')");
-  assert.equal(p.context.history.state.playerListBack,3);
-  let prevented=false;
-  const click=()=>p.elements['back-to-list'].listeners.click({button:0,preventDefault(){prevented=true;}});
-  click();assert.equal(prevented,true);assert.deepEqual(p.visits.at(-1),['go',-3]);
-  p.run("selectCharacter(null,'replace')");
-  assert.equal(p.context.history.state.playerListBack,3);
-  p.context.history.state={playerListBack:2};p.context.location.search='?character=2';p.events.popstate();
-  assert.equal(p.context.history.state.playerListBack,2);click();assert.deepEqual(p.visits.at(-1),['go',-2]);
+test('the native profile title returns to the saved list mode, sorting, search, presence, window and jobs',()=>{
+  for(const mode of ['streamers','characters']) {
+    const storage=new Map(),query=mode==='characters'?'?mode=characters':'';
+    const board=page('board',undefined,query,null,Math.random,undefined,storage);
+    board.run("sort='exp_hour';characterSort='recent';presence='online';windowMinutes=30;el('character-filter').value='CharA';setJobs(['job:Cleric'])");
+    board.events.pagehide();
+    const profile=page('player',undefined,'',null,Math.random,undefined,storage);
+    profile.run("selectCharacter('2');selectCharacter('3')");
+    profile.context.location.search='?character=2';profile.events.popstate();
+    const returnQuery=query?`${query}&restore=list`:'?restore=list';
+    assert.equal(profile.elements['back-to-list'].href,'/'+returnQuery);
+    assert.equal(profile.elements['back-to-list'].listeners?.click,undefined);
+    const restored=page('board',undefined,returnQuery,null,Math.random,undefined,storage);
+    assert.equal(restored.run('boardMode'),mode);assert.equal(restored.run('sort'),'exp_hour');
+    assert.equal(restored.run('characterSort'),'recent');assert.equal(restored.run('presence'),'online');
+    assert.equal(restored.run('windowMinutes'),30);assert.equal(restored.elements['character-filter'].value,'CharA');
+    assert.equal(restored.run('jobFilter.join()'),'job:Cleric');
+    assert.equal(new URL(restored.visits[0][1]).search,query);
+    const historical=page('board',undefined,query,null,Math.random,undefined,storage,Date,{board:{sort:'day',presence:'offline'}});
+    assert.equal(historical.run('sort'),'day');assert.equal(historical.run('presence'),'offline');
+  }
 });
 
-test('direct profiles do not invent a player-list destination after roster selections',()=>{
-  const p=page('player');p.context.document.referrer='https://example.org/';p.context.history.length=2;
-  p.run("selectCharacter('2');selectCharacter('3')");
-  assert.equal(p.run('playerListBackSteps()'),0);
-  for(const value of [-1,0,1.5,999]){
-    p.context.history.state={playerListBack:value};assert.equal(p.run('playerListBackSteps()'),0);
+test('direct homepage visits and its own title start fresh even when the tab or history holds list settings',()=>{
+  const html=readFileSync(new URL('../src/exp_tracker/web/tracker.html',import.meta.url),'utf8');
+  assert.match(html,/<a\b[^>]*class="brand"[^>]*href="\/"/);
+  const storage=new Map(),previous=page('board',undefined,'?mode=characters',null,Math.random,undefined,storage);
+  previous.run("sort='day';characterSort='recent';presence='offline';windowMinutes=30;el('character-filter').value='CharA';setJobs(['job:Cleric'])");
+  previous.events.pagehide();
+  for(const navigation of ['navigate','reload']) {
+    const fresh=page('board',undefined,'',null,Math.random,undefined,storage,Date,previous.context.history.state,navigation);
+    assert.equal(fresh.run('boardMode'),'streamers');assert.equal(fresh.run('sort'),'level');
+    assert.equal(fresh.run('characterSort'),'level');assert.equal(fresh.run('presence'),'all');
+    assert.equal(fresh.run('windowMinutes'),5);assert.equal(fresh.elements['character-filter'].value,'');
+    assert.equal(fresh.run('jobFilter.length'),0);
   }
+});
+
+test('unavailable or malformed saved list settings keep the homepage link usable',()=>{
+  for(const stored of ['{broken','null']) {
+    const storage=new Map([['player-list',stored]]);
+    assert.equal(page('player',undefined,'',null,Math.random,undefined,storage).elements['back-to-list'].href,'/');
+    assert.doesNotThrow(()=>page('board',undefined,'',null,Math.random,undefined,storage));
+  }
+  const p=page('board');
+  p.context.sessionStorage.getItem=()=>{throw new Error('Storage unavailable');};
+  p.context.sessionStorage.setItem=()=>{throw new Error('Storage unavailable');};
+  assert.doesNotThrow(()=>p.events.pagehide());assert.equal(p.run('savedBoardSettings()'),null);
 });
 
 test('list filters survive a new document loaded from the same browser-history entry',()=>{

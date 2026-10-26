@@ -942,21 +942,15 @@ function filterRoster() {
   const text=el('roster-search').value.trim().toLowerCase();
   for(const item of el('roster-list').children)item.hidden=!!text && !item.dataset.name.includes(text);
 }
-function playerListBackSteps() {
-  const saved=history.state?.playerListBack;
-  if(Number.isSafeInteger(saved) && saved>0 && saved<history.length)return saved;
-  if(saved!==undefined || history.length<=1 || !document.referrer)return 0;
-  const from=new URL(document.referrer);
-  return from.origin===location.origin && from.pathname==='/'?1:0;
+function savedBoardSettings() {
+  try {return JSON.parse(sessionStorage.getItem('player-list'));} catch {return null;}
 }
 function selectCharacter(id,mode='push') {
   if(id===viewCharacter)return;
   viewCharacter=id;
   if(mode!=='none') {
     const url=new URL(location.href);if(id)url.searchParams.set('character',id);else url.searchParams.delete('character');
-    const steps=playerListBackSteps();
-    const state=steps?{...history.state,playerListBack:steps+(mode==='replace'?0:1)}:history.state;
-    history[mode==='replace'?'replaceState':'pushState'](state,'',url);
+    history[mode==='replace'?'replaceState':'pushState'](history.state,'',url);
   }
   // Never show the previous character's numbers while the chosen one loads.
   data=null;rollingData=null;rollingRevision=null;warming=true;
@@ -987,7 +981,13 @@ document.addEventListener?.('visibilitychange',()=>{if(!document.hidden)poll();}
 globalThis.addEventListener?.('pageshow',poll);
 if(view==='board')globalThis.addEventListener?.('resize',renderBoard);
 if(view==='board') {
-  const saved=history.state?.board;
+  const fromHistory=performance.getEntriesByType?.('navigation')?.[0]?.type==='back_forward';
+  const restore=new URLSearchParams(location.search).get('restore')==='list';
+  const saved=fromHistory?history.state?.board:restore?savedBoardSettings():null;
+  if(restore) {
+    const url=new URL(location.href);url.searchParams.delete('restore');
+    try {history.replaceState({...history.state,board:saved},'',url);} catch {}
+  }
   if(saved){
     if(sorts.has(saved.sort))sort=saved.sort;
     if(['name','level','recent'].includes(saved.characterSort))characterSort=saved.characterSort;
@@ -1009,7 +1009,9 @@ if(view==='board') {
   // Desktop: a row's job icon adds that job to the filter (on phones the whole row opens the profile).
   el('entries').addEventListener('click',event=>{const icon=event.target.closest?.('button.job-icon');if(icon){event.preventDefault();addJob(`job:${icon.dataset.job}`);}});
   globalThis.addEventListener?.('pagehide',()=>{
-    try {history.replaceState({...history.state,board:{sort,characterSort,presence,windowMinutes,search:el('character-filter').value,jobFilter}},'');} catch {}
+    const board={mode:boardMode,sort,characterSort,presence,windowMinutes,search:el('character-filter').value,jobFilter};
+    try {history.replaceState({...history.state,board},'');} catch {}
+    try {sessionStorage.setItem('player-list',JSON.stringify(board));} catch {}
   });
   document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>selectBoard(button.dataset.mode)));
   el('character-filter').addEventListener('input',renderBoard);
@@ -1028,11 +1030,8 @@ document.querySelectorAll('[data-window]').forEach(button=>button.addEventListen
   if(view==='board')renderBoard();else if(data?.player){renderPlayer();drawHistory();}
 }));
 if(view==='player') {
-  el('back-to-list').addEventListener('click',event=>{
-    if(event.button!==0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)return;
-    const steps=playerListBackSteps();if(!steps)return;
-    event.preventDefault();history.go(-steps);
-  });
+  const saved=savedBoardSettings();
+  el('back-to-list').href=saved?`/?${saved.mode==='characters'?'mode=characters&':''}restore=list`:'/';
   const overlayTip=el('history-overlay-tip');
   let tipStrikes=0;
   overlayTip.addEventListener('click',()=>{
