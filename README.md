@@ -7,6 +7,8 @@ or a small server. **See it live: [msxp.pages.dev](https://msxp.pages.dev)**
 
 Nobody installs anything on the streamer's side: msxp only watches the public stream.
 
+A 1-minute demo of the site: https://www.youtube.com/watch?v=K_PUYS978gM
+
 ![msxp leaderboard showing player levels, EXP progress and recent EXP per hour](docs/images/leaderboard.png)
 
 *Leaderboard with player levels, EXP progress and recent EXP/hour.*
