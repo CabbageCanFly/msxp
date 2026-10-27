@@ -56,10 +56,10 @@ def test_incomplete_or_ambiguous_result_finishes_both_original_pages(setup,monke
 
 def test_ambiguous_grammar_field_retries_full_read_without_rewriting_the_text(setup):
     image,locator,engines,_=setup
-    locator.reader=lambda *_:dict(text='165.30%1')
+    locator.reader=lambda *_:dict(text='11110.07%1')
     locator(image)
     assert locator.info['reason']=='imperfect_exp' and all(e.finished==1 for e in engines)
-    assert locator.read(image.crop((98,48,162,62)))['text']=='165.30%1'
+    assert locator.read(image.crop((98,48,162,62)))['text']=='11110.07%1'
 
 
 @pytest.mark.parametrize('text',['416,675[18.15%1','466.586120.33%1','[65.30%1','7.362[0.29%1'])
@@ -77,7 +77,7 @@ def test_existing_punctuation_repair_can_confirm_hud_without_rewriting_or_repeat
 @pytest.mark.parametrize('response',[
     dict(text='416,675[18.15%1',source_complete=False),
     dict(text='S16,675[18.15%1'),dict(text='B16,675[18.15%1'),
-    dict(text='416,675[18.15%1 trailing'),dict(text='165.30%1'),
+    dict(text='416,675[18.15%1 trailing'),
     dict(text='416,675[18.15%1 12,345[6.78%]'),
     dict(text='[65.3%1'),dict(text='12,34[56.78%1'),
     dict(text='19210.07%1'),dict(text='416,675[18.15X1'),
@@ -87,7 +87,7 @@ def test_other_repairs_and_incomplete_or_ambiguous_fields_keep_full_fallback(res
 
 
 @pytest.mark.parametrize('text',[
-    '[6S.30%1','[65.O0%]','[6B.30%]','416,67S[18.15%1',
+    '[6S.30%1','[65.O0%]','[6B.30%]','416,67S[18.15%1','165.30%1','155.64%1',
     '4,059125.17%1','3,862[32.97%','1.234,567[12.34%1',
     '1.,234[12.34%]','P4,059[25.17%1','P[65.30%]','65.30%1','[65,30%]'])
 def test_existing_unique_grammar_families_share_the_fast_path_without_new_substitution_rules(text):

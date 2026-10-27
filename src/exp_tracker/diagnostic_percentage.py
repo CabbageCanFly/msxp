@@ -56,12 +56,12 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
         if (point and value['progress_eligible'] and point['evidence']=='strict_percentage_only' and safe_capture):
             strict_percentage_context=(strict_percentage_context+[dict(point=point,frame=row['frame_sha256'])])[-2:]
         elif not (unreadable or safe_capture and point and value['progress_eligible'] and (
-                value.get('percentage_only_context',{}).get('supported')
+                value.get('current_capture',{}).get('supported')
                 or point['evidence']=='grammar_recovered' and
                     re.fullmatch(r'\[[0-9]{1,2}\.[0-9]{2}%[1|)]',point['raw_text'] or ''))):
             strict_percentage_context=[]
         context_previous=capture
-        context_frames=(context_frames+[row['frame_sha256']])[-5:] if strict_percentage_context else []
+        context_frames=(context_frames+[row.get('frame_sha256')])[-5:]
         result.append(value)
     for row,(point,invalid) in zip(rows,evidence):
         if point:point['interval_seconds']=row.get('interval_seconds',15)
@@ -106,19 +106,11 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
                 strict_percentage_context=[c for c in strict_percentage_context if
                     0<(captured_at-datetime.fromisoformat(c['point']['timestamp'])).total_seconds()<=PERCENTAGE_CONTEXT_SECONDS
                     and 0<capture['index']-c['point']['index']<=PERCENTAGE_CONTEXT_STEPS]
-        if point and point.get('requires_percentage_only_context'):
-            frames=[c['frame'] for c in strict_percentage_context]+[row.get('frame_sha256')]
-            keys=(*CONTEXT_KEYS,'level')
-            supported=(invalid is None and edge in (None,'sampling_gap') and pending is None
-                and len(strict_percentage_context)==2 and all(frames) and len(set(frames))==3
-                and all(all(c['point'][k]==point[k] for k in keys) and
-                    0<(when-datetime.fromisoformat(c['point']['timestamp'])).total_seconds()<=PERCENTAGE_CONTEXT_SECONDS
-                    for c in strict_percentage_context))
-            value['percentage_only_context']=dict(policy='leading_one_percentage_v3',supported=supported,
-                support_event_ids=[c['point']['event_id'] for c in strict_percentage_context],
-                max_age_seconds=PERCENTAGE_CONTEXT_SECONDS,max_attempt_steps=PERCENTAGE_CONTEXT_STEPS)
+        if point and point.get('requires_current_capture'):
+            supported=invalid is None and safe_capture
+            value['current_capture']=dict(policy='leading_one_percentage_v4',supported=supported,required_prior_readings=0)
             if supported:point['comparison_eligible']=True
-            else:invalid='percentage_bracket_context_required';value['eligibility_reason']=invalid
+            else:invalid='percentage_capture_unverified';value['eligibility_reason']=invalid
         if anchor and point:
             if point.get('manual_epoch')!=anchor['point'].get('manual_epoch'):
                 anchor=pending=None;strict_percentage_context=[]

@@ -58,7 +58,7 @@ def test_early_pace_is_independent_of_completed_windows_and_ages_without_mutatio
 
 def test_exp_label_tail_is_only_a_complete_percentage_hypothesis():
     result=interpret_exp('P[90.78%]')
-    assert result['policy']=='bounded_exp_v12'
+    assert result['policy']=='bounded_exp_v13'
     assert result['symbol_hypotheses']==[]  # The existing label-tail rule is unchanged.
     assert parse_percentage_only('P[90.78%]') is None
     assert not result['full_exp']['proposals'] and result['strict_percentage_only'] is None

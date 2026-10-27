@@ -25,7 +25,7 @@ from private_data import recorded
 def test_complete_standalone_token_never_invents_an_opening_bracket(raw):
     result=interpret_exp(raw)
     proposal=result['percentage']['proposals'][0]
-    assert result['policy']=='bounded_exp_v12'
+    assert result['policy']=='bounded_exp_v13'
     assert not result['full_exp']['proposals'] and result['strict_percentage_only'] is None
     assert parse_percentage_only(raw) is None
     assert proposal['interpretation']==raw[:raw.index('%')+1]
@@ -34,7 +34,7 @@ def test_complete_standalone_token_never_invents_an_opening_bracket(raw):
     assert not proposal['trusted'] and not proposal['numerical_identity_verified']
 
 
-@pytest.mark.parametrize('raw',['0.85%1','170 57%1','156.97%1','56.97%123',
+@pytest.mark.parametrize('raw',['0.85%1','170 57%1','156.9%1','56.97%123',
     '56.97%1 57.06%1','56.97%1[57.06%]','56,97%1','56.9%1','56.970%1','56.97X1','P56.97%1'])
 def test_missing_digits_and_competing_tokens_are_not_reconstructed(raw):
     result=interpret_exp(raw)

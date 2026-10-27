@@ -6,7 +6,7 @@ from fractions import Fraction
 
 from .exp_requirements import requirement
 from .shadow_grammar import interpret_exp
-from .diagnostic_evidence import project
+from .diagnostic_evidence import project,consistency
 from .diagnostic_percentage import review,boundary,CONFIRM_SECONDS
 
 LABEL = 'EXPERIMENTAL / UNVERIFIED'
@@ -47,7 +47,8 @@ def percentage_point(row, *, include_recovered=True):
     if row.get('exp_opener_unverified'):  # Set by project() when no independent level confirms the pair.
         return None, 'invalid_or_ambiguous_percentage'
     interpreted = interpret_exp(row.get('raw_text'))
-    kind, reading, requires_context = None, None, False
+    kind, reading = None, None
+    leading_brackets=interpreted['percentage']['reason']=='leading_one_bracket_recovery'
     if row.get('candidate'):
         if interpreted['strict_full'] and all(row['candidate'].get(k)==interpreted['strict_full'][k] for k in ('exp','percentage')):
             kind, reading = 'strict_full', interpreted['strict_full']
@@ -60,11 +61,17 @@ def percentage_point(row, *, include_recovered=True):
             return None, 'candidate_contradiction'
     elif include_recovered and interpreted['percentage']['classification']=='unique_proposal':
         kind, reading = 'grammar_recovered', interpreted['percentage']['proposals'][0]['reading']
-    elif include_recovered and len(interpreted['percentage_hypotheses'])==1:
-        kind,reading='grammar_recovered',interpreted['percentage_hypotheses'][0]['reading']
-        requires_context=True
     if reading is None:
         return None, 'invalid_or_ambiguous_percentage'
+    if leading_brackets and (
+            row.get('crop_suspect') or (row.get('neural_level') or {}).get('source_complete') is False
+            or row.get('local_age_seconds') is not None and row['local_age_seconds']>15):
+        return None,'unsafe_percentage_capture'
+    if leading_brackets:
+        raw=row['raw_text']
+        alternative=dict(exp=str(int(raw[:2])),percentage=raw[2:-2])
+        if consistency(alternative,(row.get('experimental_level') or {}).get('value'))['status']=='consistent':
+            return None,'ambiguous_exp_percentage_prefix'
     point = dict(event_id=row.get('event_id'), index=row.get('index'), run_id=row.get('run_id'),
         channel=row.get('assigned_channel') or row.get('channel'), source_channel=row.get('channel'),
         source_kind=row.get('source_kind'), character_id=row.get('character_id'), session_id=row.get('session_id'),
@@ -95,9 +102,9 @@ def percentage_point(row, *, include_recovered=True):
     except (TypeError,ValueError):
         if reason in (None,'visual_level_unavailable','level_evidence_conflict'):
             reason = 'timestamp_unavailable_or_out_of_order'
-    if requires_context:point['requires_percentage_only_context']=True
-    point['comparison_eligible'] = reason is None and (not requires_context or
-        row.get('percentage_review',{}).get('percentage_only_context',{}).get('supported') is True)
+    if leading_brackets:point['requires_current_capture']=True
+    point['comparison_eligible'] = reason is None and (not leading_brackets or
+        row.get('percentage_review',{}).get('current_capture',{}).get('supported') is True)
     return point, reason
 
 

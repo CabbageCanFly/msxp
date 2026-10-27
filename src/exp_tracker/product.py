@@ -279,7 +279,7 @@ def reading(row):
     if 'experimental_level' not in row: row=project([row])[0]
     point,_=percentage_point(row)
     if not point: return None
-    if point.get('requires_percentage_only_context') and not row.get('percentage_review',{}).get('percentage_only_context',{}).get('supported'):
+    if point.get('requires_current_capture') and not row.get('percentage_review',{}).get('current_capture',{}).get('supported'):
         return None
     full=full_reading(row)
     if full and full['percentage']!=point['percentage']:full=None

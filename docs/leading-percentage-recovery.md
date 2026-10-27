@@ -1,5 +1,36 @@
 # Leading `1` in percentage-only fields
 
+## Current behavior: no prior clean readings required
+
+`bounded_exp_v13` treats a whole `1DD.DD%1`, `1DD.DD%]` or `1DD.DD%I` field as
+an ordinary percentage bracket repair. `DD` must be 10 through 99, and both
+fractional digits, the decimal point and the percent sign must be present.
+For example, `155.64%1` supplies 55.64% on the first eligible capture. The old
+two-clean-reading requirement and its four-attempt/180-second expiry no longer
+control admission. The original OCR text and a separate recovery proposal remain
+available; no absolute EXP or character identity is inferred.
+
+The existing current-frame checks still require a fresh, unique HUD, an explicit
+assignment, usable level evidence, valid timestamps and non-duplicate pixels.
+Known clipped/suspect crops, invalidated observations, whole-pair arithmetic vetoes,
+decrease/large-jump quarantine and identity holds remain in force. A specific
+arithmetic ambiguity is also withheld: at level 5, `118.15%1` can mean
+`11 [8.15%]`, which matches the provisional EXP table. That low-EXP case is not
+silently interpreted as 18.15%. At level 70 the alternative contradicts the table,
+so the percentage repair is allowed without prior clean readings.
+
+Local numerical replay now accepts all sixteen readable fields in the original
+eighteen-frame trial, including captures 1, 2 and 8; the two degraded frames stay
+unavailable. All twelve later fresh frames are usable. A comparison of 387 stored
+crop responses lost no existing value or changed any existing percentage digit;
+the five newly admitted field proposals all came from the reported-stream batch.
+This change adds no OCR calls, model, dependency, command or schema migration.
+Restart the capture and API processes when deploying the code; no deployment or
+production data rewrite was performed for this local change.
+
+<details>
+<summary>Earlier policies and measurements, before v13</summary>
+
 ## Dollar/S lookalikes in complete percentages
 
 `bounded_exp_v12` also interprets at most two `S` or `$` lookalikes as `5`, only
@@ -273,3 +304,5 @@ Changed files: `src/exp_tracker/shadow_grammar.py`, `diagnostic_progress.py`,
 `diagnostic_percentage.py`, and the public reading guard in `product.py`;
 `tests/test_leading_percentage.py`, policy-version assertions in
 `tests/test_eta_followup.py` / `test_live_usability.py`, and this note.
+
+</details>

@@ -63,7 +63,7 @@ def test_bounded_five_lookalikes_keep_raw_text_and_reach_percentage_projection(t
     sanitized=observation(raw)
     assert sanitized['raw_text']==text and not sanitized['raw_text_redacted']
     parsed=interpret_exp(sanitized['raw_text'])
-    assert parsed['policy']=='bounded_exp_v12' and parsed['raw']==text
+    assert parsed['policy']=='bounded_exp_v13' and parsed['raw']==text
     assert parse_percentage_only(text) is None and parsed['strict_percentage_only'] is None
     assert not parsed['full_exp']['proposals'] and not parsed['percentage_hypotheses']
     proposal,=parsed['percentage']['proposals']
