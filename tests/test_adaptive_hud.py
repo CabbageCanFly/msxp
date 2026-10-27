@@ -238,6 +238,25 @@ def test_disputed_exp_anchors_are_not_collapsed_into_one_choice():
     assert len(hud.layouts(tokens,(500,400)))==2
 
 
+def test_taller_cross_scale_exp_label_merges_only_with_agreeing_fields_and_bottoms():
+    from copy import deepcopy
+    first=hud.layouts(anchors(470,690,100),(1280,720))[0]
+    first['anchors']['exp'].update(height=9)
+    second=deepcopy(first)
+    second['anchors']['exp'].update(y=684.5,height=19)
+    assert len(hud.merge_layouts([first,second],(1280,720)))==1
+    # Keep genuinely displaced anchors/crops, oversized labels and transitive chains ambiguous.
+    for change in (dict(y=680),dict(x=680),dict(height=30)):
+        disputed=deepcopy(second);disputed['anchors']['exp'].update(change)
+        assert len(hud.merge_layouts([first,disputed],(1280,720)))==2
+    displaced=deepcopy(second)
+    r=displaced['regions']['exp']
+    displaced['regions']['exp']=Region(r.x0,r.y0-.02,r.x1,r.y1-.02)
+    assert len(hud.merge_layouts([first,displaced],(1280,720)))==2
+    other=hud.layouts(anchors(470,500,100),(1280,720))[0]
+    assert len(hud.merge_layouts([first,second,other],(1280,720)))==2
+
+
 def test_cross_scale_candidates_merge_without_hiding_second_hud(monkeypatch):
     monkeypatch.setattr(hud,'configure_tesseract',lambda:None)
     calls=[]

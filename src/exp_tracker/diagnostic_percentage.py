@@ -54,7 +54,9 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
         if value['break_before'] or edge not in (None,'sampling_gap'):strict_percentage_context=[]
         if (point and value['progress_eligible'] and point['evidence']=='strict_percentage_only' and safe_capture):
             strict_percentage_context=(strict_percentage_context+[dict(point=point,frame=row['frame_sha256'])])[-2:]
-        elif not unreadable:strict_percentage_context=[]
+        elif not (unreadable or safe_capture and point and point.get('requires_percentage_only_context')
+                and value['progress_eligible'] and value.get('percentage_only_context',{}).get('supported')):
+            strict_percentage_context=[]
         context_previous=capture
         context_frames=(context_frames+[row['frame_sha256']])[-5:] if strict_percentage_context else []
         result.append(value)

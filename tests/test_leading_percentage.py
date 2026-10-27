@@ -105,10 +105,12 @@ def test_missing_or_unsafe_mode_context_remains_review_only(kind):
     assert not last['percentage_review']['public_eligible'] and reading(last) is None
 
 
-def test_hypotheses_cannot_self_seed_or_override_percentage_quarantine():
+def test_recoveries_reuse_original_strict_support_without_self_seeding_or_overriding_quarantine():
     rows=[strict(1,'94.39'),strict(2,'94.47'),hypothesis(3,'194.55%]'),hypothesis(4,'194.62%]')]
     values=evaluate(rows)
-    assert reading(values[2]) and reading(values[3]) is None
+    assert reading(values[2]) and reading(values[3])
+    assert values[3]['percentage_review']['percentage_only_context']['support_event_ids']==['run:1','run:2']
+    assert reading(evaluate([hypothesis(1,'194.55%]'),hypothesis(2,'194.62%]')])[-1]) is None
     rows[-2]=hypothesis(3,'194.22%1')
     values=evaluate(rows[:3])
     assert values[-1]['percentage_review']['status']=='pending_exp_decrease' and reading(values[-1]) is None
@@ -118,6 +120,36 @@ def test_hypotheses_cannot_self_seed_or_override_percentage_quarantine():
     assert value['percentage']=='94.56' and not value['trusted']
     bad=project(false_pair())[-1]
     assert percentage_point(bad)==(None,'arithmetic_pair_veto')
+
+
+def test_consecutive_recovery_retains_original_expiry_and_incremental_results():
+    rows=[strict(1,'77.10'),strict(2,'77.10')]+[hypothesis(i,f'177.{10+i}%1') for i in range(3,7)]
+    values=evaluate(rows)
+    assert [reading(r) is not None for r in values]==[True]*5+[False]
+    for value in values[2:5]:
+        assert value['percentage_review']['percentage_only_context']['support_event_ids']==['run:1','run:2']
+    for split in range(1,len(rows)):
+        projected=project(rows);state={};now=datetime.fromisoformat(rows[-1]['received_at'])
+        decisions=review(projected[:split],[percentage_point(r) for r in projected[:split]],now=now,state=state)
+        decisions+=review(projected[split:],[percentage_point(r) for r in projected[split:]],now=now,state=state)
+        assert decisions==[r['percentage_review'] for r in values]
+    rows=rows[:4]
+    rows[-1]['received_at']=(NOW+timedelta(seconds=181)).isoformat()
+    assert reading(evaluate(rows)[-1]) is None
+
+
+@pytest.mark.parametrize('change',[
+    dict(session_id=2),dict(character_id=2),dict(source_identity='other'),dict(visual_level=68),
+    dict(crop_suspect=True),dict(local_age_seconds=16),dict(hud_count=2),
+    dict(frame_sha256=f'{3:064x}'),dict(reading_invalidated=True),
+    dict(raw_text='177.00%1'),dict(raw_text='197.00%1'),
+])
+def test_recovery_sequence_cannot_bridge_conflicts_or_unsafe_frames(change):
+    rows=[strict(1,'77.10'),strict(2,'77.11'),hypothesis(3,'177.12%1'),
+        hypothesis(4,'177.13%1'),hypothesis(5,'177.14%1')]
+    rows[3].update(change)
+    values=evaluate(rows)
+    assert reading(values[2]) is not None and reading(values[-1]) is None
 
 
 def interrupted_context():

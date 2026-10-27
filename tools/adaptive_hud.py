@@ -125,9 +125,16 @@ def merge_layouts(candidates,size):
 
     def same_exp(a,b):
         limit=tolerance(a,b)
+        left,right=a['anchors']['exp'],b['anchors']['exp']
+        # A scale can include extra pixels above EXP; aligned bottoms and unchanged fields identify the same HUD.
+        same_exp_y=(abs(left['y']-right['y'])<=limit or
+            abs(left['y']+left['height']-right['y']-right['height'])<=limit
+            and abs(left['y']-right['y'])<=.08*min(a['anchor_step'],b['anchor_step'])
+            and max(left['height'],right['height'])<=.2*min(a['anchor_step'],b['anchor_step']))
         return (abs(a['anchor_step']-b['anchor_step'])<=limit
             and all(abs(a['anchors'][name][axis]-b['anchors'][name][axis])<=limit
-                    for name in ('mp','exp') for axis in ('x','y'))
+                    for name,axis in (('mp','x'),('mp','y'),('exp','x')))
+            and same_exp_y
             and box_delta(a,b,'exp')<=limit)
 
     groups=[]

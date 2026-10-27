@@ -4,6 +4,8 @@ import importlib
 import json
 from pathlib import Path
 import struct
+import subprocess
+import sys
 from types import SimpleNamespace
 
 from PIL import Image
@@ -38,6 +40,51 @@ def test_pair_transport_exact_source_pixels_and_missing_level(modules):
     assert protocol.load_crop(left,protocol.EXP_SIZE).tobytes()==a.tobytes()
     assert protocol.load_crop(right,protocol.LEVEL_SIZE).tobytes()==b.tobytes()
     assert protocol.unpack(protocol.pack(a,None))[1]==b''
+
+
+def test_worker_imports_checkout_code_without_an_installed_tracker():
+    tools=Path(__file__).resolve().parents[1]/'tools'
+    code="import sys;sys.path.insert(0,sys.argv[1]);import shadow_rapidocr;from exp_tracker import shadow_grammar;print(shadow_grammar.__file__)"
+    result=subprocess.run([sys.executable,'-I','-c',code,str(tools)],capture_output=True,text=True,check=True)
+    assert str(tools.parent/'src'/'exp_tracker'/'shadow_grammar.py') in result.stdout
+
+
+@pytest.mark.parametrize('retry,score,accepted',[
+    ('[77.70%]',.95,True),('[77.71%]',.99,False),('[77.70%]',.89,False),
+    ('177.70%1',.99,False),('1000[77.70%]',.99,False),(None,None,False),
+])
+def test_bracket_retry_requires_strict_same_digits_and_strong_score(modules,retry,score,accepted):
+    _,worker,_=modules
+    calls=[]
+    def engine(image,**kwargs):
+        calls.append(image.copy())
+        return output('177.70%1',.97) if len(calls)==1 else output(retry,score)
+    result=worker.recognize_fields(engine,Image.new('RGB',(50,15),(20,70,90)))
+    assert len(calls)==2 and calls[0].size==calls[1].size==(100,30)
+    assert calls[1].getpixel((0,0))[0]==calls[1].getpixel((0,0))[1]
+    assert result['text']==('[77.70%]' if accepted else '177.70%1')
+    if accepted:assert result['bracket_retry']['original']['text']=='177.70%1'
+
+
+@pytest.mark.parametrize('text',['[77.70%]','12345[77.70%]','77.70%1','100.00%1','unreadable',None])
+def test_bracket_retry_does_no_extra_work_for_other_fields(modules,text):
+    _,worker,_=modules
+    calls=[]
+    def engine(*args,**kwargs):calls.append(1);return output(text)
+    assert worker.recognize_fields(engine,Image.new('RGB',(50,15)))['text']==text
+    assert len(calls)==1
+
+
+def test_failed_optional_bracket_retry_preserves_original_and_level_read(modules):
+    protocol,worker,_=modules
+    calls=[]
+    def engine(*args,**kwargs):
+        calls.append(1)
+        if len(calls)==2:raise RuntimeError('optional retry failed')
+        return output('177.70%1' if len(calls)==1 else '69')
+    crop=Image.new('RGB',(40,20),'orange')
+    result=worker.recognize_fields(engine,crop,protocol.png_bytes(crop,protocol.LEVEL_SIZE),experimental=True)
+    assert len(calls)==3 and result['text']=='177.70%1' and result['neural_level']['level']==69
 
 
 @pytest.mark.parametrize('bad',[b'',b'123',struct.pack('!I',0)+struct.pack('!I',0),

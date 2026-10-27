@@ -1,5 +1,51 @@
 # Leading `1` in percentage-only fields
 
+## Consecutive bracket misreads and duplicate HUD detections
+
+A compressed percentage-only HUD can repeatedly produce `177.70%1` instead of
+`[77.70%]`, including at a high OCR confidence. Confidence alone does not identify
+this punctuation error. The worker now makes one optional grayscale read, at the
+same 2x scale, only for the existing exact leading-one grammar hypothesis. It
+accepts that retry only when the result has strict brackets, every percentage
+digit agrees with the original hypothesis, and its score is at least 0.90.
+Original RGB text/raw output remains under `neural.bracket_retry.original` when
+replaced. A failed, weak, still-malformed or numerically different retry leaves
+the original result unchanged. Normal fields incur no additional OCR call, model,
+worker, connection or timeout budget. Retries are correlated, not independent
+statistical verification; ordinary freshness and numerical guards still apply.
+
+An eligible grammar recovery also no longer discards the two original strict
+percentage-only supports. Further recoveries may use those same supports only
+within their original 180-second/four-step limits. A recovery neither becomes a
+strict support nor renews either timestamp. Quarantine, identity/source/session
+boundaries, unsafe frames and competing levels still clear support. This bounded
+reuse cannot guarantee recovery through an arbitrarily long malformed streak.
+
+Separately, two OCR scales could report one physical HUD as two candidates when
+one EXP label box included extra pixels above the text. Deduplication now permits
+that small vertical-label difference only with agreeing label bottoms, bounded
+label heights/displacement, matching MP/EXP horizontal positions and matching EXP
+crop geometry. Existing spacing tolerance, pairwise grouping and competing-field
+rejection remain in force. This performs geometry checks only; it adds no OCR.
+
+Saved native 720p frames and earlier full-EXP controls are used for local replay;
+synthetic tests cover numerical disagreements, retry failure, unchanged normal
+fields, recovery expiry, page boundaries, conflicting metadata and actual second
+HUDs. These are targeted regression checks, not a general accuracy guarantee.
+Loading both recognition and public recovery changes requires restarting the
+tracker and API. No schema, CLI option or production data rewrite is involved.
+
+Local validation: all six reported-stream frames yield matching public percentages
+after replay with explicit synthetic prior known-level/strict-percentage context,
+versus four before. Five are now strict reads; one uses the bounded grammar path.
+Twelve older full-EXP controls retain their original EXP, percentage and level
+readings. Total native-frame replay time was 32.40 seconds before and 28.79 after;
+control-frame medians were 1.65 and 1.63 seconds. These are short local runs, not a
+production capacity benchmark. The full suite passed 3,417 checks plus four
+separately run timing-sensitive checks; 175 skips comprise 168 unavailable private
+fixture/OCR checks, six Linux-only checks and one Windows symlink restriction.
+No live service was changed.
+
 The saved 35-attempt Streamer_A run `20261019T000710Z-bda4f628` contains three
 instances of the same punctuation confusion:
 
