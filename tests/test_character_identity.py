@@ -462,10 +462,31 @@ def test_second_look_may_only_confirm_the_current_character(second, used):
     f = make_frame(0)
     value = state.inspect(dict(current=True, candidate=None, visual_level=None), f, f.image(), candidate(), read,
                           {1: 10000, 2: 20000}, max_age=15, clock=lambda: 101)
-    assert len(sizes) == 2 and sizes[1] == (sizes[0][0] + 9, sizes[0][1] + 12)
+    assert len(sizes) == (2 if used else 3) and sizes[1] == (sizes[0][0] + 9, sizes[0][1] + 12)
     assert value['evidence']['name'] == ('Kayvenmoor' if used else 'Kaywenmoor')
     assert value['evidence']['raw']['raw']['txts'] == [value['evidence']['name']]
     assert ('first_read' in value['evidence']) is used and value['hold_reasons'] == ([] if used else ['name_mismatch'])
+
+
+@pytest.mark.parametrize('retry,score,used', [('Alpha', .99, True), ('Alpha', .89, False), ('Beta', .99, False), ('failed', .99, False)])
+def test_known_name_anchor_rounding_retry_only_confirms_strong_exact_reference(monkeypatch,retry,score,used):
+    identity=importlib.import_module('character_identity')
+    monkeypatch.setattr(identity,'name_region',lambda *_:dict(box=[10,10,90,35]))
+    state=IdentityCapture('channel',confirmed='Alpha');state.job=state.job_seen='Cleric'
+    image=Image.new('RGB',(1920,1080),(40,50,60));image.putpixel((20,9),(200,210,220))
+    f=make_frame(0);calls=[]
+    def read(crop):
+        calls.append(crop)
+        if len(calls)<3:return response('Alpna')
+        assert crop.size==(89,38) and crop.getpixel((16,6))==(200,210,220)
+        if retry=='failed':raise RuntimeError('optional OCR failed')
+        result=response(retry)
+        result['raw']['scores']=[score]
+        return result
+    value=state.inspect(dict(current=True,candidate=None,visual_level=None),f,image,candidate(),read,{},max_age=15,clock=lambda:101)
+    assert len(calls)==3 and value['evidence']['box']==[10,10,90,35]
+    assert value['evidence']['name']==('Alpha' if used else 'Alpna')
+    assert value['hold_reasons']==([] if used else ['name_mismatch'])
 
 
 def test_matching_reads_and_unconfirmed_channels_take_no_second_look():

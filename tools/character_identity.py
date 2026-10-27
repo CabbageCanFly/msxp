@@ -7,7 +7,7 @@ import hashlib
 import math
 import time
 
-from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS, WRAP_FROM_BP, WRAP_TO_BP
+from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS, NEURAL_SEED_SCORE, WRAP_FROM_BP, WRAP_TO_BP
 from exp_tracker.exp_consistency import MODES, assess, displayed_bp
 from exp_tracker.jobs import match, next_level, tier
 from exp_tracker.models import Reading, same_character_name
@@ -236,6 +236,16 @@ class IdentityCapture:
                 if reference and not same_character_name((read or (0, None))[1], reference):
                     # Only a matching current-character name replaces the plain read.
                     second = read_name(second_look(crop))
+                    if not same_character_name((parsed(second) or (0, None))[1], reference):
+                        # One extra top row tolerates rounding of the HUD anchor without changing discovery.
+                        left, top, right, bottom = region['box']
+                        try:
+                            retry = read_name(second_look(image.crop((left, max(0, top - 1), right, bottom))))
+                            retry_read = parsed(retry)
+                            if retry_read and retry_read[0] >= NEURAL_SEED_SCORE and same_character_name(retry_read[1], reference):
+                                second = retry
+                        except (OSError, RuntimeError, ValueError, KeyError):
+                            pass  # Optional context must not discard the original name evidence.
                     if same_character_name((parsed(second) or (0, None))[1], reference):
                         evidence['first_read'] = dict(text=response.get('text'), score=read and read[0])
                         response, read = second, parsed(second)

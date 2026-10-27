@@ -27,18 +27,21 @@ def recognize(engine,image):
 
 def recognize_fields(engine,image,level_payload=None,*,experimental=False):
     from PIL import Image, ImageOps
-    from exp_tracker.shadow_grammar import interpret_exp
+    from exp_tracker.shadow_grammar import interpret_exp, propose_full_exp
     from exp_tracker.shadow_types import parse_percentage_only
     from exp_tracker.diagnostic_evidence import NEURAL_SEED_SCORE
     image=image.resize((image.width*2,image.height*2),Image.Resampling.BICUBIC)
     result=recognize(engine,image)
     hypotheses=interpret_exp(result['text'])['percentage_hypotheses']
-    if len(hypotheses)==1:
-        # Retry only the bracket ambiguity; a strict read must corroborate every percentage digit.
+    full=propose_full_exp(result['text'])['proposals']
+    if len(hypotheses)==1 or len(full)==1:
+        # A strict retry must corroborate every digit, including absolute EXP when present.
         try:
             retry=recognize(engine,ImageOps.grayscale(image).convert('RGB'))
             scores=retry['raw'].get('scores') or []
-            if (parse_percentage_only(retry['text'])==hypotheses[0]['reading']
+            agrees=(len(hypotheses)==1 and parse_percentage_only(retry['text'])==hypotheses[0]['reading']
+                    or len(full)==1 and interpret_exp(retry['text'])['strict_full']==full[0]['reading'])
+            if (agrees
                     and len(scores)==1 and NEURAL_SEED_SCORE<=scores[0]<=1):
                 result={**retry,'bracket_retry':dict(preprocessing='grayscale2',original=result),
                     'inference_seconds':result['inference_seconds']+retry['inference_seconds']}

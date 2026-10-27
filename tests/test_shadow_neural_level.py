@@ -75,16 +75,43 @@ def test_bracket_retry_does_no_extra_work_for_other_fields(modules,text):
     assert len(calls)==1
 
 
-def test_failed_optional_bracket_retry_preserves_original_and_level_read(modules):
+@pytest.mark.parametrize('retry,score,accepted',[
+    ('123,456[57.08%]',.95,True),('123.456[57.08%]',.95,True),
+    ('123,457[57.08%]',.99,False),('123,456[57.09%]',.99,False),
+    ('123,456[57.08%]',.89,False),('123,456157.08%]',.99,False),
+    ('[57.08%]',.99,False),('123,456[57.08%1',.99,False),(None,None,False),
+])
+def test_full_exp_bracket_retry_requires_strict_same_exp_and_percentage(modules,retry,score,accepted):
+    _,worker,_=modules
+    calls=[]
+    def engine(*args,**kwargs):
+        calls.append(1)
+        return output('123,456157.08%]') if len(calls)==1 else output(retry,score)
+    result=worker.recognize_fields(engine,Image.new('RGB',(100,20)))
+    assert len(calls)==2 and result['text']==(retry if accepted else '123,456157.08%]')
+    if accepted:assert result['bracket_retry']['original']['text']=='123,456157.08%]'
+
+
+@pytest.mark.parametrize('text',['123456157.08%]','123,456157.0%]','123,456[57.08%]','123,456[57.08% extra'])
+def test_full_exp_retry_abstains_without_a_unique_bounded_proposal(modules,text):
+    _,worker,_=modules
+    calls=[]
+    def engine(*args,**kwargs):calls.append(1);return output(text)
+    assert worker.recognize_fields(engine,Image.new('RGB',(100,20)))['text']==text
+    assert len(calls)==1
+
+
+@pytest.mark.parametrize('original',['177.70%1','123,456157.08%]'])
+def test_failed_optional_bracket_retry_preserves_original_and_level_read(modules,original):
     protocol,worker,_=modules
     calls=[]
     def engine(*args,**kwargs):
         calls.append(1)
         if len(calls)==2:raise RuntimeError('optional retry failed')
-        return output('177.70%1' if len(calls)==1 else '69')
+        return output(original if len(calls)==1 else '69')
     crop=Image.new('RGB',(40,20),'orange')
     result=worker.recognize_fields(engine,crop,protocol.png_bytes(crop,protocol.LEVEL_SIZE),experimental=True)
-    assert len(calls)==3 and result['text']=='177.70%1' and result['neural_level']['level']==69
+    assert len(calls)==3 and result['text']==original and result['neural_level']['level']==69
 
 
 @pytest.mark.parametrize('bad',[b'',b'123',struct.pack('!I',0)+struct.pack('!I',0),

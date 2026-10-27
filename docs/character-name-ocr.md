@@ -792,6 +792,19 @@ replaces the plain read; anything else keeps it. The extra read never proposes o
 another character, and matching reads take no second look. The first read is kept as
 `first_read`.
 
+If that second look also misses the reference, one final padded read includes one
+additional source row above the name box. This tolerates a one-pixel rounding change
+in the HUD anchor. It can replace the original only with an exact reference match
+scoring at least 0.90; failure keeps the original evidence. Matching reads and name
+discovery take no additional calls. No fuzzy identity matching or new model is used.
+
+Local paired replay on 2026-10-27: the two rounded crop positions of one saved
+Streamer_J frame improve from one to two exact reference matches. Another 226 name
+checks (214 saved controls plus 12 different-reference negatives, spanning 12
+reference names) retain their previous names and hold decisions. Additional name
+reads took 21–49 ms on the developer PC with a warm resident worker. This is a small
+saved-frame comparison, not a long-run accuracy or VPS-load guarantee.
+
 Measured 2026-10-24 on live 1080p frames captured locally with the tracker's own capture
 code, through the production RapidOCR worker. Streamer_J's name has touching "yv", which
 the plain read gave as "w" or dropped: 0/29 correct before, 27/29 with the second look;

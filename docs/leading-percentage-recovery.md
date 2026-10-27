@@ -14,6 +14,19 @@ the original result unchanged. Normal fields incur no additional OCR call, model
 worker, connection or timeout budget. Retries are correlated, not independent
 statistical verification; ordinary freshness and numerical guards still apply.
 
+The same single grayscale retry also covers a unique bounded full-EXP bracket
+proposal, such as `123,456157.08%]`. It is used only if the new read is a strict
+full pair with exactly the proposed absolute EXP and percentage and a score of
+at least 0.90. A percentage alone, changed digit or still-malformed retry cannot
+replace the original. Concatenated ungrouped EXP without a unique proposal still
+abstains. This extends recognition only; tracking and numerical checks are unchanged.
+
+Local paired replay on 2026-10-27 improved six saved full-EXP crops from three to
+six strict pairs, preserving all EXP and percentage digits. The three additional
+grayscale reads added 21–79 ms per affected crop on the developer PC with a warm
+resident worker. Normal fields make no extra OCR call. These few saved crops do
+not establish long-run accuracy or server performance.
+
 An eligible grammar recovery also no longer discards the two original strict
 percentage-only supports. Further recoveries may use those same supports only
 within their original 180-second/four-step limits. A recovery neither becomes a
