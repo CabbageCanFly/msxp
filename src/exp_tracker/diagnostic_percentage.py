@@ -1,6 +1,7 @@
 """Causal experimental percentage quarantine. Never changes capture evidence or Store state."""
 from datetime import datetime,timedelta
 from fractions import Fraction
+import re
 
 from .diagnostic_evidence import consistency,full_reading
 
@@ -54,8 +55,10 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
         if value['break_before'] or edge not in (None,'sampling_gap'):strict_percentage_context=[]
         if (point and value['progress_eligible'] and point['evidence']=='strict_percentage_only' and safe_capture):
             strict_percentage_context=(strict_percentage_context+[dict(point=point,frame=row['frame_sha256'])])[-2:]
-        elif not (unreadable or safe_capture and point and point.get('requires_percentage_only_context')
-                and value['progress_eligible'] and value.get('percentage_only_context',{}).get('supported')):
+        elif not (unreadable or safe_capture and point and value['progress_eligible'] and (
+                value.get('percentage_only_context',{}).get('supported')
+                or point['evidence']=='grammar_recovered' and
+                    re.fullmatch(r'\[[0-9]{1,2}\.[0-9]{2}%[1|)]',point['raw_text'] or ''))):
             strict_percentage_context=[]
         context_previous=capture
         context_frames=(context_frames+[row['frame_sha256']])[-5:] if strict_percentage_context else []
@@ -111,7 +114,7 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
                 and all(all(c['point'][k]==point[k] for k in keys) and
                     0<(when-datetime.fromisoformat(c['point']['timestamp'])).total_seconds()<=PERCENTAGE_CONTEXT_SECONDS
                     for c in strict_percentage_context))
-            value['percentage_only_context']=dict(policy='leading_one_percentage_v2',supported=supported,
+            value['percentage_only_context']=dict(policy='leading_one_percentage_v3',supported=supported,
                 support_event_ids=[c['point']['event_id'] for c in strict_percentage_context],
                 max_age_seconds=PERCENTAGE_CONTEXT_SECONDS,max_attempt_steps=PERCENTAGE_CONTEXT_STEPS)
             if supported:point['comparison_eligible']=True

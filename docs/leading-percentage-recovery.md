@@ -9,10 +9,61 @@ same 2x scale, only for the existing exact leading-one grammar hypothesis. It
 accepts that retry only when the result has strict brackets, every percentage
 digit agrees with the original hypothesis, and its score is at least 0.90.
 Original RGB text/raw output remains under `neural.bracket_retry.original` when
-replaced. A failed, weak, still-malformed or numerically different retry leaves
-the original result unchanged. Normal fields incur no additional OCR call, model,
+replaced. A failed, weak, still-malformed or numerically different retry is never
+used as a reading. Normal fields incur no additional OCR call, model,
 worker, connection or timeout budget. Retries are correlated, not independent
 statistical verification; ordinary freshness and numerical guards still apply.
+
+If that grayscale read fails to corroborate an exact leading-one percentage
+hypothesis, the worker now permits one final `neutral2` crop read. It uses the
+same minimum-RGB-channel inversion as the level reader, resized directly from
+the original crop to 2x. The result must still have strict brackets, exactly the
+same percentage digits and a score of at least 0.90. It never inserts a bracket
+or changes a digit in OCR text. An accepted neutral retry preserves both the
+original RGB response and the earlier grayscale attempt under `bracket_retry`.
+Their inference times are included in the accepted response's total.
+
+This supplies actual strict observations during malformed streaks, so the
+existing history-based grammar recovery can acquire its usual supports. Its
+180-second/four-attempt limits are unchanged. Already successful grayscale reads
+stop immediately; full-EXP retries retain their single grayscale read. Ordinary
+fields, unsupported dollar-sign text and other malformed formats do no extra work.
+
+Read-time `leading_one_percentage_v3` also preserves the original strict supports
+through an eligible percentage-only closing-bracket repair such as `[62.15%1`.
+The opening `[` and all percentage digits must be literal; only the existing
+single closing lookalikes `1`, `|` or `)` qualify. This does not add that recovered
+reading as a support or renew either timestamp. Missing supports, expiry,
+quarantine, unsafe frames, context changes and competing levels still withhold
+later leading-one hypotheses. Digit repairs, label tails and missing opening
+brackets do not gain this retention rule.
+
+A paired local replay of 18 saved native 720p frames from Streamer_A increased
+strict percentage readings from four to nine, and numerical public-projection
+readings from four to eleven, without a prior level or percentage seed. Each
+added percentage matched provisional visual crop review. The same isolated
+stream/character/session assignment and original receipt times were used in both
+projections; this is not a production identity-attribution test. Sampled process
+tree CPU fell from 47.88 to 39.36 seconds and total replay time from 51.30 to
+42.46 seconds because several readable fields avoided full-page OCR fallback.
+These short local measurements are not loaded-server performance predictions.
+
+A separate paired field replay covered 387 unique crops, including 370 controls
+from other saved recordings and the existing HUD-edge trial. No existing usable
+reading was lost or changed; all five changed OCR results were correct strict
+percentages in the reported-stream batch. There were ten extra small crop reads
+across the 387 cases. Recognition CPU was 20.13 versus 20.91 seconds; elapsed
+recognition time was 21.59 versus 21.79 seconds. Other control outputs were
+unchanged. This is a regression check, not a general accuracy guarantee.
+
+A further 12 fresh captures were reviewed after the worker change. Comparing the
+baseline worker on their saved crops with the actual new capture results gave
+three versus five strict percentages. With each version's own projection policy,
+usable percentages increased from eight to ten. The baseline crop replay retains
+the captured geometry and level metadata; it is not a second live acquisition or
+a whole-frame performance comparison. Every displayed percentage matched
+provisional crop review. Unsupported two-glyph dollar/S errors and cold starts
+without usable field-mode evidence remain withheld.
 
 The same single grayscale retry also covers a unique bounded full-EXP bracket
 proposal, such as `123,456157.08%]`. It is used only if the new read is a strict
@@ -89,7 +140,7 @@ It changes no numerical digit, decimal or percent sign and supplies no EXP
 integer. The ordinary percentage-proposals list remains empty: syntax alone
 cannot promote it. Strict parsers and the frozen full-EXP v1 policy are unchanged.
 
-Read-time `leading_one_percentage_v2` admits the hypothesis only with two earlier
+Read-time `leading_one_percentage_v3` admits the hypothesis only with two earlier
 eligible **strict percentage-only** observations, not full pairs or grammar
 recoveries. Both supports must fall within **180 seconds and four attempt steps**
 of the hypothesis, permitting at most two intervening unreadable captures. Every

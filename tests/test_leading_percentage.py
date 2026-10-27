@@ -138,6 +138,44 @@ def test_consecutive_recovery_retains_original_expiry_and_incremental_results():
     assert reading(evaluate(rows)[-1]) is None
 
 
+@pytest.mark.parametrize('closing',['1','|',')'])
+def test_literal_opening_bracket_recovery_preserves_original_support_without_renewing_it(closing):
+    rows=[strict(1,'77.10'),strict(2,'77.11'),hypothesis(3,f'[77.12%{closing}'),
+        hypothesis(4,'177.13%1'),hypothesis(5,'177.14%1'),hypothesis(6,'177.15%1')]
+    values=evaluate(rows)
+    assert [reading(r) is not None for r in values]==[True]*5+[False]
+    for r in values[3:5]:
+        assert r['percentage_review']['percentage_only_context']['support_event_ids']==['run:1','run:2']
+        assert r['percentage_review']['percentage_only_context']['policy']=='leading_one_percentage_v3'
+    for split in range(1,len(rows)):
+        projected=project(rows);state={};now=datetime.fromisoformat(rows[-1]['received_at'])
+        decisions=review(projected[:split],[percentage_point(r) for r in projected[:split]],now=now,state=state)
+        decisions+=review(projected[split:],[percentage_point(r) for r in projected[split:]],now=now,state=state)
+        assert decisions==[r['percentage_review'] for r in values]
+    expired=deepcopy(rows[:4]);expired[-1]['received_at']=(NOW+timedelta(seconds=181)).isoformat()
+    assert reading(evaluate(expired)[-1]) is None
+
+
+@pytest.mark.parametrize('supports',[0,1])
+def test_closing_bracket_recovery_cannot_supply_missing_strict_support(supports):
+    rows=[strict(1,'77.10')] if supports else [hypothesis(1,'[77.10%1')]
+    rows += [hypothesis(2,'[77.11%1'),hypothesis(3,'177.12%1')]
+    assert reading(evaluate(rows)[-1]) is None
+
+
+@pytest.mark.parametrize('change',[
+    dict(session_id=2),dict(character_id=2),dict(source_identity='other'),dict(visual_level=68),
+    dict(crop_suspect=True),dict(local_age_seconds=16),dict(hud_count=2),
+    dict(frame_sha256=f'{2:064x}'),dict(reading_invalidated=True),
+    dict(raw_text='[77.00%1'),dict(raw_text='[97.00%1'),dict(raw_text='77.12%1'),
+    dict(raw_text='P[77.12%]'),dict(raw_text='[77.1S%]'),
+])
+def test_closing_bracket_recovery_cannot_preserve_support_through_unsafe_or_other_formats(change):
+    rows=[strict(1,'77.10'),strict(2,'77.11'),hypothesis(3,'[77.12%1'),hypothesis(4,'177.13%1')]
+    rows[2].update(change)
+    assert reading(evaluate(rows)[-1]) is None
+
+
 @pytest.mark.parametrize('change',[
     dict(session_id=2),dict(character_id=2),dict(source_identity='other'),dict(visual_level=68),
     dict(crop_suspect=True),dict(local_age_seconds=16),dict(hud_count=2),

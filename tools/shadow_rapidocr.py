@@ -26,27 +26,39 @@ def recognize(engine,image):
 
 
 def recognize_fields(engine,image,level_payload=None,*,experimental=False):
-    from PIL import Image, ImageOps
+    from PIL import Image, ImageOps, ImageChops
     from exp_tracker.shadow_grammar import interpret_exp, propose_full_exp
     from exp_tracker.shadow_types import parse_percentage_only
     from exp_tracker.diagnostic_evidence import NEURAL_SEED_SCORE
+    source=image
     image=image.resize((image.width*2,image.height*2),Image.Resampling.BICUBIC)
     result=recognize(engine,image)
     hypotheses=interpret_exp(result['text'])['percentage_hypotheses']
     full=propose_full_exp(result['text'])['proposals']
     if len(hypotheses)==1 or len(full)==1:
         # A strict retry must corroborate every digit, including absolute EXP when present.
-        try:
-            retry=recognize(engine,ImageOps.grayscale(image).convert('RGB'))
-            scores=retry['raw'].get('scores') or []
-            agrees=(len(hypotheses)==1 and parse_percentage_only(retry['text'])==hypotheses[0]['reading']
-                    or len(full)==1 and interpret_exp(retry['text'])['strict_full']==full[0]['reading'])
-            if (agrees
-                    and len(scores)==1 and NEURAL_SEED_SCORE<=scores[0]<=1):
-                result={**retry,'bracket_retry':dict(preprocessing='grayscale2',original=result),
-                    'inference_seconds':result['inference_seconds']+retry['inference_seconds']}
-        except Exception:
-            pass  # A failed optional retry leaves the original evidence available to the normal guards.
+        elapsed=result['inference_seconds'];grayscale=None
+        for preprocessing in (('grayscale2','neutral2') if len(hypotheses)==1 else ('grayscale2',)):
+            try:
+                if preprocessing=='grayscale2':
+                    crop=ImageOps.grayscale(image).convert('RGB')
+                else:
+                    red,green,blue=source.convert('RGB').split()
+                    crop=ImageOps.invert(ImageChops.darker(ImageChops.darker(red,green),blue)).convert('RGB')
+                    crop=crop.resize(image.size,Image.Resampling.BICUBIC)
+                retry=recognize(engine,crop);elapsed+=retry['inference_seconds']
+                if preprocessing=='grayscale2':grayscale=retry
+                scores=retry['raw'].get('scores') or []
+                agrees=(len(hypotheses)==1 and parse_percentage_only(retry['text'])==hypotheses[0]['reading']
+                        or len(full)==1 and interpret_exp(retry['text'])['strict_full']==full[0]['reading'])
+                if (agrees
+                        and len(scores)==1 and NEURAL_SEED_SCORE<=scores[0]<=1):
+                    receipt=dict(preprocessing=preprocessing,original=result)
+                    if preprocessing=='neutral2':receipt['grayscale_attempt']=grayscale
+                    result={**retry,'bracket_retry':receipt,'inference_seconds':elapsed}
+                    break
+            except Exception:
+                pass  # A failed optional retry leaves the original evidence available to the normal guards.
     if experimental:
         result['neural_level']=empty_level('missing_crop')
         if level_payload:

@@ -60,13 +60,14 @@ def test_bracket_retry_requires_strict_same_digits_and_strong_score(modules,retr
         calls.append(image.copy())
         return output('177.70%1',.97) if len(calls)==1 else output(retry,score)
     result=worker.recognize_fields(engine,Image.new('RGB',(50,15),(20,70,90)))
-    assert len(calls)==2 and calls[0].size==calls[1].size==(100,30)
+    assert len(calls)==(2 if accepted else 3) and all(c.size==(100,30) for c in calls)
     assert calls[1].getpixel((0,0))[0]==calls[1].getpixel((0,0))[1]
     assert result['text']==('[77.70%]' if accepted else '177.70%1')
     if accepted:assert result['bracket_retry']['original']['text']=='177.70%1'
 
 
-@pytest.mark.parametrize('text',['[77.70%]','12345[77.70%]','77.70%1','100.00%1','unreadable',None])
+@pytest.mark.parametrize('text',['[77.70%]','12345[77.70%]','77.70%1','100.00%1','[$S.70%]',
+                                 '177.7%1','1177.70%1','unreadable',None])
 def test_bracket_retry_does_no_extra_work_for_other_fields(modules,text):
     _,worker,_=modules
     calls=[]
@@ -111,7 +112,47 @@ def test_failed_optional_bracket_retry_preserves_original_and_level_read(modules
         return output(original if len(calls)==1 else '69')
     crop=Image.new('RGB',(40,20),'orange')
     result=worker.recognize_fields(engine,crop,protocol.png_bytes(crop,protocol.LEVEL_SIZE),experimental=True)
-    assert len(calls)==3 and result['text']==original and result['neural_level']['level']==69
+    assert len(calls)==(4 if original=='177.70%1' else 3)
+    assert result['text']==original and result['neural_level']['level']==69
+
+
+@pytest.mark.parametrize('retry,score,accepted',[
+    ('[77.70%]',.90,True),('[77.70%]',.99,True),('[77.71%]',.99,False),
+    ('[77.70%]',.89999,False),('177.70%1',.99,False),('[77.70%1',.99,False),
+    ('123[77.70%]',.99,False),(None,None,False),('[77.70%]',1.01,False),
+])
+def test_neutral_retry_requires_strict_agreeing_digits_and_preserves_both_earlier_reads(modules,retry,score,accepted):
+    _,worker,_=modules
+    source=Image.new('RGB',(50,15),(20,70,90));source.putpixel((5,5),(250,230,240))
+    inputs=[]
+    def engine(image,**kwargs):
+        inputs.append(image.copy())
+        return [output('177.70%1'),output('[77.70%1'),output(retry,score)][len(inputs)-1]
+    result=worker.recognize_fields(engine,source)
+    from PIL import ImageOps,ImageChops
+    red,green,blue=source.split()
+    expected=ImageOps.invert(ImageChops.darker(ImageChops.darker(red,green),blue)).convert('RGB')
+    expected=expected.resize((100,30),Image.Resampling.BICUBIC)
+    assert len(inputs)==3 and inputs[2].tobytes()==expected.tobytes()
+    assert result['text']==('[77.70%]' if accepted else '177.70%1')
+    if accepted:
+        receipt=result['bracket_retry']
+        assert receipt['preprocessing']=='neutral2' and receipt['original']['text']=='177.70%1'
+        assert receipt['grayscale_attempt']['text']=='[77.70%1'
+        assert result['inference_seconds']>=receipt['original']['inference_seconds']+receipt['grayscale_attempt']['inference_seconds']
+
+
+def test_both_percentage_retries_can_fail_without_losing_original_or_level(modules):
+    protocol,worker,_=modules
+    calls=[]
+    def engine(*args,**kwargs):
+        calls.append(1)
+        if len(calls) in (2,3):raise RuntimeError('private failure detail')
+        return output('177.70%1' if len(calls)==1 else '69')
+    crop=Image.new('RGB',(40,20),'orange')
+    result=worker.recognize_fields(engine,crop,protocol.png_bytes(crop,protocol.LEVEL_SIZE),experimental=True)
+    assert len(calls)==4 and result['text']=='177.70%1' and result['neural_level']['level']==69
+    assert 'bracket_retry' not in result and 'private failure' not in str(result)
 
 
 @pytest.mark.parametrize('bad',[b'',b'123',struct.pack('!I',0)+struct.pack('!I',0),
