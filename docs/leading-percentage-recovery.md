@@ -1,5 +1,24 @@
 # Leading `1` in percentage-only fields
 
+## Dollar/S lookalikes in complete percentages
+
+`bounded_exp_v12` also interprets at most two `S` or `$` lookalikes as `5`, only
+inside an entire literal square-bracketed percentage with one/two integer digits,
+a literal decimal point, exactly two fractional digits and a literal `%`.
+For example, `[$S.70%]` supplies a separate 55.70% grammar proposal. The original
+OCR remains unchanged and available in the bounded diagnostic text view. No
+absolute EXP is inferred. Clipping vetoes, normal endpoint checks and quarantine
+still apply; these recoveries do not become strict percentage supports.
+
+This does not add a global dollar substitution, accept currency text, infer
+missing punctuation or digits, repair more than two lookalikes, or extend the
+single S/O/B rule for full EXP pairs. It adds no OCR or model calls. A paired
+interpretation check on 387 existing crop responses changed only two results,
+both matching the reviewed 55.70%/55.79% fields; no existing usable value changed.
+Numerical replay of the original 18-frame batch increased from eleven to thirteen
+usable readings. The twelve-frame fresh batch stayed at ten. These are local,
+provisional regression results, not a general accuracy claim.
+
 ## Consecutive bracket misreads and duplicate HUD detections
 
 A compressed percentage-only HUD can repeatedly produce `177.70%1` instead of
@@ -62,8 +81,9 @@ three versus five strict percentages. With each version's own projection policy,
 usable percentages increased from eight to ten. The baseline crop replay retains
 the captured geometry and level metadata; it is not a second live acquisition or
 a whole-frame performance comparison. Every displayed percentage matched
-provisional crop review. Unsupported two-glyph dollar/S errors and cold starts
-without usable field-mode evidence remain withheld.
+provisional crop review. That worker-only change still withheld two-glyph
+dollar/S errors and cold starts without usable field-mode evidence; the later
+bounded dollar/S grammar rule above addresses the former.
 
 The same single grayscale retry also covers a unique bounded full-EXP bracket
 proposal, such as `123,456157.08%]`. It is used only if the new read is a strict

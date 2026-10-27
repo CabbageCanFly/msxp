@@ -51,6 +51,48 @@ def test_percentage_only_needs_no_numeric_exp_or_prior_full_readings(text,pct):
     assert history(snap)[0]['reading']==value
 
 
+@pytest.mark.parametrize('text,pct',[
+    ('[$S.70%]','55.70'),('[S$.79%]','55.79'),('[SS.70%]','55.70'),
+    ('[$5.70%]','55.70'),('[5$.70%]','55.70'),('[5S.7$%]','55.75'),
+    ('[$.00%]','5.00'),('[99.$$%]','99.55'),
+])
+def test_bounded_five_lookalikes_keep_raw_text_and_reach_percentage_projection(text,pct):
+    from exp_tracker.shadow_view import observation
+    from exp_tracker.shadow_types import parse_percentage_only
+    raw=dict(type='attempt',candidate=None,neural={'text':text},status='malformed_or_unavailable')
+    sanitized=observation(raw)
+    assert sanitized['raw_text']==text and not sanitized['raw_text_redacted']
+    parsed=interpret_exp(sanitized['raw_text'])
+    assert parsed['policy']=='bounded_exp_v12' and parsed['raw']==text
+    assert parse_percentage_only(text) is None and parsed['strict_percentage_only'] is None
+    assert not parsed['full_exp']['proposals'] and not parsed['percentage_hypotheses']
+    proposal,=parsed['percentage']['proposals']
+    assert proposal['reading']['percentage']==pct and 1<=len(proposal['edits'])<=2
+    assert all(e['old'] in 'S$' and e['new']=='5' for e in proposal['edits'])
+    current=point(1,0,174132,pct,level=39)
+    current.update(raw_text=sanitized['raw_text'],candidate=None,status='malformed_or_unavailable')
+    value=reading(snapshot([current],0)['observations'][0])
+    assert value['percentage']==pct and value['exp'] is None and value['evidence']=='grammar_recovered'
+    assert raw['neural']['text']==text and not value['trusted']
+
+
+@pytest.mark.parametrize('text',[
+    '$55.70','[$55.70%]','[S$S.70%]','[S$.7S%]','[5$.7$%1',
+    '$S.70%','[$S.70%1','1$S.70%1','[$S.70%]junk','junk[$S.70%]',
+    '[$S.70%][$S.71%]','[$S70%]','[$S.7%]','[$S.700%]','[$S.70]',
+    '[$S.70X]','[S$.7O%]','[s$.70%]','123[$S.70%]','1$3[55.70%]',
+])
+def test_five_lookalikes_never_repair_other_formats_or_more_than_two_digits(text):
+    parsed=interpret_exp(text)
+    assert not parsed['full_exp']['proposals'] and not parsed['percentage']['proposals']
+    assert not parsed['percentage_hypotheses']
+
+
+def test_clipped_percentage_vetoes_dollar_and_double_s_recovery():
+    for text in ('[$S.70%]','[SS.70%]'):
+        assert not interpret_exp(text,source_complete=False)['percentage']['proposals']
+
+
 @pytest.mark.parametrize('text',[
     '[6S.3O%]','17S,305[6S.74%]','[6s.30%]','[6Z.30%]','[6I.30%]',
     '[6S30%]','[6S.3%]','[6S.300%]','[6S.30X1','[6S.30]',
@@ -125,8 +167,9 @@ def test_leading_repair_is_not_extracted_from_a_label_or_other_prefix(text):
 
 
 @pytest.mark.parametrize('kind',['stale','two_huds','out_of_order','future','crop','duplicate','invalidated','conflict'])
-def test_glyph_recovery_does_not_bypass_normal_endpoint_checks(kind):
-    rows=glyph_rows('[6S.30%]');last=rows[-1];seconds=40
+@pytest.mark.parametrize('text',['[6S.30%]','[6$.30%]','[$S.70%]'])
+def test_glyph_recovery_does_not_bypass_normal_endpoint_checks(kind,text):
+    rows=glyph_rows(text);last=rows[-1];seconds=40
     if kind=='stale':last.update(fresh_at_capture=False,status='stale_local_frame')
     elif kind=='two_huds':last['hud_count']=2
     elif kind=='out_of_order':last['timestamp_ordered']=False

@@ -93,7 +93,7 @@ def _interpret_exp(text, *, source_complete=None):
     """
     base = dict(classification='rejected', proposals=[], trusted=False,
                 numerical_identity_verified=False, reason='no_bounded_interpretation')
-    result = dict(policy='bounded_exp_v11', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
+    result = dict(policy='bounded_exp_v12', raw=text if isinstance(text, str) and len(text) <= MAX_TEXT else None,
                   strict_full=None, strict_percentage_only=None, full_exp={**base}, percentage={**base},
                   symbol_hypotheses=[], percentage_hypotheses=[], source_complete=source_complete, trusted=False)
     if not isinstance(text, str) or not text or len(text) > MAX_TEXT:
@@ -118,6 +118,18 @@ def _interpret_exp(text, *, source_complete=None):
         result.update(strict_full=strict, strict_percentage_only=only)
         for field in ('full_exp', 'percentage'):
             result[field] = {**base, 'classification': 'raw_strict', 'reason': 'original_strict_result_unchanged'}
+        return result
+    # Dollar/S confusion is bounded to a complete percentage field, never currency or absolute EXP.
+    fives=re.fullmatch(r'\[[0-9S$]{1,2}\.[0-9S$]{2}%\]',text)
+    if fives and source_complete is not False and 1<=sum(c in 'S$' for c in text)<=2:
+        corrected=text.replace('S','5').replace('$','5')
+        reading=parse_percentage_only(corrected)
+        if reading:
+            edits=[dict(index=i,old=c,new='5',category='percentage_digit') for i,c in enumerate(text) if c in 'S$']
+            result['percentage']={**base,'classification':'unique_proposal','reason':'bounded_percentage_five_glyphs',
+                'proposals':[dict(interpretation=corrected,reading=reading,edits=edits,field_span=[0,len(text)],
+                    image_verification='required',source_completeness_verified=False,
+                    trusted=False,numerical_identity_verified=False)]}
         return result
     # One known glyph across both numeric fields; re-use the complete-field grammar.
     digit=re.fullmatch(r'(?:([0-9SOB.,]+)([\[1|])|\[)?([0-9SOB]{1,2}\.[0-9SOB]{2})%([\]1|Il]{0,3})',text)

@@ -49,7 +49,7 @@ def number(value, maximum):
 def raw_text(value):
     # Not a number parser: suspicious/unbounded text is explicitly redacted, never repaired.
     return value if isinstance(value, str) and len(value) <= 160 and re.fullmatch(
-        r'[0-9EXPexpOoIlSB.,\[\]()%?| _\-\t]*', value) else None
+        r'[0-9EXPexpOoIlSB$.,\[\]()%?| _\-\t]*', value) else None
 
 
 def hypothesis(value):
