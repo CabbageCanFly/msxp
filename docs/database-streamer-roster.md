@@ -6,6 +6,14 @@ loopback admin portal's **Streamers** area to add, pause, resume, configure or h
 channels. Routine changes need neither JSON edits nor coordinator restarts. A new
 streamer needs only a Twitch login; no MapleStory character name is required.
 
+For terminal or SSH access, use `msxp streamer add LOGIN`, `msxp streamer disable LOGIN`,
+or `msxp streamer hide LOGIN` (prefix with `msxp server` instead of `msxp` from your PC).
+See [terminal usage and defaults](../README.md#manage-streamers-without-a-browser).
+These commands reuse the admin roster preview/commit validation, stale-change checks and
+audit events. They save immediately under the local OS user's database permissions; no HTTP
+endpoint or browser token is involved. They require an already initialized roster and never
+bootstrap or migrate an old database. `add` confirms capture permission and enables tracking.
+
 No command in this guide has been run against the user's database during development.
 Do not run modifying or live steps until review and operator authorization. Never
 start a second coordinator against the running tracker's database or log root.

@@ -61,6 +61,9 @@ msxp: MapleStory Classic EXP tracker
   Just look      msxp demo        the website with fictional players; nothing to set up
   Your tracker   msxp setup       create your tracker database (once)
                  msxp admin       add streamers, confirm permission, start/pause tracking
+                 msxp streamer add LOGIN      add with admin defaults and tracking enabled
+                 msxp streamer disable LOGIN  pause tracking, preserve history
+                 msxp streamer hide LOGIN     hide publicly, keep tracking setting
                  msxp tracker     capture the streams + your local website
   More           msxp api         website only, for an existing database
                  msxp dashboard   operator view: every capture's details per streamer (read-only)
@@ -91,6 +94,8 @@ Browse logs      msxp logs tracker --browse
   --search TEXT  case-insensitive literal text; --browse opens the scroll/search viewer
   Viewer keys    /text + Enter to search, n next, g top, G bottom, q quit
   Remote         msxp server logs tracker --browse    msxp server sql
+                 msxp server streamer add Streamer_A
+  Streamer add   confirms you have permission to capture; no browser or service restart needed
   SQL keys       .tables    .schema TABLE    SELECT ...;    .quit
 
 Every command prints the tool it runs; unknown options pass through (msxp tracker --check).
@@ -326,6 +331,31 @@ def sql(args, s):
                 '-cmd', '.timeout 5000', '--', str(db), *([args.query] if args.query is not None else [])], tool=False)
 
 
+def streamer(args, s):
+    """Use the admin portal's validated, audited roster edits without starting an HTTP server."""
+    import sqlite3
+    from . import streamer_roster as roster
+    from .store import Store
+    db = path(args.db or s['MSXP_DATABASE']).resolve()
+    if not db.is_file():
+        print(f'No tracker database at {db}. Check msxp where or supply --db PATH.');return 1
+    raw = dict(action='roster_add' if args.action == 'add' else 'roster_update', channel=args.login,
+               reason=args.reason if args.reason is not None else f'msxp streamer {args.action}')
+    if args.action == 'add':
+        raw.update(authorized=True, tracking_enabled=True, public_visible=True,
+                   automatic_characters=True, experimental_neural_level=True)
+    else:raw['tracking_enabled' if args.action == 'disable' else 'public_visible'] = False
+    try:
+        with Store(db, read_only=True) as store, store._transaction():plan = roster.preview(store, raw)
+        with Store(db, allow_migration=False) as store:result = roster.commit(store, plan)
+    except (ValueError, OSError, sqlite3.Error) as error:
+        print(f'Not saved: {error}');return 1
+    row = result['configuration']
+    print(f'Saved {row["channel"]} in {db}: tracking={row["tracking_enabled"]}, public={row["public_visible"]}.\n'
+          'The running coordinator applies settings after any in-flight capture finishes.')
+    return 0
+
+
 def remote(command, s, no_browser=False):
     """(ssh command, local url) running `msxp COMMAND` in the server's checkout; admin/api come through an SSH tunnel."""
     name = command[0] if command else 'doctor'
@@ -344,6 +374,7 @@ def main(argv=None):
     for name, text in (('help', 'show the overview'), ('install', 'install Python packages and the OCR engine'),
                        ('doctor', 'check your setup'), ('demo', 'website with fictional players'),
                        ('setup', 'create your tracker database'), ('admin', 'add and manage streamers'),
+                       ('streamer', 'add, disable tracking or hide a streamer without a browser'),
                        ('tracker', 'capture streams + local website'), ('api', 'website only'),
                        ('dashboard', 'operator view of every capture'),
                        ('health', 'missed captures and why'), ('cleanup', 'keep only the last 24 h'),
@@ -363,10 +394,14 @@ def main(argv=None):
             mode.add_argument('--follow', dest='follow', action='store_true', default=None, help='keep waiting for new entries')
             mode.add_argument('--no-follow', dest='follow', action='store_false', help='show entries and exit')
         if name == 'sql':sub.add_argument('query', nargs='?', help='optional SQL to execute instead of opening the shell')
+        if name == 'streamer':
+            sub.add_argument('action', choices=['add', 'disable', 'hide'], help='add confirms capture permission and enables tracking')
+            sub.add_argument('login', help='Twitch login, not a URL or character name')
+            sub.add_argument('--reason', help='single-line audit reason (default: msxp streamer ACTION)')
         if name == 'server':
             sub.add_argument('--no-browser', action='store_true')
             sub.add_argument('remote', nargs=argparse.REMAINDER, help='the msxp command to run there (default: doctor)')
-        if name in ('setup', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'sql'):sub.add_argument('--db', help='database (default: MSXP_DATABASE)')
+        if name in ('setup', 'admin', 'streamer', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'sql'):sub.add_argument('--db', help='database (default: MSXP_DATABASE)')
         if name in ('demo', 'admin', 'tracker', 'api', 'dashboard'):
             sub.add_argument('--port', type=int);sub.add_argument('--no-browser', action='store_true')
         if name == 'tracker':sub.add_argument('--workers', type=int, help='streams captured at once (default: MSXP_WORKERS)')
@@ -384,6 +419,7 @@ def main(argv=None):
     if name == 'where':return where(s)
     if name == 'logs':return logs(args)
     if name == 'sql':return sql(args, s)
+    if name == 'streamer':return streamer(args, s)
     if name == 'server':
         if not s['MSXP_SERVER']:
             print("Add your server's SSH login to .env first, e.g.  MSXP_SERVER=root@203.0.113.7\n"

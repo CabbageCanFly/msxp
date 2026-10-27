@@ -260,3 +260,80 @@ def test_sql_reads_live_wal_and_blocks_writes_and_file_commands(monkeypatch, tmp
             assert outputs[-1].stderr
             assert writer.execute('SELECT * FROM example').fetchall() == [('original',)]
         assert msxp.main(['sql', '--db', str(db)]) == 0
+
+
+def test_streamer_commands_share_admin_defaults_and_preserve_other_settings(tmp_path, monkeypatch, capsys):
+    db = tmp_path / 'tracker.sqlite3'
+    streamer_roster.create(db)
+    monkeypatch.setattr(msxp, 'settings', lambda: msxp.SETTINGS | {'MSXP_DATABASE': str(db)})
+    assert msxp.main(['streamer', 'add', 'Streamer_A']) == 0
+    with Store(db) as store:
+        added = streamer_roster.entry(store, 'streamer_a')
+        assert all(added[k] for k in streamer_roster.FLAGS)
+        assert {k: added[k] for k in streamer_roster.DEFAULTS} == streamer_roster.DEFAULTS | {'experimental_neural_level': True}
+        streamer_roster.commit(store, streamer_roster.preview(store, dict(
+            action='roster_update', channel='streamer_a', reason='Custom capture settings', interval=30, quality='720p', save_crops=True)))
+        before = streamer_roster.entry(store, 'streamer_a')
+    assert msxp.main(['streamer', 'hide', 'STREAMER_A', '--reason', 'Hide from public']) == 0
+    with Store(db, read_only=True) as store:
+        hidden = streamer_roster.entry(store, 'streamer_a')
+        assert hidden == before | {'public_visible': False, 'revision': before['revision'] + 1}
+        assert streamer_roster.visible(store) == {'streamer_a': False}
+    assert msxp.main(['streamer', 'disable', 'streamer_a']) == 0
+    with Store(db, read_only=True) as store:
+        assert streamer_roster.entry(store, 'streamer_a') == hidden | {'tracking_enabled': False, 'revision': hidden['revision'] + 1}
+        events = store.db.execute('SELECT reason FROM streamer_roster_events ORDER BY rowid').fetchall()
+        assert [r[0] for r in events] == ['msxp streamer add', 'Custom capture settings', 'Hide from public', 'msxp streamer disable']
+    assert str(db) in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('action,login,reason,message', [
+    ('add', 'streamer_a', None, 'already has roster settings'),
+    ('add', 'https://twitch.tv/Streamer_A', None, 'use a Twitch login'),
+    ('disable', 'unknown', None, 'not managed'),
+    ('hide', 'unknown', None, 'not managed'),
+    ('hide', 'streamer_a', 'bad\nreason', 'single-line reason'),
+    ('hide', 'streamer_a', '', 'single-line reason'),
+])
+def test_streamer_rejections_do_not_change_roster(tmp_path, action, login, reason, message, capsys):
+    db = tmp_path / 'tracker.sqlite3'
+    streamer_roster.create(db)
+    base = ['streamer', '--db', str(db)]
+    assert msxp.main([*base, 'add', 'streamer_a']) == 0
+    with Store(db, read_only=True) as store:before = streamer_roster.database_digest(store)
+    assert msxp.main([*base, action, login, *(['--reason', reason] if reason is not None else [])]) == 1
+    assert message in capsys.readouterr().out
+    with Store(db, read_only=True) as store:assert streamer_roster.database_digest(store) == before
+
+
+def test_streamer_requires_existing_initialized_roster(tmp_path, capsys):
+    db = tmp_path / 'tracker.sqlite3'
+    command = ['streamer', 'add', 'streamer_a', '--db', str(db)]
+    assert msxp.main(command) == 1 and not db.exists()
+    with Store(db):pass
+    assert msxp.main(command) == 1
+    assert 'initialize the database roster' in capsys.readouterr().out
+    with sqlite3.connect(db) as store:
+        for table in ('streamer_capture', 'streamer_runtime', 'streamer_roster_events', 'streamer_roster_bootstrap'):
+            store.execute(f'DROP TABLE {table}')
+        store.execute('PRAGMA user_version=10')
+    assert msxp.main(command) == 1
+    with sqlite3.connect(db) as store:
+        assert store.execute('PRAGMA user_version').fetchone()[0] == 10
+        assert not store.execute("SELECT 1 FROM sqlite_master WHERE name='streamer_capture'").fetchall()
+
+
+def test_remote_streamer_commands_need_no_tunnel_or_browser():
+    import shlex
+    s = msxp.SETTINGS | {'MSXP_SERVER': 'root@203.0.113.7'}
+    for action in ('add', 'disable', 'hide'):
+        args = ['streamer', action, 'Streamer_A', '--reason', 'Operator change; quoted safely']
+        command, url = msxp.remote(args, s)
+        assert command[:2] == ['ssh', '-t'] and '-L' not in command and url is None
+        assert shlex.split(command[-1].split(' && ', 1)[1]) == ['sudo', '-u', 'msxp', './msxp', *args]
+
+
+def test_streamer_rejects_unknown_options(tmp_path):
+    db = tmp_path / 'missing.sqlite3'
+    with pytest.raises(SystemExit):msxp.main(['streamer', 'add', 'streamer_a', '--db', str(db), '--bogus'])
+    assert not db.exists()

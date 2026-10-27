@@ -78,6 +78,9 @@ Existing VPS roster services already enable it. See [results and rollback](docs/
 | `msxp demo` | The website with fictional players; nothing else needed |
 | `msxp setup` | Creates your tracker database |
 | `msxp admin` | Add streamers, confirm permission, start or pause tracking |
+| `msxp streamer add LOGIN` | Add a streamer with the admin defaults and tracking enabled; confirms capture permission |
+| `msxp streamer disable LOGIN` | Disable tracking without deleting history or changing visibility |
+| `msxp streamer hide LOGIN` | Hide a streamer from public views without changing tracking |
 | `msxp tracker` | Captures the streams and serves your leaderboard |
 | `msxp api` | Only the website, from an existing database, without capturing |
 | `msxp dashboard` | Operator view: every capture's details per streamer, read-only (`msxp tracker` includes it at `/dev/streams`) |
@@ -101,6 +104,31 @@ Private regression inputs are optional for running the tracker. Maintainers with
 test-data repository can run `msxp test-data`, then `msxp test`. Only missing required files are downloaded
 and checked; the full research archive and a permanent data-repo clone are not kept locally.
 See [private test data](docs/private-test-data.md) for recovery details.
+
+### Manage streamers without a browser
+
+```bash
+msxp streamer add Streamer_A
+msxp streamer disable Streamer_A
+msxp streamer hide Streamer_A
+# From your computer, run the same commands on the server:
+msxp server streamer add Streamer_A
+msxp server streamer disable Streamer_A
+msxp server streamer hide Streamer_A
+```
+
+Running `add` confirms you have permission to capture that stream. It enables tracking,
+public visibility, automatic character recognition and experimental neural level recognition,
+with the admin form's usual capture defaults (20-second interval, best quality, no saved crops).
+Use a Twitch login, not a URL. An existing roster entry is refused rather than overwritten.
+
+These commands save immediately, print the database path and resulting tracking/visibility,
+and record an audit event. Add `--reason "..."` to supply your own audit reason, or `--db PATH`
+to override the configured database. They require an initialized database roster (`msxp setup`
+for a new tracker; [bootstrap guide](docs/database-streamer-roster.md) for an existing JSON tracker).
+The running coordinator picks up changes after any in-flight capture finishes; no browser,
+admin server or service restart is required. Hide does not pause capture; use both commands
+if you want a streamer hidden and paused. Use the admin page to resume tracking or restore visibility.
 
 ### Search and browse server logs
 
