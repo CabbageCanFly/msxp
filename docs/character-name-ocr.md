@@ -890,9 +890,9 @@ sooner. A lower frame whose pair fits the lower level, or that has no strict pai
 still held. An empty
 new session displays the dated validated level without inventing EXP or pace.
 
-Initial OCR validation and each higher level require two distinct, increasing frames
+Initial OCR validation and higher levels normally require two distinct, increasing frames
 within 120 seconds, reusing existing level projection/inference and EXP/percentage
-arithmetic checks. Missing/held frames reset unfinished level confirmation. A single
+arithmetic checks. Unsafe missing/held frames reset unfinished level confirmation. A single
 high level is held and cannot raise the floor. Returning to the validated level clears
 that pending high. The first startup frame therefore waits for level confirmation
 unless a validated floor/manual assertion already exists; this is an intentional
@@ -907,9 +907,12 @@ in use; this module does not create another anomaly detector or EXP requirement 
 
 For a complete nonzero EXP/% pair, a validated high-confidence `neutral4` neural
 level can supply each frame's arithmetic check even when the pair alone fits
-multiple levels. The outer guard still requires two distinct captures within
-120 seconds. EXP need not increase between them; see the
-[stationary level-up diagnosis](stationary-level-up.md).
+multiple levels. The outer guard normally requires two distinct captures within
+120 seconds. For an established character's exact next level below 5%, two strong
+matching name and neural-level reads can instead confirm within ten minutes, even
+at `0.00%`; safe unreadable frames preserve the original vote without extending it.
+EXP need not increase between votes; see the
+[stationary level-up diagnosis](stationary-level-up.md#named-next-level-confirmation-at-tiny-exp).
 
 An active explicit manual level assertion can seed/advance the floor immediately.
 Unvalidated historical diagnostic maxima are not imported. Current lower corrections,

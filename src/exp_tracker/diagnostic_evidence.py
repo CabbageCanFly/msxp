@@ -432,7 +432,7 @@ def project(rows, *, state=None, allow_context=True):
                     selected=neural; status='agreement'; reason='both_visual_readers'
                 elif (not conflict and row.get('validated_level_floor')==neural and score>=NEURAL_SEED_SCORE
                         and (row.get('neural_level') or {}).get('preprocessing')=='neutral4'
-                        and full and int(full['exp'])>0 and Decimal(full['percentage'])>0
+                        and full
                         and consistency(full,neural)['status']=='consistent'):
                     selected=neural; status='provisional_neural'; reason='persistent_level_guard'
                 elif established==neural and (not conflict or supported_recently):

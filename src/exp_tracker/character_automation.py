@@ -7,7 +7,7 @@ import json
 import math
 import sys
 
-from .diagnostic_evidence import project, consistency, full_reading, CONFIRM_GAP_SECONDS, NEURAL_SEED_SCORE
+from .diagnostic_evidence import project, consistency, full_reading, CONFIRM_GAP_SECONDS, NEURAL_SEED_SCORE, WRAP_TO_BP
 from .diagnostics import Diagnostics, HELD_ENVELOPE, encoded, identity_held
 from .jobs import match, min_level, tier
 from .manual import active
@@ -16,6 +16,7 @@ from .shadow_view import observation
 from .store import utc
 
 MAX_AUTOMATIC_CHARACTERS = 16
+NAMED_LEVEL_UP_SECONDS = 600  # Fresh identity on both votes allows a longer wait for an idle, newly leveled character.
 JOB_GAP_SECONDS = 300  # Job reads are a minute or more apart, so two agreeing ones may span several captures.
 
 
@@ -89,13 +90,13 @@ def name_evidence(record):
     return dict(name=name, score=score, pixel_sha256=digest, received_at=value['received_at'], box=value.get('box'))
 
 
-def independent(before, after):
+def independent(before, after, *, max_seconds=CONFIRM_GAP_SECONDS):
     return bool(before and after and before['pixel_sha256'] != after['pixel_sha256']
                 and 0 < (datetime.fromisoformat(after['received_at']) -
-                         datetime.fromisoformat(before['received_at'])).total_seconds() <= CONFIRM_GAP_SECONDS)
+                         datetime.fromisoformat(before['received_at'])).total_seconds() <= max_seconds)
 
 
-def level_evidence(record):
+def level_evidence(record, *, floor=None, character_name=None):
     if not record.get('current') or record.get('localization', {}).get('count') != 1:
         return None
     row = observation(record)
@@ -112,13 +113,20 @@ def level_evidence(record):
     agreed=(projected['experimental_level']['status']=='agreement' and
             (row.get('neural_level') or {}).get('score',0)>=NEURAL_SEED_SCORE)
     informative=bool(full and int(full['exp'])>0 and float(full['percentage'])>0)
-    if (level is None or row['crop_suspect'] or not row['frame_sha256']
-            or not (check['status']=='consistent' and (informative or agreed) or check['status']=='indeterminate' and agreed)):
-        return None
     name=name_evidence(record)
+    named_levelup=bool(floor is not None and level==floor+1 and full
+        and float(full['percentage'])*100 < WRAP_TO_BP
+        and name and same_character_name(name['name'],character_name)
+        and (evidence.get('neural_score') or 0)>=NEURAL_SEED_SCORE
+        and (row.get('neural_level') or {}).get('preprocessing')=='neutral4'
+        and row['local_age_seconds'] is not None and row['local_age_seconds']<=15
+        and evidence.get('neural')==level and row['visual_level'] in (None,level))
+    if (level is None or row['crop_suspect'] or not row['frame_sha256']
+            or not (check['status']=='consistent' and (informative or agreed or named_levelup) or check['status']=='indeterminate' and agreed)):
+        return None
     return dict(level=level, name=name['name'] if name else None,
                 pixel_sha256=record.get('character_name', {}).get('evidence', {}).get('pixel_sha256')
-                or row['frame_sha256'], received_at=row['received_at'], basis=basis)
+                or row['frame_sha256'], received_at=row['received_at'], basis='named_normal_level_up' if named_levelup else basis)
 
 
 def level_held(record, reason, floor):
@@ -135,6 +143,14 @@ def guard_level(store, character, record, *, support=None):
     row = store.db.execute('SELECT * FROM character_level_guard WHERE character_id=?', (character,)).fetchone()
     floor = row['level'] if row else None
     pending = json.loads(row['pending_json']) if row and row['pending_json'] else None
+    owner = store.db.execute('SELECT s.login,c.label FROM streamers s JOIN characters c ON c.streamer_id=s.id WHERE c.id=?', (character,)).fetchone()
+    session=store.db.execute('SELECT id FROM sessions WHERE character_id=? AND ended_at IS NULL ORDER BY id DESC LIMIT 1', (character,)).fetchone()
+    session_id=session['id'] if session else None
+    named_pending=bool(session_id is not None and pending and pending.get('basis')=='named_normal_level_up' and pending.get('session_id')==session_id)
+    if pending and pending.get('basis')=='named_normal_level_up' and not named_pending:
+        pending=None
+        store.db.execute('UPDATE character_level_guard SET pending_json=NULL WHERE character_id=?',(character,))
+    confirmation_seconds=NAMED_LEVEL_UP_SECONDS if named_pending else CONFIRM_GAP_SECONDS
     if not record.get('current'):
         gap = observation(record)
         when = gap['received_at']
@@ -142,7 +158,7 @@ def guard_level(store, character, record, *, support=None):
                    if pending and when else None)
         # A fresh unreadable HUD is no vote and must not erase a normal level-up's first vote.
         unreadable = (record.get('current') is False and floor is not None and pending
-            and pending['level']==floor+1 and elapsed is not None and 0<elapsed<=CONFIRM_GAP_SECONDS
+            and pending['level']==floor+1 and elapsed is not None and 0<elapsed<=confirmation_seconds
             and record.get('status')=='unavailable' and record.get('reasons')==['missing_hud']
             and (record.get('localization') or {}).get('count')==0
             and gap['frame_sha256'] is not None
@@ -156,7 +172,6 @@ def guard_level(store, character, record, *, support=None):
     # A saved policy receipt can predate today's floor; only exact stored retries bypass validation.
     record = {k:v for k,v in record.items() if k!='level_policy'}
     proof = json.loads(row['proof_json']) if row and row['proof_json'] else None
-    owner = store.db.execute('SELECT s.login,c.label FROM streamers s JOIN characters c ON c.streamer_id=s.id WHERE c.id=?', (character,)).fetchone()
     login = owner['login']
     # Explicit operator baselines are validated assertions; OCR-only legacy maxima are not imported.
     manual = [e for e in active(store.manual_history(login, character_id=character)) if e.get('level')]
@@ -173,7 +188,8 @@ def guard_level(store, character, record, *, support=None):
                if floor and v is not None and v < floor and strict and consistency(strict, v)['status'] == 'invalid']
     judged = {**record, **dict.fromkeys(misread)}  # Evaluation only; the stored record keeps both readings.
     if misread:normalized = observation(judged)
-    qualified = level_evidence(judged)
+    qualified = level_evidence(judged,floor=floor,character_name=owner['label'])
+    if qualified and qualified['basis']=='named_normal_level_up':qualified['session_id']=session_id
     reason = None
     claims = [v for v in (normalized['visual_level'], (normalized.get('neural_level') or {}).get('level'),
                          (qualified or {}).get('level')) if v is not None]
@@ -183,12 +199,30 @@ def guard_level(store, character, record, *, support=None):
         prior = support or pending
         identity_supported=(floor is None or qualified['level']<=floor+1 or
                             same_character_name(qualified['name'], (prior or {}).get('name')) and same_character_name(qualified['name'], owner['label']))
-        if prior and prior['level'] == qualified['level'] and independent(prior, qualified) and identity_supported:
+        named_pair=bool(named_pending and prior is pending and qualified['basis']=='named_normal_level_up'
+            and same_character_name(prior['name'],qualified['name']) and same_character_name(qualified['name'],owner['label']))
+        if prior and prior['level'] == qualified['level'] and independent(prior, qualified,
+                max_seconds=NAMED_LEVEL_UP_SECONDS if named_pair else CONFIRM_GAP_SECONDS) and identity_supported:
             floor, proof, pending = qualified['level'], {**qualified, 'support': prior}, None
         else:
             pending, reason = qualified, 'level_confirmation_pending'
     elif qualified:
         pending = None
+    elif (named_pending and floor is not None and pending['level']==floor+1
+            and normalized['received_at'] and pending['received_at']<normalized['received_at']
+            and (datetime.fromisoformat(normalized['received_at'])-datetime.fromisoformat(pending['received_at'])).total_seconds()<=NAMED_LEVEL_UP_SECONDS
+            and normalized['frame_sha256'] and not normalized['crop_suspect']
+            and record.get('localization',{}).get('count')==1
+            and normalized['status'] in ('diagnostic_pair','diagnostic_percentage_only','malformed_or_unavailable')
+            and not normalized['candidate_invalid'] and not normalized['percentage_only_invalid']
+            and (normalized.get('neural_level') or {}).get('source_complete') is not False
+            and normalized['local_age_seconds'] is not None and normalized['local_age_seconds']<=15
+            and not record.get('automatic_identity_risk')
+            and all(v==pending['level'] for v in claims)
+            and normalized['visual_level'] is None
+            and (not name_evidence(record) or same_character_name(name_evidence(record)['name'],owner['label']))
+            and consistency(full_reading(normalized),pending['level'])['status']!='invalid'):
+        reason='level_confirmation_pending'  # An unreadable vote neither confirms nor refreshes the original evidence.
     elif floor is None and claims:
         reason, pending = 'level_unvalidated', None
     elif floor and (any(v > floor for v in claims) or

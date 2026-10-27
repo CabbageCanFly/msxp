@@ -4,6 +4,48 @@ The automatic capture writer could indefinitely hold a valid new level when EXP
 stopped increasing immediately after the level-up. This affects the persistent
 level guard, before public API projection; restarting only the API does not fix it.
 
+## Named next-level confirmation at tiny EXP
+
+The writer now also accepts two strong, freshly named observations of an established
+character's exact next level when the displayed percentage is below 5%, including
+`0.00%`. This uses the existing near-zero range (`WRAP_TO_BP`); it is not specific
+to any particular pair of levels. Both frames need valid `neutral4` neural level
+scores of at least 0.90, fresh matching character-name evidence at the same
+threshold, a complete EXP/percentage pair consistent with the proposed level,
+a single nonsuspect HUD, and distinct frame evidence. A conflicting level reader
+does not qualify. Zero absolute EXP is allowed too; no positive gain is required.
+
+These named votes may be up to ten minutes apart in the same character session.
+The window is a bounded operational choice, not a measured OCR accuracy guarantee.
+Fresh missing-HUD frames and otherwise safe unreadable/weak-level frames preserve
+the original vote without refreshing its timestamp or supplying another vote.
+Identity/level conflicts, unsafe or stale captures, session changes, duplicate
+support and expired evidence cannot confirm the transition. Initialization, larger
+level jumps, and observations without the additional name/level support keep the
+existing confirmation rules. The general identity window remains two minutes.
+
+After the writer confirms the floor, public projection can display a strong
+matching neural reading with a compatible complete pair even at `0.00%`. Only
+database-supplied, dated floor context enables this; payloads cannot grant it to
+themselves. Historical held captures are not rewritten. The offline floor-repair
+tool recognizes the longer named proof if an operator later needs a correction.
+
+Repeated confident OCR errors remain possible: a name match establishes identity,
+not the correctness of the level digit. Low-EXP arithmetic is a compatibility
+check, not independent proof. Tests cover several levels, tiny stationary values,
+zero EXP, longer gaps, expiry, conflicts, session changes, unsafe evidence, public
+readings and operator recovery. A local replay of two saved production OCR records
+126 seconds apart advances a synthetic validated floor on the second record; this
+is selected-record evidence, not a complete replay of every intervening capture.
+
+Validation in the isolated worktree: 3,390 full-suite passes plus four separately
+run timing-sensitive checks; 175 skips comprise 168 unavailable private-fixture/OCR
+checks, six Linux-only checks and one Windows symlink check. No live-stream retest
+was possible after the supplied broadcast ended.
+
+Loading this change requires the capture tracker and API processes to restart.
+No schema migration or production data change is needed.
+
 ## Evidence and reproduction
 
 An offline replay of the supplied `samples/level-up-sample.png` through the existing

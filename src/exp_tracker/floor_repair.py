@@ -8,6 +8,7 @@ import sqlite3
 import tempfile
 
 from .diagnostics import Diagnostics
+from .models import same_character_name
 from .invalidations import Invalidations, MAX_SELECTION, validate_reason
 from .schema import VERSION, MIGRATION_10
 from .store import Store, utc
@@ -75,7 +76,8 @@ def validate(store, plan):
     for item in (proof, proof.get('support') or {}):
         if item.get('received_at') and datetime.fromisoformat(item['received_at']) < since:
             raise ValueError('review period omits the original floor/support evidence')
-    from .character_automation import original, independent, level_evidence
+    from .character_automation import original, independent, level_evidence, NAMED_LEVEL_UP_SECONDS
+    from .diagnostic_evidence import CONFIRM_GAP_SECONDS
     history = store.manual_history(plan['channel'], character_id=cid)
     events = [e for e in history if e['active']]
     corrected = {(e['target_kind'], e['target_event_id']) for e in events if e['kind']=='point' and
@@ -111,8 +113,13 @@ def validate(store, plan):
             raise ValueError('original manual floor proof is unavailable; refusing a guard-only repair')
     else:
         support = proof.get('support') or {}
+        named_pair=(proof.get('basis')==support.get('basis')=='named_normal_level_up'
+            and proof.get('session_id') is not None and proof['session_id']==support.get('session_id')
+            and same_character_name(proof.get('name'),plan['character'])
+            and same_character_name(support.get('name'),plan['character']))
         if (not support.get('received_at') or not support.get('pixel_sha256') or
-                support.get('level') != floor['level'] or not independent(support, proof) or
+                support.get('level') != floor['level'] or not independent(support, proof,
+                    max_seconds=NAMED_LEVEL_UP_SECONDS if named_pair else CONFIRM_GAP_SECONDS) or
                 not all((datetime.fromisoformat(p['received_at']), p.get('pixel_sha256')) in retained_proofs
                         for p in (proof, support))):
             raise ValueError('original independent floor frames are unavailable; refusing a guard-only repair')

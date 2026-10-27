@@ -15,7 +15,7 @@ from exp_tracker.product import player
 from exp_tracker.retention import prune
 from exp_tracker.store import Store, utc
 from exp_tracker.writer_lock import writer_lease
-from tests.test_autonomous_characters import AT, auto, config, record, sequence  # noqa: F401
+from tests.test_autonomous_characters import AT, auto, config, record, sequence, named_low_exp_record  # noqa: F401
 from tests.test_store import profile, reading  # noqa: F401
 
 SINCE = AT + timedelta(seconds=45)
@@ -94,6 +94,20 @@ def test_preview_is_read_only_and_repair_resumes_without_erasing_history(poisone
     assert len(store.manual_history('alpha')) == 1
     assert all(row[0] <= 67 for row in store.db.execute('SELECT level FROM daily_character_exp WHERE level IS NOT NULL'))
     assert apply(poisoned, plan)['duplicate']
+
+
+def test_named_levelup_with_long_support_gap_remains_reviewable_and_repairable(auto):
+    path,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[50,50])
+    for index,seconds in ((3,45),(4,300)):
+        policy.append('first',named_low_exp_record(index,51,27,0,seconds),'unused',config())
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==51
+    cid=store._channel('alpha')['selected_character_id']
+    plan=repair.preview(path,'alpha',cid,'Alpha',level=50,exp=1000,percentage_bp=None,
+        since=SINCE,at=AT+timedelta(seconds=600),reason='Synthetic review of a misread next-level badge.')
+    assert plan['old_proof']['basis']=='named_normal_level_up'
+    repair.apply(path,'alpha',cid,'Alpha',plan,confirm=repair.confirmation(plan),backup=path.parent/'backup.sqlite3')
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==50
 
 
 @pytest.mark.parametrize('phase', ['before-baseline', 'after-replacement'])
