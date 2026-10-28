@@ -268,8 +268,8 @@ function windowNote(p) {
 }
 function streamUptime(p) {
   const status=p?.twitch,now=data?.served_at?Date.parse(data.served_at)+(performance.now()-receivedAt):Date.now();
-  const start=typeof status?.started_at==='string'?Date.parse(status.started_at):NaN,until=Date.parse(status?.valid_until);
-  if(status?.status!=='live' || !Number.isFinite(now) || !Number.isFinite(start) || start>now || !Number.isFinite(until) || now>=until)return null;
+  const start=typeof status?.started_at==='string'?Date.parse(status.started_at):NaN;
+  if(status?.status!=='live' || !Number.isFinite(now) || !Number.isFinite(start) || start>now)return null;
   const seconds=Math.floor((now-start)/1000),minutes=Math.floor(seconds/60),clock=`${minutes%60}m ${seconds%60}s`;
   return minutes>=60?`${Math.floor(minutes/60)}h ${clock}`:minutes?clock:`${seconds}s`;
 }

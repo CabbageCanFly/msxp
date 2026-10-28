@@ -259,17 +259,19 @@ def options(row, database, output):
 
 
 def category_gate(lanes, availability=None, *, seconds=60, any_category=False):
-    """Check broadcast/category once a minute in the background; unknown or expired status allows capture."""
+    """Prime batched status before capture, then refresh in the background; uncertainty allows capture."""
     from exp_tracker.twitch_auth import AppTokens
     from exp_tracker.twitch_probe import StreamAvailability, capture_paused
     availability=availability or StreamAvailability(enabled=True,auth=AppTokens(maintain=True))
-    statuses={}
+    statuses={};ready=threading.Event()
     def refresh():
         while True:
             try:statuses.update(availability.snapshot(sorted({l['channel'] for l in list(lanes) if l['source'].kind=='twitch'})))
             except (OSError,ValueError):pass
+            finally:ready.set()
             time.sleep(seconds)
     threading.Thread(target=refresh,name='twitch-category',daemon=True).start()
+    ready.wait(5)  # One startup budget for the whole roster; a slow checker continues in the background.
     return lambda lane:lane['source'].kind=='twitch' and capture_paused(statuses.get(lane['channel']),
         now=datetime.now(timezone.utc),any_category=any_category)
 

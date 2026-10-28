@@ -87,7 +87,8 @@ def test_batched_stream_status_cache_never_confuses_api_failure_with_offline(mon
                          (HTTPError('secret-url',503,'secret-token',{},None),'api_error')):
         seconds[0]+=300;failure[0]=error
         result=status.snapshot(['alpha','beta'],now=now+timedelta(seconds=seconds[0]))
-        assert all(r['status']=='unknown' and r['reason']==reason for r in result.values())
+        assert result['alpha']['status']=='live' and result['beta']['status']=='offline'
+        assert all(r['reason']==reason for r in result.values())
         assert result['alpha']['last_known_status']=='live'
         assert all('private' not in str(r) and 'secret' not in str(r) for r in result.values())
     seconds[0]+=60;failure[0]=None
@@ -114,7 +115,8 @@ def test_broadcast_start_is_validated_without_losing_live_status_or_extra_reques
     assert statuses['beta']['status']=='offline' and statuses['beta']['started_at'] is None
     assert cache.snapshot(['alpha','beta'],now=now+timedelta(seconds=30))==statuses
     assert len(calls)==1
-    assert cache.snapshot(['alpha','beta'],now=now+timedelta(seconds=61))['alpha']['status']=='unknown'
+    stale=cache.snapshot(['alpha','beta'],now=now+timedelta(seconds=121))['alpha']
+    assert stale['status']=='live' and stale['started_at']==expected and stale['reason']=='stale_check'
 
 
 def test_disabled_missing_credentials_expired_cache_and_malformed_status_are_unknown(monkeypatch):
@@ -129,7 +131,8 @@ def test_disabled_missing_credentials_expired_cache_and_malformed_status_are_unk
         assert value['status']=='unknown'
     cache=StreamAvailability(enabled=True,fetch=lambda *a,**kw:{'data':[]},clock=lambda:0)
     assert cache.snapshot(['alpha'],now=now)['alpha']['status']=='offline'
-    assert cache.snapshot(['alpha'],now=now+timedelta(seconds=61))['alpha']['status']=='unknown'
+    stale=cache.snapshot(['alpha'],now=now+timedelta(seconds=121))['alpha']
+    assert stale['status']=='offline' and not capture_paused(stale,now=now+timedelta(seconds=121))
 
 
 @pytest.mark.parametrize('failure',[None,'rate_limit','wrong_batch'])
@@ -166,12 +169,51 @@ def test_completed_batch_expires_without_bypassing_later_batch_backoff(monkeypat
     initial=cache.snapshot(channels,now=now)
     assert initial[channels[0]]['status']=='live' and initial[channels[1]]['status']=='offline'
     assert cache.next_check==900
-    seconds[0]=61
-    expired=cache.snapshot(channels,now=now+timedelta(seconds=61))
+    seconds[0]=121
+    expired=cache.snapshot(channels,now=now+timedelta(seconds=121))
     for channel,previous in ((channels[0],'live'),(channels[1],'offline')):
-        assert expired[channel]['status']=='unknown' and expired[channel]['reason']=='stale_check'
+        assert expired[channel]['status']==previous and expired[channel]['reason']=='stale_check'
         assert expired[channel]['last_known_status']==previous
+        assert not capture_paused(expired[channel],now=now+timedelta(seconds=121))
     assert len(calls)==2
+
+
+@pytest.mark.parametrize('initial',['live','offline'])
+def test_failed_refresh_keeps_display_status_and_uptime_without_renewing_capture_freshness(monkeypatch,initial):
+    monkeypatch.setenv('TWITCH_CLIENT_ID','private');monkeypatch.setenv('TWITCH_ACCESS_TOKEN','private')
+    now=datetime(2026,1,1,tzinfo=timezone.utc);seconds=[0];failed=[False];online=[initial=='live']
+    def fetch(*args,**kwargs):
+        if failed[0]:raise URLError('unavailable')
+        return dict(data=[dict(user_login='alpha',type='live',game_name='MapleStory',started_at='2025-12-31T23:00:00Z')] if online[0] else [])
+    cache=StreamAvailability(enabled=True,fetch=fetch,clock=lambda:seconds[0])
+    first=cache.snapshot(['alpha'],now=now)['alpha']
+    failed[0]=True
+    for elapsed in (61,121,181):
+        seconds[0]=elapsed
+        value=cache.snapshot(['alpha'],now=now+timedelta(seconds=elapsed))['alpha']
+        assert value['status']==initial and value['started_at']==first['started_at']
+        assert value['game_name']==first['game_name'] and value['reason']=='api_unavailable'
+        assert value['checked_at']==first['checked_at'] and value['valid_until']==first['valid_until']
+        assert capture_paused(value,now=now+timedelta(seconds=elapsed)) is (initial=='offline' and elapsed<120)
+    failed[0]=False;online[0]=not online[0];seconds[0]=241
+    changed=cache.snapshot(['alpha'],now=now+timedelta(seconds=241))['alpha']
+    assert changed['status']==('offline' if initial=='live' else 'live') and changed['reason'] is None
+    assert changed['started_at']==(None if initial=='live' else '2025-12-31T23:00:00+00:00')
+
+
+def test_minute_refreshes_overlap_for_four_rounds_of_250_channels(monkeypatch):
+    monkeypatch.setenv('TWITCH_CLIENT_ID','private');monkeypatch.setenv('TWITCH_ACCESS_TOKEN','private')
+    now=datetime(2026,1,1,tzinfo=timezone.utc);seconds=[0];batches=[]
+    def fetch(endpoint,params,*args,**kwargs):
+        batches.append(len(params['user_login']));seconds[0]+=.25
+        return dict(data=[])
+    cache=StreamAvailability(enabled=True,fetch=fetch,clock=lambda:seconds[0])
+    channels=[f'channel{i:03}' for i in range(250)]
+    for _ in range(4):
+        statuses=cache.snapshot(channels,now=now+timedelta(seconds=seconds[0]))
+        seconds[0]=cache.next_check
+        assert all(s['status']=='offline' and capture_paused(s,now=now+timedelta(seconds=seconds[0])) for s in statuses.values())
+    assert batches==[100,100,50]*4
 
 
 def test_rate_limit_respects_bounded_retry_after(monkeypatch):
@@ -264,8 +306,8 @@ def test_rate_limit_backoff_does_not_extend_partial_live_freshness(monkeypatch):
     now=datetime(2026,1,1,tzinfo=timezone.utc)
     assert cache.snapshot(['alpha','beta'],now=now)['alpha']['status']=='live'
     assert cache.next_check==120
-    expired=cache.snapshot(['alpha','beta'],now=now+timedelta(seconds=61))
-    assert expired['alpha']['status']=='unknown' and expired['alpha']['last_known_status']=='live'
+    expired=cache.snapshot(['alpha','beta'],now=now+timedelta(seconds=121))
+    assert expired['alpha']['status']=='live' and expired['alpha']['last_known_status']=='live'
     assert len(calls)==2
 
 

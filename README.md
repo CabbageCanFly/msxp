@@ -56,6 +56,12 @@ Want the leaderboard to show who is live? Add free Twitch app keys to `.env` ([s
 With those keys, continuous tracking also checks live status and category about once a minute,
 skipping playback while a stream is confirmed offline or outside MapleStory. Unknown or expired
 status allows capture. `--any-category` permits other live categories while still skipping offline streams.
+At startup, tracking waits up to five seconds for the first batch status check before starting
+captures. Larger rosters use batches of 100 channels (250 channels take three requests);
+the five-second wait covers the whole roster. A slow check continues in the background.
+The website keeps the last confirmed online/offline status and stream uptime during refreshes.
+Capture status remains valid for two minutes, overlapping the normal one-minute refresh;
+if checks keep failing beyond that, playback checks resume while the display keeps its last result.
 
 For lower OCR CPU usage, `msxp tracker --resident-tesseract` uses isolated, reused
 Tesseract workers with layout-first HUD recognition and full-frame OCR fallback.

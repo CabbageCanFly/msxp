@@ -25,6 +25,7 @@ from .twitch_auth import AppTokens,AuthError
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_STREAM_PAGES = 3
 STREAM_STATUS_BATCH = 100
+STREAM_STATUS_TTL = 120  # Overlap the minute refresh so response latency cannot create a capture gap.
 
 
 def thumbnail_url(template: str, width: int, height: int) -> str:
@@ -128,19 +129,24 @@ class StreamAvailability:
                             try:delay=max(60,min(900,int(error.headers.get('Retry-After','60'))))
                             except (TypeError,ValueError):pass
                     except (OSError,ValueError,TypeError,KeyError,AttributeError,URLError):reason='api_unavailable'
-                self.results={c:dict(status='live' if c in live else 'offline' if c in completed else 'unknown' if reason else 'offline',
+                results={c:dict(status='live' if c in live else 'offline' if c in completed else 'unknown' if reason else 'offline',
                     game_name=games.get(c),
                     started_at=starts.get(c),
                     reason=None if c in live or c in completed else reason,checked_at=now.isoformat(),source='twitch_helix_get_streams',
-                    valid_until=datetime.fromtimestamp(now.timestamp()+(60 if c in live or c in completed else delay),timezone.utc).isoformat(),
+                    valid_until=datetime.fromtimestamp(now.timestamp()+(STREAM_STATUS_TTL if c in live or c in completed else delay),timezone.utc).isoformat(),
                     last_known_status=(self.results.get(c,{}).get('last_known_status') if self.results.get(c,{}).get('status')=='unknown'
                         else self.results.get(c,{}).get('status')) if reason and c not in live and c not in completed else None) for c in channels}
+                for channel,status in results.items():
+                    previous=self.results.get(channel,{})
+                    if status['status']=='unknown' and previous.get('status') in ('live','offline'):
+                        results[channel]={**previous,'reason':status['reason'],'last_known_status':previous['status']}
+                self.results=results
                 self.next_check=self.clock()+delay
             result={c:dict(self.results.get(c,dict(status='unknown',reason='awaiting_batch',checked_at=None,
                 valid_until=None,source='twitch_helix_get_streams'))) for c in channels}
             for status in result.values():
                 if status['status'] in ('live','offline') and now>datetime.fromisoformat(status['valid_until']):
-                    status.update(last_known_status=status['status'],status='unknown',reason='stale_check')
+                    status.update(last_known_status=status['status'],reason=status.get('reason') or 'stale_check')
             return result
 
 

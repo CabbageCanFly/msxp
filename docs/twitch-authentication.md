@@ -92,17 +92,23 @@ Only fixed Twitch HTTPS endpoints are used. Status cache/pagination remain
 separate: 60s Helix cache, at most three pages plus one 401 retry, repeated-cursor
 protection, and no offline result unless the relevant pages were completed.
 Previously verified live results can survive an interrupted pagination refresh
-for their original 60s freshness; unresolved channels remain unknown.
+for their original two-minute capture freshness; unresolved channels remain unknown.
+The last confirmed online/offline status, category and broadcast start remain visible
+during refreshes or API failures. A failed refresh never extends capture freshness.
+After two minutes without confirmation, capture may try playback again even while the
+website retains the last known status. The two-minute window overlaps normal minute
+refreshes so request latency does not briefly expire an otherwise healthy status.
 
 Network work occurs on HTTP status/maintenance threads, not the sequential
-capture worker. A slow authentication refresh can delay its HTTP response; it
-does not change acquisition scheduling or hold SQLite capture-write transactions.
+capture worker. Continuous tracking waits up to five seconds for its initial batch
+before scheduling capture; later refreshes stay in the background. A slow authentication
+refresh can delay its HTTP response but does not hold SQLite capture-write transactions.
 No trusted tracking data or captured evidence is changed.
 
 Useful safe reasons include `missing_credentials`, `invalid_credentials_file`,
 `credentials_rejected`, `invalid_token_validation`, `auth_rate_limited` and
 `auth_unavailable`. They never include request bodies, headers or server error
-bodies. Missing/invalid authentication means **unknown**, never offline. Correct
+bodies. Missing/invalid authentication before any confirmed result means **unknown**, never offline. Correct
 the local setup and restart rather than repeatedly launching verification commands.
 
 ## Validation

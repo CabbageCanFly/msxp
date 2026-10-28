@@ -35,7 +35,7 @@ function player(changes={}){return {channel:'alpha',character:{label:'Main'},sou
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
   estimates:{exp_per_hour:{value:{approximate:2000},requirement:{version:'test'},hypotheses:{}},percentage_per_hour:{value:{approximate:12}},eta:{seconds:{approximate:900}}},...changes};}
 
-test('profile broadcast uptime uses server time, ticks locally and clears expired or unavailable status',()=>{
+test('profile broadcast uptime ticks through status refresh expiry until the stream is offline',()=>{
   const p=page('player'),now='2026-01-01T12:00:00Z';
   const live={status:'live',started_at:'2026-01-01T09:47:00Z',valid_until:'2026-01-01T12:02:00Z'};
   const show=status=>{
@@ -53,11 +53,11 @@ test('profile broadcast uptime uses server time, ticks locally and clears expire
   p.context.performance.now=()=>60000;p.run('renderPlayer()');
   assert.equal(p.elements['stream-uptime-text'].textContent,'2h 14m 0s');
   p.context.performance.now=()=>120000;p.run('renderPlayer()');
-  assert.equal(p.elements['stream-uptime'].hidden,true);
+  assert.equal(p.elements['stream-uptime'].hidden,false);
+  assert.equal(p.elements['stream-uptime-text'].textContent,'2h 15m 0s');
   p.context.performance.now=()=>0;
   for(const status of [undefined,{...live,status:'offline'},{...live,status:'unknown'},
-    {...live,started_at:null},{...live,started_at:'bad'},{...live,started_at:'2026-01-01T12:01:00Z'},
-    {...live,valid_until:null}]) {
+    {...live,started_at:null},{...live,started_at:'bad'},{...live,started_at:'2026-01-01T12:01:00Z'}]) {
     show(status);
     assert.equal(p.elements['stream-uptime'].hidden,true);
     assert.equal(p.elements['stream-uptime-text'].textContent,'');

@@ -522,16 +522,20 @@ def test_broadcast_gate_refreshes_in_background_and_never_holds_expired_status(s
         @staticmethod
         def now(_):return now[0]
     monkeypatch.setattr(multi,'datetime',Clock)
-    monkeypatch.setattr(multi.threading,'Thread',lambda **kwargs:SimpleNamespace(start=lambda:callbacks.append(kwargs['target'])))
+    def start(target):
+        callbacks.append(target)
+        with pytest.raises(InterruptedError):target()
+    monkeypatch.setattr(multi.threading,'Thread',lambda **kwargs:SimpleNamespace(start=lambda:start(kwargs['target'])))
     def sleep(seconds):
         waits.append(seconds);raise InterruptedError('end one background iteration')
     monkeypatch.setattr(multi.time,'sleep',sleep)
-    statuses={}
+    statuses={channel:dict(status='offline',checked_at=now[0].isoformat(),
+        valid_until=(now[0]+timedelta(seconds=60)).isoformat()) for channel in ('alpha','beta')}
     def snapshot(channels):
         calls.append(channels);return statuses.copy()
     group=lanes('alpha','beta','file');group[0]['source']=Source('twitch','alpha');group[1]['source']=Source('twitch','beta')
     gate=multi.category_gate(group,SimpleNamespace(snapshot=snapshot),any_category=any_category)
-    assert not any(map(gate,group)) and not calls
+    assert list(map(gate,group))==[True,True,False] and calls==[['alpha','beta']]
     def publish(state,game=None):
         statuses.update({channel:dict(status=state,game_name=game,checked_at=now[0].isoformat(),
             valid_until=(now[0]+timedelta(seconds=60)).isoformat()) for channel in ('alpha','beta')})
@@ -547,3 +551,46 @@ def test_broadcast_gate_refreshes_in_background_and_never_holds_expired_status(s
     assert not any(map(gate,group))
     publish('unknown')
     assert not any(map(gate,group))
+
+
+def test_startup_gate_checks_a_large_roster_in_batches_before_capture(schedule,monkeypatch):
+    from exp_tracker.twitch_probe import StreamAvailability
+    multi=importlib.import_module('multi_alpha');batches=[]
+    def fetch(endpoint,params,*args,**kwargs):
+        batches.append(params['user_login'])
+        return dict(data=[],pagination={})
+    availability=StreamAvailability(enabled=True,fetch=fetch,auth=SimpleNamespace(get=lambda:('client','token')))
+    def sleep(_):raise InterruptedError('end refresh')
+    def start(target):
+        with pytest.raises(InterruptedError):target()
+    monkeypatch.setattr(multi.time,'sleep',sleep)
+    monkeypatch.setattr(multi.threading,'Thread',lambda **kwargs:SimpleNamespace(start=lambda:start(kwargs['target'])))
+    group=lanes(*(f'channel{i:03}' for i in range(250)))
+    for lane in group:lane['source']=Source('twitch',lane['channel'])
+    gate=multi.category_gate(group,availability)
+    assert [len(batch) for batch in batches]==[100,100,50]
+    assert [channel for batch in batches for channel in batch]==[lane['channel'] for lane in group]
+    assert all(map(gate,group))
+    now=[0]
+    schedule(group,lambda *_:pytest.fail('offline channel attempted playback'),lambda *_:None,
+             gate=gate,stop_after_seconds=1,clock=lambda:now[0],sleep=lambda s:now.__setitem__(0,now[0]+s))
+
+
+@pytest.mark.parametrize('failure',[None,OSError('unavailable'),ValueError('invalid response')])
+def test_startup_gate_has_one_bounded_wait_and_accepts_late_results(schedule,monkeypatch,failure):
+    from datetime import datetime,timedelta,timezone
+    multi=importlib.import_module('multi_alpha');callbacks=[];waits=[];completed=[]
+    monkeypatch.setattr(multi.threading,'Thread',lambda **kwargs:SimpleNamespace(start=lambda:callbacks.append(kwargs['target'])))
+    monkeypatch.setattr(multi.threading,'Event',lambda:SimpleNamespace(set=lambda:completed.append(True),wait=lambda timeout:waits.append(timeout)))
+    def sleep(_):raise InterruptedError('end refresh')
+    monkeypatch.setattr(multi.time,'sleep',sleep)
+    def snapshot(channels):
+        if failure:raise failure
+        now=datetime.now(timezone.utc)
+        return {c:dict(status='offline',checked_at=now.isoformat(),valid_until=(now+timedelta(seconds=60)).isoformat()) for c in channels}
+    group=lanes('alpha');group[0]['source']=Source('twitch','alpha')
+    gate=multi.category_gate(group,SimpleNamespace(snapshot=snapshot))
+    assert waits==[5] and not completed and not gate(group[0])
+    with pytest.raises(InterruptedError):callbacks[0]()
+    assert completed==[True]
+    assert gate(group[0]) is (failure is None)
