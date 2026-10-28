@@ -477,13 +477,15 @@ html, body.product { overflow-x:clip; }
   .product :is(.streamer-entry,.character-entry) { grid-template-columns:30px 66px minmax(105px,145px) minmax(0,1fr) 70px; }
 }
 @media(max-width:650px) {
-  .product :is(.streamer-entry,.character-entry) { grid-template-columns:40px minmax(0,1fr) 72px; grid-template-areas:"rank identity score" "level exp exp"; padding:10px 11px; row-gap:7px; }
+  .product :is(.streamer-entry,.character-entry) { grid-template-columns:40px minmax(0,1fr) auto auto; grid-template-areas:"rank identity identity score" "rank channel age label" "level exp exp exp"; padding:10px 11px; row-gap:0; }
   .row-profile { display:grid; grid-area:1 / 1 / -1 / -1; grid-template-columns:inherit; grid-template-areas:inherit; gap:inherit; align-items:center; align-self:stretch; min-width:0; margin:-10px -11px; padding:10px 11px; border-radius:inherit; color:inherit; text-decoration:none; }
   .row-profile:active { background:#ffffff08; }
   .row-profile:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
-  /* Name over channel, like the score's value over its label. */
-  :is(.streamer-entry,.character-entry) .identity { overflow:hidden; align-self:start; padding-top:1px; }
-  :is(.streamer-entry,.character-entry) .channel { margin:2px 0 0; font-size:11px; font-weight:700; }
+  /* Names use the space beside the value; age and label share the line beside the channel. */
+  .product :is(.streamer-entry,.character-entry) :is(.identity,.score) { display:contents; }
+  :is(.streamer-entry,.character-entry) .name-line { grid-area:identity; }
+  :is(.streamer-entry,.character-entry) .channel { grid-area:channel; min-width:0; margin:2px 0 0; font-size:11px; font-weight:700; }
+  :is(.streamer-entry,.character-entry) :is(.level,.exp-section) { margin-top:7px; }
   .product .streamer-entry[data-metric="day"] .score strong { font-size:22px; }
   .product .entry .level { padding:10px 1px 5px; }
   .level .led { top:3px; left:3px; }
@@ -493,12 +495,11 @@ html, body.product { overflow-x:clip; }
   .exp-meta .eta-short { display:inline; margin-left:auto; }
   /* The ↑ glyph is a pixel shorter than the capitals and sits on the baseline, so it is lifted 1px to line up with their tops. */
   .exp-meta .fact.eta-short::before { content:"↑"; position:relative; top:-1px; margin-right:.25em; color:inherit; }  /* Outranks the separator rule. */
-  .product :is(.streamer-entry,.character-entry) .score { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:baseline; column-gap:5px; max-width:36vw; }
-  .product :is(.streamer-entry,.character-entry) .score strong { flex-basis:100%; }
-  .product .entry .score-age { display:inline; order:1; white-space:nowrap; color:#7f889a; }  /* As muted as the desktop age. */
+  .product :is(.streamer-entry,.character-entry) .score strong { grid-area:score; justify-self:end; }
+  .product .entry .score-age { display:inline; grid-area:age; white-space:nowrap; color:#7f889a; }  /* As muted as the desktop age. */
   /* A drawn ◎ (ring and dot): the site fonts lack the glyph, and fallback fonts blot it at this size. */
   .product .entry .score-age::before { content:""; display:inline-block; width:8px; height:8px; margin-right:4px; vertical-align:0; box-sizing:border-box; border:1.5px solid currentColor; border-radius:50%; background:radial-gradient(currentColor 0 1.2px, transparent 1.7px); }
-  .product .entry .score-label { order:2; white-space:nowrap; }
+  .product .entry .score-label { grid-area:label; white-space:nowrap; }
 }
 /* The character's name is the player page's headline. */
 .player-board #player-name { min-width:0; font-size:28px; font-weight:700; line-height:1.15; overflow-wrap:anywhere; text-shadow:0 2px 0 #4b3423; }
