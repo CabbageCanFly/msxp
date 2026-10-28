@@ -96,6 +96,8 @@ def conditional_percent(row, support, previous):
 
 def endpoint_interval(before,after):
     """Net EXP in level/EXP coordinates; no capture-connection eligibility."""
+    if any(p.get('exp_validity',{}).get('status')=='invalid' for p in (before,after)):
+        return None,'arithmetic_pair_veto'
     if before.get('manual_epoch') != after.get('manual_epoch'):
         return None,'manual_correction'
     if not same_character(before,after):
@@ -122,7 +124,8 @@ def endpoint_interval(before,after):
 
 def usable_endpoint(point):
     level=point['level']['value']
-    return (level is not None and point.get('exp_validity',{}).get('level') in (None,level)
+    return (level is not None and point.get('exp_validity',{}).get('status')!='invalid'
+            and point.get('exp_validity',{}).get('level') in (None,level)
             and (point['exp'] is not None or requirement(level)['to_next'] is not None))
 
 
@@ -200,6 +203,10 @@ def collect_observed(snapshot, *, now, read, max_interval_seconds, state=None):
             last_time=value['timestamp']
             value=dict(value,source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),run_id=row.get('run_id'),index=row.get('index'),
                 accounting_scope=f"{row.get('character_id')}:{row.get('session_id')}")
+            if value.get('exp_validity',{}).get('status')=='invalid':
+                holes.append(row['event_id'])
+                excluded.append(dict(event_id=row['event_id'],timestamp=value['timestamp'],reason='arithmetic_pair_veto'))
+                continue
             # A circular arithmetic level dip must not become a new subtraction baseline.
             if (previous and usable_endpoint(value) and same_character(previous,value)
                     and previous.get('manual_epoch')==value.get('manual_epoch')

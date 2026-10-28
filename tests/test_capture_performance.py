@@ -338,12 +338,14 @@ def test_run_summary_reports_stage_means_and_region_reuse(tmp_path, monkeypatch)
 
 def test_coordinator_ctrl_c_with_busy_workers_is_bounded_and_nothing_emits_later(schedule):
     import _thread
+    import signal
     release = threading.Event(); emitted = []
     def perform(lane, index, seek):
         release.wait(10)  # Stuck in a subprocess wait, as a hung capture would be.
         return attempt(index)
     group = lanes('a', 'b', 'c')
     timer = threading.Timer(.3, _thread.interrupt_main)  # Ctrl+C reaches only the coordinator thread.
+    previous_handler=signal.signal(signal.SIGINT,signal.default_int_handler)  # Streamlink CLI imports replace it.
     started = time.monotonic(); timer.start()
     try:
         assert schedule(group, perform, lambda lane, record: emitted.append((lane['channel'], record['reasons'])), workers=2) is True
@@ -351,6 +353,7 @@ def test_coordinator_ctrl_c_with_busy_workers_is_bounded_and_nothing_emits_later
         pytest.fail('interrupt escaped the scheduler')
     finally:
         timer.cancel()
+        signal.signal(signal.SIGINT,previous_handler)
     assert time.monotonic()-started < 3                       # Did not wait for the 10 s workers.
     assert sorted(emitted) == [('a', ['operator_interrupted']), ('b', ['operator_interrupted'])]
     release.set(); time.sleep(.3)

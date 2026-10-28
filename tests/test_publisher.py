@@ -265,7 +265,7 @@ def test_saved_publications_match_reference(tmp_path,clock,channel):
                 nested(server.publisher.entry(channel)['tracked'])
 
 
-def test_saved_publication_preserves_pruned_level_decrease(tracking,clock,tmp_path):
+def test_saved_publication_preserves_pruned_arithmetic_veto(tracking,clock,tmp_path):
     path,store,_=tracking
     clock.at=datetime.fromisoformat('2026-10-19T03:52:21.976670+00:00')
     replay(store,'streamer_a',['20261018T021930Z-a5713c06','20261019T025444Z-0fbaad78'],as_of=clock.at)
@@ -273,7 +273,7 @@ def test_saved_publication_preserves_pruned_level_decrease(tracking,clock,tmp_pa
         for delta in (0,31,31):
             clock.at+=timedelta(seconds=delta);server.publisher.settle()
             assert_publication(store,server,'streamer_a',clock.at,tmp_path)
-            assert server.publisher.entry('streamer_a')['tracked']['exclusion_counts']['observed_level_decrease']==1
+            assert server.publisher.entry('streamer_a')['tracked']['exclusion_counts']['arithmetic_pair_veto']==1
 
 
 def test_concurrent_viewers_share_one_projection_per_publication(tracking,clock,monkeypatch):

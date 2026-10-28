@@ -39,6 +39,39 @@ def inferred_dip():
     return rows
 
 
+@pytest.mark.parametrize('level,misread,exp',[(40,10,265000),(41,1,72400)])
+@pytest.mark.parametrize('batch_size',[1,3])
+def test_contradicted_reader_agreement_cannot_become_a_gain_baseline(level,misread,exp,batch_size):
+    from exp_tracker.exp_requirements import requirement
+    from exp_tracker.pace_intervals import endpoint_interval,usable_endpoint,window_endpoints
+    from tests.test_exp_level_inference import display
+    total=requirement(level)['to_next']
+    rows=[point(i,20*(i-1),n,display(n,total),level=shown)
+          for i,n,shown in [(1,exp,level),(2,exp+100,misread),(3,exp+400,level)]]
+    original=deepcopy(rows);snap=snapshot(rows,40)
+    bad=reading(snap['observations'][1])
+    assert bad['level']['status']=='agreement' and bad['exp_validity']['status']=='invalid'
+    assert bad['exp'] is None and not usable_endpoint(bad)
+    good=reading(snap['observations'][2])
+    assert endpoint_interval(bad,good)==(None,'arithmetic_pair_veto')
+    assert endpoint_interval(good,bad)==(None,'arithmetic_pair_veto')
+    state={};points=[];excluded=[]
+    for start in range(0,3,batch_size):
+        result=collect_observed(dict(snap,observations=snap['observations'][start:start+batch_size]),
+            now=NOW+timedelta(seconds=40),read=reading,max_interval_seconds=300,state=state)
+        points+=result['points']
+        excluded+=result['excluded']
+        if start+batch_size==2:
+            assert state['previous']['event_id']=='run:1'
+    _,gain,_=window_endpoints(points,start=NOW,end=NOW+timedelta(seconds=40))
+    assert gain['value']['approximate']==400
+    assert [p['event_id'] for p in points]==['run:1','run:3']
+    assert any(e['event_id']=='run:2' and e['reason']=='arithmetic_pair_veto' for e in excluded)
+    window=recent_windows(snap,None,now=NOW+timedelta(seconds=40))['5']
+    assert window['gain']['approximate']==400
+    assert rows==original
+
+
 @pytest.mark.parametrize('batch_size',(1,3,7))
 def test_inferred_level_dip_cannot_create_a_false_cross_level_gain(batch_size):
     from exp_tracker.pace_intervals import window_endpoints
