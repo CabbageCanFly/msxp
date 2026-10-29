@@ -1,5 +1,10 @@
 # Manual Level / EXP administration (A1 / A2)
 
+Character invalidation also works for the currently selected character, including
+while the streamer is offline. It preserves history and capture bindings; further
+readings for that character are held until it is restored or automatic tracking
+switches to another verified character. Restore does not accept held readings retroactively.
+
 An incorrectly established persistent level floor requires the exceptional
 [preview-first repair CLI](level-floor-repair.md), with stopped writers, a verified
 backup and atomic invalidation/correction audit. Ordinary corrections never lower it.

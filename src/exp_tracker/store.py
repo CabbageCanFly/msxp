@@ -417,9 +417,7 @@ class Store:
             invalid=character_id in self.invalidated_characters(streamer['id'])
             if restore and not invalid:raise ValueError('character is not invalidated')
             if not restore and invalid:raise ValueError('character is already invalidated')
-            # Changing the selection under a running capture is unsafe; tracking switches back once the streamer's own name returns.
-            if not restore and streamer['selected_character_id']==character_id:
-                raise ValueError("character is currently selected; invalidate it after tracking switches back to the streamer's own character")
+            # Keep capture bindings intact; ingestion holds this character until restored or tracking switches.
             row_id=self.db.execute('''INSERT INTO character_invalidations(streamer_id,character_id,action,label,reason,recorded_at)
                 VALUES(?,?,?,?,?,?)''',(streamer['id'],character_id,'restore' if restore else 'invalidate',character['label'],reason,utc())).lastrowid
             return dict(self.db.execute('SELECT * FROM character_invalidations WHERE id=?',(row_id,)).fetchone())
@@ -490,7 +488,9 @@ class Store:
             interval_start = None
             missing = 0
             if ordered:
-                if self._pending_character(char):
+                if char in self.invalidated_characters(streamer['id']):
+                    transition = Transition('rejected','character_invalidated')
+                elif self._pending_character(char):
                     transition = Transition('rejected','character_discovery_pending')
                 elif result.status in {"offline", "paused"}:
                     transition = Transition("rejected", ";".join(result.reasons) or result.status)

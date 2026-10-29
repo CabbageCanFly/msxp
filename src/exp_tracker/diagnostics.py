@@ -205,6 +205,10 @@ class Diagnostics:
         run = self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?', (run_id,)).fetchone()
         if run is None:
             raise ValueError('Unknown diagnostic run')
+        if record.get('type')=='attempt' and record.get('current') and run['character_id'] in self.store.invalidated_characters(run['streamer_id']):
+            name=record.get('character_name') or {}
+            record=identity_held(dict(record,character_name=dict(name,reading_hold_recommended=True,
+                hold_reasons=list(dict.fromkeys(name.get('hold_reasons',[])+['character_invalidated'])))))
         if record.get('type')=='attempt' and record.get('current') and self.store._pending_character(run['character_id']):
             name=record.get('character_name') or {}
             record=identity_held(dict(record,character_name=dict(name,reading_hold_recommended=True,

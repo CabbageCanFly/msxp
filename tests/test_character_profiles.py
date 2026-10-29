@@ -558,6 +558,18 @@ def test_invalidated_name_is_never_switched_to_until_restored(db):
         assert [s['character_id'] for s in demo.append(store, [frame(3, 6040), frame(4, 6060)])] == [BETA]
 
 
+def test_invalidating_selected_character_still_allows_verified_automatic_switch(db):
+    with Store(db) as store:
+        store.invalidate_character(CHANNEL,ALPHA,reason='Unrelated character')
+        latest=datetime.fromisoformat(store.db.execute('SELECT MAX(attempted_at) FROM diagnostic_attempts').fetchone()[0])
+        frame=lambda i,name,bp: (name,67 if name=='Alpha' else 43,bp,latest+timedelta(seconds=demo.INTERVAL*i))
+        assert demo.append(store,[frame(1,'Alpha',6000)])==[]
+        held=json.loads(store.db.execute('SELECT payload_json FROM diagnostic_attempts ORDER BY id DESC LIMIT 1').fetchone()[0])
+        assert held['current'] is False and 'character_invalidated' in held['identity_hold']['hold_reasons']
+        assert [s['character_id'] for s in demo.append(store,[frame(2,'Beta',6020),frame(3,'Beta',6040)])]==[BETA]
+        assert store.state(CHANNEL)['selected_character_id']==BETA
+
+
 def test_a_database_without_the_invalidation_table_reads_as_none_invalidated(db):
     with sqlite3.connect(db) as con:con.execute('DROP TABLE character_invalidations')
     with Store(db, read_only=True) as store:

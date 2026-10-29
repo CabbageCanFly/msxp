@@ -48,6 +48,17 @@ def test_fresh_store_initializes_schema11_without_bootstrapping_roster(tmp_path,
         assert store.schema_version==11 and store._channel('newchannel')
 
 
+def test_selected_character_invalidation_holds_ingestion_until_restore(store, profile):
+    before=store.state('alice',as_of=at(1))
+    cid=before['selected_character_id']
+    store.invalidate_character('alice',cid,reason='Unrelated character')
+    held=ingest(store,profile)
+    assert held['outcome']=='rejected' and held['reason']=='character_invalidated'
+    assert store.state('alice',as_of=at(1))['session']['id']==before['session']['id']
+    store.invalidate_character('alice',cid,reason='Reviewed ownership',restore=True)
+    assert ingest(store,profile,event='restored',seconds=2)['outcome']=='baseline'
+
+
 def ingest(store, profile, event="one", seconds=1, result=None, **kwargs):
     session = store.state("alice", as_of=at(seconds))["session"]
     return store.ingest("alice", event, at(seconds), result if result is not None else reading(),

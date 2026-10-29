@@ -363,7 +363,7 @@ function nameForm(action) {
   $('name-title').textContent = {rename: 'Rename character', invalidate_character: 'Invalidate character', restore_character: 'Restore character', set_job: 'Set job'}[action];
   $('name-help').textContent = {
     rename: 'All readings and corrections stay with this character. Database-managed capture reconciles the name automatically. For JSON-managed capture, update its roster label before restarting.',
-    invalidate_character: "For a name that isn't this streamer's, e.g. when they watch another player's video. It disappears from public pages and automatic tracking won't switch to it again. Readings are kept; Restore character undoes this.",
+    invalidate_character: "For a name that isn't this streamer's, e.g. when they watch another player's video. Works while offline, including the currently tracked character: new readings are held until tracking switches or you restore it. It disappears from public pages and automatic tracking won't switch to it again. Readings are kept; Restore character undoes this.",
     restore_character: 'Shows this character on public pages again, and automatic tracking may switch to this name again.',
     set_job: `Currently ${scope.job ? `${scope.job.job} (${scope.job.source === 'ocr' ? 'read from the stream' : 'set here'})` : 'not set'}. Shown on the profile; automatic reading can move it up a tier later.`}[action];
   $('name-submit').textContent = naming ? 'Review name change' : job ? 'Review job' : action === 'invalidate_character' ? 'Review invalidation' : 'Review restore';

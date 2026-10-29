@@ -302,8 +302,8 @@ def test_invalidated_character_leaves_public_pages_until_restored(admin):
     selected = store.state('alpha')['selected_character_id']; streamer = store._channel('alpha')['id']
     other = store.add_character('alpha', 'Watched video')
     data = dict(action='invalidate_character', channel='alpha', character_id=str(other), reason='Watching a video')
-    # The tracked character can't be ruled out mid-capture, and a reason is required.
-    assert request(server, '/api/preview', 'POST', dict(data, character_id=str(selected)))[0] == 400
+    # The selected character can be ruled out without changing capture bindings.
+    assert preview(server, dict(data, character_id=str(selected)))['event']['action'] == 'invalidate'
     assert request(server, '/api/preview', 'POST', dict(data, reason=' '))[0] == 400
     assert preview(server, data)['event']['action'] == 'invalidate' and store.invalidated_characters(streamer) == set()
     assert 'public pages' in commit(server, data)['notice'] and store.invalidated_characters(streamer) == {other}
@@ -317,6 +317,30 @@ def test_invalidated_character_leaves_public_pages_until_restored(admin):
     assert public_ids() == ({selected}, 404)
     commit(server, dict(data, action='restore_character', reason='It was theirs after all'))
     assert store.invalidated_characters(streamer) == set() and public_ids()[0] == {selected, other}
+
+
+def test_selected_character_invalidation_holds_inflight_capture_and_restores(admin):
+    server,store,d=admin
+    save(d,'run',1,0,3300)
+    before=store.state('alpha');cid=before['selected_character_id']
+    data=dict(action='invalidate_character',channel='alpha',character_id=str(cid),reason='Unrelated character')
+    preview(server,data)
+    assert not store.invalidated_characters(store._channel('alpha')['id'])
+    commit(server,data)
+    assert store.state('alpha')['selected_character_id']==cid
+    assert store.state('alpha')['session']['id']==before['session']['id']
+    assert not d.roster('alpha')
+    with create_server(server.database,port=0,public_only=True) as public:
+        assert public_request((public,None),f'/api/players/alpha?character={cid}')[0]==404
+    save(d,'run',2,15,3400)
+    held=json.loads(store.db.execute("SELECT payload_json FROM diagnostic_attempts WHERE attempt_index=2").fetchone()[0])
+    assert held['current'] is False
+    assert held['identity_hold']['hold_reasons']==['character_invalidated']
+    commit(server,dict(data,action='restore_character'))
+    save(d,'run',3,30,3500)
+    restored=json.loads(store.db.execute("SELECT payload_json FROM diagnostic_attempts WHERE attempt_index=3").fetchone()[0])
+    assert restored['current'] is True
+    assert json.loads(store.db.execute("SELECT payload_json FROM diagnostic_attempts WHERE attempt_index=2").fetchone()[0])==held
 
 
 def test_operator_sets_and_clears_a_job_that_the_profile_shows(admin):

@@ -22,7 +22,8 @@ PREVIEW_SECONDS = 900
 CHARACTER_ACTIONS = ('invalidate_character', 'restore_character')
 CHARACTER_NOTICES = dict(
     invalidate_character="Hides this character from public pages within about 30 seconds, and automatic tracking won't switch to "
-        "this name again (those frames are held). Its readings are kept, and Restore character undoes this.",
+        "this name again (those frames are held). If currently selected, new readings are held until tracking switches or you restore it. "
+        "Its readings are kept, and Restore character undoes this.",
     restore_character='Shows this character on public pages again within about 30 seconds; automatic tracking may switch to this name again.',
     set_job="Shows on the profile within about 30 seconds. Automatic reading can still move it up a tier later; it never lowers it.")
 ROSTER_NOTICE = ('Rename preserves the character ID. A database-managed roster reconciles the name at a safe capture boundary. '
