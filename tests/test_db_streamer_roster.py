@@ -568,6 +568,53 @@ def test_admin_character_rename_reconciles_without_changing_its_id(running_roste
         assert store.db.execute("SELECT COUNT(*) FROM characters WHERE streamer_id=(SELECT id FROM streamers WHERE login='newcaster')").fetchone()[0]==2
 
 
+@pytest.mark.parametrize('has_fallback',[False,True])
+def test_selected_invalidation_drains_capture_and_rebinds_to_fallback_or_pending(running_roster,monkeypatch,has_fallback):
+    legacy,counters,_,scripts,_,_=running_roster;module=legacy[0];path=legacy[3]
+    change(path,'newcaster',authorized=True,tracking_enabled=True)
+    scripts['newcaster']=['Alpha']
+    capture=module.shadow.capture_attempt;invalidated=[]
+    def updating(args,source,requirements,index,**opts):
+        value=capture(args,source,requirements,index,**opts)
+        if source.value=='newcaster' and counters['newcaster']==3:
+            import exp_tracker.store as store_module
+            actual_utc=store_module.utc
+            stamp=datetime.fromisoformat(value['received_at'])
+            monkeypatch.setattr(store_module,'utc',lambda value=None:actual_utc(stamp if value is None else value))
+            with Store(path) as store:
+                cid=store._channel('newcaster')['selected_character_id']
+                if has_fallback:store.add_character('newcaster','Beta')
+                store.invalidate_character('newcaster',cid,reason='Unrelated character')
+                target=store._channel('newcaster')['selected_character_id']
+                assert store._pending_character(target)==(not has_fallback)
+                invalidated.append(cid)
+            scripts['newcaster']=['Beta']
+        return value
+    monkeypatch.setattr(module.shadow,'capture_attempt',updating)
+    assert run_db(running_roster,'--stop-after-seconds','140')==0
+    with Store(path,read_only=True) as store:
+        assert invalidated
+        cid=store._channel('newcaster')['selected_character_id']
+        assert store.db.execute('SELECT label FROM characters WHERE id=?',(cid,)).fetchone()[0]=='Beta'
+        identity=roster.discovery_state(store,store._channel('newcaster')['id'])
+        assert identity['verified'] and not identity['risk']
+        runs=store.db.execute('SELECT * FROM diagnostic_runs WHERE character_id=?',(invalidated[0],)).fetchall()
+        assert runs and all(r['summary_json'] for r in runs)
+        assert not store.db.execute('PRAGMA foreign_key_check').fetchall()
+
+
+def test_invalidating_manual_capture_selection_pauses_tracking(managed):
+    path=managed[3]
+    with Store(path) as store:
+        cid=store._channel('channel0')['selected_character_id']
+        target=store.add_character('channel0','Replacement')
+        store.invalidate_character('channel0',cid,reason='Unrelated character')
+        assert store._channel('channel0')['selected_character_id']==target
+        assert not roster.entry(store,'channel0')['tracking_enabled']
+        event=store.db.execute('SELECT reason FROM streamer_roster_events ORDER BY rowid DESC LIMIT 1').fetchone()
+        assert 'verify identity' in event['reason']
+
+
 def test_bounded_attempt_limit_survives_dynamic_lane_replacement(running_roster,monkeypatch):
     legacy,counters,_,_,_,_=running_roster;module=legacy[0];path=legacy[3]
     capture=module.shadow.capture_attempt;updated=[False]

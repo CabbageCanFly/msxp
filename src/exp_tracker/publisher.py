@@ -350,6 +350,10 @@ class Publisher:
                     except (ValueError,TypeError,KeyError,sqlite3.Error):self.stats['cache_error']='checkpoint_restore_failed'
                     self.checkpoints_restored.add(login)
                 character = view[0][2] if view else None
+                # A switched selection can show its saved profile before capture opens its next session.
+                if character is None and head['session_id'] is None:
+                    state=store._state(login,as_of=now)
+                    if state['reason']=='character_switch':character=head['selected_character_id']
                 roster = diagnostics.roster(login)
                 row = next((r for r in roster if r['id'] == (character or head['selected_character_id'])), None)
                 if view:

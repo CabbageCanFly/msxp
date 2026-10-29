@@ -1,9 +1,17 @@
 # Manual Level / EXP administration (A1 / A2)
 
 Character invalidation also works for the currently selected character, including
-while the streamer is offline. It preserves history and capture bindings; further
-readings for that character are held until it is restored or automatic tracking
-switches to another verified character. Restore does not accept held readings retroactively.
+while the streamer is offline. Invalidating the selected character selects the
+most recently seen valid saved character (ties, including unseen characters, use
+the highest character ID). With none left, it returns to pending discovery, using
+the same public empty state as a new streamer; the internal placeholder stays hidden.
+The old session ends without deleting history. In-flight readings stay held under
+the invalidated character, and database-managed capture rebinds at its next safe
+boundary. Automatic capture must verify identity again; database-managed manual
+capture pauses until the operator verifies identity and resumes it. Legacy JSON
+capture needs its configured character updated and a restart to follow the selection.
+Restore makes a character eligible again without selecting it or accepting held
+readings retroactively.
 
 An incorrectly established persistent level floor requires the exceptional
 [preview-first repair CLI](level-floor-repair.md), with stopped writers, a verified

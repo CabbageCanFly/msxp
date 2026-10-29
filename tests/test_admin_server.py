@@ -327,19 +327,19 @@ def test_selected_character_invalidation_holds_inflight_capture_and_restores(adm
     preview(server,data)
     assert not store.invalidated_characters(store._channel('alpha')['id'])
     commit(server,data)
-    assert store.state('alpha')['selected_character_id']==cid
-    assert store.state('alpha')['session']['id']==before['session']['id']
-    assert not d.roster('alpha')
+    pending=store.state('alpha')['selected_character_id']
+    assert store._pending_character(pending)
+    assert store.state('alpha')['session'] is None
     with create_server(server.database,port=0,public_only=True) as public:
         assert public_request((public,None),f'/api/players/alpha?character={cid}')[0]==404
+        status,_,body=public_request((public,None),'/api/players/alpha')
+        assert status==200 and json.loads(body)['player']['character']['label']=='—'
     save(d,'run',2,15,3400)
     held=json.loads(store.db.execute("SELECT payload_json FROM diagnostic_attempts WHERE attempt_index=2").fetchone()[0])
     assert held['current'] is False
     assert held['identity_hold']['hold_reasons']==['character_invalidated']
     commit(server,dict(data,action='restore_character'))
-    save(d,'run',3,30,3500)
-    restored=json.loads(store.db.execute("SELECT payload_json FROM diagnostic_attempts WHERE attempt_index=3").fetchone()[0])
-    assert restored['current'] is True
+    assert store.state('alpha')['selected_character_id']==pending
     assert json.loads(store.db.execute("SELECT payload_json FROM diagnostic_attempts WHERE attempt_index=2").fetchone()[0])==held
 
 

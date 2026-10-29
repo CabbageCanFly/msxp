@@ -274,6 +274,14 @@ class AutonomousCharacters:
                             switched=False, record=saved, duplicate=True)
             streamer = self.db.execute('SELECT * FROM streamers WHERE id=?', (run['streamer_id'],)).fetchone()
             session = self.store._open_session(streamer['id'])
+            if streamer['selected_character_id']!=run['character_id'] and run['character_id'] in self.store.invalidated_characters(streamer['id']):
+                # Drain the old capture as held evidence; never let it switch the new selection back.
+                self.diagnostics._append(run_id,dict(record,automation_input_sha256=digest))
+                saved=json.loads(self.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE run_id=? AND attempt_index=?',
+                    (run_id,record['index'])).fetchone()[0])
+                receipt=dict(run_id=run_id,character_id=run['character_id'],session_id=run['session_id'],switched=False)
+                if write:write(receipt,saved)
+                return dict(receipt,record=saved,duplicate=False)
             if not session or session['id'] != run['session_id'] or streamer['selected_character_id'] != run['character_id']:
                 raise ValueError('Automatic attribution assignment changed')
             selected = self.db.execute('SELECT label FROM characters WHERE id=?', (run['character_id'],)).fetchone()[0]

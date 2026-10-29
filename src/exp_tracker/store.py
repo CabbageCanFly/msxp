@@ -417,9 +417,27 @@ class Store:
             invalid=character_id in self.invalidated_characters(streamer['id'])
             if restore and not invalid:raise ValueError('character is not invalidated')
             if not restore and invalid:raise ValueError('character is already invalidated')
-            # Keep capture bindings intact; ingestion holds this character until restored or tracking switches.
             row_id=self.db.execute('''INSERT INTO character_invalidations(streamer_id,character_id,action,label,reason,recorded_at)
                 VALUES(?,?,?,?,?,?)''',(streamer['id'],character_id,'restore' if restore else 'invalidate',character['label'],reason,utc())).lastrowid
+            if not restore and streamer['selected_character_id']==character_id:
+                from .diagnostics import Diagnostics
+                candidates=[c for c in Diagnostics(self).roster(login) if c['label']!=PLACEHOLDER_CHARACTER]
+                target=max(candidates,key=lambda c:(c['last_seen_at'] or '',c['id']))['id'] if candidates else self.add_character(login,PLACEHOLDER_CHARACTER)
+                self.select_character(login,target)
+                if self.schema_version>=10:
+                    from .automatic_adoption import state,save_state
+                    from .streamer_roster import discovery_state,save_identity
+                    adopted=state(self,streamer['id'])
+                    identity=adopted or discovery_state(self,streamer['id'])
+                    if identity:
+                        identity.update(verified=False,verification=None,started=True,risk='character_invalidated')
+                        (save_state if adopted else save_identity)(self,streamer['id'],identity)
+                if self.schema_version>=11:
+                    from . import streamer_roster as roster
+                    settings=roster.entry(self,login)
+                    if settings and settings['tracking_enabled'] and not settings['automatic_characters']:
+                        roster.commit(self,roster.preview(self,dict(action='roster_update',channel=login,
+                            tracking_enabled=False,reason='Selected character invalidated; verify identity before resuming manual capture')))
             return dict(self.db.execute('SELECT * FROM character_invalidations WHERE id=?',(row_id,)).fetchone())
 
     def character_job(self, character_id):

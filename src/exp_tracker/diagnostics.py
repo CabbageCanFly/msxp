@@ -263,7 +263,8 @@ class Diagnostics:
             raise ValueError('Expected shadow attempt or summary')
         session = self.store._open_session(run['streamer_id'])
         selected = self.db.execute('SELECT selected_character_id FROM streamers WHERE id=?', (run['streamer_id'],)).fetchone()[0]
-        if not session or session['id'] != run['session_id'] or selected != run['character_id']:
+        invalidated=run['character_id'] in self.store.invalidated_characters(run['streamer_id'])
+        if (not session or session['id'] != run['session_id'] or selected != run['character_id']) and not invalidated:
             raise ValueError('Diagnostic assignment changed; stop and start a new run')
         if kind == 'summary':
             self.db.execute('UPDATE diagnostic_runs SET summary_json=? WHERE run_id=?', (payload, run_id))
