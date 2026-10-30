@@ -73,3 +73,31 @@ test('unbootstrapped databases display setup guidance and refuse add through the
   await flush();assert.equal(nodes.get('streamer-add').disabled,true);
   assert.equal(nodes.get('streamer-status').textContent,'Bootstrap required');
 });
+
+test('paused settings explicitly select a fixed character without enabling discovery',async t=>{
+  const {nodes,calls}=setup(t,async(path,data)=>path==='/api/preview'?{preview_id:'fixed',before:{},after:data}:
+    {managed:true,streamers:[{channel:'caster',tracking_enabled:false,automatic_characters:false,
+      character:{id:1,label:'CharA'},characters:[{id:1,label:'CharA'},{id:2,label:'CharB'}]}]});
+  await flush();const card=nodes.get('streamer-list').children[0];
+  assert.match(card.children[0].textContent,/Selected character: CharA/);
+  await card.children.at(-1).trigger('click');
+  const select=nodes.get('streamer-selected-character');
+  assert.equal(select.disabled,false);assert.equal(select.children[2].textContent,'Track CharB');
+  select.value='2';nodes.get('streamer-tracking_enabled').checked=true;
+  await nodes.get('streamer-form').trigger('submit');
+  const data=calls.find(([path])=>path==='/api/preview')[1];
+  assert.equal(data.selected_character_id,2);assert.equal(data.tracking_enabled,true);assert.equal(data.automatic_characters,false);
+});
+
+test('active tracking cannot submit a manual selection and waiting state is explained',async t=>{
+  const {nodes,calls}=setup(t,async(path,data)=>path==='/api/preview'?{preview_id:'p',after:data}:
+    {managed:true,streamers:[{channel:'caster',tracking_enabled:true,automatic_characters:false,
+      runtime:{state:'waiting_for_character',heartbeat_at:new Date().toISOString()},characters:[]}]});
+  await flush();const card=nodes.get('streamer-list').children[0];
+  assert.match(card.children[2].textContent,/Waiting for character selection/);
+  await card.children.at(-1).trigger('click');
+  assert.equal(nodes.get('streamer-selected-character').disabled,true);
+  nodes.get('streamer-selected-character').value='2';
+  await nodes.get('streamer-form').trigger('submit');
+  assert.equal('selected_character_id' in calls.find(([path])=>path==='/api/preview')[1],false);
+});

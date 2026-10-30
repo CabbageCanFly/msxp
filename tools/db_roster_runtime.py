@@ -20,12 +20,13 @@ class Reconciler:
         if now<self.next_poll:return
         self.next_poll=now+1
         desired={row['channel']:row for row in roster.entries(self.store)}
+        waiting={login for login,row in desired.items() if roster.waiting_for_character(self.store,row)}
         for lane in list(self.lanes):
             row=desired.get(lane['channel'])
             binding=self.store.db.execute('''SELECT s.selected_character_id,c.label FROM streamers s
                 LEFT JOIN characters c ON c.id=s.selected_character_id WHERE s.login=?''',(lane['channel'],)).fetchone()
             same_owner=bool(binding and lane.get('character_id',binding[0])==binding[0] and lane.get('character',binding[1])==binding[1])
-            if row and policy(row)==lane['roster_policy'] and same_owner:
+            if row and policy(row)==lane['roster_policy'] and same_owner and lane['channel'] not in waiting:
                 lane['paused']=False  # A pause/resume may coalesce while the old capture drains.
                 continue  # Visibility does not rotate capture.
             lane['paused']=True
@@ -36,7 +37,7 @@ class Reconciler:
             self.lanes.remove(lane)
         current={lane['channel']:lane for lane in self.lanes}
         for login,row in desired.items():
-            if login in current or not row['tracking_enabled'] or self.failed.get(login,{}).get('revision')==row['revision']:continue
+            if login in current or not row['tracking_enabled'] or login in waiting or self.failed.get(login,{}).get('revision')==row['revision']:continue
             lane=None
             try:
                 roster.validate_policy(self.store,row)  # Recheck ownership risks after in-flight results commit.
@@ -53,13 +54,14 @@ class Reconciler:
             for login,row in desired.items():
                 lane=current.get(login);error=None
                 if lane and lane.get('paused'):state='draining'
+                elif row['tracking_enabled'] and login in waiting:state='waiting_for_character'
                 elif self.failed.get(login,{}).get('revision')==row['revision']:state='error';error=self.failed[login]['error']
                 elif not row['tracking_enabled']:state='paused'
                 elif lane and lane.get('persistence_failed'):state='error';error='capture persistence failed; review logs and pause/resume'
                 else:state=self.activity.get(login,{}).get('state','waiting')
-                if state in ('paused','error'):
+                if state in ('paused','error','waiting_for_character'):
                     self.activity[login]=dict(state='stopped',run_id=lane and lane['run_id'],updated_at=utc(),
-                                              reason='roster_paused' if state=='paused' else 'roster_error')
+                                              reason='roster_paused' if state=='paused' else state)
                 self.store.db.execute('''INSERT INTO streamer_runtime VALUES(?,?,?,?,?,?,?)
                     ON CONFLICT(streamer_id) DO UPDATE SET revision=excluded.revision,state=excluded.state,
                     run_id=excluded.run_id,error=excluded.error,last_attempt_at=COALESCE(excluded.last_attempt_at,streamer_runtime.last_attempt_at),

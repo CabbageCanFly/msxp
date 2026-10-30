@@ -65,16 +65,26 @@ limit and one in-flight attempt per channel remain enforced. A pause may therefo
 have one final already-started attempt. Rapid pause/resume changes can coalesce before
 a boundary; the latest desired configuration wins and every approved edit is audited.
 
-Visibility alone does not rotate capture. Settings changes preserve the selected
+Visibility alone does not rotate capture. Ordinary settings changes preserve the selected
 character and open session; they create new diagnostic runs. Scheduled 60-attempt
 rotation remains separate. An admin character rename also refreshes the lane at a
 safe boundary without changing its ID. Persistence failures stop the affected lane;
 errors appear in Streamers. Pause/resume after reviewing the error retries safely.
 
-Ownership is rechecked after draining: if a name conflict arrives while disabling
-automatic recognition, the lane refuses manual capture rather than attributing it
-to the wrong character. Re-enable automatic verification or keep tracking paused.
-On restart, unresolved enabled policies must be corrected before capture can start.
+The Streamers list explicitly shows the selected character. While tracking is paused,
+Configure lets the operator select or confirm a valid saved character. Saving the
+selection records an operator confirmation, preserves its ID/history, and allows
+tracking with automatic discovery/switching off, including while the stream is offline.
+Invalidated characters and PendingOCR cannot be confirmed as fixed identities.
+
+Invalidating the selected character retains the existing fallback selection (a valid
+saved character, or PendingOCR) without changing tracking, discovery or visibility.
+With discovery off and an unresolved identity, the coordinator waits for character
+selection instead of capturing. Pause tracking, confirm a saved character and resume,
+or enable discovery. A deliberate pause stays paused. This also works after a restart;
+one waiting streamer does not block the rest of the roster.
+Ownership is rechecked after in-flight captures drain. A late name conflict leaves
+fixed capture waiting for an explicit selection or automatic verification.
 Runtime heartbeat/status can become stale after a crash; desired policy persists.
 
 ## 1. Inspect and rehearse on a consistent copy

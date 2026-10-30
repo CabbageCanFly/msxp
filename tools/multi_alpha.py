@@ -594,6 +594,7 @@ def main(argv=None):
             with Store(database,read_only=True) as reader:
                 desired=roster.entries(reader)
                 for row in desired:roster.validate_policy(reader,row)
+                desired=[row for row in desired if not roster.waiting_for_character(reader,row)]
             streams=[dict(row,source='twitch',character='PendingOCR',count=60) for row in desired if row['tracking_enabled']]
             trial=None
             with writer_lease(database.with_suffix(database.suffix+'.multi-alpha.json')):pass
@@ -892,7 +893,7 @@ def main(argv=None):
                                 httpd.active_run_ids.discard(lane['run_id'])
                                 httpd.coordinator_status[lane['channel']]=dict(state='stopped',run_id=lane['run_id'],updated_at=utc())
                             if db_mode:
-                                with store._transaction():store.db.execute("UPDATE streamer_runtime SET state='stopped',heartbeat_at=? WHERE state NOT IN ('paused','error')",(utc(),))
+                                with store._transaction():store.db.execute("UPDATE streamer_runtime SET state='stopped',heartbeat_at=? WHERE state NOT IN ('paused','error','waiting_for_character')",(utc(),))
                             print('Capture stopped. UNVERIFIED diagnostics only. Resources: '+json.dumps(monitor.snapshot()),flush=True)
                             for lane in lanes:
                                 print(f"{lane['channel']}: {lane['frames']}/{lane['attempts']} frames, {lane['commits']} SQLite attempt commits; skipped deadlines={lane['skipped']}; capture failures={lane['capture_failures']}, OCR failures={lane['ocr_failures']}",flush=True)

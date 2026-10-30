@@ -14,6 +14,13 @@ export function streamerUI({api, onSaved=()=>{}}) {
     for(const key of numeric)$('streamer-'+key).value=row?.[key]??({interval:20,timeout:20,max_age:15,ocr_timeout:10}[key]);
     $('streamer-quality').value=row?.quality??'best';
     $('streamer-form-title').textContent=row?`Configure ${row.channel}`:'Add Twitch streamer';
+    $('streamer-character-field').hidden=$('streamer-character-help').hidden=!row;
+    const selected=$('streamer-selected-character');selected.replaceChildren();
+    const keep=document.createElement('option');keep.value='';keep.textContent=`Keep current: ${row?.character?.label??'PendingOCR'}`;selected.append(keep);
+    for(const character of row?.characters??[]){
+      const option=document.createElement('option');option.value=String(character.id);option.textContent=`Track ${character.label}`;selected.append(option);
+    }
+    selected.value='';selected.disabled=!row||row.tracking_enabled;
     $('streamer-login').focus();
   }
   async function refresh(){
@@ -25,7 +32,7 @@ export function streamerUI({api, onSaved=()=>{}}) {
       const list=$('streamer-list');list.replaceChildren();
       for(const row of rows){
         const article=document.createElement('article'), heading=document.createElement('h3'), info=document.createElement('p'), button=document.createElement('button');
-        heading.textContent=`${row.channel} · ${row.character?.label??'Pending character'}`;
+        heading.textContent=`${row.channel} · Selected character: ${row.character?.label??'PendingOCR'}`;
         const runtime=row.runtime;
         const stale=runtime && Date.now()-Date.parse(runtime.heartbeat_at)>120000;
         info.textContent=`${row.tracking_enabled?'Tracking requested':'Paused'} · ${row.public_visible?'Public':'Hidden'} · ${row.automatic_characters?'Automatic names':'Manual identity'} · ${stale?'Coordinator status is old':runtime?.state??'Waiting for coordinator'}`+
@@ -34,6 +41,9 @@ export function streamerUI({api, onSaved=()=>{}}) {
           (row.identity?` · Identity ${row.identity.risk?'conflict: '+row.identity.risk:row.identity.verified?'verified':'pending verification'}`:'');
         button.type='button';button.textContent='Configure';button.addEventListener('click',()=>edit(row));
         article.append(heading,info);
+        if(runtime?.state==='waiting_for_character'){
+          const waiting=document.createElement('p');waiting.textContent='Waiting for character selection. Pause tracking to confirm a saved character, or enable automatic discovery.';article.append(waiting);
+        }
         if(runtime?.error){const error=document.createElement('p');error.className='warning';error.textContent=runtime.error;article.append(error);}
         article.append(button);list.append(article);
       }
@@ -49,6 +59,8 @@ export function streamerUI({api, onSaved=()=>{}}) {
         reason:$('streamer-reason').value};
       for(const key of flags)data[key]=$('streamer-'+key).checked;
       for(const key of numeric)data[key]=Number($('streamer-'+key).value);
+      const selected=$('streamer-selected-character');
+      if(!selected.disabled&&selected.value)data.selected_character_id=Number(selected.value);
       const result=await api('/api/preview',data);
       if(requestVersion!==version)return;
       preview=result.preview_id;

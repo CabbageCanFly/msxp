@@ -23,7 +23,8 @@ CHARACTER_ACTIONS = ('invalidate_character', 'restore_character')
 CHARACTER_NOTICES = dict(
     invalidate_character="Hides this character from public pages within about 30 seconds, and automatic tracking won't switch to "
         "this name again (those frames are held). If currently selected, selection switches to the most recently seen valid character, "
-        "or waits for discovery if none remain. Automatic capture verifies identity again; database-managed manual capture pauses. "
+        "or returns to PendingOCR if none remain. Tracking and discovery settings stay unchanged. "
+        "With discovery off, capture waits for you to pause tracking and confirm a valid selected character. "
         "Its readings are kept, and Restore character undoes this.",
     restore_character='Shows this character on public pages again within about 30 seconds; automatic tracking may switch to this name again.',
     set_job="Shows on the profile within about 30 seconds. Automatic reading can still move it up a tier later; it never lowers it.")
@@ -208,7 +209,8 @@ class AdminServer(ThreadingHTTPServer):
                 identity=secrets.token_urlsafe(24)
                 self.previews[identity]=dict(roster_plan=plan,expires=time.monotonic()+PREVIEW_SECONDS,result=None)
             return dict(preview_id=identity,action=raw['action'],before=plan['before'],after=plan['after'],
-                        notice='Desired settings only. In-flight captures drain under their original settings before the lane changes.')
+                        notice='Review the selected character and settings. Saving a character selection confirms who to track. '
+                            'In-flight captures drain under their original settings before the lane changes.')
         if isinstance(raw,dict) and raw.get('action') in ('invalidate','restore','restore_batch'):
             return self.preview_readings(raw)
         data = operation(raw)

@@ -14,6 +14,7 @@ from .schema import MIGRATION_10, MIGRATION_11
 from .store import Store, utc
 from .video import Source
 from .writer_lock import writer_lease
+from .models import PLACEHOLDER_CHARACTER
 
 FLAGS = ('authorized','tracking_enabled','public_visible','automatic_characters')
 DEFAULTS = dict(interval=20, quality='best', timeout=20, max_age=15, ocr_timeout=10,
@@ -43,6 +44,7 @@ def entry(store, channel):
         JOIN streamers s ON s.id=c.streamer_id WHERE s.login=?''',(channel,)).fetchone()
     if not r:return None
     return dict(channel=r['channel'],streamer_id=r['streamer_id'],origin=r['origin'],revision=r['revision'],
+        selected_character_id=r['selected_character_id'],
         **{k:bool(r[k]) for k in FLAGS}, **json.loads(r['settings_json']))
 
 
@@ -53,12 +55,29 @@ def entries(store):
 
 def discovery_state(store, streamer):
     if store.schema_version<11:return None
-    row=store.db.execute("SELECT identity_json FROM streamer_capture WHERE streamer_id=? AND origin='discovered'",(streamer,)).fetchone()
+    row=store.db.execute('SELECT identity_json FROM streamer_capture WHERE streamer_id=?',(streamer,)).fetchone()
     return json.loads(row[0]) if row and row[0] else None
 
 
 def save_identity(store, streamer, value):
     store.db.execute('UPDATE streamer_capture SET identity_json=? WHERE streamer_id=?',(json.dumps(value),streamer))
+
+
+def waiting_for_character(store, value):
+    if value['automatic_characters']:return False
+    streamer=store._channel(value['channel']);cid=streamer['selected_character_id']
+    identity=adopted_state(store,streamer['id']) or discovery_state(store,streamer['id'])
+    return bool(cid is None or store._pending_character(cid) or cid in store.invalidated_characters(streamer['id'])
+        or identity and (not identity['verified'] or identity['risk']))
+
+
+def selectable_character(store, channel, cid):
+    if type(cid) is not int or not 0<cid<2**63:raise ValueError('select a saved character')
+    streamer=store._channel(channel)
+    character=store.db.execute('SELECT id,label FROM characters WHERE id=? AND streamer_id=?',(cid,streamer['id'])).fetchone()
+    if not character or character['label']==PLACEHOLDER_CHARACTER or cid in store.invalidated_characters(streamer['id']):
+        raise ValueError('select a valid saved character belonging to this streamer')
+    return dict(character)
 
 
 def validate_policy(store, value):
@@ -78,16 +97,11 @@ def validate_policy(store, value):
             raise ValueError('historical character identity needs explicit adoption before automatic OCR can be enabled')
     if value['tracking_enabled']:
         if not value['authorized']:raise ValueError('capture authorization is required before enabling tracking')
-        if not value['automatic_characters']:
-            if value['origin']=='discovered' and not (identity and identity['verified']):
-                raise ValueError('unknown character requires automatic recognition before manual tracking')
-            if identity and identity['started'] and (not identity['verified'] or identity['risk']):
-                raise ValueError('identity is unresolved; enable automatic verification or keep tracking paused')
 
 
 def preview(store, raw):
     if not ready(store):raise ValueError('initialize the database roster before editing')
-    if not isinstance(raw,dict) or raw.keys()-{'action','channel','reason',*FLAGS,*DEFAULTS}:
+    if not isinstance(raw,dict) or raw.keys()-{'action','channel','reason','selected_character_id',*FLAGS,*DEFAULTS}:
         raise ValueError('invalid streamer configuration fields')
     action=raw.get('action'); login=raw.get('channel')
     if action not in ('roster_add','roster_update') or not isinstance(login,str) or not re.fullmatch('[A-Za-z0-9_]{1,25}',login):
@@ -106,8 +120,14 @@ def preview(store, raw):
         if not before:raise ValueError('streamer is not managed')
         value=dict(before)
     value.update({k:v for k,v in raw.items() if k in FLAGS or k in DEFAULTS})
+    selected=None
+    if 'selected_character_id' in raw:
+        if not before or before['tracking_enabled']:raise ValueError('pause tracking before selecting a character')
+        selected=selectable_character(store,login,raw['selected_character_id'])
+        value['selected_character_id']=selected['id']
     validate_policy(store,value)
     plan=dict(event_id='roster:'+uuid.uuid4().hex,channel=login,before=before,after=value,reason=reason)
+    if selected:plan['selection']=selected
     plan['fingerprint']=digest(plan)
     return plan
 
@@ -120,6 +140,9 @@ def commit(store, plan):
             if done['fingerprint']!=plan['fingerprint']:raise ValueError('roster decision ID reused')
             return dict(saved=True,duplicate=True,configuration=json.loads(done['after_json']))
         if entry(store,plan['channel'])!=plan['before']:raise ValueError('streamer settings changed since preview; review again')
+        if plan.get('selection'):
+            if selectable_character(store,plan['channel'],plan['selection']['id'])!=plan['selection']:
+                raise ValueError('character changed since preview; review again')
         value=plan['after']; validate_policy(store,value)
         sid=store.add_channel(plan['channel'])
         revision=(plan['before'] or {}).get('revision',0)+1
@@ -130,6 +153,18 @@ def commit(store, plan):
                 settings_json=excluded.settings_json,revision=excluded.revision,updated_at=excluded.updated_at''',
             (sid,*[int(value[k]) for k in FLAGS],json.dumps({k:value[k] for k in DEFAULTS}),value['origin'],revision,utc(),
              json.dumps(identity) if value['origin']=='discovered' else None))
+        if plan.get('selection'):
+            selected=plan['selection']
+            store.select_character(plan['channel'],selected['id'])
+            adopted=adopted_state(store,sid)
+            identity=adopted or discovery_state(store,sid) or dict(type='character_discovery',scope_id=f'roster-discovery:{sid}')
+            if identity:
+                identity.update(started=True,verified=True,risk=None,verification=dict(source='operator_confirmed',
+                    character_id=selected['id'],name=selected['label'],event_id=plan['event_id'],recorded_at=utc()))
+                if adopted:
+                    from .automatic_adoption import save_state
+                    save_state(store,sid,identity)
+                else:save_identity(store,sid,identity)
         after=entry(store,plan['channel'])
         store.db.execute('INSERT INTO streamer_roster_events VALUES(?,?,?,?,?,?,?)',(plan['event_id'],sid,plan['fingerprint'],
             json.dumps(plan['before']),json.dumps(after),plan['reason'],utc()))
@@ -154,6 +189,8 @@ def status(store):
             (session['id'],)).fetchone() if session else None
         floor=store.db.execute('SELECT level FROM character_level_guard WHERE character_id=?',(cid,)).fetchone()
         row.update(character=dict(character) if character and character['label']!='PendingOCR' else None,
+                   characters=[dict(id=c['id'],label=c['label']) for c in store.state(row['channel'])['characters']
+                       if c['label']!=PLACEHOLDER_CHARACTER and c['id'] not in store.invalidated_characters(s['id'])],
                    identity=adopted_state(store,s['id']) or discovery_state(store,s['id']),runtime=dict(runtime) if runtime else None,
                    validated_level=floor[0] if floor else None,
                    last_capture_at=(latest['received_at'] or latest['attempted_at']) if latest else None)

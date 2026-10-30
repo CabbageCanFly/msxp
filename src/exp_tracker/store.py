@@ -429,15 +429,12 @@ class Store:
                     from .streamer_roster import discovery_state,save_identity
                     adopted=state(self,streamer['id'])
                     identity=adopted or discovery_state(self,streamer['id'])
+                    if identity is None and self.schema_version>=11 and self.db.execute(
+                            'SELECT 1 FROM streamer_capture WHERE streamer_id=?',(streamer['id'],)).fetchone():
+                        identity=dict(type='character_discovery',scope_id=f"roster-discovery:{streamer['id']}")
                     if identity:
                         identity.update(verified=False,verification=None,started=True,risk='character_invalidated')
                         (save_state if adopted else save_identity)(self,streamer['id'],identity)
-                if self.schema_version>=11:
-                    from . import streamer_roster as roster
-                    settings=roster.entry(self,login)
-                    if settings and settings['tracking_enabled'] and not settings['automatic_characters']:
-                        roster.commit(self,roster.preview(self,dict(action='roster_update',channel=login,
-                            tracking_enabled=False,reason='Selected character invalidated; verify identity before resuming manual capture')))
             return dict(self.db.execute('SELECT * FROM character_invalidations WHERE id=?',(row_id,)).fetchone())
 
     def character_job(self, character_id):

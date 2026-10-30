@@ -213,7 +213,7 @@ def test_unknown_add_is_previewed_no_character_required_and_requests_are_idempot
 
 
 @pytest.mark.parametrize('settings',[dict(authorized=False,tracking_enabled=True),dict(interval=1),dict(interval=float('nan')),
-    dict(automatic_characters=False,tracking_enabled=True,authorized=True),dict(unknown=True),dict(quality='https://bad.example'),dict(save_crops='true')])
+    dict(selected_character_id=True),dict(unknown=True),dict(quality='https://bad.example'),dict(save_crops='true')])
 def test_invalid_settings_do_not_change_database(managed,settings):
     path=managed[3]
     with Store(path) as store:
@@ -465,9 +465,10 @@ def test_pending_identity_blocks_unsafe_disable_and_survives_retention(managed):
             run=r['run_id']
         assert roster.discovery_state(store,store._channel('newcaster')['id'])['risk']=='Beta'
         prune(store,now=at+timedelta(days=2),dry_run=False,active_runs=set())
-    with pytest.raises(ValueError,match='unresolved'):change(path,'newcaster',automatic_characters=False)
+    change(path,'newcaster',automatic_characters=False)
     change(path,'newcaster',tracking_enabled=False,automatic_characters=False)
-    with pytest.raises(ValueError,match='unresolved'):change(path,'newcaster',tracking_enabled=True)
+    change(path,'newcaster',tracking_enabled=True)
+    with Store(path,read_only=True) as store:assert roster.waiting_for_character(store,roster.entry(store,'newcaster'))
     change(path,'newcaster',automatic_characters=True,tracking_enabled=True)
 
 
@@ -546,7 +547,7 @@ def test_disable_approved_during_inflight_conflict_is_rechecked_before_manual_ca
         selected=store._channel('newcaster')['selected_character_id']
         assert store.db.execute('SELECT label FROM characters WHERE id=?',(selected,)).fetchone()[0]=='Alpha'
         runtime=next(r for r in roster.status(store) if r['channel']=='newcaster')
-        assert runtime['runtime']['state']=='error' and 'unresolved' in runtime['runtime']['error']
+        assert runtime['runtime']['state']=='waiting_for_character' and runtime['runtime']['error'] is None
         assert runtime['identity']['risk']=='Beta'
 
 
@@ -603,16 +604,102 @@ def test_selected_invalidation_drains_capture_and_rebinds_to_fallback_or_pending
         assert not store.db.execute('PRAGMA foreign_key_check').fetchall()
 
 
-def test_invalidating_manual_capture_selection_pauses_tracking(managed):
+def test_invalidating_manual_capture_selection_preserves_settings(managed):
     path=managed[3]
     with Store(path) as store:
         cid=store._channel('channel0')['selected_character_id']
         target=store.add_character('channel0','Replacement')
+        before=roster.entry(store,'channel0')
         store.invalidate_character('channel0',cid,reason='Unrelated character')
         assert store._channel('channel0')['selected_character_id']==target
-        assert not roster.entry(store,'channel0')['tracking_enabled']
-        event=store.db.execute('SELECT reason FROM streamer_roster_events ORDER BY rowid DESC LIMIT 1').fetchone()
-        assert 'verify identity' in event['reason']
+        assert roster.entry(store,'channel0')==dict(before,selected_character_id=target)
+        assert roster.waiting_for_character(store,roster.entry(store,'channel0'))
+
+
+def test_paused_operator_selection_confirms_identity_and_resumes_fixed_capture(managed):
+    path=managed[3]
+    change(path,'newcaster',authorized=True,automatic_characters=False)
+    with Store(path) as store:
+        first=store.add_character('newcaster','CharA');second=store.add_character('newcaster','CharB')
+        store.select_character('newcaster',first)
+        count=store.db.execute('SELECT COUNT(*) FROM characters').fetchone()[0]
+        before=roster.entry(store,'newcaster')
+    server=AdminServer(path,0)
+    try:
+        preview=server.preview(dict(action='roster_update',channel='newcaster',selected_character_id=second,
+            tracking_enabled=True,automatic_characters=False,reason='Confirm fixed character while offline'))
+        with Store(path,read_only=True) as store:assert roster.entry(store,'newcaster')==before
+        result=server.save(preview['preview_id'])
+        assert server.save(preview['preview_id'])==result
+    finally:server.server_close()
+    with Store(path,read_only=True) as store:
+        row=roster.entry(store,'newcaster')
+        assert row['selected_character_id']==second and row['tracking_enabled'] and not row['automatic_characters']
+        assert not roster.waiting_for_character(store,row)
+        identity=roster.discovery_state(store,row['streamer_id'])
+        assert identity['verification']['source']=='operator_confirmed' and identity['verification']['character_id']==second
+        assert store.db.execute('SELECT COUNT(*) FROM characters').fetchone()[0]==count
+        assert store._open_session(row['streamer_id']) is None
+        event=store.db.execute('SELECT before_json,after_json FROM streamer_roster_events ORDER BY rowid DESC LIMIT 1').fetchone()
+        assert json.loads(event[0])['selected_character_id']==first and json.loads(event[1])['selected_character_id']==second
+
+
+@pytest.mark.parametrize('tracking',[False,True])
+@pytest.mark.parametrize('automatic',[False,True])
+def test_invalidating_last_character_keeps_flags_and_returns_to_pending(managed,tracking,automatic):
+    path=managed[3]
+    change(path,'newcaster',authorized=True,automatic_characters=automatic,tracking_enabled=tracking)
+    with Store(path) as store:
+        cid=store.add_character('newcaster','CharA');store.select_character('newcaster',cid)
+        before=roster.entry(store,'newcaster')
+        store.invalidate_character('newcaster',cid,reason='Wrong name')
+        after=roster.entry(store,'newcaster')
+        assert {k:v for k,v in after.items() if k!='selected_character_id'}=={k:v for k,v in before.items() if k!='selected_character_id'}
+        assert store._pending_character(after['selected_character_id'])
+        assert roster.waiting_for_character(store,after) is not automatic
+        status=next(r for r in roster.status(store) if r['channel']=='newcaster')
+        assert status['character'] is None and status['characters']==[]
+
+
+@pytest.mark.parametrize('target',['foreign','invalid','pending','missing','boolean'])
+def test_manual_selection_rejects_invalid_choices(managed,target):
+    path=managed[3];change(path,'channel0',tracking_enabled=False)
+    with Store(path) as store:
+        choices=dict(foreign=store._channel('channel1')['selected_character_id'],
+            pending=store.add_character('channel0','PendingOCR'),missing=999999,boolean=True)
+        choices['invalid']=store.add_character('channel0','Rejected')
+        store.invalidate_character('channel0',choices['invalid'],reason='Not this character')
+        before=roster.database_digest(store)
+        with pytest.raises(ValueError):
+            roster.preview(store,dict(action='roster_update',channel='channel0',selected_character_id=choices[target],reason=REASON))
+        assert roster.database_digest(store)==before
+
+
+def test_manual_selection_requires_pause_and_rechecks_preview_target(managed):
+    path=managed[3]
+    with Store(path) as store:
+        cid=store.add_character('channel0','CharB')
+        raw=dict(action='roster_update',channel='channel0',selected_character_id=cid,reason=REASON)
+        with pytest.raises(ValueError,match='pause'):roster.preview(store,raw)
+    change(path,'channel0',tracking_enabled=False)
+    with Store(path) as store:
+        plan=roster.preview(store,raw)
+        store.rename_character('channel0',cid,'Renamed',reason=REASON)
+        with pytest.raises(ValueError,match='changed'):roster.commit(store,plan)
+        plan=roster.preview(store,raw)
+        store.invalidate_character('channel0',cid,reason=REASON)
+        with pytest.raises(ValueError,match='valid saved'):roster.commit(store,plan)
+
+
+def test_pending_fixed_streamer_waits_without_capture_on_startup(running_roster):
+    legacy,counters,_,_,_,_=running_roster;path=legacy[3]
+    change(path,'newcaster',authorized=True,tracking_enabled=True,automatic_characters=False)
+    assert run_db(running_roster,'--stop-after-seconds','25')==0
+    assert not counters.get('newcaster') and counters['channel0']>0
+    with Store(path,read_only=True) as store:
+        status=next(r for r in roster.status(store) if r['channel']=='newcaster')
+        assert status['tracking_enabled'] and not status['automatic_characters']
+        assert status['runtime']['state']=='waiting_for_character'
 
 
 def test_bounded_attempt_limit_survives_dynamic_lane_replacement(running_roster,monkeypatch):

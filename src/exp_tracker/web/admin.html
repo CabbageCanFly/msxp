@@ -28,6 +28,8 @@
       <label class="check"><input id="streamer-tracking_enabled" type="checkbox">Enable tracking</label>
       <label class="check"><input id="streamer-public_visible" type="checkbox">Show in public directory</label>
       <label class="check"><input id="streamer-automatic_characters" type="checkbox">Discover and switch characters automatically</label>
+      <label id="streamer-character-field" hidden>Selected character<select id="streamer-selected-character"></select></label>
+      <p id="streamer-character-help" class="muted" hidden>Pause tracking to select or confirm a saved character. Saving a selection confirms who to track, including while offline. Tracking and discovery stay as you set them.</p>
       <div class="fields">
         <label>Capture interval (seconds)<input id="streamer-interval" type="number" min="5" max="300" step="any" required></label>
         <label>Twitch quality<input id="streamer-quality" maxlength="40" required></label>

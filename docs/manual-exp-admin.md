@@ -7,8 +7,9 @@ the highest character ID). With none left, it returns to pending discovery, usin
 the same public empty state as a new streamer; the internal placeholder stays hidden.
 The old session ends without deleting history. In-flight readings stay held under
 the invalidated character, and database-managed capture rebinds at its next safe
-boundary. Automatic capture must verify identity again; database-managed manual
-capture pauses until the operator verifies identity and resumes it. Legacy JSON
+boundary. Tracking and discovery settings are preserved. Automatic capture must
+verify identity again; fixed capture waits for character selection. Pause tracking
+in Streamers, select/confirm a valid character, then resume with discovery off if desired. Legacy JSON
 capture needs its configured character updated and a restart to follow the selection.
 Restore makes a character eligible again without selecting it or accepting held
 readings retroactively.
