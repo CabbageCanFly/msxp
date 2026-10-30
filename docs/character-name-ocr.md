@@ -918,6 +918,13 @@ arithmetic inconsistency still rejects it. Without sufficient support the tool h
 the uncertain level rather than declaring progress. Existing level inference remains
 in use; this module does not create another anomaly detector or EXP requirement table.
 
+For an established character's exact next level, a named two-reader agreement survives
+intervening fresh frames where only the high-confidence `neutral4` neural reader can
+read that same level and the character name still matches. These frames preserve the
+original vote without confirming or extending it. A second independent two-reader
+agreement must still arrive within 120 seconds, in the same session. Conflicting
+levels, unsafe frames or missing name evidence clear this pending agreement.
+
 For a complete nonzero EXP/% pair, a validated high-confidence `neutral4` neural
 level can supply each frame's arithmetic check even when the pair alone fits
 multiple levels. The outer guard normally requires two distinct captures within

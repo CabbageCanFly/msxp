@@ -459,6 +459,76 @@ def stationary_levelup_record(index,exp=1437,interval=15):
     return value
 
 
+def percentage_levelup_record(index,seconds,visual=None):
+    value=record(index,level=58,at=AT+timedelta(seconds=seconds))
+    value.update(status='diagnostic_percentage_only',candidate=None,neural=dict(text='[95.00%]'),
+        visual_level=visual,visual_status='available' if visual else 'unavailable',
+        neural_level=dict(level=58,text='58',status='numeric_candidate',score=.99,preprocessing='neutral4'))
+    return value
+
+
+@pytest.mark.parametrize('restart',[False,True])
+@pytest.mark.parametrize('delay,duplicate,confirmed',[(109,False,True),(120,False,True),(121,False,False),(109,True,False)])
+def test_percentage_levelup_preserves_agreement_across_incomplete_level_reads(auto,restart,delay,duplicate,confirmed):
+    path,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    first=percentage_levelup_record(3,45,58)
+    policy.append('first',first,'unused3',config())
+    pending=store.db.execute('SELECT pending_json FROM character_level_guard').fetchone()[0]
+    for index,seconds in ((4,70),(5,100)):
+        held=policy.append('first',percentage_levelup_record(index,seconds),'unused',config())['record']
+        assert held['level_hold']['reason']=='level_confirmation_pending'
+        assert store.db.execute('SELECT level,pending_json FROM character_level_guard').fetchone()[:]==(57,pending)
+    after=percentage_levelup_record(6,45+delay,58)
+    if duplicate:
+        after['frame_sha256']=first['frame_sha256']
+        after['character_name']['evidence']['pixel_sha256']=first['character_name']['evidence']['pixel_sha256']
+    def finish(writer):
+        result=writer.append('first',after,'unused6',config())['record']
+        assert result['current'] is confirmed
+    if restart:
+        with Store(path) as reopened:finish(AutonomousCharacters(reopened))
+    else:finish(policy)
+    level,proof=store.db.execute('SELECT level,proof_json FROM character_level_guard').fetchone()
+    assert level==(58 if confirmed else 57)
+    if confirmed:assert json.loads(proof)['support']['received_at']==first['received_at']
+
+
+@pytest.mark.parametrize('changes',[
+    dict(visual_level=59),
+    dict(neural_level=dict(level=59,text='59',status='numeric_candidate',score=.99,preprocessing='neutral4')),
+    dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.89,preprocessing='neutral4')),
+    dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.99,preprocessing='rgb4')),
+    dict(local_age_seconds=16),dict(localization=dict(count=2)),dict(automatic_identity_risk='conflict'),
+    dict(character_name=dict(evidence=dict(status='unreadable_or_conflicting'))),
+])
+def test_percentage_levelup_unsafe_gap_clears_agreement(auto,changes):
+    from exp_tracker.character_automation import guard_level
+    _,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    policy.append('first',percentage_levelup_record(3,45,58),'unused3',config())
+    gap=percentage_levelup_record(4,70)
+    gap.update(deepcopy(changes))
+    guard_level(store,store._channel('alpha')['selected_character_id'],gap)
+    assert store.db.execute('SELECT pending_json FROM character_level_guard').fetchone()[0] is None
+    result=guard_level(store,store._channel('alpha')['selected_character_id'],percentage_levelup_record(5,100,58))
+    assert result['level_hold']['reason']=='level_confirmation_pending'
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==57
+
+
+def test_percentage_levelup_does_not_reuse_agreement_from_ended_session(auto):
+    from exp_tracker.character_automation import guard_level
+    _,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    policy.append('first',percentage_levelup_record(3,45,58),'unused3',config())
+    cid=store._channel('alpha')['selected_character_id']
+    store.end_session('alpha',at=AT+timedelta(seconds=55))
+    store.start_session('alpha',at=AT+timedelta(seconds=60))
+    result=guard_level(store,cid,percentage_levelup_record(4,70,58))
+    assert result['level_hold']['reason']=='level_confirmation_pending'
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==57
+
+
 @pytest.mark.parametrize('restart',[False,True])
 @pytest.mark.parametrize('exp',[1437,1441])
 @pytest.mark.parametrize('interval',[15,40])
