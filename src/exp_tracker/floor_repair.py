@@ -73,7 +73,11 @@ def validate(store, plan):
         raise ValueError('floor proof is missing or ambiguous')
     if proof.get('support') is not None and not isinstance(proof['support'], dict):
         raise ValueError('floor support evidence is ambiguous')
-    for item in (proof, proof.get('support') or {}):
+    votes=proof.get('votes',[])
+    if (not isinstance(votes,list) or any(not isinstance(v,dict) or not v.get('received_at') or not v.get('pixel_sha256') for v in votes)
+            or proof.get('basis')=='named_neural_percentage' and len(votes)!=5):
+        raise ValueError('floor vote evidence is ambiguous')
+    for item in (proof, proof.get('support') or {}, *votes):
         if item.get('received_at') and datetime.fromisoformat(item['received_at']) < since:
             raise ValueError('review period omits the original floor/support evidence')
     from .character_automation import original, independent, level_evidence, NAMED_LEVEL_UP_SECONDS
@@ -123,6 +127,8 @@ def validate(store, plan):
                 not all((datetime.fromisoformat(p['received_at']), p.get('pixel_sha256')) in retained_proofs
                         for p in (proof, support))):
             raise ValueError('original independent floor frames are unavailable; refusing a guard-only repair')
+        if any((datetime.fromisoformat(v['received_at']),v['pixel_sha256']) not in retained_proofs for v in votes):
+            raise ValueError('original floor vote frames are unavailable; refusing a guard-only repair')
     for event in events:
         stamp = datetime.fromisoformat(event['effective_at']); latest = max(latest, stamp)
         if event['level'] is not None and event['level'] > level and stamp < since:

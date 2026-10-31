@@ -530,6 +530,82 @@ def test_percentage_levelup_does_not_reuse_agreement_from_ended_session(auto):
 
 
 @pytest.mark.parametrize('restart',[False,True])
+@pytest.mark.parametrize('interval',[5,20,55])
+def test_named_neural_percentage_confirms_after_five_votes_and_thirty_seconds(auto,restart,interval):
+    path,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    count=max(5,30//interval+1)
+    for n in range(count):
+        if n==2 and restart:
+            with Store(path) as reopened:
+                policy=AutonomousCharacters(reopened)
+                result=policy.append('first',percentage_levelup_record(n+3,45+n*interval),'unused',config())['record']
+            policy=AutonomousCharacters(store)
+        else:result=policy.append('first',percentage_levelup_record(n+3,45+n*interval),'unused',config())['record']
+        assert result['current'] is (n==count-1)
+    floor,proof=store.db.execute('SELECT level,proof_json FROM character_level_guard').fetchone()
+    assert floor==58
+    proof=json.loads(proof)
+    assert proof['basis']=='named_neural_percentage' and len(proof['votes'])==5
+    assert proof['votes'][0]['received_at']==(AT+timedelta(seconds=45)).isoformat()
+    later=percentage_levelup_record(count+3,45+count*interval)
+    assert policy.append('first',later,'unused',config())['record']['current']
+    snapshot=Diagnostics(store).snapshot('alpha',now=AT+timedelta(seconds=46+count*interval))
+    assert snapshot['observations'][-1]['experimental_level']['value']==58
+    assert snapshot['percentage_progress']['latest_percentage']['percentage']=='95.00'
+
+
+@pytest.mark.parametrize('changes',[
+    dict(visual_level=56),dict(visual_level=59),
+    dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.989,preprocessing='neutral4')),
+    dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.999,preprocessing='rgb4')),
+    dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.999,preprocessing='neutral4',source_complete=False)),
+    dict(local_age_seconds=16),dict(localization=dict(count=2)),dict(automatic_identity_risk='mismatch'),
+    dict(character_name=dict(evidence=dict(status='unreadable_or_conflicting'))),
+    dict(neural=dict(text='[95.00%1'),percentage_only_candidate=None,status='malformed_or_unavailable'),
+    dict(current=False,status='unavailable',reasons=['missing_hud'],localization=dict(count=0)),
+])
+def test_named_neural_percentage_unsafe_frame_resets_streak(auto,changes):
+    from exp_tracker.character_automation import guard_level
+    _,store,_=auto;sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    cid=store._channel('alpha')['selected_character_id']
+    for i in range(4):guard_level(store,cid,percentage_levelup_record(i+3,45+i*20))
+    bad=percentage_levelup_record(7,125);bad.update(deepcopy(changes))
+    guard_level(store,cid,bad)
+    assert store.db.execute('SELECT pending_json FROM character_level_guard').fetchone()[0] is None
+    for i in range(4):
+        assert not guard_level(store,cid,percentage_levelup_record(i+8,145+i*20))['current']
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==57
+
+
+@pytest.mark.parametrize('case',['duplicate','out_of_order','gap','total_span','session','missing_name','jump','bootstrap','mixed_agreement'])
+def test_named_neural_percentage_cannot_confirm_from_invalid_streak(auto,case):
+    from exp_tracker.character_automation import guard_level
+    _,store,_=auto
+    if case!='bootstrap':sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    cid=store._channel('alpha')['selected_character_id']
+    values=[percentage_levelup_record(i+3,45+i*20) for i in range(5)]
+    if case=='duplicate':
+        values[-1]['character_name']['evidence']['pixel_sha256']=values[0]['character_name']['evidence']['pixel_sha256']
+        values[-1]['frame_sha256']=values[0]['frame_sha256']
+    if case in ('gap','total_span','out_of_order'):
+        seconds=[45,65,85,105,226] if case=='gap' else [45,135,225,315,405] if case=='total_span' else [45,65,85,105,100]
+        values=[percentage_levelup_record(i+3,s) for i,s in enumerate(seconds)]
+    if case=='missing_name':
+        for value in values:value['character_name']=dict(evidence=dict(status='unreadable_or_conflicting'))
+    if case=='jump':
+        for value in values:value['neural_level'].update(level=59,text='59')
+    if case=='mixed_agreement':values=values[:1]+[percentage_levelup_record(4,65,58)]
+    for i,value in enumerate(values):
+        if case=='session' and i==4:
+            store.end_session('alpha',at=AT+timedelta(seconds=110));store.start_session('alpha',at=AT+timedelta(seconds=115))
+        result=guard_level(store,cid,value)
+        assert not result['current']
+    floor=store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]
+    assert floor==(None if case=='bootstrap' else 57)
+
+
+@pytest.mark.parametrize('restart',[False,True])
 @pytest.mark.parametrize('exp',[1437,1441])
 @pytest.mark.parametrize('interval',[15,40])
 def test_stationary_low_percentage_levelup_with_one_neural_reader_reaches_outer_confirmation(auto,restart,exp,interval):

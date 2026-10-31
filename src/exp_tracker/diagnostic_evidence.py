@@ -432,8 +432,8 @@ def project(rows, *, state=None, allow_context=True):
                     selected=neural; status='agreement'; reason='both_visual_readers'
                 elif (not conflict and row.get('validated_level_floor')==neural and score>=NEURAL_SEED_SCORE
                         and (row.get('neural_level') or {}).get('preprocessing')=='neutral4'
-                        and full
-                        and consistency(full,neural)['status']=='consistent'):
+                        and (full and consistency(full,neural)['status']=='consistent'
+                            or row.get('percentage_only_candidate') and not row.get('percentage_only_invalid'))):
                     selected=neural; status='provisional_neural'; reason='persistent_level_guard'
                 elif established==neural and (not conflict or supported_recently):
                     selected=neural; status='provisional_neural'; reason='confirmed_recent_neural_context'

@@ -110,6 +110,26 @@ def test_named_levelup_with_long_support_gap_remains_reviewable_and_repairable(a
     assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==50
 
 
+@pytest.mark.parametrize('missing_vote',[False,True])
+def test_named_neural_percentage_floor_requires_all_five_original_votes_for_repair(auto,missing_vote):
+    from tests.test_autonomous_characters import percentage_levelup_record
+    path,store,policy=auto
+    sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    for n in range(5):policy.append('first',percentage_levelup_record(n+3,45+n*40),'unused',config())
+    assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==58
+    cid=store._channel('alpha')['selected_character_id']
+    if missing_vote:store.db.execute("DELETE FROM diagnostic_attempts WHERE run_id='first' AND attempt_index=3")
+    def review():
+        return repair.preview(path,'alpha',cid,'Alpha',level=57,exp=1000,percentage_bp=None,
+            since=SINCE,at=AT+timedelta(seconds=300),reason='Synthetic review of repeated neural level digit errors.')
+    if missing_vote:
+        with pytest.raises(ValueError,match='vote frames are unavailable'):review()
+    else:
+        plan=review()
+        repair.apply(path,'alpha',cid,'Alpha',plan,confirm=repair.confirmation(plan),backup=path.parent/'backup.sqlite3')
+        assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==57
+
+
 @pytest.mark.parametrize('phase', ['before-baseline', 'after-replacement'])
 def test_mid_repair_exception_rolls_back_every_table(poisoned, monkeypatch, phase):
     _, store, _ = poisoned

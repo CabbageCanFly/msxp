@@ -17,6 +17,10 @@ from .store import utc
 
 MAX_AUTOMATIC_CHARACTERS = 16
 NAMED_LEVEL_UP_SECONDS = 600  # Fresh identity on both votes allows a longer wait for an idle, newly leveled character.
+NEURAL_PERCENTAGE_SAMPLES = 5
+NEURAL_PERCENTAGE_SECONDS = 300
+NEURAL_PERCENTAGE_MIN_SECONDS = 30
+NEURAL_PERCENTAGE_SCORE = .99
 JOB_GAP_SECONDS = 300  # Job reads are a minute or more apart, so two agreeing ones may span several captures.
 
 
@@ -137,7 +141,7 @@ def level_held(record, reason, floor):
 
 
 def guard_level(store, character, record, *, support=None):
-    """Persistent monotone floor; two independent arithmetically supported frames advance it."""
+    """Persistent monotone floor with bounded independent level confirmation."""
     if 'level_hold' in record and record.get('current') is False:
         return record
     row = store.db.execute('SELECT * FROM character_level_guard WHERE character_id=?', (character,)).fetchone()
@@ -150,7 +154,7 @@ def guard_level(store, character, record, *, support=None):
     agreement_pending=bool(session_id is not None and pending and pending.get('basis')=='agreement'
         and pending.get('session_id')==session_id and same_character_name(pending.get('name'),owner['label']))
     if pending and (pending.get('basis')=='named_normal_level_up' and not named_pending
-            or pending.get('basis')=='agreement' and 'session_id' in pending and pending['session_id']!=session_id):
+            or pending.get('basis') in ('agreement','named_neural_percentage') and 'session_id' in pending and pending['session_id']!=session_id):
         pending=None
         store.db.execute('UPDATE character_level_guard SET pending_json=NULL WHERE character_id=?',(character,))
     confirmation_seconds=NAMED_LEVEL_UP_SECONDS if named_pending else CONFIRM_GAP_SECONDS
@@ -161,6 +165,7 @@ def guard_level(store, character, record, *, support=None):
                    if pending and when else None)
         # A fresh unreadable HUD is no vote and must not erase a normal level-up's first vote.
         unreadable = (record.get('current') is False and floor is not None and pending
+            and pending.get('basis')!='named_neural_percentage'
             and pending['level']==floor+1 and elapsed is not None and 0<elapsed<=confirmation_seconds
             and record.get('status')=='unavailable' and record.get('reasons')==['missing_hud']
             and (record.get('localization') or {}).get('count')==0
@@ -184,6 +189,16 @@ def guard_level(store, character, record, *, support=None):
             floor, proof = highest['level'], dict(level=highest['level'], received_at=highest['effective_at'],
                                                 basis='manual_admin', event_id=highest['event_id'])
     normalized = observation(record)
+    neural=normalized.get('neural_level') or {}
+    name=name_evidence(record)
+    neural_percentage=bool(floor is not None and session_id is not None and neural.get('level')==floor+1
+        and neural.get('preprocessing')=='neutral4' and (neural.get('score') or 0)>=NEURAL_PERCENTAGE_SCORE
+        and neural.get('source_complete') is not False and normalized['visual_level'] is None
+        and normalized['status']=='diagnostic_percentage_only' and normalized['percentage_only_candidate']
+        and not normalized['percentage_only_invalid'] and not normalized['candidate'] and not normalized['candidate_invalid']
+        and normalized['frame_sha256'] and not normalized['crop_suspect']
+        and normalized['local_age_seconds'] is not None and normalized['local_age_seconds']<=15
+        and name and same_character_name(name['name'],owner['label']) and not record.get('automatic_identity_risk'))
     # A reader below the floor that this frame's own strict EXP pair contradicts misread the digits
     # (Tesseract read Lv. 19 as 13 twice); it is no regression, and the frame is judged without it.
     strict = full_reading(normalized) if normalized.get('candidate') else None
@@ -199,7 +214,7 @@ def guard_level(store, character, record, *, support=None):
     if floor and any(v < floor for v in claims):
         reason, pending = 'level_regression', None
     elif qualified and (floor is None or qualified['level'] > floor):
-        prior = support or pending
+        prior = support or (pending if pending and pending.get('basis')!='named_neural_percentage' else None)
         identity_supported=(floor is None or qualified['level']<=floor+1 or
                             same_character_name(qualified['name'], (prior or {}).get('name')) and same_character_name(qualified['name'], owner['label']))
         named_pair=bool(named_pending and prior is pending and qualified['basis']=='named_normal_level_up'
@@ -229,6 +244,21 @@ def guard_level(store, character, record, *, support=None):
             and (not name_evidence(record) or same_character_name(name_evidence(record)['name'],owner['label']))
             and consistency(full_reading(normalized),pending['level'])['status']!='invalid'):
         reason='level_confirmation_pending'  # An unreadable vote neither confirms nor refreshes the original evidence.
+    elif neural_percentage:
+        vote=dict(level=neural['level'],**name,basis='named_neural_percentage',session_id=session_id,neural_score=neural['score'])
+        votes=pending.get('votes',[]) if pending and pending.get('basis')=='named_neural_percentage' else []
+        when=datetime.fromisoformat(vote['received_at'])
+        if votes and (not independent(votes[-1],vote)
+                or (when-datetime.fromisoformat(votes[0]['received_at'])).total_seconds()>NEURAL_PERCENTAGE_SECONDS
+                or any(v['pixel_sha256']==vote['pixel_sha256'] for v in votes)
+                or any(not same_character_name(v['name'],vote['name']) for v in votes)):
+            votes=[]
+        # Keep the first vote when fast captures have not yet spanned the minimum time.
+        votes=votes[:1]+votes[2:]+[vote] if len(votes)==NEURAL_PERCENTAGE_SAMPLES else votes+[vote]
+        if len(votes)==NEURAL_PERCENTAGE_SAMPLES and (when-datetime.fromisoformat(votes[0]['received_at'])).total_seconds()>=NEURAL_PERCENTAGE_MIN_SECONDS:
+            floor,proof,pending=vote['level'],dict(**vote,support=votes[-2],votes=votes),None
+        else:
+            pending,reason=dict(**vote,votes=votes),'level_confirmation_pending'
     elif floor is None and claims:
         reason, pending = 'level_unvalidated', None
     elif floor and (any(v > floor for v in claims) or

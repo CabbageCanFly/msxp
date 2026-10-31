@@ -925,6 +925,18 @@ original vote without confirming or extending it. A second independent two-reade
 agreement must still arrive within 120 seconds, in the same session. Conflicting
 levels, unsafe frames or missing name evidence clear this pending agreement.
 
+Percentage-only HUDs also have a named neural fallback for an established character's
+exact next level: at least five consecutive qualifying captures, neural score >= .99,
+matching current-character name evidence, distinct pixels and fresh full-frame HUDs.
+The streak must span at least 30 seconds and no more than five minutes, with at most
+120 seconds between votes, in the same session. Missing/unsafe readings or accepted
+conflicting levels reset it. It cannot initialize a level, skip levels, use recovered
+percentage syntax, or use an unreadable name. The saved proof retains five votes and
+survives process restarts. Existing faster corroborated paths remain available.
+After confirmation, fresh matching neural reads can display strict percentage-only
+progress using that stored floor; no numeric EXP is invented. Repeated OCR errors
+remain possible: engine confidence and repeated frames do not establish correctness.
+
 For a complete nonzero EXP/% pair, a validated high-confidence `neutral4` neural
 level can supply each frame's arithmetic check even when the pair alone fits
 multiple levels. The outer guard normally requires two distinct captures within
