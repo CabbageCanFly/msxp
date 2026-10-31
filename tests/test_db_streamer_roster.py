@@ -702,6 +702,48 @@ def test_pending_fixed_streamer_waits_without_capture_on_startup(running_roster)
         assert status['runtime']['state']=='waiting_for_character'
 
 
+def test_fixed_capture_reads_names_confirms_level_catchup_and_never_switches(running_roster,monkeypatch):
+    from exp_tracker.character_automation import guard_level
+    from tests.test_autonomous_characters import AT
+    legacy,_,seen,scripts,_,_=running_roster;module=legacy[0];path=legacy[3]
+    change(path,'newcaster',authorized=True,automatic_characters=False)
+    with Store(path) as store:
+        cid=store.add_character('newcaster','Alpha')
+    change(path,'newcaster',selected_character_id=cid,tracking_enabled=True)
+    with Store(path) as store:
+        store.start_session('newcaster',at=AT)
+        for i in (1,2):guard_level(store,cid,record(i,level=50))
+        assert store.db.execute('SELECT level FROM character_level_guard WHERE character_id=?',(cid,)).fetchone()[0]==50
+    scripts['newcaster']=['Alpha','Alpha','Beta','Beta','Alpha','Alpha']
+    capture=module.shadow.capture_attempt
+    def reading(args,source,requirements,index,**options):
+        value=capture(args,source,requirements,index,**options)
+        if source.value=='newcaster':
+            assert args.character_names and not args.automatic_characters
+            assert options['identity'].suggestions.reference=='Alpha'
+            name=value['character_name']['evidence']['name']
+            value=record(index,name,level=54,selected='Alpha',bp=4000+index*10,
+                at=datetime.fromisoformat(value['received_at']))
+            value.update(source=dict(kind='twitch',channel='newcaster'),visual_level=None,visual_status='unavailable',
+                neural_level=dict(level=54,text='54',status='numeric_candidate',score=.99,preprocessing='neutral4'))
+        return value
+    monkeypatch.setattr(module.shadow,'capture_attempt',reading)
+    assert run_db(running_roster,'--stop-after-seconds','105')==0
+    with Store(path,read_only=True) as store:
+        sid=store._channel('newcaster')['id']
+        assert store._channel('newcaster')['selected_character_id']==cid
+        assert [r[0] for r in store.db.execute('SELECT label FROM characters WHERE streamer_id=?',(sid,))]==['Alpha']
+        rows=[json.loads(r[0]) for r in store.db.execute('''SELECT a.payload_json FROM diagnostic_attempts a
+            JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.streamer_id=? ORDER BY a.id''',(sid,))]
+        assert len(rows)>=5 and rows[1]['current'] and rows[4]['current']
+        assert all(not r['current'] and 'identity_hold' in r for r in rows[2:4])
+        assert all(original(r)['character_name']['evidence']['name'] for r in rows)
+        assert store.db.execute('SELECT level FROM character_level_guard WHERE character_id=?',(cid,)).fetchone()[0]==54
+        assert not roster.entry(store,'newcaster')['automatic_characters']
+        assert not store.db.execute('SELECT 1 FROM automatic_character_events WHERE streamer_id=?',(sid,)).fetchone()
+    assert all(not automatic for login,_,_,automatic,_ in seen if login=='newcaster')
+
+
 def test_bounded_attempt_limit_survives_dynamic_lane_replacement(running_roster,monkeypatch):
     legacy,counters,_,_,_,_=running_roster;module=legacy[0];path=legacy[3]
     capture=module.shadow.capture_attempt;updated=[False]

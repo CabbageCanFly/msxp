@@ -642,7 +642,7 @@ def main(argv=None):
                 source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
                 # After prepare: its standalone no-DB guard does not apply, holds are enforced at emit/append.
                 opts.automatic_characters=args.automatic_characters or row['channel'] in existing or db_mode and row['automatic_characters']
-                opts.character_names=args.character_names or opts.automatic_characters
+                opts.character_names=args.character_names or opts.automatic_characters or db_mode
                 return {**row, 'args': opts, 'source': source, 'requirements': requirements, 'table': table, 'table_bytes': table_bytes}
         for row in streams:
             if not args.replay:lanes.append(make_lane(row))

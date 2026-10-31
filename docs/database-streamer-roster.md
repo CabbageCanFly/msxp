@@ -76,6 +76,10 @@ Configure lets the operator select or confirm a valid saved character. Saving th
 selection records an operator confirmation, preserves its ID/history, and allows
 tracking with automatic discovery/switching off, including while the stream is offline.
 Invalidated characters and PendingOCR cannot be confirmed as fixed identities.
+Database-managed capture still reads the selected character's name when automatic
+discovery/switching is off. Matching names can confirm level catch-up; mismatches
+are held without creating or selecting another character. Temporary unreadability
+alone does not change the selection or pause plausible existing-character progress.
 
 Invalidating the selected character retains the existing fallback selection (a valid
 saved character, or PendingOCR) without changing tracking, discovery or visibility.
