@@ -18,7 +18,7 @@ from .models import PLACEHOLDER_CHARACTER
 
 FLAGS = ('authorized','tracking_enabled','public_visible','automatic_characters')
 DEFAULTS = dict(interval=20, quality='best', timeout=20, max_age=15, ocr_timeout=10,
-                experimental_neural_level=False, save_crops=False)
+                experimental_neural_level=False, save_crops=False, discover_characters=True)
 
 
 def ready(store):
@@ -45,7 +45,7 @@ def entry(store, channel):
     if not r:return None
     return dict(channel=r['channel'],streamer_id=r['streamer_id'],origin=r['origin'],revision=r['revision'],
         selected_character_id=r['selected_character_id'],
-        **{k:bool(r[k]) for k in FLAGS}, **json.loads(r['settings_json']))
+        **{k:bool(r[k]) for k in FLAGS}, **{**DEFAULTS, **json.loads(r['settings_json'])})
 
 
 def entries(store):
@@ -81,7 +81,7 @@ def selectable_character(store, channel, cid):
 
 
 def validate_policy(store, value):
-    for k in FLAGS+('experimental_neural_level','save_crops'):
+    for k in FLAGS+('experimental_neural_level','save_crops','discover_characters'):
         if type(value.get(k)) is not bool:raise ValueError(f'{k} must be an explicit boolean')
     for k,low,high in (('interval',5,300),('timeout',1,30),('max_age',1,30),('ocr_timeout',1,30)):
         n=value.get(k)

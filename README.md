@@ -52,6 +52,10 @@ browser on a leaderboard with made-up players.
 5. **Add the overlay to OBS:** open the streamer's page on your leaderboard, pick a style under
    the overlay builder, click **Copy URL**, and follow **How do I add this to OBS?** right there.
 
+For streamers who showcase viewers, Configure can disable **Allow automatic discovery of
+new characters** while keeping automatic switching between saved characters enabled
+([details](docs/database-streamer-roster.md)).
+
 Want the leaderboard to show who is live? Add free Twitch app keys to `.env` ([settings](#settings-and-secrets)).
 With those keys, continuous tracking also checks live status and category about once a minute,
 skipping playback while a stream is confirmed offline or outside MapleStory. Unknown or expired

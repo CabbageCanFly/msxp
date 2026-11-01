@@ -40,6 +40,55 @@ def change(path, channel, **settings):
         return roster.commit(store,roster.preview(store,dict(action=action,channel=channel,reason=REASON,**settings)))
 
 
+def test_saved_only_discovery_survives_restart_and_resumes_known_characters(tmp_path):
+    from exp_tracker.character_automation import AutonomousCharacters
+    from tests.test_autonomous_characters import config as header, AT
+    path=roster.create(tmp_path/'saved-only.sqlite3')
+    change(path,'caster',authorized=True,tracking_enabled=True,discover_characters=False)
+    with Store(path) as store:
+        alpha=store.add_character('caster','Alpha');beta=store.add_character('caster','Beta')
+        store.select_character('caster',alpha,at=AT);store.start_session('caster',at=AT)
+        Diagnostics(store).begin('first','caster',header())
+        policy=AutonomousCharacters(store)
+        for i,name in enumerate(['Alpha','Alpha','Guest','Guest'],1):
+            saved=policy.append('first',record(i,name,at=AT+timedelta(seconds=20*i)),f'after{i}',header())
+            assert not saved['switched']
+        assert 'identity_hold' in saved['record']
+    with Store(path) as store:
+        assert not roster.entry(store,'caster')['discover_characters']
+        policy=AutonomousCharacters(store);run='first';index=5;switched=[]
+        for i,name in enumerate([None,'Alpha','Beta','bEtA','Alpha','Alpha'],5):
+            selected=store.db.execute('SELECT label FROM characters WHERE id=?',
+                (store._channel('caster')['selected_character_id'],)).fetchone()[0]
+            saved=policy.append(run,record(index,name,selected=selected,at=AT+timedelta(seconds=20*i)),f'after{i}',header())
+            switched.append(saved['switched'])
+            if i==5:assert 'identity_hold' in saved['record']
+            if i==6:assert saved['record']['current']
+            if i==8:assert saved['character_id']==beta
+            run=saved['run_id'];index=2 if saved['switched'] else index+1
+        assert switched==[False,False,False,True,False,True]
+        assert saved['character_id']==alpha
+        assert store.db.execute('SELECT COUNT(*) FROM characters').fetchone()[0]==2
+    change(path,'caster',discover_characters=True)
+    with Store(path) as store:
+        policy=AutonomousCharacters(store)
+        for i in (11,12):
+            saved=policy.append(run,record(index,'Gamma',at=AT+timedelta(seconds=20*i)),f'after{i}',header())
+            run=saved['run_id'];index+=1
+        assert saved['switched'] and saved['name']=='Gamma'
+
+
+def test_legacy_settings_default_to_discovery_and_reject_non_boolean(tmp_path):
+    path=roster.create(tmp_path/'legacy-settings.sqlite3');change(path,'caster')
+    with Store(path) as store:
+        row=store.db.execute('SELECT settings_json FROM streamer_capture').fetchone()
+        settings=json.loads(row[0]);settings.pop('discover_characters')
+        store.db.execute('UPDATE streamer_capture SET settings_json=?',(json.dumps(settings),));store.db.commit()
+        assert roster.entry(store,'caster')['discover_characters'] is True
+        with pytest.raises(ValueError,match='discover_characters must be an explicit boolean'):
+            roster.preview(store,dict(action='roster_update',channel='caster',reason=REASON,discover_characters=0))
+
+
 @pytest.fixture
 def managed(legacy):
     bootstrap(legacy)

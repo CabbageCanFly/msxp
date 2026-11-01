@@ -232,6 +232,21 @@ identity state, not legacy adoption. A -> B -> A reuses IDs. Unreadable names al
 not interrupt plausible tracking after identity verification. Conflicts, held readings,
 level floors and numerical validation retain their existing safeguards.
 
+For channels that showcase viewers, leave **Recognize and switch characters automatically**
+on and turn **Allow automatic discovery of new characters** off in Configure. Names
+are still read, and saved, valid characters still switch using the existing confirmation
+policy. Unknown names cannot create characters: their EXP stays held, including through
+subsequent unreadable names, until a saved identity is recognized. Previously saved guest
+characters remain eligible; review and invalidate those separately if appropriate.
+For a genuine new character, temporarily enable discovery during confirmed gameplay,
+wait for recognition, then disable it again. Discovery has no effect when automatic
+switching is off. Existing settings default to discovery enabled; the per-streamer
+`discover_characters` boolean uses existing settings JSON with no schema migration.
+Deploying this code requires restarting the tracker and the separate admin process to load
+it, without resetting history. The public read-only API needs no restart for this feature.
+Later setting changes apply after in-flight captures
+finish through the existing coordinator, without a service restart.
+
 Paused tracking does not erase history or close the character's session. Hide only
 removes directory entries (both Streamers and Characters modes); direct character
 pages and OBS remain read-only and available. This is visibility, not access control.

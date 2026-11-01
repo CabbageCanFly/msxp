@@ -2,14 +2,14 @@
 export function streamerUI({api, onSaved=()=>{}}) {
   const $=id=>document.getElementById(id), form=$('streamer-form');
   let rows=[], preview=null, busy=false, loading=false, version=0;
-  const flags=['authorized','tracking_enabled','public_visible','automatic_characters','experimental_neural_level','save_crops'];
+  const flags=['authorized','tracking_enabled','public_visible','automatic_characters','discover_characters','experimental_neural_level','save_crops'];
   const numeric=['interval','timeout','max_age','ocr_timeout'];
   function message(text,error=false){$('streamer-status').textContent=text;$('streamer-status').classList.toggle('warning',error);}
   function cancel(){version++;preview=null;$('streamer-review').hidden=true;}
   function edit(row=null){
     cancel();form.reset();form.hidden=false;form.dataset.action=row?'roster_update':'roster_add';
     $('streamer-login').readOnly=!!row;$('streamer-login').value=row?.channel??'';
-    for(const key of flags)$('streamer-'+key).checked=row?.[key]??['authorized','public_visible','automatic_characters','experimental_neural_level'].includes(key);
+    for(const key of flags)$('streamer-'+key).checked=row?.[key]??['authorized','public_visible','automatic_characters','discover_characters','experimental_neural_level'].includes(key);
     $('streamer-authorization').hidden=!row;
     for(const key of numeric)$('streamer-'+key).value=row?.[key]??({interval:20,timeout:20,max_age:15,ocr_timeout:10}[key]);
     $('streamer-quality').value=row?.quality??'best';
@@ -35,7 +35,7 @@ export function streamerUI({api, onSaved=()=>{}}) {
         heading.textContent=`${row.channel} · Selected character: ${row.character?.label??'PendingOCR'}`;
         const runtime=row.runtime;
         const stale=runtime && Date.now()-Date.parse(runtime.heartbeat_at)>120000;
-        info.textContent=`${row.tracking_enabled?'Tracking requested':'Paused'} · ${row.public_visible?'Public':'Hidden'} · ${row.automatic_characters?'Automatic names':'Manual identity'} · ${stale?'Coordinator status is old':runtime?.state??'Waiting for coordinator'}`+
+        info.textContent=`${row.tracking_enabled?'Tracking requested':'Paused'} · ${row.public_visible?'Public':'Hidden'} · ${row.automatic_characters?(row.discover_characters===false?'Saved characters only':'Automatic names'):'Manual identity'} · ${stale?'Coordinator status is old':runtime?.state??'Waiting for coordinator'}`+
           ((runtime?.last_attempt_at??row.last_capture_at)?` · Last attempt ${new Date(runtime?.last_attempt_at??row.last_capture_at).toLocaleString()}`:'')+
           (row.validated_level!=null?` · Validated level ${row.validated_level}`:'')+
           (row.identity?` · Identity ${row.identity.risk?'conflict: '+row.identity.risk:row.identity.verified?'verified':'pending verification'}`:'');

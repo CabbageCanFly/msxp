@@ -327,7 +327,8 @@ class AutonomousCharacters:
             login = streamer['login']
             from .automatic_adoption import state, save_state
             adopted = state(self.store, streamer['id'])
-            from .streamer_roster import discovery_state, save_identity
+            from .streamer_roster import discovery_state, save_identity, entry
+            roster = entry(self.store, login)
             discovery = None if adopted else discovery_state(self.store,streamer['id'])
             adopted = adopted or discovery
             identity_scope = 'roster_identity_scope' if discovery else 'existing_adoption_id'
@@ -353,7 +354,9 @@ class AutonomousCharacters:
                 found = self.db.execute('SELECT id,label FROM characters WHERE streamer_id=? AND label=? COLLATE NOCASE ORDER BY id LIMIT 1', (streamer['id'], target_label)).fetchone()
                 if found:target_label = found['label']
                 count = self.db.execute('SELECT COUNT(*) FROM characters WHERE streamer_id=?', (streamer['id'],)).fetchone()[0]
-                if not found and count >= MAX_AUTOMATIC_CHARACTERS:
+                if not found and roster and not roster['discover_characters']:
+                    switch = False  # Unknown names stay held; saved characters still switch normally.
+                elif not found and count >= MAX_AUTOMATIC_CHARACTERS:
                     switch = False  # Keep the existing mismatch hold; this exceptional case needs an operator.
                 elif found and found[0] in self.store.invalidated_characters(streamer['id']):
                     switch = False  # An operator ruled this name out (e.g. another player's video): its frames stay held.

@@ -32,6 +32,7 @@ test('adding an unknown streamer assumes capture authorization',async t=>{
   await nodes.get('streamer-form').trigger('submit');
   const data=calls.find(([path])=>path==='/api/preview')[1];
   assert.equal(data.channel,'NewCaster');assert.equal(data.automatic_characters,true);
+  assert.equal(data.discover_characters,true);
   assert.equal(data.interval,20);assert.equal(data.authorized,true);assert.equal(data.tracking_enabled,true);
   assert.ok(!('character' in data));assert.equal(calls.filter(([p])=>p==='/api/save').length,0);
   await nodes.get('streamer-confirm').trigger('click');
@@ -44,6 +45,21 @@ test('new streamers assume authorization but start paused until explicitly revie
   assert.equal(nodes.get('streamer-tracking_enabled').checked,false);
   assert.equal(nodes.get('streamer-public_visible').checked,true);
   assert.equal(nodes.get('streamer-automatic_characters').checked,true);
+  assert.equal(nodes.get('streamer-discover_characters').checked,true);
+});
+test('saved-only mode keeps automatic switching and sends discovery off through review and save',async t=>{
+  const {nodes,calls}=setup(t,async(path,data)=>path==='/api/preview'?{preview_id:'saved-only',before:{},after:data}:
+    path==='/api/save'?{saved:true}:{managed:true,streamers:[{channel:'caster',automatic_characters:true,discover_characters:false}]});
+  await flush();const card=nodes.get('streamer-list').children[0];
+  assert.match(card.children[1].textContent,/Saved characters only/);
+  await card.children.at(-1).trigger('click');
+  assert.equal(nodes.get('streamer-automatic_characters').checked,true);
+  assert.equal(nodes.get('streamer-discover_characters').checked,false);
+  await nodes.get('streamer-form').trigger('submit');
+  const data=calls.find(([path])=>path==='/api/preview')[1];
+  assert.equal(data.automatic_characters,true);assert.equal(data.discover_characters,false);
+  await nodes.get('streamer-confirm').trigger('click');
+  assert.deepEqual(calls.find(([path])=>path==='/api/save')[1],{preview_id:'saved-only'});
 });
 test('editing invalidates an in-flight preview so an old response cannot be confirmed',async t=>{
   let resolvePreview;
