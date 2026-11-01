@@ -26,7 +26,7 @@ port; the API owns 8765. The bundled commands and approval gates below remain va
   multi-alpha marker, exclusive coordinator lease and free port. Startup never
   applies the schema-11 migration or adopts identities. JSON startup refuses a
   bootstrapped roster. Fresh schema 11 alone is insufficient.
-- Imported cadence/authorization/visibility/automatic settings need review. Bootstrap
+- Imported cadence/visibility/automatic settings need review. Bootstrap
   does not change 20s rows into the benchmark's 30s rows. Existing automatic channels
   require adoption receipts; matching Twitch/character names prove nothing.
 - The required pinned OCR interpreter is
@@ -144,7 +144,7 @@ Every preview/apply command must succeed; do not continue on a nonzero exit. App
 creates a NEW verified pre-change backup and is atomic. A preview is bound to its
 database path and content: **never reuse the rehearsal preview on another file**.
 
-## 3. Validate identities, roster and permissions
+## 3. Validate identities and roster settings
 
 Compare pre/post inspection: all existing streamer/character IDs, selections,
 sessions, manual corrections and adopted identity receipts must survive. Bootstrap
@@ -152,8 +152,8 @@ adds policy/audit state, not earned EXP. Automatic verification may remain pendi
 until independent live frames arrive. A conflict/hold is not permission to clear it.
 
 Use the existing local admin portal on the **copy** to review all settings. Pause
-every channel except the explicitly authorized 1–2 for the initial trial. Set their
-cadence to 30s if that is the approved target, and review authorization, automatic
+every channel except the selected 1–2 for the initial trial. Set their
+cadence to 30s if that is the approved target, and review tracking, automatic
 identity, rendition, timeouts, neural-level evidence and crop saving. Do not assign a
 character from its Twitch login. Example Windows copy-only portal:
 

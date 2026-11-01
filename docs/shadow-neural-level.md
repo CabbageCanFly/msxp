@@ -164,26 +164,24 @@ node --test tools/shadow.test.mjs
 The private replay helper needs existing private prepared evidence and RapidOCR
 environment. Synthetic public tests need no models, crops or secrets.
 
-## Later permitted live trial; do not start automatically
+## Later live trial; do not start automatically
 
 We have familiar reviewed **51** examples, but no independently reviewed genuine
 **50** example in this selected material. Existing clipped/blank controls are
-constructed, not new genuine obstructed-stream holdouts. Seek new permitted source
+constructed, not new genuine obstructed-stream holdouts. Seek new source
 examples of real 50 and 51, partial/obstructed tiles and varied raster geometries.
 Do not infer their level from the EXP table or prime the blinded reviewer with it.
 
-For each new consenting stream, the maintainer can run **30 attempts** (~7.5 minutes) or
+For each new stream, the maintainer can run **30 attempts** (~7.5 minutes) or
 explicitly raise to **60** (~15 minutes), retaining every failure:
 
 ```powershell
-.\.venv\Scripts\python tools/shadow_capture.py --channel NEW_CHANNEL --authorized --interval 15 --count 30 --experimental-neural-level --save-crops --output private/neural-level-trial/captures/new-stream-a.jsonl
-# Repeat separately for the second permitted channel, using new-stream-b.jsonl.
+.\.venv\Scripts\python tools/shadow_capture.py --channel NEW_CHANNEL --interval 15 --count 30 --experimental-neural-level --save-crops --output private/neural-level-trial/captures/new-stream-a.jsonl
+# Repeat separately for the second channel, using new-stream-b.jsonl.
 .\.venv\Scripts\python tools/shadow_review.py prepare --run private/neural-level-trial/captures/new-stream-a.jsonl private/neural-level-trial/captures/new-stream-a --run private/neural-level-trial/captures/new-stream-b.jsonl private/neural-level-trial/captures/new-stream-b --output private/neural-level-trial/review-01 --seed 17
 ```
 
-No streamer installation or OBS configuration is needed. Existing Streamlink/platform
-limitations in [live capture](live-capture.md) still apply; `--authorized` records
-the operator's permission assertion. Stop on access denial; do not retry individual
+No streamer installation or OBS configuration is needed. Stop on access denial; do not retry individual
 frames to replace failures. No trial ran in this milestone.
 
 Give reviewers only the anonymous `review/` sheets and blank answer/provenance
@@ -218,7 +216,7 @@ validation exceptions. Actual saved-crop replays had **zero worker failures/time
 No confidence/preprocessing tuning, grammar recovery, numerical reconstruction,
 new dependencies/models, trusted writes, commits, pushes or deployment.
 
-Next: conduct the new permitted trial and freeze genuinely new human references,
+Next: conduct the new trial and freeze genuinely new human references,
 then compare the unchanged fixed neural level against them. In particular, high
 confidence and model agreement must not validate 50/51 identities, crop completeness,
 character identity or level transitions. This extension collects evidence only.

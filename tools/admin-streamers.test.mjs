@@ -24,7 +24,7 @@ function setup(t, responder=async()=>({managed:true,streamers:[]})){
   t.after(()=>{ui.close();Object.assign(globalThis,old);});
   return {nodes,calls,ui};
 }
-test('adding an unknown streamer assumes capture authorization',async t=>{
+test('adding an unknown streamer only needs tracking enabled',async t=>{
   const {nodes,calls}=setup(t,async(path,data)=>path==='/api/preview'?{preview_id:'p',before:null,after:data}:path==='/api/save'?{saved:true}:{managed:true,streamers:[]});
   await flush();await nodes.get('streamer-add').trigger('click');
   nodes.get('streamer-login').value='NewCaster';
@@ -33,15 +33,14 @@ test('adding an unknown streamer assumes capture authorization',async t=>{
   const data=calls.find(([path])=>path==='/api/preview')[1];
   assert.equal(data.channel,'NewCaster');assert.equal(data.automatic_characters,true);
   assert.equal(data.discover_characters,true);
-  assert.equal(data.interval,20);assert.equal(data.authorized,true);assert.equal(data.tracking_enabled,true);
+  assert.equal(data.interval,20);assert.equal('authorized' in data,false);assert.equal(data.tracking_enabled,true);
   assert.ok(!('character' in data));assert.equal(calls.filter(([p])=>p==='/api/save').length,0);
   await nodes.get('streamer-confirm').trigger('click');
   assert.deepEqual(calls.find(([path])=>path==='/api/save')[1],{preview_id:'p'});
 });
-test('new streamers assume authorization but start paused until explicitly reviewed',async t=>{
+test('new streamers start paused until tracking is enabled',async t=>{
   const {nodes}=setup(t);await flush();await nodes.get('streamer-add').trigger('click');
-  assert.equal(nodes.get('streamer-authorized').checked,true);
-  assert.equal(nodes.get('streamer-authorization').hidden,true);
+  assert.equal(nodes.has('streamer-authorized'),false);
   assert.equal(nodes.get('streamer-tracking_enabled').checked,false);
   assert.equal(nodes.get('streamer-public_visible').checked,true);
   assert.equal(nodes.get('streamer-automatic_characters').checked,true);
@@ -82,7 +81,7 @@ test('runtime errors are shown and configuring does not couple visibility to tra
   assert.equal(nodes.get('streamer-public_visible').checked,false);
   assert.equal(nodes.get('streamer-tracking_enabled').checked,true);
   assert.equal(nodes.get('streamer-login').readOnly,true);
-  assert.equal(nodes.get('streamer-authorization').hidden,false);
+  assert.equal(nodes.has('streamer-authorized'),false);
 });
 test('unbootstrapped databases display setup guidance and refuse add through the UI',async t=>{
   const {nodes}=setup(t,async()=>({managed:false,streamers:[],notice:'Bootstrap required'}));

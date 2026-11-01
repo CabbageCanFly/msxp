@@ -163,7 +163,7 @@ service; it never calculates a rank from local session statistics. The `#7` in
 a real streamer ranking, a URL parameter or demo API data.
 
 A real leaderboard first needs an agreed metric (raw EXP/h, level, percentage
-pace, etc.), eligible consenting streamers/characters and game worlds/rulesets,
+pace, etc.), eligible streamers/characters and game worlds/rulesets,
 a common time window, freshness/coverage requirements, handling for sessions and
 level changes, and tie-breaking. Local partial-window estimates are not yet a
 fair authoritative ranking basis. No scoring/backend work is included here.

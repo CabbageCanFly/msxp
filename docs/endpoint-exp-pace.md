@@ -202,6 +202,6 @@ SQLite-backed Chrome checks passed for the five polling/recovery stages and both
 actual Streamer_A checkpoints, including desktop/mobile/OBS screenshots. Inspected
 screenshots show readable values and no horizontal overflow. `git diff --check`
 passed. Test servers were shut down; the active coordinator was left running.
-The next useful authorized trial is a saved-crop run with independent review of
+The next useful trial is a saved-crop run with independent review of
 conditional recoveries, particularly nearby wrong digits that arithmetic cannot
 reject. No new capture is required to use this implementation.

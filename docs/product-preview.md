@@ -102,8 +102,8 @@ For accurate capturing/waiting activity labels, use the normal
 Start-Process 'http://127.0.0.1:8765/'
 ```
 
-Do not start another server on its port. For a later permitted Twitch trial,
-explicitly configure the channel/character, `authorized:true`, neural-level
+Do not start another server on its port. For a later Twitch trial,
+explicitly configure the channel/character, neural-level
 diagnostics and a bounded attempt count for each source, then use the same
 coordinator without `--continuous`. No Twitch connection was made for this milestone.
 The original saved Streamer_A database is also viewable without modifying it:
@@ -244,4 +244,4 @@ The fresh capture/estimate screenshots remain in `browser-e2e-03/`.
 
 No schema/accounting/capture/grammar/model changes, commits, pushes or deployment.
 Remaining practical check: the maintainer tests the new Browser Source in OBS and then
-runs a bounded, explicitly permitted one- or two-stream coordinator trial.
+runs a bounded, one- or two-stream coordinator trial.

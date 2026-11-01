@@ -15,7 +15,7 @@ operator has authorized a controlled stop of the existing writer.** Development
 tests never access that database. An occupied writer lease or port is a refusal,
 not an instruction to terminate another process.
 
-The existing tracker has thirteen authorized Twitch channels, port **8766** and
+The existing tracker has thirteen Twitch channels, port **8766** and
 configured **20-second** intervals. Its login is **`streamer_a`**, not `streamer_a`. The
 operator has already renamed that character to **`CharA`** through the admin portal
 and updated its JSON assignment to `"character": "CharA"`. Inspect the database to
@@ -144,7 +144,7 @@ $confirm = 'adopt-existing:' + $review.fingerprint.Substring(0,16)
   --preview "$trial\preview-copy.json" --confirm $confirm `
   --backup "$trial\before-copy-adoption.sqlite3"
 
-# Read-only startup preflight: model/FFmpeg/authorization/ownership/port checks,
+# Read-only startup preflight: model/FFmpeg/ownership/port checks,
 # no model startup, network capture, database migration or new capture logs.
 & $python tools/multi_alpha.py --config "$trial\config.json" --existing-tracker `
   --automatic-existing-channel streamer_a --ocr-python $ocr --workers 3 `
@@ -154,8 +154,8 @@ $confirm = 'adopt-existing:' + $review.fingerprint.Substring(0,16)
 For fully offline capture rehearsal, replace the copied config's sources with
 explicit saved local videos (`source: file`, `file: ...`) and then use the same
 coordinator flags with `--exit-after-capture`. Keep recordings private. `--check`
-alone does not test OCR accuracy. Do not launch the Twitch configuration on the copy
-without separate capture approval: it contains the same thirteen authorized sources.
+alone does not test OCR accuracy. Keep the copy on local-video sources to avoid
+running duplicate captures of the production channels.
 
 Inspection, snapshot and adoption preview do not claim the coordinator lease or port.
 They may be used while capture runs if the read-only marker/database access succeeds;
@@ -349,9 +349,9 @@ coordinator would reconcile those changes safely without restart.
 This adoption path is compatible with an additive implementation: receipts/state
 reference persistent streamer and character IDs, independent of the JSON label or
 process, and are already stored in SQLite. Keep those IDs, histories, identity risk,
-floors and audits when moving settings/authorization to database-owned policy; do
+floors and audits when moving settings to database-owned policy; do
 not rebuild accounts or interpret JSON removal as permission to delete history.
-Preserve separate capture authorization and public visibility, validate settings at
+Preserve separate tracking and public visibility, validate settings at
 the admin boundary, and serialize roster changes with the existing writer. Drain
 in-flight work before changing a lane's ownership/settings; immutable run/session
 bindings and receipt-time checks still apply. New unknown characters must not use

@@ -134,7 +134,7 @@ Changed files: `README.md`; this guide; `src/exp_tracker/product.py`,
 `product.css`, `product.js`, `shadow.js`; `tests/test_live_usability.py`;
 `tools/product.test.mjs`, `product.browser.mjs`, `product_updates_fixture.py`.
 
-No new Twitch capture or OCR inference was needed. Future authorized live use should
+No new Twitch capture or OCR inference was needed. Future live use should
 check that early estimates appear, disappear after interruptions, and never become
 fixed-window rankings prematurely. OCR correlation, wrong digits and provisional
 community requirements still prevent authoritative numerical accounting.

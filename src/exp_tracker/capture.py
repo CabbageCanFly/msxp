@@ -27,8 +27,8 @@ from .video import CaptureError, Source, VideoSession
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     source_group = parser.add_mutually_exclusive_group(required=True)
-    source_group.add_argument("--channel", help="Authorized public Twitch channel login")
-    source_group.add_argument("--hls", help="Authorized HTTP(S) HLS playlist, including localhost test source")
+    source_group.add_argument("--channel", help="Public Twitch channel login")
+    source_group.add_argument("--hls", help="HTTP(S) HLS playlist, including localhost test source")
     source_group.add_argument("--file", type=Path, help="Local video; periodic mode seeks by elapsed wall time")
     parser.add_argument("--quality", default="best", help="Streamlink rendition, e.g. 1080p60 or best; no silent fallback")
     parser.add_argument("--mode", choices=("periodic", "persistent"), default="periodic")

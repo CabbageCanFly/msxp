@@ -348,7 +348,7 @@ character. For a configured assignment, perform this workflow at a controlled pa
    never stops/restarts it or edits its configuration.
 2. Preview/apply the database rename. In the matching private roster JSON, change
    only that channel's `character` string from `Main` to `CharC`, retaining its
-   source, authorization, enabled flag and other settings. Do not add a character
+   source, enabled flag and other settings. Do not add a character
    or remove/re-add the roster assignment. The two files are not one atomic transaction.
 3. Run `python tools/stream_roster.py --config YOUR_ROSTER.json list`, then your
    normal coordinator `--check` before restarting. A stale label is a hard, explicit

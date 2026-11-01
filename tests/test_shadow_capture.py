@@ -240,10 +240,10 @@ def test_private_output_and_existing_evidence_protected(shadow, tmp_path):
     assert shadow.private_path(shadow.ROOT / 'private/shadow-capture/result.jsonl').is_absolute()
 
 
-def test_live_capture_requires_explicit_authorization(shadow):
-    with pytest.raises(SystemExit) as error:
-        shadow.main(['--channel', 'example', '--output', 'private/shadow-capture/unused.jsonl'])
-    assert error.value.code == 2
+def test_live_capture_has_no_separate_permission_option(shadow):
+    args=shadow.parser().parse_args(['--channel','example','--output','private/shadow-capture/unused.jsonl'])
+    assert args.channel=='example'
+    assert '--authorized' not in shadow.parser().format_help()
 
 
 @pytest.mark.parametrize('flag,value', [('--count', '0'), ('--count', '61'), ('--interval', 'nan'),

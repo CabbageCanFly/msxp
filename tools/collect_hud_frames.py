@@ -33,9 +33,9 @@ class DiagnosticSession(VideoSession):
 def parser():
     cli = argparse.ArgumentParser(description=__doc__)
     source = cli.add_mutually_exclusive_group(required=True)
-    source.add_argument('--file', type=Path, help='Existing authorized local video')
+    source.add_argument('--file', type=Path, help='Existing local video')
     source.add_argument('--channel', help='Single Twitch login, never a playback URL')
-    cli.add_argument('--authorized', action='store_true', help='Confirm streamer permission for THIS Twitch trial')
+    cli.add_argument('--authorized', action='store_true', help=argparse.SUPPRESS)
     cli.add_argument('--quality', default='best', help='Named Twitch rendition/selector; ignored for local video')
     cli.add_argument('--count', type=int, default=3, help='Distinct frames requested, 1..5')
     cli.add_argument('--timeout', type=float, default=10, help='Per-frame wait, 1..20 seconds')
@@ -52,15 +52,13 @@ def prepare(args):
         if not math.isfinite(getattr(args, name)) or not low <= getattr(args, name) <= high:
             raise ValueError(f'{name} must be finite and {low}..{high}')
     if args.channel is not None:
-        if not args.authorized:
-            raise ValueError('Twitch requires --authorized: confirm streamer permission for this trial')
         if args.start:
             raise ValueError('--start is only for local video')
         source = Source('twitch', args.channel.lower(), args.quality)
         source.streamlink_command()  # Reuse login/rendition validation before any connection or output.
     else:
         if not args.file.is_file():
-            raise ValueError('An existing authorized local video is required')
+            raise ValueError('An existing local video is required')
         source = Source('file', str(args.file.resolve()))
     if args.output.exists() or args.output.is_symlink():
         raise ValueError('Never overwrite an existing output file or directory')

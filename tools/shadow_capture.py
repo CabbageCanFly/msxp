@@ -317,7 +317,7 @@ def parser():
     source = cli.add_mutually_exclusive_group(required=True)
     source.add_argument('--file', type=Path)
     source.add_argument('--channel')
-    cli.add_argument('--authorized', action='store_true', help='Confirm permission for this Twitch trial')
+    cli.add_argument('--authorized', action='store_true', help=argparse.SUPPRESS)
     cli.add_argument('--quality', default='best')
     cli.add_argument('--start', type=float, default=0, help='Local video seek offset, not verified frame PTS')
     cli.add_argument('--interval', type=float, default=15)
@@ -332,7 +332,7 @@ def parser():
     cli.add_argument('--output', type=Path, required=True)
     cli.add_argument('--save-crops', action='store_true', help='Save only field crops beside the NEW JSONL')
     cli.add_argument('--experimental-neural-level',action='store_true',help='Opt in to UNVERIFIED neutral4 level diagnostics in the existing neural worker')
-    cli.add_argument('--character-names',action='store_true',help='No-DB review of name suggestions from local video or authorized Twitch; use multi_alpha for isolated automatic tracking')
+    cli.add_argument('--character-names',action='store_true',help='No-DB review of name suggestions from local video or Twitch; use multi_alpha for isolated automatic tracking')
     cli.add_argument('--name-interval',type=float,default=0,help='Name check interval in seconds; 0 checks every eligible capture. Numeric events and confirmation bypass it')
     cli.add_argument('--resident-neural',action='store_true',help='Reuse the existing neural worker for EXP, level and optional names')
     cli.add_argument('--hud-cache-seconds',type=float,default=0,help='Optional existing regional HUD cache; competing HUDs can go unseen until refresh')
@@ -478,8 +478,6 @@ def prepare(args, *, allow_missing_video=False, offline_fast_test=False):
         value = getattr(args, name)
         if not math.isfinite(value) or not low <= value <= high:
             raise ValueError(f'{name} must be finite and {low}..{high}')
-    if args.channel and not args.authorized:
-        raise ValueError('Twitch requires --authorized: confirm streamer permission for this trial')
     if args.tracking_channel and (not args.db or args.channel):
         raise ValueError('--tracking-channel requires --db with a local video')
     if args.db and not (args.channel or args.tracking_channel):

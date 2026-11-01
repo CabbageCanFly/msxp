@@ -96,8 +96,8 @@ Start-Process 'http://127.0.0.1:8765/overlay/demo'
   `--stagger-capture` and `--resident-tesseract` ([performance integration](performance-integration.md)).
   Start with the offline two-video example.
 - [Single-stream local alpha](local-alpha.md): start with saved-log replay. For a
-  permitted live trial:
-  `python tools/local_alpha.py --channel CHANNEL --character "Main" --authorized --experimental-neural-level`
+  live trial:
+  `python tools/local_alpha.py --channel CHANNEL --character "Main" --experimental-neural-level`
 - Neural and grammar candidates are experimental and never count toward trusted EXP totals.
   With a profile, capture refuses to promote unverified Tesseract EXP fallbacks to trusted state.
   Trusted game tracking requires your own calibrated v2 profile; none is bundled.

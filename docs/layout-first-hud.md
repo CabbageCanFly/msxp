@@ -57,7 +57,7 @@ shared-grammar checks cover existing repair families, context-dependent abstenti
 and normal downstream numeric/percentage eligibility.
 
 The prototype used 225 existing fixtures, then 42 fresh frames from 14 live
-authorized streamers, then another 56 fresh frames (four each). Fresh EXP and
+streamers, then another 56 fresh frames (four each). Fresh EXP and
 level labels were visually checked. Neither fresh batch lost a correct baseline
 reading or introduced an incorrect reading. The first shared one incorrect raw
 pair with baseline, rejected by the EXP table. The second had no incorrect raw
@@ -150,7 +150,7 @@ lost no correct readings, introduced no incorrect readings, and added no unique-
 acceptance in the competing-HUD checks. The target sequence improved from 30/36
 to 35/36 correct EXP pairs; one frame remained unreadable by the detector.
 
-Another 104 fresh images (eight each from 13 live authorized streams) matched the
+Another 104 fresh images (eight each from 13 live streams) matched the
 deployed detector's interpreted EXP, percentage and level outputs exactly, including
 its existing errors. Interleaved local three-way timings averaged 3.496 s for the
 original detector, 2.366 s for deployed, and 2.365 s with label recovery. Total

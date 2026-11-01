@@ -5,19 +5,17 @@ It never runs OCR, chooses a rounding rule or ingests tracking data. Review mate
 references and reports must stay under ignored `private/` or `artifacts/` directories.
 Only Pillow and existing pure parsing helpers are used; no new dependencies/models.
 
-## 1. The maintainer captures two new permitted streams
+## 1. The maintainer captures two new streams
 
-Choose two NEW consenting livestreams and new filenames. Streamer permission is
-required; the platform restrictions in [shadow-capture.md](shadow-capture.md) still
-apply. Do not open raw logs, shadow viewer, earlier predictions or arithmetic before
+Choose two NEW livestreams and new filenames. Do not open raw logs, shadow viewer, earlier predictions or arithmetic before
 review. Ideally have someone who has not seen those outputs do the transcription.
 
 ```powershell
-.\.venv\Scripts\python tools/shadow_capture.py --channel CHANNEL_A --authorized --interval 15 --count 12 --save-crops --output private/reliability/captures/stream-a.jsonl
-.\.venv\Scripts\python tools/shadow_capture.py --channel CHANNEL_B --authorized --interval 15 --count 12 --save-crops --output private/reliability/captures/stream-b.jsonl
+.\.venv\Scripts\python tools/shadow_capture.py --channel CHANNEL_A --interval 15 --count 12 --save-crops --output private/reliability/captures/stream-a.jsonl
+.\.venv\Scripts\python tools/shadow_capture.py --channel CHANNEL_B --interval 15 --count 12 --save-crops --output private/reliability/captures/stream-b.jsonl
 ```
 
-Replace the channel placeholders only after obtaining permission for both trials.
+Replace the channel placeholders with the selected Twitch logins.
 Each takes roughly three minutes, depending on acquisition/processing. The existing
 runner/configuration remains unchanged: RapidOCR direct line, CPU, 2×/+2 pixels,
 strict complete-pair parser and separate visual/arithmetic evidence. No streamer

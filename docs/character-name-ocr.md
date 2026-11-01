@@ -80,7 +80,7 @@ recognition. Larger crops retain their antialiasing. Crop dimensions, manual
 regions, the original-pixel known-name retry and identity confirmation rules stay
 unchanged. There are no additional OCR calls or name substitution rules.
 
-Measured on one authorized stream: the original reader returned the correct name
+Measured on one stream: the original reader returned the correct name
 on 1/20 saved frames; the new reader returns `CharN` on 20/20, including 12 later
 frames. All 20 pass the real capture pipeline and automatic-name quality checks.
 Four before/after crops also reproduce the correction using the existing VPS

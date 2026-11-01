@@ -130,13 +130,12 @@ def test_overnight_level_jump_requires_two_named_levels_and_keeps_history(live):
         assert store.db.execute('SELECT COUNT(*) FROM diagnostic_attempts').fetchone()[0]==4
 
 
-@pytest.mark.parametrize('case',['database','log-root','port','authorization','workers','retention','cache','channels','mixed'])
+@pytest.mark.parametrize('case',['database','log-root','port','workers','retention','cache','channels','mixed'])
 def test_live_isolation_preflight_refuses_unsafe_settings_without_writes(live,case):
     extra=['--check']
     if case=='database':live.config['database']=str(live.db.parent.parent.parent/'main.sqlite3')
     if case=='log-root':extra+=['--log-root',str(live.path.parent.parent/'other-logs')]
     if case=='port':live.config['port']=8765
-    if case=='authorization':live.config['streams'][0]['authorized']=False
     if case=='workers':extra+=['--workers','2']
     if case=='retention':extra+=['--continuous','--retention-24h']
     if case=='cache':extra+=['--hud-cache-seconds','60']
@@ -230,11 +229,10 @@ def test_two_twitch_channels_use_separate_character_ids_and_floors(live):
             assert {row['visual_level'] for row in rows}=={level}
 
 
-def test_standalone_twitch_name_preview_still_requires_authorization_and_no_db(live):
+def test_standalone_twitch_name_preview_needs_no_separate_flag_or_db(live):
     shadow=live.module.shadow
     argv=['--channel','alpha','--character-names','--output',str(live.path.parent/'review.jsonl')]
-    with pytest.raises(ValueError,match='authorized'):shadow.prepare(shadow.parser().parse_args(argv))
-    source,*_=shadow.prepare(shadow.parser().parse_args([*argv,'--authorized']))
+    source,*_=shadow.prepare(shadow.parser().parse_args(argv))
     assert source.kind=='twitch' and source.value=='alpha'
 
 
@@ -269,3 +267,11 @@ def test_nonautomatic_twitch_keeps_existing_path_and_defaults(live,monkeypatch):
         assert store.db.execute('SELECT COUNT(*) FROM character_level_guard').fetchone()[0]==0
     marker=json.loads(db.with_suffix('.sqlite3.multi-alpha.json').read_text())
     assert marker==dict(application=live.module.APP)
+
+
+@pytest.mark.parametrize('value',[None,False])
+def test_live_trial_check_needs_no_separate_flag(live,value):
+    if value is None:live.config['streams'][0].pop('authorized')
+    else:live.config['streams'][0]['authorized']=value
+    assert run(live,'--check')==0
+    assert not live.db.exists() and not live.logs.exists() and not live.steps

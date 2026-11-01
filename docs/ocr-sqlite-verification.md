@@ -107,7 +107,7 @@ For actual game tracking:
    .\.venv\Scripts\python tools/train_glyph_profile.py private/calibration/training.json private/calibration/glyph-profile-v2.json
    ```
 
-4. Inspect consented screenshots with normalized ROIs and `--glyph-profile`.
+4. Inspect screenshots with normalized ROIs and `--glyph-profile`.
    Require accepted **pixel** EXP evidence, not merely an accepted Tesseract
    candidate. Calibrate ROIs for the actual layout; the supplied streamer_a config
    only matches the existing saved layout. Do not weaken thresholds for coverage.

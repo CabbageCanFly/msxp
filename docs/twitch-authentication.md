@@ -17,7 +17,7 @@ No new dependency, account, redirect URI or user sign-in is required by this cha
 ## Run it
 
 Restart the existing server/coordinator to load the new code. Keep the current
-private config, explicit character assignments and capture authorization.
+private config and explicit character assignments.
 
 ```powershell
 # Read-only verification: OAuth + Helix only; no Streamlink, video or thumbnails.
@@ -29,7 +29,7 @@ private config, explicit character assignments and capture authorization.
 # Preflight your existing multi-stream config; no Twitch connections.
 .\.venv\Scripts\python tools/multi_alpha.py --config private/multi-alpha/config.json --check --twitch-status
 
-# Later, for an explicitly permitted capture, use your existing authorized config:
+# Later, use your existing capture config:
 .\.venv\Scripts\python tools/multi_alpha.py --config private/multi-alpha/config.json --continuous --twitch-status
 ```
 

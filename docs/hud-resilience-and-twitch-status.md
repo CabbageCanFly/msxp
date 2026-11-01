@@ -147,7 +147,7 @@ implemented here.
 Start-Process 'http://127.0.0.1:8765/stream/streamer_a'
 Start-Process 'http://127.0.0.1:8765/live/overlay/streamer_a'
 
-# A preflight does not contact Twitch. Only start capture later with permission.
+# A preflight does not contact Twitch.
 .\.venv\Scripts\python tools/multi_alpha.py --config private/multi-alpha/config.json --check --twitch-status
 
 # New output directories; browser fixture uses saved outputs and mocked
@@ -181,7 +181,7 @@ Changed files: presentation/API in `src/exp_tracker/product.py`, `server.py`,
 guide. No changes to the trusted Store, diagnostic persistence, scheduler,
 recognizers, models or requirement data. Nothing was committed or pushed.
 
-Next manual trial: two permitted streams at 20–30s for roughly ten minutes, with
+Next manual trial: two streams at 20–30s for roughly ten minutes, with
 saved crops and optional valid Helix credentials. Check natural HUD obstruction,
 recovery, stopped capture and a known offline channel separately. No new remote
 capture or live Helix request was made during this work. This presentation policy

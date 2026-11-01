@@ -136,7 +136,7 @@ node --test tools/*.test.mjs
 node tools/product.browser.mjs http://127.0.0.1:8788 private/unattended-reliability/browser-new --verify-historical streamer_b
 ```
 
-Next: a manually authorized, bounded two-channel trial at 20–30s with saved crops.
+Next: a bounded two-channel trial at 20–30s with saved crops.
 Inspect an actual unavailable-to-returning source if one naturally occurs; do not
 create rapid reconnect traffic. Check operator commit results, actual cadence,
 child-process count, disk growth and stopped/recovered website status. Keep all

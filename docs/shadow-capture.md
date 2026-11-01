@@ -39,8 +39,8 @@ ONNX Runtime **1.31.0**, CPU. Model hashes and runtime versions accompany result
 # NEW output names required; existing results/crop directories are never overwritten.
 .\.venv\Scripts\python tools/shadow_capture.py --file samples/sample-stream3.mp4 --start 991 --count 3 --output private/shadow-capture/offline-repeat.jsonl
 
-# Replace NEW_CHANNEL with a channel whose streamer has permitted THIS trial.
-.\.venv\Scripts\python tools/shadow_capture.py --channel NEW_CHANNEL --authorized --count 3 --output private/shadow-capture/live-trial.jsonl
+# Replace NEW_CHANNEL with the selected Twitch login.
+.\.venv\Scripts\python tools/shadow_capture.py --channel NEW_CHANNEL --count 3 --output private/shadow-capture/live-trial.jsonl
 ```
 
 Both use 15-second spacing. Optional `--save-crops` saves only native EXP (+2px)
@@ -48,7 +48,6 @@ and level crops next to the JSONL. Default saves no images. Output paths must be
 under ignored `private/` or `artifacts/`, including after resolving symlinks.
 No playback URLs, subprocess stderr, cookies or credentials are written. Only
 channel login input is supported for Twitch; no arbitrary remote URLs or credentials.
-`--authorized` records the operator's permission assertion, not platform approval.
 Existing unofficial Streamlink restrictions in [live-capture.md](live-capture.md)
 still apply. Access denial remains a failure; no bypass or browser launching.
 

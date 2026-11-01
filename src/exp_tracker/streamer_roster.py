@@ -16,7 +16,8 @@ from .video import Source
 from .writer_lock import writer_lease
 from .models import PLACEHOLDER_CHARACTER
 
-FLAGS = ('authorized','tracking_enabled','public_visible','automatic_characters')
+# The legacy authorized column remains for database compatibility, not as a capture control.
+FLAGS = ('tracking_enabled','public_visible','automatic_characters')
 DEFAULTS = dict(interval=20, quality='best', timeout=20, max_age=15, ocr_timeout=10,
                 experimental_neural_level=False, save_crops=False, discover_characters=True)
 
@@ -95,13 +96,11 @@ def validate_policy(store, value):
         if value['interval']>60:raise ValueError('automatic name confirmation requires interval <=60s')
         if value['origin']=='existing' and not (identity and identity.get('type')=='existing_tracker_state'):
             raise ValueError('historical character identity needs explicit adoption before automatic OCR can be enabled')
-    if value['tracking_enabled']:
-        if not value['authorized']:raise ValueError('capture authorization is required before enabling tracking')
 
 
 def preview(store, raw):
     if not ready(store):raise ValueError('initialize the database roster before editing')
-    if not isinstance(raw,dict) or raw.keys()-{'action','channel','reason','selected_character_id',*FLAGS,*DEFAULTS}:
+    if not isinstance(raw,dict) or raw.keys()-{'action','channel','reason','selected_character_id','authorized',*FLAGS,*DEFAULTS}:
         raise ValueError('invalid streamer configuration fields')
     action=raw.get('action'); login=raw.get('channel')
     if action not in ('roster_add','roster_update') or not isinstance(login,str) or not re.fullmatch('[A-Za-z0-9_]{1,25}',login):
@@ -114,7 +113,7 @@ def preview(store, raw):
     if action=='roster_add':
         if before:raise ValueError('streamer already has roster settings; edit it instead')
         historical=store.db.execute('SELECT id FROM streamers WHERE login=?',(login,)).fetchone()
-        value=dict(channel=login,origin='existing' if historical else 'discovered',authorized=False,tracking_enabled=False,
+        value=dict(channel=login,origin='existing' if historical else 'discovered',tracking_enabled=False,
                    public_visible=True,automatic_characters=not historical,**DEFAULTS)
     else:
         if not before:raise ValueError('streamer is not managed')
@@ -151,7 +150,7 @@ def commit(store, plan):
             ON CONFLICT(streamer_id) DO UPDATE SET authorized=excluded.authorized,tracking_enabled=excluded.tracking_enabled,
                 public_visible=excluded.public_visible,automatic_characters=excluded.automatic_characters,
                 settings_json=excluded.settings_json,revision=excluded.revision,updated_at=excluded.updated_at''',
-            (sid,*[int(value[k]) for k in FLAGS],json.dumps({k:value[k] for k in DEFAULTS}),value['origin'],revision,utc(),
+            (sid,1,*[int(value[k]) for k in FLAGS],json.dumps({k:value[k] for k in DEFAULTS}),value['origin'],revision,utc(),
              json.dumps(identity) if value['origin']=='discovered' else None))
         if plan.get('selection'):
             selected=plan['selection']
@@ -209,7 +208,7 @@ def bootstrap_preview(path, rows, automatic, reason):
             if row['source']!='twitch':raise ValueError('database roster currently manages Twitch sources only')
             s=source._channel(row['channel'])
             if s['selected_character_id'] is None:raise ValueError('existing assignment has no selected character; review before bootstrap')
-            value=dict(channel=row['channel'],origin='existing',authorized=row.get('authorized',False),
+            value=dict(channel=row['channel'],origin='existing',
                 tracking_enabled=row.get('enabled',True),public_visible=True,automatic_characters=row['channel'] in automatic,
                 **{k:row.get(k,v) for k,v in DEFAULTS.items()})
             value['interval']=row.get('interval',15)  # Preserve the legacy capture default during import.

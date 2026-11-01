@@ -89,6 +89,19 @@ def test_legacy_settings_default_to_discovery_and_reject_non_boolean(tmp_path):
             roster.preview(store,dict(action='roster_update',channel='caster',reason=REASON,discover_characters=0))
 
 
+@pytest.mark.parametrize('legacy',[{},dict(authorized=False)])
+def test_enabling_tracking_is_the_only_capture_control(tmp_path,legacy):
+    path=roster.create(tmp_path/'enable.sqlite3')
+    change(path,'caster',tracking_enabled=True,**legacy)
+    with Store(path) as store:
+        row=roster.entry(store,'caster')
+        assert row['tracking_enabled'] and 'authorized' not in row
+        roster.validate_policy(store,row)
+    change(path,'caster',tracking_enabled=False)
+    change(path,'caster',tracking_enabled=True)
+    with Store(path) as store:assert roster.entry(store,'caster')['tracking_enabled']
+
+
 @pytest.fixture
 def managed(legacy):
     bootstrap(legacy)
@@ -261,7 +274,7 @@ def test_unknown_add_is_previewed_no_character_required_and_requests_are_idempot
             roster.commit(store,old)
 
 
-@pytest.mark.parametrize('settings',[dict(authorized=False,tracking_enabled=True),dict(interval=1),dict(interval=float('nan')),
+@pytest.mark.parametrize('settings',[dict(interval=1),dict(interval=float('nan')),
     dict(selected_character_id=True),dict(unknown=True),dict(quality='https://bad.example'),dict(save_crops='true')])
 def test_invalid_settings_do_not_change_database(managed,settings):
     path=managed[3]

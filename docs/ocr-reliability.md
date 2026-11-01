@@ -182,22 +182,20 @@ cost, establish broadcast age or ensure a changed reading. A webpage can refresh
 every five seconds while showing the same old observation. Display last newly
 accepted observation time separately. The reference app's capture cadence is unknown.
 
-Next: a supervised 15–30-minute authorized trial, starting at 15 seconds. Include
+Next: a supervised 15–30-minute trial, starting at 15 seconds. Include
 stable play, HUD obstruction and a scene switch. Audit accepted readings and
 measure coverage, delivery age, full CPU/RAM/bandwidth and reconnects. Keep the
 native rendition/profile and save only opt-in field crops:
 
 ```powershell
-# Only while the already authorized channel is live and testing is permitted.
+# Run while the selected channel is live.
 .\.venv\Scripts\python -m exp_tracker.capture --channel streamer_a --mode periodic --interval 15 --count 61 --config configs/streamer-live.json --glyph-profile private/ocr-evaluation/glyph-profile.json --debug-dir artifacts/live-hybrid-15 > artifacts/live-hybrid-15.jsonl
 ```
 
 This is about 15 minutes. No trial was started during this offline milestone.
-Platform permission remains unresolved: streamer consent/playback success do
-not establish public-service authorization. See [platform boundary](live-capture.md#platform-boundary).
 No OBS changes are needed.
 
-For an independent evaluation, collect 30–50 consented level/EXP crop pairs from
+For an independent evaluation, collect 30–50 level/EXP crop pairs from
 another session, with different backgrounds, EXP lengths, UI scales and missing
 HUD periods. Reserve an untouched session before tuning. To replace level
 Tesseract, supply level crops covering digits 0–9. No additional labels or

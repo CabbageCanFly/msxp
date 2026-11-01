@@ -189,16 +189,15 @@ Two-card directory measurements: cold **5.291ms**, warm median **0.035ms** / p95
 **0.070ms** over 50 in-process reads; **3,063-byte JSON**. These exclude HTTP/model
 startup and are not a VPS capacity promise.
 
-## Later manually authorized live trial
+## Later live trial
 
-Create a new private config/DB with two permitted channels and explicit characters.
-For each set `source:"twitch"`, remove file/start, use `authorized:true`,
+Create a new private config/DB with two channels and explicit characters.
+For each set `source:"twitch"`, remove file/start,
 `interval:15`, `count:12`, neural diagnostics and optional saved crops. Run
 `--check`, then the maintainer can run the coordinator without that flag. Review both
 dashboard routes, per-channel capture/HUD/OCR/commit outcomes, skipped deadlines,
 freshness limits and memory. Freeze human-reviewed references before numerical
-scoring. No live connection was initiated during development; authorization and
-platform restrictions still apply. Clipped digits, level errors, correlated neural
+scoring. No live connection was initiated during development. Clipped digits, level errors, correlated neural
 errors and uncertain character/broadcast identity still block trusted ingestion.
 
 ## Validation and changed files

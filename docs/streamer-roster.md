@@ -24,7 +24,7 @@ $roster = 'private/multi-alpha/live-local.json'
 .\.venv\Scripts\python tools/stream_roster.py --config $roster enable streamer_b
 ```
 
-Disabling preserves every assignment setting, authorization choice, selected
+Disabling preserves every assignment setting, selected
 character, open session, run and observation. Re-enabling uses the same settings.
 `remove CHANNEL` only removes the JSON assignment; SQLite history remains and
 `list` reports it as `historical_only`. Disabling is preferable for temporary pauses.
@@ -32,17 +32,15 @@ character, open session, run and observation. Re-enabling uses the same settings
 Add a new assignment with the **actual explicitly selected character label**:
 
 ```powershell
-# Staged disabled by default: no permission to capture is assumed.
-.\.venv\Scripts\python tools/stream_roster.py --config $roster add NEW_LOGIN --character 'Main' --interval 20 --count 12 --experimental-neural-level --save-crops --dry-run
-.\.venv\Scripts\python tools/stream_roster.py --config $roster add NEW_LOGIN --character 'Main' --interval 20 --count 12 --experimental-neural-level --save-crops
+# Stage a disabled assignment:
+.\.venv\Scripts\python tools/stream_roster.py --config $roster add NEW_LOGIN --character 'Main' --disabled --interval 20 --count 12 --experimental-neural-level --save-crops --dry-run
+.\.venv\Scripts\python tools/stream_roster.py --config $roster add NEW_LOGIN --character 'Main' --disabled --interval 20 --count 12 --experimental-neural-level --save-crops
 
-# Only after obtaining permission, explicitly enable live capture:
-.\.venv\Scripts\python tools/stream_roster.py --config $roster enable NEW_LOGIN --authorized
+# Enable live capture:
+.\.venv\Scripts\python tools/stream_roster.py --config $roster enable NEW_LOGIN
 ```
 
-`add --authorized` can explicitly authorize and enable in one step. `--disabled`
-keeps a new assignment disabled even when authorized. `enable` preserves a saved
-authorization; otherwise Twitch requires `--authorized`. No credentials belong in
+`add` enables tracking unless `--disabled` is supplied. `enable` resumes tracking. No credentials belong in
 this config: use the ignored `.env` described in [Twitch authentication](twitch-authentication.md).
 Unknown config fields (including token/secret fields), duplicates, invalid logins,
 invalid settings and mismatched saved character selections are rejected before
@@ -58,7 +56,7 @@ Use explicit existing Store administration for an intentional character switch.
 
 ```powershell
 .\.venv\Scripts\python tools/multi_alpha.py --config $roster --check
-# Starts live capture ONLY for explicitly authorized enabled Twitch assignments.
+# Starts live capture for enabled Twitch assignments.
 .\.venv\Scripts\python tools/multi_alpha.py --config $roster --continuous --twitch-status
 Start-Process 'http://127.0.0.1:8765/streams'
 ```
@@ -117,7 +115,7 @@ All configs, temporary/lock files and test evidence remain in ignored directorie
 Inspection is bounded to 100 saved channels; this is an operator CLI, not a new
 historical analytics service.
 
-Offline regression tests exercise add/preview, authorization, disabled validation,
+Offline regression tests exercise add/preview, enabled/disabled validation,
 duplicates, invalid JSON, write failure, concurrent edits, exact character mismatch,
 one active stream, all-disabled refusal, in-flight config edits and controlled
 restart. They use virtual scheduling/capture stubs with actual SQLite/server
@@ -129,7 +127,7 @@ lifecycle; they are not an acquisition-speed or OCR-accuracy benchmark.
 ```
 
 Hot add/remove is deferred. It needs lane changes at safe attempt boundaries,
-per-channel run closure/start, active-status updates, authorization and ownership
+per-channel run closure/start, active-status updates and ownership
 rechecks, and tests for rotation/interruption races. A controlled restart is small
 and safe at this stage. No capture/OCR, Helix, EXP arithmetic, quarantine, schema
 or trusted-accounting policy changes are needed for roster management.

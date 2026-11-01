@@ -7,11 +7,10 @@ For current operation, use the [README](../README.md), [VPS roster runbook](vps-
 
 ## Acquisition and service boundary
 
-For the next consented trial, keep the working periodic remote capture and test
+For the next trial, keep the working periodic remote capture and test
 15-second intervals with the optional glyph profile. Official thumbnails and
 the OBS experiment remain unverified alternatives, documented in
-[acquisition.md](acquisition.md). Public remote playback still requires platform
-permission clarification. No acquisition redesign is needed for this OCR milestone.
+[acquisition.md](acquisition.md). No acquisition redesign is needed for this OCR milestone.
 
 Once capture is established: a free static site serves registration/configuration
 and the read-only overlay. One small Python HTTP process on the existing VPS
@@ -60,7 +59,7 @@ state together in a transaction and check the pointed observation's status. Use
 WAL, a short busy timeout, one writer, and SQLite's backup API for consistent
 backups. Clear state pointers before deleting a character/history; cascading
 deletion alone is insufficient for active state. Test restore, retention and
-consent withdrawal before public launch.
+tracking removal before public launch.
 
 ## Tracking state and rates
 
@@ -140,7 +139,7 @@ the actual VPS may be much slower. SQLite volume is only 7,200 attempts/day for
 five streamers at one/minute, but indexes and retention still need measurement.
 
 Before hosting, run one 15-minute acquisition trial with known HUD changes,
-missing-HUD periods and a scene switch. Save only crops with consent and measure
+missing-HUD periods and a scene switch. Save only the crops needed and measure
 OCR accuracy, age and resource use. Then implement one local SQLite tracking loop
 with explicit character selection and paused segments. Keep Twitch login,
 registration, public hosting and graphs out of that next milestone.

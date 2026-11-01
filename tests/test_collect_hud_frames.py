@@ -153,11 +153,12 @@ def test_resolved_output_cannot_escape_through_symlink(collector, args, tmp_path
     assert not list(elsewhere.iterdir())
 
 
-def test_remote_authorization_required_before_any_connection_or_output(collector, args, capsys):
-    assert collector.main(['--channel', 'Streamer_C', '--output', str(args.output)],
-        session_factory=lambda *a, **k: pytest.fail('Unauthorized source acquired')) == 1
-    assert '--authorized' in capsys.readouterr().err
-    assert not args.output.exists()
+def test_remote_selection_needs_no_separate_flag(collector, args):
+    parsed=collector.parser().parse_args(['--channel','Streamer_C','--output',str(args.output)])
+    source,output=collector.prepare(parsed)
+    assert source.kind=='twitch' and source.value=='streamer_c'
+    assert not output.exists()
+    assert '--authorized' not in collector.parser().format_help()
 
 
 @pytest.mark.parametrize('extra', [['--channel', ''], ['--channel', 'https://example.invalid/?token=secret'],
@@ -185,7 +186,7 @@ def test_authorized_remote_metadata_without_network(collector, args):
 
 def test_missing_local_video_is_rejected_before_output(collector, args):
     args.file = collector.ROOT / 'missing.mp4'
-    with pytest.raises(ValueError, match='existing authorized local video'):
+    with pytest.raises(ValueError, match='existing local video'):
         collector.collect(args)
     assert not args.output.exists()
 

@@ -44,7 +44,7 @@ browser on a leaderboard with made-up players.
    Capturing needs **Tesseract** and **FFmpeg** besides Python.
 2. **Create your tracker:** `msxp setup` (once).
 3. **Add a streamer:** `msxp admin` opens the admin page. Choose **Add streamer**, type their
-   Twitch name, tick **I have permission to capture this stream** and **Enable tracking**, then
+   Twitch name, select **Enable tracking**, then
    **Confirm settings**.
 4. **Start tracking:** `msxp tracker`. Keep it running; your leaderboard is at
    <http://127.0.0.1:8765/>. Characters are recognized from the name shown in game, and readings
@@ -87,8 +87,8 @@ Existing VPS roster services already enable it. See [results and rollback](docs/
 | `msxp doctor` | Shows what is installed, missing or misconfigured, with the fix (alias `diag`) |
 | `msxp demo` | The website with fictional players; nothing else needed |
 | `msxp setup` | Creates your tracker database |
-| `msxp admin` | Add streamers, confirm permission, start or pause tracking |
-| `msxp streamer add LOGIN` | Add a streamer with the admin defaults and tracking enabled; confirms capture permission |
+| `msxp admin` | Add streamers, start or pause tracking |
+| `msxp streamer add LOGIN` | Add a streamer with the admin defaults and tracking enabled |
 | `msxp streamer disable LOGIN` | Disable tracking without deleting history or changing visibility |
 | `msxp streamer hide LOGIN` | Hide a streamer from public views without changing tracking |
 | `msxp tracker` | Captures the streams and serves your leaderboard |
@@ -127,7 +127,7 @@ msxp server streamer disable Streamer_A
 msxp server streamer hide Streamer_A
 ```
 
-Running `add` confirms you have permission to capture that stream. It enables tracking,
+Running `add` enables tracking,
 public visibility, automatic character recognition and experimental neural level recognition,
 with the admin form's usual capture defaults (20-second interval, best quality, no saved crops).
 Use a Twitch login, not a URL. An existing roster entry is refused rather than overwritten.

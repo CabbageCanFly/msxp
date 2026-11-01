@@ -89,7 +89,7 @@ use new filenames. Do not attach credentials, signed playback URLs, or databases
   must happen before localization, with an explicit small capture limit, outside
   the live database path. At investigation time the CLI had no full-frame save
   option; the standalone collector below now supplies this evidence.
-- Alternatively, use an authorized local recording of the same composed stream
+- Alternatively, use a local recording of the same composed stream
   and rendition. Extract native PNGs without resize/re-encoding the source video.
   Record source filename, requested offset and dimensions; an offline extraction
   is reproduction evidence, not a fresh live capture or verified frame PTS.
@@ -99,7 +99,7 @@ use new filenames. Do not attach credentials, signed playback URLs, or databases
   visible; mark uncertain digits unknown. Do not fill expected values from
   inferred levels.
 
-For example, after placing an authorized recording locally, extract one frame at
+For example, after placing a recording locally, extract one frame at
 a known relevant offset (repeat for other offsets with new output filenames):
 
 ```powershell
@@ -107,8 +107,7 @@ New-Item -ItemType Directory -Force private/obscured-hud | Out-Null
 ffmpeg -hide_banner -loglevel error -nostdin -n -ss 00:01:00 -i private/obscured-hud/authorized-recording.mp4 -frames:v 1 private/obscured-hud/streamer_c-0060.png
 ```
 
-This example was not run; no CharC recording is available here. Do not start a
-new remote trial without the existing capture authorization. No OBS credentials
+This example was not run; no CharC recording is available here.  No OBS credentials
 or browser security changes are needed for local recording extraction.
 
 With these images, replay the locator's exact two preprocessing scales and retain
@@ -180,21 +179,18 @@ From this feature worktree, using the existing sibling capture environment:
 
 ```powershell
 Set-Location <branch checkout>
-# Run only after confirming streamer permission for this specific Twitch trial.
 # The timestamp makes a new directory; existing output is always refused.
 $hudCollection = 'private/obscured-hud/streamer_c-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
-& <your msxp folder>\.venv\Scripts\python.exe tools/collect_hud_frames.py --channel Streamer_C --authorized --quality best --count 3 --interval 5 --timeout 10 --output $hudCollection
+& <your msxp folder>\.venv\Scripts\python.exe tools/collect_hud_frames.py --channel Streamer_C --quality best --count 3 --interval 5 --timeout 10 --output $hudCollection
 ```
 
-`--authorized` is an explicit operator assertion of permission for **this** trial,
-matching shadow capture's authorization gate. It is not platform authorization or
-authentication of the on-screen character. The tool accepts one Twitch login,
+The tool accepts one Twitch login,
 never arbitrary remote/playback URLs, and retains Streamlink's existing browser,
 configuration and sideloading restrictions. Do not pass tokens or credentials.
 Access restrictions remain acquisition failures. No remote trial was run during
 implementation or testing.
 
-For an authorized existing local video, with another new output directory:
+For an existing local video, with another new output directory:
 
 ```powershell
 $hudCollection = 'private/obscured-hud/local-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
@@ -266,7 +262,7 @@ Collector validation on this Windows feature worktree:
 
 - Targeted offline tests: **39 passed, 1 skipped** (Windows refused creation of
   the symlink used by one escape-path test). Other path-containment and exclusive
-  output tests passed, as did byte/hash/dimension preservation, authorization,
+  output tests passed, as did byte/hash/dimension preservation, input validation,
   duplicates, count/deadline/timeout limits, stale frames and interrupted cleanup.
 - Generated synthetic MP4 integration used the real FFmpeg decoder, verified
   saved PNG hashes and checked child/thread cleanup. A separate invocation of
@@ -427,7 +423,7 @@ competing complete/partial HUDs across scales, invalid bounds and stale work.
   stopped after the first match. Existing age gates remain; this is not a server
   CPU/RAM/capacity benchmark or a hard processing deadline.
 
-Ready for a longer **authorized experimental validation run**, with real HUD
+Ready for a longer **experimental validation run**, with real HUD
 changes, stationary periods, scene changes, obstructions and eventual level-up
 evidence. Five images do not establish false-positive rates, long-run numerical
 accuracy or correctness of the provisional EXP table. Frame 4's punctuation
@@ -472,7 +468,7 @@ Verified environments (read-only checks plus an actual offline EXP worker call):
   inserts this feature worktree's `src/`; borrowing the sibling interpreter
   does not select main's acquisition implementation.
 
-Run **only after confirming permission for this specific Twitch trial**:
+Run the capture trial:
 
 ```powershell
 Set-Location '<branch checkout>'
@@ -480,7 +476,7 @@ $capturePython = '<your msxp folder>\.venv\Scripts\python.exe'
 $ocrPython = '<your msxp folder>\private\rapidocr\.venv\Scripts\python.exe'
 $trial = Join-Path (Get-Location) ('private\obscured-hud\streamer_c-validation-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 Write-Host "Private trial: $trial"
-& $capturePython tools/shadow_capture.py --channel streamer_c --authorized `
+& $capturePython tools/shadow_capture.py --channel streamer_c `
   --quality best --count 24 --interval 20 --timeout 15 --max-age 15 --ocr-timeout 10 `
   --experimental-neural-level --save-crops --ocr-python $ocrPython `
   --output (Join-Path $trial 'capture.jsonl')

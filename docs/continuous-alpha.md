@@ -37,11 +37,11 @@ Without `--exit-after-capture`, a normally stopped capture leaves the read-only
 viewer open until Ctrl+C. Ctrl+C during capture closes owned workers, connections
 and HTTP. A time limit stops scheduling new work; an in-flight attempt can finish
 within its existing timeouts. No catch-up queue is created. `--check` never
-connects or writes. Twitch still requires explicit per-assignment `authorized:true`.
+connects or writes. Enabling a stream is the only capture control.
 
 For **local videos only**, `--offline-fast-test` explicitly lowers the interval
 floor to three seconds. Normal defaults/range remain 15s / 5–300s. It rejects the
-entire configuration if any enabled source is Twitch, including an authorized source.
+entire configuration if any enabled source is Twitch, including an source.
 
 ```powershell
 # Existing private smoke config requests 3s and 8s; preserve it and its output DB.
@@ -227,7 +227,7 @@ node --test tools/shadow.test.mjs tools/streams.test.mjs tools/overlay.test.mjs 
 .\.venv\Scripts\python tools/benchmark_diagnostic_history.py --directory private/continuous-alpha/history-next --attempts-per-channel 12000
 ```
 
-Next: the maintainer can configure **two authorized Twitch sources**, first use `--check`,
+Next: the maintainer can configure **two Twitch sources**, first use `--check`,
 then conduct a bounded 12-attempt/15–30s trial. Inspect achieved cadence, failures,
 memory, both dashboards and frozen human review. After that, explicitly choose a
 continuous stop duration. Do not promise 25-channel cadence or promote neural

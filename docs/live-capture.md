@@ -23,9 +23,7 @@ Python dependencies are optional extras so ordinary screenshot OCR remains small
 .\.venv\Scripts\python -m exp_tracker.capture --channel streamer_a --mode periodic --interval 30 --count 3 --config configs/streamer-live.json
 ```
 
-The channel trial requires permission to test that content. An authorized trial
-on `streamer_a` was confirmed by the project owner in this session. That is not
-platform authorization for a public capture service. No credentials are needed
+The channel trial used `streamer_a`. No credentials are needed
 for anonymous public playback when Twitch allows it. Restricted, unavailable,
 advertisement or access-denied inputs may yield no useful HUD reading.
 
@@ -114,7 +112,7 @@ psutil 7.2.2, FFmpeg 2026-08-17 build, Tesseract 5.4.0. The project owner ran
 network trials from a normal terminal because this agent's sandbox denied both
 Twitch DNS and loopback HTTP connections. I inspected the resulting JSON and
 cropped images on the shared filesystem. No browser, credentials or evasion was
-needed for successful playback in those authorized trials.
+needed for successful playback in those trials.
 
 **Owned local HLS control:** all 12/12 frames were captured and parsed to the
 synthetic ground truth (level 37, EXP 123,456, 12.34%). HTTP response-body totals
@@ -134,7 +132,7 @@ this replay is a separate OCR result, not a retroactive change to capture metric
 The 30-second mode pair used the same OCR version and is the cleaner CPU
 comparison. The 10-second CPU comparison includes the OCR version difference.
 
-**Authorized live Twitch trial, `streamer_a`, native 1920x1080, rendition `best`:**
+**Live Twitch trial, `streamer_a`, native 1920x1080, rendition `best`:**
 all **18/18 scheduled captures succeeded**. Small runs at different times are
 not statistically controlled comparisons of network conditions or game activity.
 
@@ -232,7 +230,7 @@ GOP), real-time HLS server and both acquisition modes:
 
 ```powershell
 .\.venv\Scripts\python tools/benchmark_capture.py --intervals 30,15,10 --count 3 --directory artifacts/local-hls-benchmark
-# Authorized live source, same acquisition code and native rendition:
+# Live source, same acquisition code and native rendition:
 .\.venv\Scripts\python tools/benchmark_capture.py --channel streamer_a --config configs/streamer-live.json --intervals 30,15,10 --count 3 --directory artifacts/live-benchmark
 ```
 
@@ -286,13 +284,13 @@ scenarios were not exercised; synthetic failure tests cover the safe handling
 paths, which is not equivalent to live reliability validation. Linux execution,
 long-running reconnect behavior and simultaneous channels remain unverified.
 
-The smallest useful next milestone is **reliable live-HUD recognition on consented
+The smallest useful next milestone is **reliable live-HUD recognition on
 private crops**, before a hosted tracker or more frequent capture. Label the saved
 live crops, split development and evaluation examples, improve ROI calibration
 and field segmentation, and measure false accepts as well as accepted coverage.
 Do not lower confidence thresholds or guess punctuation to inflate coverage.
 Keep the 30-second periodic capture fixed while comparing recognizers. Then run
-one longer authorized trial with a visible clock, missing-HUD periods and scene
+one longer trial with a visible clock, missing-HUD periods and scene
 changes, and benchmark one channel on the actual Linux VPS. Only after those
 gates should a bounded multi-channel worker and SQLite session persistence follow.
 
@@ -305,7 +303,7 @@ Suggested next-session prompt:
 > and report accepted coverage and false accepts on separate evaluation crops.
 > Never publish crops, hardcode readings, or guess missing digits/punctuation.
 > Keep capture at 30 seconds; no hosting, deployment or OBS changes. Once offline
-> accuracy improves, help run a longer authorized live trial and a single-channel
+> accuracy improves, help run a longer live trial and a single-channel
 > Linux resource check.
 
 ## Platform boundary
@@ -315,13 +313,4 @@ uses unofficial playback integration. Our commands disable browser launching,
 default user configuration, plugin sideloading and plugin credential caching.
 No OAuth/cookie scraping, client-integrity workaround, ad skipping, proxy evasion
 or access-control bypass is implemented. If anonymous access fails, it remains
-a reported failure. Technical playback success does not establish service rights.
-
-The [Twitch terms](https://www.twitch.tv/p/terms-of-service) restrict unauthorized
-automated extraction/downloading, and the
-[Developer Agreement](https://legal.twitch.com/en/legal/developer-agreement/)
-limits use of undocumented interfaces absent permission. Streamer permission
-does not remove those platform conditions. Obtain platform clarification before
-public deployment or sustained third-party collection, and define consent,
-retention and deletion rules for derived EXP history. No public deployment is
-authorized by this prototype.
+a reported failure.

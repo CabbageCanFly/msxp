@@ -6,7 +6,7 @@ restrictions below are unchanged; do not use trial flags to bypass adoption.
 
 Run these commands **after review**. No live capture was performed for this milestone.
 Leave the existing main tracker running: never edit its config, use its DB/port,
-restart it or kill its processes. Start with **one authorized channel**, six captures
+restart it or kill its processes. Start with **one channel**, six captures
 at a 15–60-second interval, using a new private trial folder in this feature worktree.
 
 ## Activation and isolation
@@ -34,7 +34,7 @@ Twitch name/automatic mode requires:
 - A **new** DB/marker or the exact prior live-trial DB/marker, with the same channels
   and automation mode. Unowned, nonautomatic and offline-auto DBs cannot be adopted.
   An existing trial must already have the current schema: restart never migrates it.
-- One or two authorized Twitch channels, a **15–60-second** interval (any value,
+- One or two Twitch channels, a **15–60-second** interval (any value,
   including decimals; omitted means the normal 15-second default), one worker, no HUD
   cache, and **no 24h retention**. Names reuse the EXP/level resident on every eligible frame.
 
@@ -58,14 +58,14 @@ trial and in mocked tests, not measured for resources; start at 30–60 s.
 OS coordinator leases and SQLite write transactions remain in force. `--check` also
 checks the trial lease, performs only a local port bind (no remote requests/capture),
 and writes no DB, marker or logs. It does not initialize OCR models. Standalone
-`shadow_capture --character-names` can review authorized Twitch without a DB;
+`shadow_capture --character-names` can review Twitch without a DB;
 persisted automatic attribution belongs in this isolated coordinator workflow.
 `--character-names` alone supplies review/holds, not automatic selection.
 
 ## 1. Create the isolated configuration
 
 Open a **new PowerShell terminal** and reuse the existing environments read-only.
-Do not install into or edit them. Replace `AUTHORIZED_LOGIN` with a permitted channel.
+Do not install into or edit them. Replace `STREAMER_LOGIN` with a Twitch login.
 
 ```powershell
 Set-Location '<branch checkout>'
@@ -79,9 +79,9 @@ New-Item -ItemType Directory -Path $trial -ErrorAction Stop | Out-Null
 $database = Join-Path $trial 'tracking.sqlite3'
 $config = Join-Path $trial 'config.json'
 $logs = Join-Path $trial 'logs'
-$channels = @('AUTHORIZED_LOGIN') # Start with one; a NEW trial can configure up to two.
+$channels = @('STREAMER_LOGIN') # Start with one; a NEW trial can configure up to two.
 $streams = @($channels | ForEach-Object {
-  [ordered]@{ channel=$_; character='PendingOCR'; source='twitch'; authorized=$true
+  [ordered]@{ channel=$_; character='PendingOCR'; source='twitch'
     interval=60; count=6; timeout=20; ocr_timeout=10; max_age=15  # interval: 15..60
     experimental_neural_level=$true; quality='best' }
 })

@@ -142,5 +142,5 @@ Limits: two strict clean frames may still share an unknown systematic numeric er
 small upward errors remain possible. The 10-point threshold is uncalibrated and may
 hold real large losses. Read-time state is reproducible from the bounded selected
 history, not a durable authenticated verdict; losses outside that context are unknown.
-Next check is a separately authorized, crop-preserving trial with human review of
+Next check is a crop-preserving trial with human review of
 pending/confirmed events, particularly genuine loss and repeated damaged fields.

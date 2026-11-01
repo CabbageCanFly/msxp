@@ -18,7 +18,7 @@ until measurements establish a need for more infrastructure.
   private fixtures; only generated synthetic fixtures may be committed.
 - Use placeholders (`Streamer_A`, `CharA`) for real streamer logins and character names in
   Git-tracked files and commit messages; real names stay in private, ignored files.
-- Keep OBS credentials on the streamer's machine and separate capture authorization
+- Keep OBS credentials on the streamer's machine and keep private administration separate
   from public, read-only overlay URLs. No disabling browser security to make capture work.
 - No provisioning, purchases, publishing or pushing without explicit authorization.
 - SSH access is limited to read-only, non-confidential files unless the user explicitly

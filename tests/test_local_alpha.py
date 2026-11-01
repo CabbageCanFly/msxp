@@ -138,14 +138,14 @@ def test_recognition_failures_are_distinct_and_untrusted(alpha, monkeypatch, mod
         assert f'HUD={"missing" if mode == "missing_hud" else "ambiguous"}' in output
 
 
-def test_live_requires_permission_before_setup(alpha, capsys):
+def test_live_selection_needs_no_separate_flag(alpha):
     module, args, database, calls = alpha
     live = args.copy()
     i = live.index('--file')
     del live[i:i+2]
-    assert module.main(live) == 1
-    assert not database.exists() and not calls
-    assert '--authorized' in capsys.readouterr().out
+    assert module.main(live) == 0
+    assert database.exists() and len(calls)==1
+    assert calls[0][1].kind=='twitch'
 
 
 def test_port_failure_never_starts_capture(alpha):

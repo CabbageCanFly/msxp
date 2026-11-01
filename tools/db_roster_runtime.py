@@ -7,7 +7,7 @@ from exp_tracker.store import utc
 
 
 def policy(row):
-    return {k:row[k] for k in ('authorized','tracking_enabled','automatic_characters',*roster.DEFAULTS)}
+    return {k:row[k] for k in ('tracking_enabled','automatic_characters',*roster.DEFAULTS)}
 
 
 class Reconciler:

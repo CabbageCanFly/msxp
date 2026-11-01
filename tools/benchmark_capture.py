@@ -1,4 +1,4 @@
-"""Serial mode/interval benchmarks using owned HLS or an authorized Twitch channel.
+"""Serial mode/interval benchmarks using owned HLS or an Twitch channel.
 
 By default generates ignored fixtures and serves only generated HLS on loopback.
 --channel explicitly selects a live Twitch experiment using the same capture CLI.
@@ -109,8 +109,8 @@ def main():
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--full-decode", action="store_true")
     parser.add_argument("--reuse-fixture", action="store_true")
-    parser.add_argument("--channel", help="Optional authorized live Twitch trial instead of owned local HLS")
-    parser.add_argument("--config", type=Path, help="Normalized ROIs for the authorized live layout")
+    parser.add_argument("--channel", help="Optional live Twitch trial instead of owned local HLS")
+    parser.add_argument("--config", type=Path, help="Normalized ROIs for the live layout")
     parser.add_argument("--quality", default="best")
     args = parser.parse_args()
     try:

@@ -133,7 +133,7 @@ and `tools/product.test.mjs`. Documentation: this note, README, local-alpha and
 product-preview guides. The browser fixture is test-only and requires the private
 saved logs; public unit tests use synthetic data.
 
-No new capture/inference was needed. Next live check, only after authorization:
+No new capture/inference was needed. Next live check:
 restart the one-command launcher, enable saved crops and observe foreground and
 background pages during a 6–10 minute bounded trial. Confirm the same printed database/
 port is open, check level-evidence availability, and review any shifted/full-field

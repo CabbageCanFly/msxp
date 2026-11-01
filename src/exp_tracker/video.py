@@ -60,7 +60,7 @@ def read_png(stream):
 
 @dataclass(frozen=True)
 class Source:
-    kind: str  # file, hls (authorized HTTP input), twitch (public playback)
+    kind: str  # file, hls (HTTP input), twitch (public playback)
     value: str
     quality: str = "best"
 
@@ -73,7 +73,7 @@ class Source:
             url = "https://www.twitch.tv/" + self.value
         elif self.kind == "hls":
             if not self.value.startswith(("http://", "https://")):
-                raise ValueError("HLS input must be an explicitly authorized HTTP(S) URL")
+                raise ValueError("HLS input must be an HTTP(S) URL")
             url = "hls://" + self.value
         else:
             raise ValueError("Not a Streamlink source")

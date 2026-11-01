@@ -12,7 +12,7 @@ See [terminal usage and defaults](../README.md#manage-streamers-without-a-browse
 These commands reuse the admin roster preview/commit validation, stale-change checks and
 audit events. They save immediately under the local OS user's database permissions; no HTTP
 endpoint or browser token is involved. They require an already initialized roster and never
-bootstrap or migrate an old database. `add` confirms capture permission and enables tracking.
+bootstrap or migrate an old database. `add` enables tracking.
 
 No command in this guide has been run against the user's database during development.
 Do not run modifying or live steps until review and operator authorization. Never
@@ -179,7 +179,7 @@ $confirm = 'bootstrap-roster:' + $review.fingerprint.Substring(0,16)
 ```
 
 The configured intervals (including the existing 20s values), quality, timeouts,
-neural-level option, crop setting, capture authorization and tracking enablement are
+neural-level option, crop setting and tracking enablement are
 imported. Public visibility starts enabled for imported channels; paused/hidden
 choices can then be reviewed in the portal. Historical streamers outside the import
 are hidden from the directory, with their data and direct URLs retained.
@@ -215,9 +215,8 @@ Start the protected admin portal on its own loopback port, separate from capture
 & $python -m exp_tracker.admin_server --db $db --port 8890
 ```
 
-In **Streamers**, choose **Add streamer**, enter its Twitch login, confirm capture
-authorization and enable tracking. Automatic names are selected for new streamers;
-tracking and authorization start unchecked. Review then confirm. The already-running
+In **Streamers**, choose **Add streamer**, enter its Twitch login and enable tracking. Automatic names are selected for new streamers;
+Tracking starts unchecked. Review then confirm. The already-running
 coordinator creates the lane at its next reconciliation boundary. No initial real
 character is required. The internal pending character cannot receive accepted EXP
 or appear as `PendingOCR` on public pages. Two strong, distinct, fresh full-frame name

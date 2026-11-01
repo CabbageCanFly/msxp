@@ -56,7 +56,7 @@ value that disables playback authentication. Keep your app credentials unchanged
 
 For a bounded comparison independent of the database, this standalone Streamlink
 command writes at most 20 seconds of playback into ignored private storage. Pick a
-currently live channel whose capture is authorized. It does not start a coordinator:
+currently live channel selected for tracking. It does not start a coordinator:
 
 ```powershell
 New-Item -ItemType Directory -Force private/streamlink | Out-Null; .\.venv\Scripts\python -m exp_tracker.streamlink_playback --no-config --no-plugin-cache --no-plugin-sideloading --webbrowser false --loglevel error --http-timeout 10 --stream-timeout 15 --stream-segment-timeout 10 --stream-segment-attempts 2 --stream-segment-threads 1 --stream-segmented-duration 20 --output private/streamlink/turbo-trial.ts https://www.twitch.tv/streamer_g worst

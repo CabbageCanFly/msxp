@@ -142,7 +142,7 @@ Changed files: `src/exp_tracker/product.py`; `web/product.js`, `product.css`,
 `tools/product.test.mjs`, `product.browser.mjs`, `product_updates_fixture.py`;
 `README.md`, this guide and `docs/product-experience-principles.md`.
 
-The next practical check is a manually authorized two-stream trial at 15–20s,
+The next practical check is a two-stream trial at 15–20s,
 reviewing early-rate stability and pauses rather than relaxing continuity to make
 charts look continuous. New independent numeric review is still necessary before
 trusted ingestion. No new capture, model tuning, schema or requirement change,

@@ -21,10 +21,10 @@ Restart the server to inspect existing observations; no recapture or migration.
 From the repository root, with the existing capture dependencies/private models:
 
 ```powershell
-.\.venv\Scripts\python tools/local_alpha.py --channel streamer_a --character "Main" --authorized --experimental-neural-level --count 3 --interval 15 --save-crops
+.\.venv\Scripts\python tools/local_alpha.py --channel streamer_a --character "Main" --experimental-neural-level --count 3 --interval 15 --save-crops
 ```
 
-Run this only for a permitted trial. Open the **exact dashboard URL printed by the
+Open the **exact dashboard URL printed by the
 launcher**, normally `http://127.0.0.1:8765/dashboard/streamer_a`. It initializes
 `private/local-alpha/live/streamer_a.sqlite3` when absent, explicitly selects `Main`,
 starts/reuses its session, starts localhost HTTP and then requests bounded capture.
@@ -95,7 +95,7 @@ Start-Process 'http://127.0.0.1:8765/dashboard/streamer_a'
 This is an old saved recording, visibly stale. **Starting HTTP does not capture
 Twitch.** Stop that server with Ctrl+C before running the one-command live trial
 above, or add `--port 8766` to the launcher and open its printed URL. For a longer
-permitted run, replace `--count 3` with `--count 12`. Do not replace a failed frame
+longer run, replace `--count 3` with `--count 12`. Do not replace a failed frame
 or overwrite logs; retain every attempt for later blinded review.
 
 ## Quick troubleshooting
@@ -126,7 +126,7 @@ coarsely; a timeout does not establish whether the stream was offline.
 .\.venv\Scripts\python tools/local_alpha.py --channel offline_check --character "Offline Main" --file samples/sample-stream3.mp4 --start 1145 --count 1 --experimental-neural-level --port 8766 --exit-after-capture
 ```
 
-No Twitch connection/authorization is involved. This checks actual local video →
+No Twitch connection is involved. This checks actual local video →
 recognition → SQLite, not accuracy on unseen footage. Omit `--exit-after-capture`
 to keep the dashboard open. Repeating the command reuses the character/session,
 adds a distinct run and retains prior observations. No EXP gains are computed.
@@ -161,7 +161,7 @@ attempts and IDs persist. Historical values remain old, never retimed. For the
 percentage-only example use `viewer-stream-a.jsonl`, its matching channel and a
 separate fresh assigned database. No absolute EXP is reconstructed.
 
-## Later permitted live trial (not started automatically)
+## Later live trial (not started automatically)
 
 ```powershell
 $channel = 'PERMITTED_CHANNEL'
@@ -176,7 +176,7 @@ $db = 'private/local-alpha/live-01.sqlite3'
 In another terminal set the same `$channel` and `$db`, then:
 
 ```powershell
-.\.venv\Scripts\python tools/shadow_capture.py --channel $channel --authorized --db $db --experimental-neural-level --interval 15 --count 30 --output private/local-alpha/live-01.jsonl --save-crops
+.\.venv\Scripts\python tools/shadow_capture.py --channel $channel --db $db --experimental-neural-level --interval 15 --count 30 --output private/local-alpha/live-01.jsonl --save-crops
 ```
 
 Open `/dashboard/CHANNEL`; completed commits appear with two-second polling. Use
@@ -185,7 +185,7 @@ environment/models and requirement table are still required; see [shadow capture
 Existing serial capture/timeouts/freshness limits remain: at most 60 attempts, no
 backlog or streamer installation. No log/image/playback HTTP endpoint is added.
 
-Local video replaces `--channel ... --authorized` with `--file samples/sample-stream3.mp4
+Local video replaces `--channel ...` with `--file samples/sample-stream3.mp4
 --start 1145 --tracking-channel LOCAL_DB_CHANNEL`; configure its local-video
 channel/character/session explicitly first. No source identity is inferred.
 
@@ -245,5 +245,5 @@ Actual results/changed files are in `.git/codex-output/latest.md`. Trust blocker
 remain numerical/crop verification, competing HUDs, character identity, level-tile
 completeness, unknown client display/build semantics and level-boundary handling.
 Confidence, arithmetic agreement and repeated frames do not resolve those issues.
-Next: a bounded permitted live trial with frozen blinded references, inspecting
+Next: a bounded live trial with frozen blinded references, inspecting
 persisted diagnostics here; no trusted neural gains yet.

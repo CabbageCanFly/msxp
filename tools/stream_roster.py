@@ -85,7 +85,6 @@ def inspect_roster(database, rows):
             roster='configured' if assignment and assignment.get('enabled', True) else 'disabled' if assignment else 'historical_only',
             character=assignment['character'] if assignment else history['label'],
             source=assignment['source'] if assignment else None,
-            authorized=assignment.get('authorized', False) if assignment else None,
             runs=history['runs'] if history else 0, attempts=history['attempts'] if history else 0,
             last_run='none' if not history or not history['runs'] else
                 'interrupted' if summary and summary.get('interrupted') else 'completed' if summary else 'unfinished_activity_unknown'))
@@ -108,7 +107,7 @@ def parser():
         command.add_argument('channel')
         command.add_argument('--dry-run', action='store_true')
         if name in ('add', 'enable'):
-            command.add_argument('--authorized', action='store_true', help='Explicit permission for Twitch capture')
+            command.add_argument('--authorized', action='store_true', help=argparse.SUPPRESS)
         if name == 'add':
             command.add_argument('--character', required=True)
             command.add_argument('--source', choices=('file', 'twitch'), default='twitch')
@@ -158,8 +157,7 @@ def main(argv=None):
                         raise ValueError('Channel already configured; use enable or inspect')
                     row = dict(channel=channel, character=args.character, source=args.source,
                         interval=args.interval, count=args.count,
-                        enabled=not args.disabled and (args.source == 'file' or args.authorized),
-                        authorized=args.authorized, experimental_neural_level=args.experimental_neural_level,
+                        enabled=not args.disabled, experimental_neural_level=args.experimental_neural_level,
                         save_crops=args.save_crops)
                     if args.source == 'file':
                         row.update(file=args.file, start=args.start)
@@ -173,10 +171,6 @@ def main(argv=None):
                     if args.action == 'remove':
                         value['streams'].remove(row)
                     else:
-                        if args.action == 'enable' and args.authorized:
-                            row['authorized'] = True
-                        if args.action == 'enable' and row['source'] == 'twitch' and not row.get('authorized'):
-                            raise ValueError('Enabling Twitch requires explicit --authorized permission')
                         row['enabled'] = args.action == 'enable'
             database, _, rows = multi.validate_config(value, offline_fast_test=args.offline_fast_test)
             multi.check_assignments(database, rows)

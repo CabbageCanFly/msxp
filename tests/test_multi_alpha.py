@@ -209,13 +209,13 @@ def test_bad_configuration_never_creates_database(multi,change):
     assert main(multi)==1 and not (path.parent/'shared.sqlite3').exists()
 
 
-def test_live_authorization_and_check_do_not_connect_or_write(multi,monkeypatch):
+def test_live_check_needs_no_separate_flag_and_does_not_connect_or_write(multi,monkeypatch):
     module,path,config,calls,_=multi
     for row in config['streams']:
         row.update(source='twitch',authorized=False);row.pop('file')
     path.write_text(json.dumps(config))
-    assert main(multi,'--check')==1
-    for row in config['streams']:row['authorized']=True
+    assert main(multi,'--check')==0
+    for row in config['streams']:row.pop('authorized')
     path.write_text(json.dumps(config))
     assert main(multi,'--check')==0
     assert not calls and not (path.parent/'shared.sqlite3').exists()

@@ -60,7 +60,7 @@ msxp: MapleStory Classic EXP tracker
                  msxp doctor      what is installed, missing or misconfigured (alias: diag)
   Just look      msxp demo        the website with fictional players; nothing to set up
   Your tracker   msxp setup       create your tracker database (once)
-                 msxp admin       add streamers, confirm permission, start/pause tracking
+                 msxp admin       add streamers, start/pause tracking
                  msxp streamer add LOGIN      add with admin defaults and tracking enabled
                  msxp streamer disable LOGIN  pause tracking, preserve history
                  msxp streamer hide LOGIN     hide publicly, keep tracking setting
@@ -95,7 +95,7 @@ Browse logs      msxp logs tracker --browse
   Viewer keys    /text + Enter to search, n next, g top, G bottom, q quit
   Remote         msxp server logs tracker --browse    msxp server sql
                  msxp server streamer add Streamer_A
-  Streamer add   confirms you have permission to capture; no browser or service restart needed
+  Streamer add   enables tracking; no browser or service restart needed
   SQL keys       .tables    .schema TABLE    SELECT ...;    .quit
 
 Every command prints the tool it runs; unknown options pass through (msxp tracker --check).
@@ -257,7 +257,7 @@ def setup(args, s):
     from exp_tracker.streamer_roster import create
     try:create(db)
     except ValueError as error:print(f'Not created: {error}');return 1
-    print(f'Created your tracker database: {db}\n\nNext:\n  1. msxp admin     add a streamer, confirm you have permission, enable tracking'
+    print(f'Created your tracker database: {db}\n\nNext:\n  1. msxp admin     add a streamer and enable tracking'
           '\n  2. msxp tracker   start capturing (keep it running)')
     if args.db:print(f'\nTo use it by default, add to .env:  MSXP_DATABASE={args.db}')
     return 0
@@ -342,7 +342,7 @@ def streamer(args, s):
     raw = dict(action='roster_add' if args.action == 'add' else 'roster_update', channel=args.login,
                reason=args.reason if args.reason is not None else f'msxp streamer {args.action}')
     if args.action == 'add':
-        raw.update(authorized=True, tracking_enabled=True, public_visible=True,
+        raw.update(tracking_enabled=True, public_visible=True,
                    automatic_characters=True, experimental_neural_level=True)
     else:raw['tracking_enabled' if args.action == 'disable' else 'public_visible'] = False
     try:
@@ -395,7 +395,7 @@ def main(argv=None):
             mode.add_argument('--no-follow', dest='follow', action='store_false', help='show entries and exit')
         if name == 'sql':sub.add_argument('query', nargs='?', help='optional SQL to execute instead of opening the shell')
         if name == 'streamer':
-            sub.add_argument('action', choices=['add', 'disable', 'hide'], help='add confirms capture permission and enables tracking')
+            sub.add_argument('action', choices=['add', 'disable', 'hide'], help='add enables tracking')
             sub.add_argument('login', help='Twitch login, not a URL or character name')
             sub.add_argument('--reason', help='single-line audit reason (default: msxp streamer ACTION)')
         if name == 'server':

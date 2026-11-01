@@ -25,7 +25,7 @@ fresh-capture product until one of these paths passes a real streamer trial.
 | Approach | Streamer setup | Freshness / OCR detail | Cost and reliability | Current status |
 | --- | --- | --- | --- | --- |
 | Helix stream thumbnail | Channel entry; developer registers app and keeps app token server-side | Up to five-minute-old frame; requesting a large image may not recover native detail | Small HTTP transfers, no video decoder; CDN caching, scene changes and compression can prevent useful readings | Official API documented; offline probe tests pass; no live measurements |
-| Decode live stream remotely | Few OBS changes if an authorized playback source exists; creator permission alone does not establish platform permission | Potentially source-resolution images near live edge; segment latency and ads remain | Video bandwidth, decoder startup, reconnects and worker RAM; no documented general Helix live-frame endpoint found | Not implemented or live-tested; platform authorization unresolved |
+| Decode live stream remotely | Few OBS changes if a playback source is available | Potentially source-resolution images near live edge; segment latency and ads remain | Video bandwidth, decoder startup, reconnects and worker RAM; no documented general Helix live-frame endpoint found | Not implemented or live-tested |
 | Browser to local OBS WebSocket | OBS 28+; enable password authentication; select source and crop in a browser dock/page | Local source pixels without Twitch encoding; request every 30–60 seconds if stable | Screenshot encoding and browser work on streamer's PC; crop OCR on VPS; reconnect/hidden source behavior must be tested | OBS API documented; protocol mock tests pass; real browser/OBS capture untested |
 
 ### Official Twitch thumbnails
@@ -62,7 +62,7 @@ $env:TWITCH_ACCESS_TOKEN = '<your app access token>'
 .\.venv\Scripts\python -m exp_tracker.twitch_probe streamer_a --count 15 --interval 60 --width 1920 --height 1080 --config configs/stream1.json
 ```
 
-Use a live channel you control or have consent to test. The existing config is
+Select a live channel to test. The existing config is
 only suitable if its layout matches; otherwise omit `--config` to measure images
 without OCR, or calibrate fresh normalized ROIs. The probe resolves the channel,
 checks online status and emits JSON lines with byte size, dimensions, image/HUD
@@ -73,7 +73,7 @@ known EXP changes over at least 15 minutes. Never relabel repeats as new gains.
 
 ### Periodic frame extraction
 
-FFmpeg can decode an authorized video input and emit occasional PNGs; its
+FFmpeg can decode a video input and emit occasional PNGs; its
 [`fps` filter](https://ffmpeg.org/ffmpeg-filters.html#fps) selects output frequency.
 Selecting one frame/minute generally does **not** avoid receiving/decoding the
 intervening video. Reopening the source per sample may reduce time connected,
@@ -86,15 +86,6 @@ renditions save bandwidth but discard exactly the HUD detail needed for OCR.
 A headless playback browser adds substantial overhead and cross-origin canvas
 restrictions; embedding the Twitch player does not grant raw frame access.
 
-The [Twitch Developer Agreement](https://legal.twitch.com/en/legal/developer-agreement/)
-limits access to documented developer interfaces absent permission and includes
-data consent/deletion and content storage conditions. The
-[Terms of Service](https://www.twitch.tv/p/terms-of-service) restrict automated
-extraction and downloading outside authorized uses. Public availability and
-streamer consent do not themselves authorize undocumented playback-token or
-playlist extraction. Obtain platform clarification for the intended method
-before production use. This is an engineering constraint, not a legal clearance.
-
 No scraping tool or Twitch playlist resolver was added. To reproduce only the
 decoder experiment on a local video you own, install FFmpeg on your development
 machine and run (not executed in this session):
@@ -104,7 +95,7 @@ New-Item -ItemType Directory -Force artifacts/frames | Out-Null
 ffmpeg -hide_banner -i private/authorized-recording.mp4 -an -vf "fps=1/60" -frames:v 3 artifacts/frames/frame-%03d.png
 ```
 
-For a permitted live input, benchmark startup latency, reconnect behavior,
+For a live input, benchmark startup latency, reconnect behavior,
 resident RAM, CPU time and received bytes for a 15-minute trial. Do not put
 playback credentials in committed scripts or logs. Delete temporary frames.
 
@@ -166,9 +157,8 @@ use no third-party scripts and keep capture controls separate from public overla
 ## Outstanding evidence
 
 - Twitch live thumbnail dimensions, real refresh cadence and HUD OCR accuracy.
-- Whether derived historical EXP storage needs additional platform permission;
-  implement consent, deletion and minimum retention regardless.
+- Derived historical EXP deletion and minimum retention behavior.
 - Actual OBS version/OS/CEF behavior and safe HTTPS-to-loopback operation.
 - Capture freshness when a game input is inactive, frozen or obscured.
 - Measured VPS peak memory/CPU and streamer's OBS frame-time cost.
-- Authorized remote live playback path, if still needed after the first two trials.
+- Remote live playback path, if still needed after the first two trials.

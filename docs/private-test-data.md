@@ -113,7 +113,7 @@ judges the HUD against the whole frame, so a cut-down frame is not a faithful te
 What anyone can run instead:
 
 - the public suite: about 2,960 tests, 94% of `src/exp_tracker` (95% with the private tests);
-- their own real-world check: record a stream they have permission to use, label frames in
+- their own real-world check: record a stream selected for testing, label frames in
   `tests/data/recorded_frames.json` style, and run `tools/extract_test_frames.py` and this test.
 
 A shareable real-world set would need permission from the streamers in it, or a recording of your own
@@ -143,5 +143,5 @@ An artifacts cleanup deleted `artifacts/live-benchmark/` and `artifacts/green-te
 crops of an Oct 15 live capture. They were the calibration and regression data of the **glyph-profile
 OCR experiment** (`private/ocr-evaluation/*glyph-profile*`, half of `private/exp-digits/bank.json`). The
 live tracker does not use that path. Those 68 tests now skip, saying which folders are missing.
-Restoring them needs a new authorized live capture at that HUD scale: the remaining recordings use
+Restoring them needs a new live capture at that HUD scale: the remaining recordings use
 other scales, which those profiles reject by design.

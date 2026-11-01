@@ -39,7 +39,7 @@ def test_coordinated_manual_rename_preserves_assignment_ids_and_rejects_stale_ro
         assert len(store.state('alpha')['characters'])==len(before['characters'])
 
 
-def test_init_add_preview_preserves_settings_and_authorization(roster, capsys):
+def test_init_add_preview_preserves_settings_and_enables_tracking(roster, capsys):
     tool, (module, path, config, *_rest) = roster
     before = path.read_bytes()
     assert command(roster, 'add', 'Gamma', '--character', 'Main', '--dry-run') == 0
@@ -49,10 +49,9 @@ def test_init_add_preview_preserves_settings_and_authorization(roster, capsys):
     result = json.loads(path.read_text())
     assert result['streams'][:2] == config['streams']
     assert result['port'] == config['port'] and result['database'] == config['database']
-    assert result['streams'][2]['enabled'] is False
-    assert result['streams'][2]['authorized'] is False
-    assert command(roster, 'enable', 'gamma') == 1
-    assert 'explicit --authorized' in capsys.readouterr().out
+    assert result['streams'][2]['enabled'] is True
+    assert 'authorized' not in result['streams'][2]
+    assert command(roster, 'enable', 'gamma') == 0
     assert command(roster, 'enable', 'gamma', '--authorized') == 0
     assert len(module.load_config(path)[2]) == 3
     new = path.parent / 'new.json'

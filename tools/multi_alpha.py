@@ -146,9 +146,9 @@ def live_trial(args, database, port, streams):
     if database.exists() and database.stat().st_nlink>1:
         raise ValueError('Hard-linked databases cannot isolate WAL and ownership markers')
     if port==8765:raise ValueError('Live trial cannot use the default main port 8765; choose a separate port (e.g. 8879)')
-    if (len(streams)>2 or any(row['source']!='twitch' or not row.get('authorized') for row in streams)
+    if (len(streams)>2 or any(row['source']!='twitch' for row in streams)
             or args.workers!=1 or args.retention_24h or args.hud_cache_seconds):
-        raise ValueError('Initial live name trial requires 1..2 authorized Twitch channels, one worker, no retention and no HUD cache')
+        raise ValueError('Initial live name trial requires 1..2 Twitch channels, one worker, no retention and no HUD cache')
     low, high = LIVE_TRIAL_INTERVAL
     if any(not low<=row.get('interval',15)<=high for row in streams):
         raise ValueError(f'Live name trial interval must be {low:g}..{high:g} seconds: two-frame confirmation '
@@ -240,8 +240,6 @@ def existing_preflight(database, streams, enabled, *, required=False):
                 raise ValueError(f'{login}: unresolved adopted identity; resume automatic verification before disabling it')
         for login in enabled:
             row=configured[login]
-            if row['source']=='twitch' and not row.get('authorized'):
-                raise ValueError('Existing automatic Twitch channels require explicit capture authorization')
             if row.get('interval',15)>CONFIRM_GAP_SECONDS/2:
                 raise ValueError('Automatic channel interval must allow two independent frames within 120 seconds (use <=60s)')
         check_assignments(database,streams)
@@ -539,7 +537,7 @@ def main(argv=None):
     cli.add_argument('--ocr-python',type=Path,help='Reuse the existing isolated OCR Python, including at its original checkout path')
     cli.add_argument('--log-root',type=Path,help='Private root for new per-process capture directories; required for isolated live name trials')
     cli.add_argument('--character-names',action='store_true',help='Opt in to own-name evidence/holds; Twitch requires isolated live trial settings; implies --resident-neural')
-    cli.add_argument('--automatic-characters',action='store_true',help='NEW disposable DB only: automatically switch after two strong independent full-frame name readings; local video or isolated authorized Twitch trial')
+    cli.add_argument('--automatic-characters',action='store_true',help='NEW disposable DB only: automatically switch after two strong independent full-frame name readings; local video or isolated Twitch trial')
     cli.add_argument('--automatic-existing-channel',action='append',default=[],metavar='CHANNEL',
         help='Enable automation ONLY for this reviewed/adopted existing channel; repeat for more channels, omit to disable')
     cli.add_argument('--existing-tracker',action='store_true',

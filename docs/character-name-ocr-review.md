@@ -213,7 +213,7 @@ still need headroom. Workstation memory <650 MiB does not establish a VPS peak, 
 does not suggest an 8-GB memory bottleneck. Eight workers remain unmeasured.
 
 Recommend an initial controlled trial with **three workers, resident OCR, full scans,
-60s cadence**; begin with a few authorized channels before scaling toward 15. There is
+60s cadence**; begin with a few channels before scaling toward 15. There is
 no measured need to weaken switch verification just to add a cache. Existing VPS
 offline four-worker/60s measurements in `capture-performance.md` are supporting prior
 evidence, not a test of this feature.

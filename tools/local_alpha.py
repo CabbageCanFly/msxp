@@ -117,7 +117,7 @@ def parser():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--channel', required=True, help='Explicit Twitch login / local-video DB assignment')
     cli.add_argument('--character', required=True, help='Exact selected character label; never switches an existing selection')
-    cli.add_argument('--authorized', action='store_true', help='Confirm streamer permission for this live trial')
+    cli.add_argument('--authorized', action='store_true', help=argparse.SUPPRESS)
     cli.add_argument('--db', type=Path, help='Default: private/local-alpha/live/CHANNEL.sqlite3')
     cli.add_argument('--file', type=Path, help='Offline local video instead of Twitch; no network capture')
     cli.add_argument('--port', type=int, default=8765)
@@ -196,7 +196,7 @@ def main(argv=None):
                         raise ValueError('Diagnostic startup assignment changed')
                     active_run_id=record['run_id']
                     httpd.active_run_ids.add(active_run_id)
-                say(f'Capture runner starting: {args.count} attempts at {args.interval:g}s; source={"local video" if args.file else "authorized Twitch"}. Awaiting first frame.'
+                say(f'Capture runner starting: {args.count} attempts at {args.interval:g}s; source={"local video" if args.file else "Twitch"}. Awaiting first frame.'
                     if committed else 'Configuration NOT committed; capture has NOT started.')
             if record['type'] == 'attempt':
                 counts['attempts'] += 1
