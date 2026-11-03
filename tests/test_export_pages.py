@@ -261,3 +261,12 @@ def test_backend_pages_stay_same_origin(tmp_path):
     handler = server.Handler.__new__(server.Handler)
     handler.server = type('S', (), {'public_only': True})()
     assert b'data-api' not in handler.page('player.html') and b'data-site="public"' in handler.page('player.html')
+
+
+def test_about_popover_is_identical_on_home_and_player_pages():
+    # The static pages have no shared include, so the About text is duplicated; keep the copies in step.
+    def about(page):
+        html = (export_pages.WEB / page).read_text(encoding='utf-8')
+        block = re.search(r'<div id="about".*?\n\s*</div>\n', html, re.S).group()
+        return [line.strip() for line in block.splitlines()], html.count('popovertarget="about"')
+    assert about('tracker.html') == about('player.html')

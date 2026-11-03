@@ -237,8 +237,28 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .early-pace #eta-stat { margin-top:6px; }
 .early-pace [hidden] { display:none; }
 .early-pace small { color:var(--text-muted); font-size:12px; }
-.reading-info { color:var(--text-muted); font-size:12px; font-weight:600; margin:0 0 14px; }
+.reading-info { position:relative; z-index:1; color:var(--text-muted); font-size:12px; font-weight:600; margin:0 0 14px; }
 .reading-info a { color:var(--text-muted); }
+/* "About" opens a popover card; click outside or Esc closes it. Wide screens: a bookmark tab standing on the first panel's
+   top edge (absolute, so the panel never moves). Phones: the intro line is full, so an icon chip in the masthead instead. */
+.about-tab { position:absolute; right:20px; bottom:-15px; min-height:0; padding:5px 16px 7px; border:1px solid var(--line); border-bottom:0; border-radius:var(--radius) var(--radius) 0 0;
+  background:linear-gradient(#94602f,#83522a); box-shadow:inset 0 2px var(--gold-deep); color:#fff3dc; font:500 14px/18px var(--font-display); }
+.reading-info .about-tab:hover:not(:disabled) { border-color:var(--line); background:linear-gradient(#a56d38,#94602f); color:#fff; }
+.masthead .about-icon { display:none; place-items:center; margin-left:auto; width:40px; height:40px; min-height:0; padding:0; border-color:#56637d66; border-radius:var(--radius); background:#232c3e90; color:var(--text-soft); }
+@media(max-width:650px) { .about-tab { display:none; } .masthead .about-icon { display:grid; } }
+.about { width:min(560px,calc(100vw - 32px)); box-sizing:border-box; padding:16px 22px 18px; color:var(--text-soft); font-size:14px; line-height:1.6;
+  background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--radius-lg); box-shadow:var(--shadow); }
+.about::backdrop { background:#050b1c99; }
+.about header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.about h2 { margin:0; color:var(--text); font-family:var(--font-display); font-size:20px; font-weight:600; }
+.about .about-close { min-height:0; width:32px; height:32px; padding:0; font-size:20px; line-height:1; }
+.about p { margin:0; }
+.about ul { margin:10px 0; padding-left:20px; }
+.about li + li { margin-top:6px; }
+.about strong { color:var(--text); }
+.about .about-credit { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); color:var(--text-muted); font-size:12px; font-weight:600; }
+.about b { color:var(--gold); }
+.about h2 b { font-weight:500; }
 .level-event { margin:16px 25px 0; color:var(--green); font-family:var(--font-display); font-size:18px; font-weight:600; }
 .history-chart .trend { stroke:var(--green); stroke-width:2; opacity:.7; }
 .player-stats { grid-template-columns:repeat(2,minmax(0,1fr)); padding-top:8px; padding-bottom:10px; }
@@ -334,16 +354,16 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 
 /* Attribution and time zone, on every public page. */
 .site-footer { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px 16px; margin:18px 6px 0; color:var(--text-muted); font-size:12px; font-weight:600; }
-.site-footer a { color:var(--text-soft); text-decoration:none; border-bottom:1px solid var(--line-strong); }
-.site-footer a:hover { color:var(--gold); border-color:var(--gold-deep); }
+.site-footer a, .about a { color:var(--text-soft); text-decoration:none; border-bottom:1px solid var(--line-strong); }
+.site-footer a:hover, .about a:hover { color:var(--gold); border-color:var(--gold-deep); }
 .site-footer label { display:flex; align-items:center; gap:6px; }
 .site-footer select { max-width:15em; padding:3px 6px; color:var(--text-soft); background:var(--surface-sunken); border:1px solid var(--line); border-radius:6px; font:inherit; cursor:pointer; }
 .site-footer select:hover { border-color:var(--line-strong); }
 .site-footer select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 
 /* Live content fades in once the first update arrives instead of jumping as it fills; shown anyway after 2s. */
-.product :is(.board,.site-footer,.history-overlay-link) { transition:opacity .2s ease-out; }
-.product[data-loading] :is(.board,.site-footer,.history-overlay-link) { opacity:0; animation:reveal 0s 2s forwards; }
+.product :is(.board,.about-tab,.site-footer,.history-overlay-link) { transition:opacity .2s ease-out; }
+.product[data-loading] :is(.board,.about-tab,.site-footer,.history-overlay-link) { opacity:0; animation:reveal 0s 2s forwards; }
 /* Switching lists keeps the current one (dimmed only if the other takes a moment) until the other can swap in whole. */
 .product #entries[aria-busy="true"] { opacity:.6; transition:opacity .2s .15s; }
 @keyframes reveal { to { opacity:1; } }
@@ -405,7 +425,7 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 /* Decorative wandering mobs (product.js). The lane has no height, so feet rest on the card's top border. */
 /* Clip on html too, so body clips falling mobs itself rather than handing a scrollable "hidden" to the viewport. */
 html, body.product { overflow-x:clip; }
-.mob-lane { position:relative; height:0; pointer-events:none; }
+.mob-lane { position:relative; z-index:1; height:0; pointer-events:none; }
 .mob-lane, .mob-lane * { -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
 .mob { position:absolute; left:0; bottom:-1px; }
 .mob img { position:absolute; left:0; bottom:0; translate:-50% 0; pointer-events:auto; cursor:pointer; touch-action:manipulation; }

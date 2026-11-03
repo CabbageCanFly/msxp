@@ -5,7 +5,9 @@ and turns it into a live leaderboard: EXP per hour, time to the next level, rece
 and a stream overlay for OBS. It can run for free on your own computer
 or a small server. **See it live: [msxp.pages.dev](https://msxp.pages.dev)**
 
-Nobody installs anything on the streamer's side: msxp only watches the public stream.
+**Why?** MapleStory Classic has no built-in EXP tracker, and Nexon offers no public API for
+character data. So msxp reads the EXP bar from the stream video instead. Viewers just open the
+website, and nobody installs anything on the streamer's side: msxp only watches the public stream.
 
 A 1-minute demo of the site: https://www.youtube.com/watch?v=K_PUYS978gM
 
