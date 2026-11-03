@@ -1149,6 +1149,18 @@ def test_two_agreeing_job_reads_record_the_job(auto, jobs, level, expected):
     assert (store.character_job(cid) or {}).get('job') == expected
 
 
+def test_a_job_read_on_a_level_held_frame_still_counts(auto):
+    # The live reader counts both reads and stops reading, so the stored votes must count both too.
+    _, store, policy = auto; run = 'first'; results = []
+    for i, (level, bp, job) in enumerate([(30, 9950, None), (30, 9970, None), (31, 10, 'Cleric'), (31, 20, 'Cleric')], 1):
+        value = record(i, level=level, bp=bp, at=AT + timedelta(seconds=i * 15))
+        if job: with_job(value, job)
+        results.append(policy.append(run, value, f'next{i}', config(f'next{i}')))
+        run = results[-1]['run_id']
+    assert 'level_hold' in results[2]['record']
+    assert store.character_job(store._channel('alpha')['selected_character_id'])['job'] == 'Cleric'
+
+
 def test_job_only_moves_up_a_tier_and_the_operator_can_set_it(auto):
     _, store, policy = auto; run = 'first'; cid = store._channel('alpha')['selected_character_id']
     def frames(start, jobs):

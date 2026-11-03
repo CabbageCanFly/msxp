@@ -26,7 +26,9 @@ JOB_GAP_SECONDS = 300  # Job reads are a minute or more apart, so two agreeing o
 
 def job_vote(record):
     """This capture's job read, if it is current and its text still matches the job list."""
-    evidence = (record.get('character_name') or {}).get('evidence') or {}
+    # A level hold doubts only the level, and the live reader already counted this read; identity holds stay excluded.
+    record = record['level_hold']['evidence'] if 'level_hold' in record else record
+    evidence =(record.get('character_name') or {}).get('evidence') or {}
     job = evidence.get('job') or {}
     if (not record.get('current') or job.get('status') != 'candidate' or type(job.get('score')) not in (int, float)
             or not .9 <= job['score'] <= 1 or match(job.get('text')) != job.get('job') or job.get('job') is None):
