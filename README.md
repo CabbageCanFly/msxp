@@ -9,6 +9,10 @@ or a small server. **See it live: [msxp.pages.dev](https://msxp.pages.dev)**
 character data. So msxp reads the EXP bar from the stream video instead. Viewers just open the
 website, and nobody installs anything on the streamer's side: msxp only watches the public stream.
 
+**Why only Twitch?** YouTube often blocks automated viewers running on servers (the "Sign in to
+confirm you're not a bot" check), which is how msxp watches streams. So YouTube streams can't be
+tracked reliably for now.
+
 A 1-minute demo of the site: https://www.youtube.com/watch?v=K_PUYS978gM
 
 ![msxp leaderboard showing player levels, EXP progress and recent EXP per hour](docs/images/leaderboard.png)
