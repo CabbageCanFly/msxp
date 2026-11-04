@@ -24,6 +24,17 @@ Maximum confirmation span: **60 seconds**, explicit in the diagnostic engine
 attempt or gap beyond min(120s, 1.5 × cadence) breaks confirmation. Tests cover
 7/15/20/30-second captures and the 60/61-second boundary. No catch-up or interpolation.
 
+Upward recovery has one narrower exception (`percentage_continuity_v3`): two fresh,
+strict full-EXP readings whose numbers agree with the same level and percentage can
+confirm a higher baseline up to **300 seconds** apart, even when the scheduler misses
+its configured cadence. Both need distinct known frame hashes, eligible same-context
+captures, undamaged crops and local receipt ages of at most 15 seconds. Missing
+attempts, invalid readings, character/session/source/level changes and unlinked run
+boundaries still break confirmation. Existing identity and level holds remain in force.
+The second reading starts a new baseline; the old-to-new jump and pending interval
+contribute no gain. Pace continuity keeps its original sampling-gap rule. Percentage-only
+readings and decreases keep the original 60-second confirmation rules.
+
 Confirmation starts a fresh segment at the **second** lower observation. Neither
 the negative boundary nor the first pending point contributes gains. Returning to
 or above the pre-drop percentage instead classifies the pending candidate as a

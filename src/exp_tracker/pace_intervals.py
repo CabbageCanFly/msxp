@@ -96,6 +96,8 @@ def conditional_percent(row, support, previous):
 
 def endpoint_interval(before,after):
     """Net EXP in level/EXP coordinates; no capture-connection eligibility."""
+    if after.get('recovery_baseline'):
+        return None,'confirmed_change_new_baseline'
     if any(p.get('exp_validity',{}).get('status')=='invalid' for p in (before,after)):
         return None,'arithmetic_pair_veto'
     if before.get('manual_epoch') != after.get('manual_epoch'):
@@ -203,6 +205,8 @@ def collect_observed(snapshot, *, now, read, max_interval_seconds, state=None):
             last_time=value['timestamp']
             value=dict(value,source_kind=row.get('source_kind'),source_identity=row.get('source_identity'),run_id=row.get('run_id'),index=row.get('index'),
                 accounting_scope=f"{row.get('character_id')}:{row.get('session_id')}")
+            if row.get('percentage_review',{}).get('slow_recovery'):
+                value['recovery_baseline']=True
             if value.get('exp_validity',{}).get('status')=='invalid':
                 holes.append(row['event_id'])
                 excluded.append(dict(event_id=row['event_id'],timestamp=value['timestamp'],reason='arithmetic_pair_veto'))

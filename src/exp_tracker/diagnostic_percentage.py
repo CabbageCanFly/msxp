@@ -5,8 +5,9 @@ import re
 
 from .diagnostic_evidence import consistency,full_reading
 
-POLICY='percentage_continuity_v2'
+POLICY='percentage_continuity_v3'
 CONFIRM_SECONDS=60
+RECOVERY_SECONDS=300
 LARGE_CHANGE_BP=1000  # 10 percentage points: evidence gate, not an EXP gain/rate cap.
 PERCENTAGE_CONTEXT_SECONDS=180  # Saved supports span 156.765s over four attempt steps.
 PERCENTAGE_CONTEXT_STEPS=4  # Two strict supports, at most two intervening unreadable captures.
@@ -36,6 +37,15 @@ def boundary(before,point,row):
         'sampling_gap' if elapsed>min(120,Fraction(str(before['interval_seconds']))*Fraction(3,2)) else None)
 
 
+def recovery_capture(point,row):
+    """Only a fresh, strict numerical pair can support slower upward recovery."""
+    return (point['evidence']=='strict_full' and point['comparison_eligible']
+        and row.get('frame_sha256') and not row.get('crop_suspect')
+        and (row.get('neural_level') or {}).get('source_complete') is not False
+        and row.get('local_age_seconds') is not None and 0<=row['local_age_seconds']<=15
+        and consistency(full_reading(row),point['level'])['status']=='consistent')
+
+
 def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
     """Separate eligible captures corroborate a baseline, not statistical independence or cause."""
     if type(confirmation_seconds) is not int or not 1<=confirmation_seconds<=60:raise ValueError('Confirmation span must be 1..60 seconds')
@@ -47,11 +57,13 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
         strict_percentage_context=state.get('strict_percentage_context',[])
         context_previous=state.get('percentage_context_previous')
         context_frames=state.get('percentage_context_frames',[])
+    def span():
+        return RECOVERY_SECONDS if pending and pending['direction']=='up' and recovery_capture(pending['point'],pending['row']) else confirmation_seconds
     def record(value):
         nonlocal quarantined_at,strict_percentage_context,context_previous,context_frames
         if value['public_eligible']:quarantined_at=None
         elif value['pending_since'] and quarantined_at is None:quarantined_at=datetime.fromisoformat(value['pending_since'])
-        value['verification_deadline']=(quarantined_at+timedelta(seconds=confirmation_seconds)).isoformat() if quarantined_at else None
+        value['verification_deadline']=(quarantined_at+timedelta(seconds=span())).isoformat() if quarantined_at else None
         if value['break_before'] or edge not in (None,'sampling_gap'):strict_percentage_context=[]
         if (point and value['progress_eligible'] and point['evidence']=='strict_percentage_only' and safe_capture):
             strict_percentage_context=(strict_percentage_context+[dict(point=point,frame=row['frame_sha256'])])[-2:]
@@ -119,7 +131,11 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
             if (changed or invalid is None and point['level'] is not None and point['level']!=anchor['level']
                     or point['run_id']!=anchor['point']['run_id'] and (previous is None or edge=='run_boundary')):anchor=pending=None
         prior_pending=pending
-        if invalid or edge:pending=None
+        # A slow scheduler breaks pace continuity, but need not erase a sound new baseline.
+        recovery=bool(pending and pending['direction']=='up' and edge in (None,'sampling_gap')
+            and point and invalid is None and safe_capture
+            and recovery_capture(point,row) and recovery_capture(pending['point'],pending['row']))
+        if invalid or edge and not recovery:pending=None
         value.update(reference_event_id=anchor['point']['event_id'] if anchor else None,
             reference_percentage=anchor['point']['percentage'] if anchor else None)
         if invalid:
@@ -143,7 +159,7 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
         if anchor:
             difference=point['bp']-anchor['point']['bp']
             if pending:
-                first=pending['point'];expired=(when-pending['since']).total_seconds()>confirmation_seconds
+                first=pending['point'];expired=(when-pending['since']).total_seconds()>(span() if recovery else confirmation_seconds)
                 lower=point['bp']<anchor['point']['bp']
                 returned=(not lower if pending['direction']=='down' else point['bp']<first['bp'])
                 independent=(row.get('frame_sha256') is not None and pending['row'].get('frame_sha256') is not None
@@ -160,6 +176,8 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
                     value.update(status='corroborated_lower_baseline' if lower else 'accepted_observation',
                         reason='two_distinct_eligible_captures_cause_unverified',resolves_event_id=first['event_id'],
                         break_before='confirmed_change_new_baseline')
+                    if recovery and (edge=='sampling_gap' or (when-pending['since']).total_seconds()>confirmation_seconds):
+                        value['slow_recovery']=True
                     pending=None
                 else:
                     value.update(public_eligible=False,progress_eligible=False,status='unresolved_numerical_continuity',
@@ -177,7 +195,7 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
         if value['public_eligible']:anchor=dict(point=point,row=row,level=point['level'])
         if pending:
             value.update(pending_since=pending['since'].isoformat(),
-                confirmation_deadline=(pending['since']+timedelta(seconds=confirmation_seconds)).isoformat())
+                confirmation_deadline=(pending['since']+timedelta(seconds=span())).isoformat())
         previous=point;record(value)
     if state is not None:state.update(anchor=anchor,pending=pending,previous=previous,seen=seen,quarantined_at=quarantined_at,
         strict_percentage_context=strict_percentage_context,percentage_context_previous=context_previous,
