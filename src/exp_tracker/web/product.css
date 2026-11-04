@@ -256,6 +256,7 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .about ul { margin:10px 0; padding-left:20px; }
 .about li + li { margin-top:6px; }
 .about strong { color:var(--text); }
+.about .about-contact { margin:14px 0; padding-left:12px; border-left:2px solid var(--gold-deep); }
 .about .about-credit { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); color:var(--text-muted); font-size:12px; font-weight:600; }
 .about b { color:var(--gold); }
 .about h2 b { font-weight:500; }
