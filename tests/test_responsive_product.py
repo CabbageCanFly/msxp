@@ -121,3 +121,21 @@ def test_trend_retains_only_observed_intervals_in_last_five_minutes(tracking):
     pace=get(d,420)['responsive_pace']
     assert pace['span_seconds']['approximate']==315 and pace['readings']==22
     assert not pace['tentative'] and pace['start']==(NOW+timedelta(seconds=105)).isoformat()
+
+
+@pytest.mark.parametrize('level', range(90, 100))
+def test_percentage_only_high_levels_supply_exp_estimates_and_rates(tracking, level):
+    from exp_tracker.exp_requirements import requirement
+    _, store, d = tracking
+    for i, pct in enumerate(('24.33', '24.37', '24.38'), 1):
+        append(d, i, f'[{pct}%]', visual_level=level,
+            neural_level=dict(text=str(level), level=level, status='numeric_candidate', score=.99))
+    p = get(d, 30)
+    total = requirement(level)['to_next']
+    reading = p['reading']
+    assert reading['level']['value'] == level and reading['exp'] is None
+    assert reading['estimated_exp']['value']['approximate'] == pytest.approx(total * .2438)
+    pace = p['responsive_pace']
+    assert pace['active'] and pace['estimates']['exp_per_hour']['value']['approximate'] > 0
+    assert p['recent_windows']['5']['gain']['approximate'] > 0
+    assert not store.db.execute('SELECT 1 FROM observations').fetchone()

@@ -1,5 +1,25 @@
 # EXP validity and provisional level context
 
+## Requirement refresh (2026-11-07)
+
+The bundled community table now selects matching published requirements for levels
+1?99, covering advancement through level 100. The previous snapshot withheld 90?99
+because its sources disagreed; both [MeowDB](https://meowdb.com/msclassic/guides/exp-table-level-1-to-100)
+and [MapleStory Quest](https://maplestory.quest/exp-table), checked on 2026-11-07,
+now publish the same values. Level 90 requires 11,938,059 EXP; level 99 requires
+9,482,161,548. The old alternatives remain in the dataset's historical metadata.
+The resource filename stays stable; its version and content hash change.
+
+Percentage-only readings at these levels can now supply presentation estimates,
+EXP/hour and endpoint gains through the existing shared requirement lookup.
+They remain provisional; estimates never become OCR integers or trusted observations.
+No live database rewrite or schema change is needed. Running processes must load the
+updated code/data; process-local requirement caches do not refresh automatically.
+Levels 100?200 remain recognizable, but conversions needing their unpublished
+requirements still abstain. No formula is extrapolated beyond the published table.
+The source agreement is not independent in-game verification. Earlier results below
+refer to the older snapshot unless stated otherwise.
+
 Follow-up: [whole-pair numerical veto and level evidence v3](numerical-windows-eta.md)
 supersede the unconditional percentage-retention description below when recent
 independently corroborated level evidence contradicts the entire pair. These

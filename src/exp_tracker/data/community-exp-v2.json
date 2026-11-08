@@ -1,5 +1,5 @@
 {
-  "version": "community-exp-v2-2026-10-17",
+  "version": "community-exp-v2-2026-11-07",
   "status": "community_sourced_provisional",
   "recognized_levels": [
     1,
@@ -13,7 +13,7 @@
       "id": "meowdb",
       "url": "https://meowdb.com/msclassic/guides/exp-table-level-1-to-100",
       "same_publisher_corroboration": "https://meowdb.com/msclassic/formulas/leveling",
-      "accessed": "2026-10-17",
+      "accessed": "2026-11-07",
       "published_range": [
         1,
         99
@@ -22,10 +22,10 @@
     {
       "id": "quest",
       "url": "https://maplestory.quest/exp-table",
-      "accessed": "2026-10-17",
+      "accessed": "2026-11-07",
       "published_range": [
         1,
-        119
+        99
       ]
     },
     {
@@ -45,7 +45,49 @@
       1,
       49
     ],
-    "overlap_discrepancies": []
+    "overlap_discrepancies": [],
+    "resolved_disputed_to_next": {
+      "90": {
+        "meowdb": 11938059,
+        "quest": 5996316
+      },
+      "91": {
+        "meowdb": 25069923,
+        "quest": 6324914
+      },
+      "92": {
+        "meowdb": 52646838,
+        "quest": 6671519
+      },
+      "93": {
+        "meowdb": 110558359,
+        "quest": 7037118
+      },
+      "94": {
+        "meowdb": 232172553,
+        "quest": 7422752
+      },
+      "95": {
+        "meowdb": 487562361,
+        "quest": 7829518
+      },
+      "96": {
+        "meowdb": 1023880958,
+        "quest": 8258575
+      },
+      "97": {
+        "meowdb": 2150150011,
+        "quest": 8711144
+      },
+      "98": {
+        "meowdb": 4515315023,
+        "quest": 9188514
+      },
+      "99": {
+        "meowdb": 9482161548,
+        "quest": 9692044
+      }
+    }
   },
   "to_next": {
     "1": 15,
@@ -136,50 +178,19 @@
     "86": 4844001,
     "87": 5109452,
     "88": 5389449,
-    "89": 5684790
+    "89": 5684790,
+    "90": 11938059,
+    "91": 25069923,
+    "92": 52646838,
+    "93": 110558359,
+    "94": 232172553,
+    "95": 487562361,
+    "96": 1023880958,
+    "97": 2150150011,
+    "98": 4515315023,
+    "99": 9482161548
   },
-  "disputed_to_next": {
-    "90": {
-      "meowdb": 11938059,
-      "quest": 5996316
-    },
-    "91": {
-      "meowdb": 25069923,
-      "quest": 6324914
-    },
-    "92": {
-      "meowdb": 52646838,
-      "quest": 6671519
-    },
-    "93": {
-      "meowdb": 110558359,
-      "quest": 7037118
-    },
-    "94": {
-      "meowdb": 232172553,
-      "quest": 7422752
-    },
-    "95": {
-      "meowdb": 487562361,
-      "quest": 7829518
-    },
-    "96": {
-      "meowdb": 1023880958,
-      "quest": 8258575
-    },
-    "97": {
-      "meowdb": 2150150011,
-      "quest": 8711144
-    },
-    "98": {
-      "meowdb": 4515315023,
-      "quest": 9188514
-    },
-    "99": {
-      "meowdb": 9482161548,
-      "quest": 9692044
-    }
-  },
+  "disputed_to_next": {},
   "missing_levels": [
     100,
     101,
@@ -283,5 +294,5 @@
     199,
     200
   ],
-  "policy": "Only mutually agreeing values through 89 are selected. Published conflicting 90-99 values are retained, not averaged or selected. Values at 100+ are intentionally unavailable; no game cap is inferred."
+  "policy": "Matching published values through 99 are selected provisionally, including EXP needed to reach level 100. The previous 90-99 disagreement is preserved in historical.resolved_disputed_to_next. No requirement for level 100 or above is published by the agreeing sources; no extrapolation or recognition cap is imposed."
 }

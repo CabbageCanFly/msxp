@@ -73,10 +73,10 @@ def test_level_up_uses_requirement_and_current_level_uses_its_observed_endpoints
 
 
 def test_missing_transition_table_is_explicit_but_current_numeric_level_still_works():
-    rows=[point(1,0,100,'0.01',level=90),point(2,30,200,'0.01',level=91),point(3,60,300,'0.01',level=91)]
+    rows=[point(1,0,100,'0.01',level=100),point(2,30,200,'0.01',level=101),point(3,60,300,'0.01',level=101)]
     w=window(rows,60)
-    assert w['gain']['approximate']==100  # Unknown transition excluded; valid level-91 interval remains.
-    assert window(rows,60,level=91,current=True)['gain']['approximate']==100
+    assert w['gain']['approximate']==100  # Unknown transition excluded; valid level-101 interval remains.
+    assert window(rows,60,level=101,current=True)['gain']['approximate']==100
 
 
 def test_exp_loss_does_not_reduce_earned_gain_in_longer_windows():

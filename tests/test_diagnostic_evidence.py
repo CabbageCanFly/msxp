@@ -32,10 +32,10 @@ def test_conditional_full_exp_veto_never_discards_percentage(exp,pct,status):
 
 
 def test_unknown_or_disputed_level_is_indeterminate_not_an_arbitrary_veto():
-    for level in (None,99,100,200):
+    for level in (None,100,200):
         result=consistency(dict(exp='2458',percentage='45.09'),level)
         assert result['status']=='indeterminate'
-    value=reading(project([neural(1,'2,458[45.09%]',level=99,visual=99)])[0])
+    value=reading(project([neural(1,'2,458[45.09%]',level=100,visual=100)])[0])
     assert value['exp']=='2458' and value['exp_validity']['status']=='indeterminate'
 
 
@@ -123,3 +123,11 @@ def test_historical_single_frame_level_errors_are_not_silently_corrected():
     projected=project([b])[0]
     assert projected['experimental_level']['value']==8 and projected['experimental_level']['trusted'] is False
     assert projected['exp_validity']['status']=='invalid'
+
+
+@pytest.mark.parametrize('level', range(90, 100))
+def test_updated_requirements_validate_full_pairs_and_veto_bad_integers(level):
+    from exp_tracker.exp_requirements import requirement
+    exp = requirement(level)['to_next'] * 2438 // 10000
+    assert consistency(dict(exp=str(exp), percentage='24.38'), level)['status'] == 'consistent'
+    assert consistency(dict(exp='2458', percentage='45.09'), level)['status'] == 'invalid'

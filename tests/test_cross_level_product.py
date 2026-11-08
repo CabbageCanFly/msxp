@@ -109,11 +109,11 @@ def test_mixed_numeric_percentage_window_uses_one_endpoint_pair():
 
 
 def test_missing_transition_requirement_does_not_hide_current_numeric_gain():
-    rows=levels()[:2]+[point(3,40,100,'0.01',level=100),point(4,60,200,'0.02',level=100)]
+    rows=levels()[:2]+[point(3,40,100,'0.01',level=101),point(4,60,200,'0.02',level=101)]
     snap=snapshot(rows,60);now=NOW+timedelta(seconds=60)
-    w=recent_windows(snap,dict(value=100),now=now)['5']
+    w=recent_windows(snap,dict(value=101),now=now)['5']
     assert w['gain']['approximate']==288  # Known intervals remain valid around an unknown transition.
-    current=recent_windows(snap,dict(value=100),now=now,current_level_only=True)['5']
+    current=recent_windows(snap,dict(value=101),now=now,current_level_only=True)['5']
     assert current['gain']['approximate']==100 and current['eta'] is None
 
 
@@ -252,3 +252,22 @@ def test_same_level_rotation_stays_connected_but_level_reset_never_becomes_negat
     assert w['pace']['levels']==[67,68] and w['gain']['approximate']==requirement(67)['to_next']-first+b
     assert w['pace']['coverage_seconds']['approximate']==186
     assert not w['complete_window'] and not store.db.execute('select 1 from observations').fetchone()
+
+
+def test_percentage_only_window_crosses_89_to_90_with_updated_requirement():
+    from exp_tracker.shadow_types import parse_percentage_only
+    rows = [point(1, 0, 0, '99.90', level=89),
+            point(2, 20, 0, '99.95', level=89),
+            point(3, 40, 0, '0.10', level=90),
+            point(4, 60, 0, '0.20', level=90)]
+    for r in rows:
+        text = f"[{r['candidate']['percentage']}%]"
+        r.update(candidate=None, raw_text=text, status='diagnostic_percentage_only',
+                 percentage_only_candidate=parse_percentage_only(text))
+    now = NOW + timedelta(seconds=60)
+    w = recent_windows(snapshot(rows, 60), None, now=now)['5']
+    first = (9990 * requirement(89)['to_next'] + 5000) // 10000
+    last = (20 * requirement(90)['to_next'] + 5000) // 10000
+    assert w['gain']['approximate'] == requirement(89)['to_next'] - first + last
+    assert w['pace']['levels'] == [89, 90]
+    assert w['pace']['estimates']['exp_per_hour']['value']['approximate'] > 0

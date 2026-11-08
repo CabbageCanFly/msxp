@@ -75,7 +75,7 @@ def test_grammar_cannot_detect_known_wrong_numbers_or_choose_ambiguous_pixels():
 
 @pytest.mark.parametrize('level,value,status', [(49,655200,'community_provisional'),
     (50,709716,'community_provisional'), (64,1497832,'community_provisional'),
-    (99,None,'source_disagreement'), (100,None,'missing_requirement'), (200,None,'missing_requirement')])
+    (90,11938059,'community_provisional'), (99,9482161548,'community_provisional'), (100,None,'missing_requirement'), (200,None,'missing_requirement')])
 def test_recognition_range_is_independent_of_table(level, value, status):
     lookup = requirement(level)
     assert lookup['status'] == status and lookup['to_next'] == value
@@ -83,13 +83,14 @@ def test_recognition_range_is_independent_of_table(level, value, status):
     assert not reading_errors(Reading(level, 100, 25.0))
 
 
-def test_table_preserves_all_published_conflicts_and_explicit_missing_entries():
+def test_table_resolves_published_conflicts_and_preserves_history():
     data, sha = community_table()
     assert len(sha) == 64
     assert data['historical']['sha256'] == 'efd379d8010c99afe4a21d6a73b6873746865dfea7c60065cc562557cb72cb0a'
-    assert data['disputed_to_next']['99'] == dict(meowdb=9482161548, quest=9692044)
-    assert requirement(99)['to_next'] is None
-    assert len(data['to_next']) == 89
+    assert data['historical']['resolved_disputed_to_next']['99'] == dict(meowdb=9482161548, quest=9692044)
+    assert data['disputed_to_next'] == {}
+    assert requirement(99)['to_next'] == 9482161548
+    assert len(data['to_next']) == 99
     assert not data['build_applicability_verified']
     assert requirement(True)['status'] == requirement(201)['status'] == 'invalid_or_unavailable_level'
 

@@ -114,7 +114,7 @@ def test_boundaries_are_explicit(changes,reason):
     assert result['current_pace'] is None
 
 
-@pytest.mark.parametrize('level,status',[(99,'source_disagreement'),(100,'missing_requirement'),(200,'missing_requirement')])
+@pytest.mark.parametrize('level,status',[(100,'missing_requirement'),(200,'missing_requirement')])
 def test_percentage_progress_does_not_require_an_exp_table(level,status):
     result=run([row(1,visual_level=level),row(2,'33.05',visual_level=level),row(3,'33.10',visual_level=level)])
     assert result['current_pace']

@@ -245,8 +245,8 @@ def test_no_progress_fabricated_with_unknown_transition_requirements(tracking):
     _,store,d=tracking
     save(d,'run',1,0,3300);save(d,'run',2,20,3310)
     before=d.rolling_history('alpha',now=at(20))['tracked_exp']
-    correct(store,level=99,current_exp=10,percentage_bp=0)
-    for index,seconds,level in ((3,40,99),(4,60,100)):
+    correct(store,level=100,current_exp=10,percentage_bp=0)
+    for index,seconds,level in ((3,40,100),(4,60,101)):
         save(d,'run',index,seconds,100,level=level,full=True,
              neural_level=dict(level=level,text=str(level),status='numeric_candidate',score=.99))
     result=d.rolling_history('alpha',now=at(60))

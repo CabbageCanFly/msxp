@@ -207,7 +207,7 @@ def test_missing_progress_is_derived_only_with_a_supported_exp_requirement():
     assert complete_progress(40,'147108',None)==(147108,5000)
     assert complete_progress(40,0,None)==(0,0)
     assert complete_progress(40,None,0)==(0,0)
-    assert complete_progress(90,None,5000)==(None,5000)
+    assert complete_progress(90,None,5000)==(5969029,5000)
     assert complete_progress(100,1000,None)==(1000,None)
 
 

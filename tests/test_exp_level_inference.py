@@ -76,7 +76,7 @@ def test_worked_example_is_uniquely_level_42_under_both_hypotheses():
     assert result['hypotheses'] == dict(nearest_half_up=[42], truncate=[42])
     data, sha = community_table()
     assert result['table_version'] == data['version'] and result['table_sha256'] == sha
-    assert result['supported_levels'] == [1, 89]
+    assert result['supported_levels'] == [1, 99]
     assert not result['trusted'] and not result['authoritative'] and not result['visual']
 
 
@@ -93,13 +93,13 @@ def test_ambiguous_and_hypothesis_split_pairs_never_yield_a_level():
     assert levels([pair(i, 100, '0.02') for i in range(1, 5)]) == [None]*4
 
 
-@pytest.mark.parametrize('exp,pct', [(0, '0.00'), (1, '0.00'), (1000, '0.01'),
-    (3914759, '50.00'),   # quest's disputed level-95 requirement 7,829,518 at 50%
-    (5684000, '99.99')])  # could equal the level-89 floor or an unpublished 90+ total
+@pytest.mark.parametrize('exp,pct', [(0, '0.00'), (1, '0.00'), (1000000, '0.01'),
+    (4741080774, '50.00'),  # highest published requirement at 50%
+    (9481000000, '99.99')])  # could need an unpublished 100+ total
 def test_zero_and_pairs_that_could_need_unsupported_requirements_abstain(exp, pct):
     result = exp_derived(dict(exp=str(exp), percentage=pct))
     assert result['status'] == 'outside_supported_coverage' and result['unique_level'] is None
-    assert requirement(95)['status'] == 'source_disagreement' and requirement(150)['status'] == 'missing_requirement'
+    assert requirement(99)['status'] == 'community_provisional' and requirement(150)['status'] == 'missing_requirement'
     assert levels([pair(i, exp, pct) for i in range(1, 5)]) == [None]*4
 
 
@@ -254,17 +254,17 @@ def test_misread_wrap_or_contradicting_progress_abandons_the_hypothesis():
 def test_one_wrap_is_one_level_and_unsupported_next_levels_stay_possible():
     # Big jumps after the wrap are not forward progress, so no second level-up from noise.
     assert levels(wrapped()+[only(11, '96.00'), only(12, '0.20')])[-2:] == [None, None]
-    # Level 89 itself is never arithmetic evidence: an unpublished level-90 total could fit.
-    t89 = requirement(89)['to_next']
-    assert exp_derived(dict(exp=str(t89//2), percentage=display(t89//2, t89)))['status'] == 'outside_supported_coverage'
-    t88 = requirement(88)['to_next']
-    top = [pair(i, t88-60000+i*1000, display(t88-60000+i*1000, t88)) for i in range(1, 4)]
+    # Level 99 itself is never arithmetic evidence: an unpublished level-100 total could fit.
+    t99 = requirement(99)['to_next']
+    assert exp_derived(dict(exp=str(t99//2), percentage=display(t99//2, t99)))['status'] == 'outside_supported_coverage'
+    t98 = requirement(98)['to_next']
+    top = [pair(i, t98-60000000+i*1000000, display(t98-60000000+i*1000000, t98)) for i in range(1, 4)]
     up = [only(4, '99.50'), only(5, '99.90')]+[only(6+i, pct) for i, pct in enumerate(AFTER_WRAP)]
-    # A reader can corroborate 89; the next wrap stays only possible: 90's requirement is disputed.
-    again = [only(10, '1.20', visual_level=89, visual_status='available'), only(11, '99.60'), only(12, '99.90')]
+    # A reader can corroborate 99; the next wrap stays only possible: 100 has no requirement.
+    again = [only(10, '1.20', visual_level=99, visual_status='available'), only(11, '99.60'), only(12, '99.90')]
     again += [only(13+i, pct) for i, pct in enumerate(AFTER_WRAP+('1.50', '2.00'))]
     hidden = evidence(top+up+again)
-    assert hidden[2]['value'] == 88 and hidden[8]['value'] == 89 and hidden[8]['status'] == 'provisional_level_up'
+    assert hidden[2]['value'] == 98 and hidden[8]['value'] == 99 and hidden[8]['status'] == 'provisional_level_up'
     assert hidden[9]['level_context']['last_transition']['corroborated_by'] == 'reader_single_reader'
     assert {e['status'] for e in hidden[12:]} == {'possible_level_up'} and all(e['value'] is None for e in hidden[12:])
 

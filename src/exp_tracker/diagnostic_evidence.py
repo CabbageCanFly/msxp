@@ -79,7 +79,7 @@ def _exp_derived(exp, percentage):
     if any(value['status'] == 'invalid_input' for value in hypotheses.values()):
         return {**result, 'status': 'invalid_input', 'levels': []}
     bp = int(Decimal(percentage) * 100)
-    # Disputed/missing 90+ requirements are assumed >= level 89's. A pair that could
+    # Missing requirements are assumed >= the largest published value. A pair that could
     # need such a requirement (including every 0.00%) is outside supported coverage.
     if bp == 0 or 20000 * int(exp) >= (2 * bp - 1) * max(table.values()):
         return {**result, 'status': 'outside_supported_coverage'}

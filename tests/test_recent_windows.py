@@ -78,7 +78,7 @@ def test_missing_attempt_long_gap_stale_interruption_and_simulation_do_not_produ
     assert not windows(rows)['5']['eligible']
 
 
-@pytest.mark.parametrize('level',[99,100,200])
+@pytest.mark.parametrize('level',[100,200])
 def test_unsupported_or_disputed_requirement_keeps_percentage_window_only(level):
     rows=history(21)
     for r in rows:r['visual_level']=level

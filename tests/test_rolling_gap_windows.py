@@ -68,7 +68,7 @@ def test_level_ups_use_known_requirements_and_unknown_transitions_abstain():
     total=requirement(67)['to_next']
     points=[coordinate(0,total-100,level=67),coordinate(5,200,level=68)]
     assert gain(points,5,clock=5)==300
-    assert gain([coordinate(0,100,level=90),coordinate(5,200,level=91)],5,clock=5) is None
+    assert gain([coordinate(0,100,level=100),coordinate(5,200,level=101)],5,clock=5) is None
     assert gain([coordinate(0,100,level=68),coordinate(5,200,level=67)],5,clock=5) is None
 
 

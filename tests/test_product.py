@@ -179,7 +179,7 @@ def test_zero_display_change_has_pace_bounds_but_no_eta(tracking):
     assert result['estimates']['percentage_per_hour']['nearest_half_up']['lower']['approximate']<0
 
 
-@pytest.mark.parametrize('level', [99,100,200])
+@pytest.mark.parametrize('level', [100,200])
 def test_missing_or_disputed_requirement_does_not_invent_exp_rates(tracking,level):
     _,_,d=tracking
     for i,pct in enumerate(('33.00','33.05','33.10'),1):

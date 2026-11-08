@@ -10,9 +10,9 @@ import json
 def community_table():
     payload = files('exp_tracker').joinpath('data/community-exp-v2.json').read_bytes()
     data = json.loads(payload)
-    if (set(map(int, data['to_next'])) != set(range(1, 90)) or
+    if (set(map(int, data['to_next'])) != set(range(1, 100)) or
             any(type(n) is not int or n <= 0 for n in data['to_next'].values()) or
-            set(map(int, data['disputed_to_next'])) != set(range(90, 100)) or
+            data['disputed_to_next'] != {} or
             data['missing_levels'] != list(range(100, 201))):
         raise ValueError('Invalid versioned community EXP dataset')
     return data, hashlib.sha256(payload).hexdigest()
