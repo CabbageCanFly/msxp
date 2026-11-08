@@ -12,6 +12,7 @@ from .diagnostics import Diagnostics, HELD_ENVELOPE, encoded, identity_held
 from .jobs import match, min_level, tier
 from .manual import active
 from .models import PLACEHOLDER_CHARACTER, same_character_name
+from .name_glyphs import validated as glyph_name, MIN_SCORE as GLYPH_MIN_SCORE
 from .shadow_view import observation
 from .store import utc
 
@@ -78,16 +79,19 @@ def name_evidence(record):
     raw = value.get('raw') or {}
     raw = raw.get('raw') or {}
     texts = raw.get('txts')
+    raw_name = texts[0].strip() if isinstance(texts,list) and len(texts)==1 and isinstance(texts[0],str) else None
+    refined = glyph_name(raw_name,value.get('glyph_refinement'))
     provenance = value.get('provenance') or {}
     if (not record.get('current') or record.get('localization', {}).get('count') != 1 or value.get('status') != 'candidate'
             or value.get('received_at') != record.get('received_at')
             or record.get('character_name', {}).get('suggestion', {}).get('latest_status') in ('duplicate_frame','out_of_order')
             or not isinstance(name, str) or same_character_name(name, PLACEHOLDER_CHARACTER) or not name.isascii() or not name.isalnum()
             or not name[0:1].isalpha() or not 2 <= len(name) <= 12
-            or type(score) not in (int, float) or not math.isfinite(score) or not NEURAL_SEED_SCORE <= score <= 1
+            or type(score) not in (int, float) or not math.isfinite(score)
+            or not (GLYPH_MIN_SCORE if refined else NEURAL_SEED_SCORE) <= score <= 1
             or provenance.get('layout_count') != 1 or provenance.get('search') != 'full_frame'
             or not isinstance(texts, list) or len(texts) != 1 or not isinstance(texts[0], str)
-            or len(texts[0]) > 160 or texts[0].strip() != name
+            or len(texts[0]) > 160 or (refined or raw_name) != name
             or raw.get('scores') != [score]):
         return None
     digest = value.get('pixel_sha256')

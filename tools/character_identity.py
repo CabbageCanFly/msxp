@@ -11,6 +11,7 @@ from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS, NEURAL_SEED_SCO
 from exp_tracker.exp_consistency import MODES, assess, displayed_bp
 from exp_tracker.jobs import match, next_level, tier
 from exp_tracker.models import Reading, same_character_name
+from exp_tracker.name_glyphs import refine, validated
 from exp_tracker.validation import Observation, validate_transition
 from character_name_ocr import clean_name_crop, job_region, name_region, name_text, second_look
 
@@ -232,8 +233,10 @@ class IdentityCapture:
                     return None
                 crop = image.crop(region['box'])
                 response = read_name(clean_name_crop(crop)); read = parsed(response)
+                glyphs = refine(crop,read[1]) if read else None
+                observed = validated(read[1],glyphs) if glyphs else read and read[1]
                 reference = self.suggestions.reference
-                if reference and not same_character_name((read or (0, None))[1], reference):
+                if reference and not same_character_name(observed, reference):
                     # Only a matching current-character name replaces the plain read.
                     second = read_name(second_look(crop))
                     if not same_character_name((parsed(second) or (0, None))[1], reference):
@@ -249,9 +252,13 @@ class IdentityCapture:
                     if same_character_name((parsed(second) or (0, None))[1], reference):
                         evidence['first_read'] = dict(text=response.get('text'), score=read and read[0])
                         response, read = second, parsed(second)
+                        glyphs = None
                 evidence['raw'] = response
                 if read:
                     evidence['score'], evidence['name'] = read
+                    if glyphs:
+                        evidence['name'] = observed
+                        evidence['glyph_refinement'] = glyphs
                 evidence['status'] = 'candidate' if evidence['name'] else 'unreadable_or_conflicting'
                 level = result.get('visual_level') or (result.get('neural_level') or {}).get('level')
                 if self.job_due(level, started):

@@ -1,5 +1,45 @@
 # Offline character-name OCR
 
+## Calibrated status-name 0/O correction (2026-11-08)
+
+Live capture can now attach separate pixel-shape evidence for a bounded `0`/`O`
+correction, such as `CharOO` to `Char00`. It never aliases these characters during
+identity matching, changes other letters, or replaces the original OCR text/score.
+Corrected names still need two fresh, distinct full-frame observations before an
+automatic creation/switch. One isolated conflicting name can hold a reading but
+cannot switch; two qualifying consecutive conflicts can still switch.
+
+The normal automatic-name score minimum remains **0.90**. A changed name may
+alternatively qualify at **0.75** only when all its `0`/`O` positions independently
+pass the calibrated shape and separation checks. This is a name-only experimental
+quality gate, not a calibrated probability or a change to job/level thresholds.
+Capture retains the original raw name, original score, normalized ambiguous glyphs,
+calibration digest and policy. Attribution recomputes the correction from these
+bounded glyphs, checks the original raw name/score and rejects malformed, mismatched,
+stale, duplicate or competing-HUD evidence. Low-quality unrelated letters remain a
+limitation of this alternate name gate; repeated wrong evidence can still pass.
+
+The optional calibration is `private/name-glyphs.json` under the checkout, kept
+outside Git with the other private OCR calibration data. Version 1 contains exactly
+`0` and `O` templates, each a 24-by-20 grayscale array encoded as 960 hex characters.
+An absent/invalid calibration disables correction and preserves baseline behavior.
+It is cached once per process: install the reviewed private calibration before
+restarting capture/API processes. Replacing it makes old correction proofs with a
+different digest unavailable for fresh identity votes; it does not rename or merge
+existing characters. No setting, dependency or CLI flag is added.
+
+Tests include synthetic calibrated glyphs, proof tampering, score boundaries,
+unchanged raw evidence, known-name retries and two-frame selection in temporary
+SQLite. A real-pixel capture-to-discovery replay selected the correct zero spelling
+on frame two. The integrated correction matched the expected names on all 100
+fresh development frames: 20 corrected target frames, 80 unchanged controls. This
+is bounded development evidence; three controls deliberately preserve baseline
+because their glyph geometry is ambiguous or joined. Broader fonts are not claimed.
+The capture-side correction plus proof check averaged about **0.47 ms/name** locally;
+there are no additional OCR/network calls for the correction itself. A one-time
+known-name retry can still run under the existing rules.
+
+
 Streamer and character names in examples are placeholders. Private source footage
 and literal OCR evidence remain outside Git.
 
