@@ -107,6 +107,9 @@ and later scans read EXP from templates alone.
   Errors are accepted as on the live site rather than asking for confirmation. Measured live: a
   new level-1 character was created and named automatically; its level-up 1→2 was confirmed by a
   one-second burst scan and its cross-level gain (15 − 13 + 8 = 10 EXP) counted exactly.
+  Switching among three characters on the live client: a new character was created and named
+  automatically, and returning to a known one switched on the third confirming scan (about 3 s
+  after its HUD reappeared), by bitmap alone with no OCR; loading screens were skipped.
 - **Job**: a changed job line must repeat on two scans; OCR is matched to the 15 known jobs (at most
   two edits, and never between two equally close jobs, e.g. the two Wizards).
 - **Fallback identity check**: without a readable name line (manual boxes, covered panel), a
@@ -191,5 +194,4 @@ located (overlays, third-party trackers, scaled layouts); manual calibration is 
   live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
 - The `_headers` detach syntax (`! Content-Security-Policy`) on real Cloudflare Pages; the local
   preview implements it the same way.
-- Switching between two different characters, creating a character from a new name, and a job
-  advancement on the live client (naming the tracked character was verified live).
+- A job advancement on the live client (job detection was verified on Beginner and Swordsman).
