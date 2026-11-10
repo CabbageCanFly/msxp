@@ -295,5 +295,5 @@ def test_local_tracker_pages_get_their_own_policy_and_never_contact_the_api(out,
         # The SVG namespace is an identifier, not a request.
         source = module.read_text(encoding='utf-8').replace("'http://www.w3.org/2000/svg'", "''")
         assert 'data-api' not in source and 'dataset.api' not in source and '/api/' not in source, module.name
-        assert set(re.findall(r"fetch\('([^']*)'", source)) <= {'/static/local/community-exp.json'}, module.name
+        assert set(re.findall(r"fetch\('([^']*)'", source)) <= {'/static/local/community-exp.json', '/static/local/items/items.json'}, module.name
         assert 'https://' not in source and 'http://' not in source, module.name
