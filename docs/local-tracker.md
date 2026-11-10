@@ -155,6 +155,16 @@ Live capture, character level 20, scans every 20 s with the game in the foregrou
 - Overlay: a BroadcastChannel update reached `/local/overlay` within the same scan; card and
   bar/green layouts rendered from IndexedDB.
 
+Second live run (same day, after name/job detection, level templates, bursts and band copies;
+5-second interval chosen by the player):
+
+- A character named by hand ("CharA", no name bitmap) was given the on-screen name and job
+  (Beginner → Swordsman) automatically: three one-second burst scans agreed on the name bitmap,
+  then OCR labelled it.
+- Steady scans copied 58 of 800 rows and read level and EXP from templates only: 14–26 ms wall time
+  per scan, no OCR. The OCR engine ran 12 times in the session (66 ms): detection, the level until
+  its digits were learned, and the name/job labels.
+
 Offline replay of the 26 labelled Twitch frames (`samples/live-regression`, compressed and scaled,
 not the target input): no reading was accepted with a wrong value. Most are rejected or not
 located (overlays, third-party trackers, scaled layouts); manual calibration is the fallback there.
@@ -173,6 +183,5 @@ located (overlays, third-party trackers, scaled layouts); manual calibration is 
   live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
 - The `_headers` detach syntax (`! Content-Security-Policy`) on real Cloudflare Pages; the local
   preview implements it the same way.
-- Name/job detection, level templates, bursts and band copies were verified offline on a saved
-  native frame (template scan 1.2 ms on the band, identity OCR 34 ms); the live switch between two
-  characters and a job advancement are not yet tested.
+- Switching between two different characters, creating a character from a new name, and a job
+  advancement on the live client (naming the tracked character was verified live).
