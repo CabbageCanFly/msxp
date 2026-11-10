@@ -144,11 +144,19 @@ export function brackets(frame, box) {
 }
 
 // Rows holding bright text inside a box (the digit band), or null.
+// Text rows are partly bright; a panel border caught by a loose box is a near-solid bright row. So the
+// band is the longest run of partly-bright rows.
 export function inkRows(frame, box, threshold = 170) {
   const part = crop(frame, box), gray = channel(part, 'max');
-  let top = -1, bottom = -1;
-  for (let y = 0; y < part.height; y++) for (let x = 0; x < part.width; x++) if (gray[y * part.width + x] > threshold) { if (top < 0) top = y; bottom = y; break; }
-  return top < 0 ? null : {top: Math.floor(box.y0) + top, bottom: Math.floor(box.y0) + bottom};
+  let best = null, start = -1;
+  for (let y = 0; y <= part.height; y++) {
+    let count = 0;
+    if (y < part.height) for (let x = 0; x < part.width; x++) if (gray[y * part.width + x] > threshold) count++;
+    const text = count > 0 && count < part.width * .8;
+    if (text && start < 0) start = y;
+    if (!text && start >= 0) { if (!best || y - start > best.bottom - best.top + 1) best = {top: start, bottom: y - 1}; start = -1; }
+  }
+  return best && {top: Math.floor(box.y0) + best.top, bottom: Math.floor(box.y0) + best.bottom};
 }
 
 // The EXP label is taller than the digits: the last column with ink in the two rows above the digit

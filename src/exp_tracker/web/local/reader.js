@@ -38,9 +38,12 @@ export function fieldBoxes(frame, regions) {
       const band = inkRows(frame, {x0: open.x1, y0, x1: close.x0, y1});
       const label = band && labelEnd(frame, {x0: regions.exp.x0, x1: open.x0}, band.top);
       const x0 = label === null || label === undefined ? regions.exp.x0 : label + 1;
+      // Cut both fields to the digit row itself: a box that is a few pixels too tall (after a re-detect)
+      // would otherwise take in the panel's border and stop matching the learned glyphs.
+      const top = band ? band.top - 1 : y0, bottom = band ? band.bottom + 2 : y1;
       if (open.x0 - x0 >= 4) {
-        out.number = {x0, y0, x1: open.x0, y1};
-        out.percent = {x0: open.x1, y0, x1: close.x0, y1};
+        out.number = {x0, y0: top, x1: open.x0, y1: bottom};
+        out.percent = {x0: open.x1, y0: top, x1: close.x0, y1: bottom};
         out.exp = {x0: regions.exp.x0, y0, x1: close.x1 + pad, y1};
       }
     }

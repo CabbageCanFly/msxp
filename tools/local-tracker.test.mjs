@@ -250,3 +250,11 @@ test('pickup messages: outlined text lines, stack shifts and parsing', async () 
   assert.equal(P.resolveItem(items, {name: 'Blue Mushroom', cut: true, tab: 'Etc'}).name, 'Blue Mushroom Cap');  // The tab separates the cap from the hat.
   assert.equal(P.resolveItem(items, {name: 'Blue Mushroom', cut: true, tab: null}), null);  // Ambiguous without the tab: no guess.
 });
+
+test('the digit row ignores a panel border caught by a box that is too tall', () => {
+  const width = 30, height = 14, data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) data.set([60, 60, 60, 255], i * 4);
+  for (let x = 0; x < width; x++) data.set([220, 220, 220, 255], (1 * width + x) * 4);  // Border: a solid bright row.
+  for (let y = 5; y < 12; y++) for (const x of [3, 4, 9, 15]) data.set([255, 255, 255, 255], (y * width + x) * 4);  // Digits.
+  assert.deepEqual(H.inkRows({width, height, data}, {x0: 0, y0: 0, x1: width, y1: height}), {top: 5, bottom: 11});
+});
