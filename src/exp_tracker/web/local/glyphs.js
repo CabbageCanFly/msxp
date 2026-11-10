@@ -40,6 +40,22 @@ export function lineKey(frame, box) {
 // Without blank top and bottom rows: compares a digit seen in a name line with one learned from EXP.
 export const trimKey = (key) => key.split('/').filter((row) => row.includes('1')).join('/');
 
+// Letters of the panel font, learned from verified text: a typed rename (authoritative: it replaces a
+// conflicting letter) or a job line that matched the known job list (a conflict poisons the bitmap).
+// Spaces are gaps, not glyphs. Nothing is learned unless glyph and character counts match.
+export function learnLetters(letters, keys, text, {authoritative = false} = {}) {
+  const chars = [...text.replace(/\s+/g, '')];
+  if (!keys || keys.length !== chars.length) return 0;
+  let changed = 0;
+  keys.forEach((key, i) => {
+    const known = letters[key], char = chars[i];
+    if (known === char) return;
+    letters[key] = known === undefined || authoritative ? char : '?';
+    changed++;
+  });
+  return changed;
+}
+
 // Text from known glyphs only; any unknown or conflicted glyph means no template reading.
 export function read(segmented, templates) {
   if (!segmented || !templates) return null;

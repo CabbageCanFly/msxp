@@ -107,7 +107,9 @@ export async function readHud(engine, frame, regions, templates = null) {
   result.exp = value.exp; result.bp = value.bp; result.smooth = smooth;
   // Name and job are compared as exact bitmaps every scan (well under a millisecond); OCR runs only
   // when a new bitmap needs a label (readIdentity).
-  result.identity = boxes.name ? {nameKey: lineKey(frame, boxes.name), jobKey: boxes.job ? lineKey(frame, boxes.job) : null} : null;
+  const glyphKeys = (box) => segment(frame, box, 'min')?.glyphs.map((g) => trimKey(g.key)) ?? null;
+  result.identity = boxes.name ? {nameKey: lineKey(frame, boxes.name), nameGlyphs: glyphKeys(boxes.name),
+    jobKey: boxes.job ? lineKey(frame, boxes.job) : null, jobGlyphs: boxes.job ? glyphKeys(boxes.job) : null} : null;
   if (boxes.level) {
     const levelSegments = result.levelSegments = segment(frame, boxes.level, 'min');
     const known = parseLevel(readGlyphs(levelSegments, templates) ?? '');
@@ -171,19 +173,22 @@ export function matchJob(text, jobs) {
 }
 
 /**
- * Labels for a new name or job bitmap. A name glyph that is pixel-identical to a digit learned from the
- * EXP bar is that digit; an OCR '0' that is not the learned zero is the letter O (the O/0 rule).
+ * Labels for a new name or job bitmap. Known glyphs come first: letters learned from renames and job
+ * lines, and digits learned from the EXP bar. A name whose glyphs are all known needs no OCR; otherwise
+ * the pooled OCR vote fills the unknown ones, and an OCR '0' that is not the learned zero is the letter O.
  */
-export async function readIdentity(engine, frame, boxes, templates, jobs) {
+export async function readIdentity(engine, frame, boxes, templates, jobs, letters = {}) {
   const out = {name: null, job: null};
   if (boxes.name) {
     const glyphs = segment(frame, boxes.name, 'min')?.glyphs;
-    let name = glyphs ? await votedName(engine, frame, boxes.name, glyphs) : null;
-    if (name && glyphs?.length === name.length && templates) {
-      const digits = {};
-      for (const [key, char] of Object.entries(templates)) if (/^\d$/.test(char)) digits[trimKey(key)] = char;
-      const zero = Object.values(digits).includes('0');
-      name = [...name].map((char, i) => digits[trimKey(glyphs[i].key)] ?? (char === '0' && zero ? 'O' : char)).join('');
+    const known = {};
+    for (const [key, char] of Object.entries(templates ?? {})) if (/^\d$/.test(char)) known[trimKey(key)] = char;
+    Object.assign(known, letters);  // A taught letter wins over a digit with the same pixels.
+    const fixed = glyphs?.map((g) => { const char = known[trimKey(g.key)]; return char && char !== '?' ? char : null; });
+    let name = fixed?.every(Boolean) ? fixed.join('') : glyphs ? await votedName(engine, frame, boxes.name, glyphs) : null;
+    if (name && glyphs?.length === name.length) {
+      const zero = Object.values(known).includes('0');
+      name = [...name].map((char, i) => fixed[i] ?? (char === '0' && zero ? 'O' : char)).join('');
     }
     out.name = name && /^[A-Za-z0-9]{2,13}$/.test(name) ? name : null;
   }

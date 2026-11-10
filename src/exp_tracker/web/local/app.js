@@ -4,7 +4,7 @@ import * as store from './store.js';
 import {acceptBaseline, maxGapFor, resolveLevel, step, suspicious} from './exp.js';
 import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud, readIdentity} from './reader.js';
-import {displayed, learn} from './glyphs.js';
+import {displayed, learn, learnLetters} from './glyphs.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip} from './charts.js';
@@ -32,7 +32,7 @@ const lockHeldElsewhere = async () => Boolean((await navigator.locks?.query?.())
 
 let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, valid only for one calibration (window size and boxes).
-let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null};
+let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}};
 let character = null, readingsCache = [], daysCache = [];
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 300, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -82,6 +82,8 @@ async function saveCharacterForm(asNew) {
   const isNew = asNew || $('character-form').dataset.mode === 'new' || !character;
   // A renamed character keeps its history; a new one never inherits another character's readings.
   const id = await store.saveCharacter(isNew ? {name, job} : {...character, name, job});
+  // A typed rename is the truth about the on-screen name: it teaches those letters for future names.
+  if (!isNew && name !== character.name) await teachLetters(character.nameGlyphs, name, true);
   $('character-form').hidden = true;
   await selectCharacter(id);
 }
@@ -308,6 +310,13 @@ const MESSAGES = {
 
 const templatesFor = (frame) => settings.glyphs?.size === `${frame.full.width}x${frame.full.height}` ? settings.glyphs.templates : null;
 
+async function teachLetters(keys, text, authoritative = false) {
+  const letters = {...settings.letters};
+  if (!learnLetters(letters, keys, text, {authoritative})) return;
+  settings.letters = letters;
+  await store.setSetting('letters', letters);
+}
+
 /**
  * Who is on screen, by exact name bitmap. A new bitmap must repeat on three scans a second apart. It
  * then switches to the character with that bitmap, gives a not-yet-named character its bitmap (if the
@@ -319,11 +328,14 @@ async function identify(current, outcome, at) {
   if (!id?.nameKey) return null;
   if (character.nameKey === id.nameKey) {
     current.nameStreak = null;
+    // Remember the name's glyphs, so a later rename can teach its letters.
+    if (!character.nameGlyphs && id.nameGlyphs) character = await store.getCharacter(await store.saveCharacter({...character, nameGlyphs: id.nameGlyphs}));
     if (id.jobKey && character.jobKey !== id.jobKey) {
       current.jobStreak = current.jobStreak?.key === id.jobKey ? {key: id.jobKey, count: current.jobStreak.count + 1} : {key: id.jobKey, count: 1};
       if (current.jobStreak.count >= 2) {
         current.jobStreak = null;
         const who = await readIdentity(engine, current.lastFrame, {job: outcome.boxes.job}, null, JOBS);
+        if (who.job) await teachLetters(id.jobGlyphs, who.job);
         character = await store.saveCharacter({...character, jobKey: id.jobKey, ...(who.job ? {job: who.job} : {})}).then(store.getCharacter);
         await refreshCharacters(); broadcast();
       } else current.burst = Math.max(current.burst || 0, 1);
@@ -339,19 +351,20 @@ async function identify(current, outcome, at) {
   current.nameStreak = null;
   const all = await store.characters(), match = all.find((c) => c.nameKey === id.nameKey);
   if (match) { await selectCharacter(match.id); setStatus(`Switched to ${match.name}`, 'ok'); return 'character_switched'; }
-  const who = await readIdentity(engine, current.lastFrame, outcome.boxes, templatesFor(current.lastFrame), JOBS);
+  const who = await readIdentity(engine, current.lastFrame, outcome.boxes, templatesFor(current.lastFrame), JOBS, settings.letters);
+  if (who.job) await teachLetters(id.jobGlyphs, who.job);
   const resolved = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, null), reading = {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp};
   const fits = !character.last || (resolved.level !== null && !suspicious(character.last, reading));
   if (!character.nameKey && fits) {
     // The character being tracked had no name bitmap yet: this is it.
-    character = await store.getCharacter(await store.saveCharacter({...character, nameKey: id.nameKey, jobKey: id.jobKey,
+    character = await store.getCharacter(await store.saveCharacter({...character, nameKey: id.nameKey, nameGlyphs: id.nameGlyphs, jobKey: id.jobKey,
       ...(who.name ? {name: who.name} : {}), ...(who.job ? {job: who.job} : {})}));
     await refreshCharacters(); broadcast();
     return null;
   }
   // Identity is the bitmap; an unreadable name only means a placeholder label the player can rename.
   const name = who.name ?? `Character ${all.length + 1}`;
-  const created = await store.saveCharacter({name, job: who.job ?? 'Beginner', nameKey: id.nameKey, jobKey: id.jobKey});
+  const created = await store.saveCharacter({name, job: who.job ?? 'Beginner', nameKey: id.nameKey, nameGlyphs: id.nameGlyphs, jobKey: id.jobKey});
   await selectCharacter(created); setStatus(who.name ? `New character: ${name}` : `New character (name unreadable, rename it): ${name}`, 'ok');
   return 'character_switched';
 }
@@ -619,7 +632,7 @@ async function init() {
   $('clear').addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to delete everything', async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
-    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null};
+    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}};
     character = null; readingsCache = [];
     await refreshCharacters(); broadcast(); setStatus('Local history cleared');
   }));
@@ -629,7 +642,7 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }

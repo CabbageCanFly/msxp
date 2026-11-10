@@ -93,12 +93,19 @@ and later scans read EXP from templates alone.
 - **Identity, automatic and by pixels**: the name line's exact bitmap identifies the character. A
   different bitmap must repeat on three scans a second apart. Then the page switches to the
   character with that bitmap; or gives it to the character being tracked if that one has no name
-  bitmap yet and the reading fits its history; or creates a character named by OCR (both native
-  magnifications must agree; a glyph identical to a digit learned from the EXP bar is that digit,
-  and any other OCR `0` is the letter O). No valid OCR name, no new character. Because identity is
+  bitmap yet and the reading fits its history; or creates a character named by OCR (a glyph
+  identical to a digit learned from the EXP bar is that digit,
+  and any other OCR `0` is the letter O). Names are read at four magnifications with votes pooled
+  per identical glyph (one misread letter is outvoted). **Letters are learned like digits**, from
+  verified text only: every job line that matches the job list, and every rename you type
+  (authoritative); a name whose glyphs are all known is read without OCR. Only scans whose level
+  matches the EXP table count toward a change, so logout fades and loading screens cannot.
+  An unreadable but stable name becomes "Character N". Because identity is
   the bitmap, a misread name only mislabels a history, it never splits or mixes one; renaming keeps
   it. Choosing another character by hand while the game shows a known name switches back.
-  Errors are accepted as on the live site rather than asking for confirmation.
+  Errors are accepted as on the live site rather than asking for confirmation. Measured live: a
+  new level-1 character was created and named automatically; its level-up 1→2 was confirmed by a
+  one-second burst scan and its cross-level gain (15 − 13 + 8 = 10 EXP) counted exactly.
 - **Job**: a changed job line must repeat on two scans; OCR is matched to the 15 known jobs (at most
   two edits, and never between two equally close jobs, e.g. the two Wizards).
 - **Fallback identity check**: without a readable name line (manual boxes, covered panel), a

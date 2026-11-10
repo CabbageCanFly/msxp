@@ -205,3 +205,15 @@ test('panel lines beside the level badge give stable per-line keys', async () =>
   assert.notEqual(G.lineKey(frame, lines.name), G.lineKey(frame, lines.job));
   assert.equal(G.trimKey('000/010/000'), '010');
 });
+
+test('letters: learned from verified text only when counts match; renames are authoritative', async () => {
+  const G = await import(new URL('glyphs.js', web));
+  const letters = {};
+  assert.equal(G.learnLetters(letters, ['k1', 'k2', 'k3'], 'Cab'), 3);
+  assert.equal(G.learnLetters(letters, ['k1', 'k2'], 'Cab'), 0);  // Counts differ: nothing learned.
+  assert.equal(G.learnLetters(letters, ['k4', 'k5', 'k6', 'k7'], 'Pa ge'), 4);  // Spaces are gaps, not glyphs.
+  G.learnLetters(letters, ['k2'], 'h');  // A conflicting job letter poisons the bitmap.
+  assert.equal(letters.k2, '?');
+  G.learnLetters(letters, ['k2'], 'a', {authoritative: true});  // A typed rename settles it.
+  assert.equal(letters.k2, 'a');
+});
