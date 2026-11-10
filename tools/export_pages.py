@@ -39,6 +39,7 @@ STATIC = ('product.js', 'product.css', 'leaderboard.css', 'live-overlay.css', 's
           # The browser-only personal tracker (/local) and its self-hosted OCR runtime (docs/local-tracker.md).
           *sorted(f'local/{p.name}' for p in WEB.glob('local/*.*')),
           *sorted(f'local/vendor/{p.name}' for p in WEB.glob('local/vendor/*.*')),
+          *sorted(f'local/items/{p.name}' for p in WEB.glob('local/items/*.*')),  # Pickup tracker item list and icon sheets.
           'local/community-exp.json')
 # Exported files that live outside web/: the local tracker reads the same EXP table as the Python tracker.
 DATA = {'local/community-exp.json': ROOT / 'src' / 'exp_tracker' / 'data' / 'community-exp-v2.json'}
@@ -55,7 +56,7 @@ LOCAL_PATHS = ('/local', '/local/*', '/local-overlay', '/static/local/*')
 LOCAL_POLICY = ("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; "
                 "object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'")
 CACHED = ('/static/fonts/*', '/static/steely.png', '/static/sleepywood.webp', '/static/sleepywood-forest.webp',
-          '/static/kerning.webp', '/static/kerning-sky.webp', '/static/mobs/*', '/static/jobs/*', '/static/classes/*', '/static/local/vendor/*')
+          '/static/kerning.webp', '/static/kerning-sky.webp', '/static/mobs/*', '/static/jobs/*', '/static/classes/*', '/static/local/vendor/*', '/static/local/items/*')
 NOT_FOUND = '''<!doctype html>
 <html lang="en" data-site="public"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Not found · EXP Tracker</title><link rel="icon" href="/static/steely.png" type="image/png">

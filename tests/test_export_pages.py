@@ -65,8 +65,8 @@ def test_export_contains_exactly_the_public_allowlist_and_is_repeatable(out):
 def test_private_and_developer_files_are_never_exported(out):
     names = set(tree(out))
     for private in ('admin', 'shadow', 'streams', 'overlay.js', 'overlay.css', 'leaderboard.html', 'leaderboard.js', '.py', '.sqlite', '.json', '.env'):
-        # The public community EXP table is the one JSON file: the local tracker validates readings with it.
-        assert not any(private in name.replace('live-overlay', '') for name in names - {'static/local/community-exp.json'}), private
+        # The two public JSON files: the community EXP table and the monster-drop item list (local tracker).
+        assert not any(private in name.replace('live-overlay', '') for name in names - {'static/local/community-exp.json', 'static/local/items/items.json'}), private
     assert (out / 'static/local/community-exp.json').read_bytes() == (export_pages.ROOT / 'src/exp_tracker/data/community-exp-v2.json').read_bytes()
     text = b'\n'.join(tree(out).values())
     assert b'8766' not in text and b'/admin' not in text and b'/dev/api' not in text
