@@ -601,7 +601,7 @@ async function init() {
   $('start').addEventListener('click', start);
   $('stop').addEventListener('click', () => stop('stopped'));
   $('character-select').addEventListener('change', (event) => event.target.value === 'new' ? openCharacterForm(true) : selectCharacter(Number(event.target.value)));
-  $('character-edit').addEventListener('click', () => openCharacterForm(!character));
+  $('character-edit').addEventListener('click', () => { if ($('character-form').hidden) openCharacterForm(!character); else $('character-form').hidden = true; });
   $('character-form').addEventListener('submit', (event) => { event.preventDefault(); saveCharacterForm(false); });
   $('character-new').addEventListener('click', () => saveCharacterForm(true));
   $('character-cancel').addEventListener('click', () => { $('character-form').hidden = true; $('character-select').value = character ? String(character.id) : 'new'; });
