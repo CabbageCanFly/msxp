@@ -120,11 +120,37 @@ export async function readHud(engine, frame, regions, templates = null) {
   return result;
 }
 
-// OCR text of one panel line at the two native magnifications that read it reliably; null unless both agree.
-async function lineText(engine, frame, box, field) {
-  const part = crop(frame, {x0: box.x0 - 2, y0: box.y0 - 2, x1: box.x1 + 2, y1: box.y1 + 2}), gray = channel(part, 'min'), texts = new Set();
-  for (const scale of [3, 4]) texts.add((await engine.read(pgm(binarize(gray, part.width, part.height, 170, scale)), field)).text.trim().replace(/\s+/g, ' '));
-  return texts.size === 1 ? [...texts][0] || null : null;
+// OCR text of one panel line at several native magnifications: the text at least two agree on (and, when
+// given, with exactly `length` characters), else null.
+async function lineText(engine, frame, box, field, length = null) {
+  const part = crop(frame, {x0: box.x0 - 2, y0: box.y0 - 2, x1: box.x1 + 2, y1: box.y1 + 2}), gray = channel(part, 'min'), votes = new Map();
+  for (const scale of [3, 4, 2, 5]) {
+    const text = (await engine.read(pgm(binarize(gray, part.width, part.height, 170, scale)), field)).text.trim().replace(/\s+/g, ' ');
+    if (!text || length !== null && text.length !== length) continue;
+    votes.set(text, (votes.get(text) || 0) + 1);
+    if (votes.get(text) >= 2) return text;
+  }
+  return null;
+}
+
+// A name read at four magnifications. Pixel-identical glyphs are the same letter, so votes are pooled
+// per glyph bitmap across every reading with the right length: one OCR slip (b read as h in a name
+// with two b's) is outvoted. Needs at least two readings of the right length.
+async function votedName(engine, frame, box, glyphs) {
+  const part = crop(frame, {x0: box.x0 - 2, y0: box.y0 - 2, x1: box.x1 + 2, y1: box.y1 + 2}), gray = channel(part, 'min');
+  const votes = new Map();
+  let readings = 0;
+  for (const scale of [3, 4, 2, 5]) {
+    const text = (await engine.read(pgm(binarize(gray, part.width, part.height, 170, scale)), 'name')).text.replace(/\s+/g, '');
+    if (text.length !== glyphs.length) continue;
+    readings++;
+    [...text].forEach((char, i) => {
+      const tally = votes.get(glyphs[i].key) ?? new Map();
+      tally.set(char, (tally.get(char) || 0) + 1); votes.set(glyphs[i].key, tally);
+    });
+  }
+  if (readings < 2) return null;
+  return glyphs.map((g) => [...votes.get(g.key)].sort((a, b) => b[1] - a[1])[0][0]).join('');
 }
 
 const letters = (s) => s.toLowerCase().replace(/[^a-z]/g, '');
@@ -151,8 +177,8 @@ export function matchJob(text, jobs) {
 export async function readIdentity(engine, frame, boxes, templates, jobs) {
   const out = {name: null, job: null};
   if (boxes.name) {
-    let name = await lineText(engine, frame, boxes.name, 'name');
     const glyphs = segment(frame, boxes.name, 'min')?.glyphs;
+    let name = glyphs ? await votedName(engine, frame, boxes.name, glyphs) : null;
     if (name && glyphs?.length === name.length && templates) {
       const digits = {};
       for (const [key, char] of Object.entries(templates)) if (/^\d$/.test(char)) digits[trimKey(key)] = char;

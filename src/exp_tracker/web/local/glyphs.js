@@ -1,15 +1,16 @@
 // Exact glyph templates learned on the player's own machine. A native window capture draws the HUD's
 // bitmap font identically every time, so once a glyph has been seen in a confirmed reading, the same
 // pixels are the same character. No game font data ships with msxp; templates live only in this browser.
-import {channel, crop, otsu} from './hud.js';
+import {bracketColour, channel, crop, otsu} from './hud.js';
 
 // Split a field into glyphs: runs of inked columns inside the field's ink band. Keys are exact bitmaps.
 // 'max' suits white text and green brackets on the dark bar; 'min' keeps only white digits on orange tiles.
 export function segment(frame, box, mode = 'max') {
   const part = crop(frame, box);
   if (part.width < 3 || part.height < 3) return null;
-  const gray = channel(part, mode), threshold = mode === 'min' ? 170 : Math.min(200, Math.max(110, otsu(gray)));
-  const ink = (x, y) => gray[y * part.width + x] > threshold;
+  const gray = channel(part, mode), threshold = mode === 'min' ? 170 : Math.min(200, Math.max(110, otsu(gray))), d = part.data;
+  const green = (i) => bracketColour(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
+  const ink = (x, y) => gray[y * part.width + x] > threshold && !green(y * part.width + x);
   let top = -1, bottom = -1;
   for (let y = 0; y < part.height; y++) for (let x = 0; x < part.width; x++) if (ink(x, y)) { if (top < 0) top = y; bottom = y; break; }
   if (top < 0 || bottom - top > 24) return null;

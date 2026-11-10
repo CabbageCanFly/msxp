@@ -304,7 +304,6 @@ const MESSAGES = {
   gap_requires_new_baseline: 'Resuming after a gap. Confirming on the next scan…',
   non_increasing_time: 'Clock went backwards; reading skipped.',
   name_confirming: 'A different name is on screen. Checking…',
-  name_unreadable: 'A new character is on screen, but its name couldn\'t be read yet.',
 };
 
 const templatesFor = (frame) => settings.glyphs?.size === `${frame.full.width}x${frame.full.height}` ? settings.glyphs.templates : null;
@@ -331,6 +330,10 @@ async function identify(current, outcome, at) {
     }
     return null;
   }
+  // A logout, loading screen or fade can show a half-drawn panel next to the old EXP bar: such a scan
+  // never counts toward a change (and is not tracked either).
+  const evidence = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, null).evidence;
+  if (evidence !== 'ocr_and_table' && evidence !== 'ocr_only') { current.nameStreak = null; current.burst = Math.max(current.burst || 0, 1); return 'name_confirming'; }
   current.nameStreak = current.nameStreak?.key === id.nameKey ? {key: id.nameKey, count: current.nameStreak.count + 1} : {key: id.nameKey, count: 1};
   if (current.nameStreak.count < 3) { current.burst = Math.max(current.burst || 0, 1); return 'name_confirming'; }
   current.nameStreak = null;
@@ -346,9 +349,10 @@ async function identify(current, outcome, at) {
     await refreshCharacters(); broadcast();
     return null;
   }
-  if (!who.name) return 'name_unreadable';
-  const created = await store.saveCharacter({name: who.name, job: who.job ?? 'Beginner', nameKey: id.nameKey, jobKey: id.jobKey});
-  await selectCharacter(created); setStatus(`New character: ${who.name}`, 'ok');
+  // Identity is the bitmap; an unreadable name only means a placeholder label the player can rename.
+  const name = who.name ?? `Character ${all.length + 1}`;
+  const created = await store.saveCharacter({name, job: who.job ?? 'Beginner', nameKey: id.nameKey, jobKey: id.jobKey});
+  await selectCharacter(created); setStatus(who.name ? `New character: ${name}` : `New character (name unreadable, rename it): ${name}`, 'ok');
   return 'character_switched';
 }
 

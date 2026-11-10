@@ -103,7 +103,7 @@ export function panelLines(frame, badge) {
     if (text) { if (!run) runs.push(run = {y0: y, y1: y + 1, x0, x1: x1 + 1}); else { run.y1 = y + 1; run.x0 = Math.min(run.x0, x0); run.x1 = Math.max(run.x1, x1 + 1); } }
     else run = null;
   }
-  const lines = runs.filter((r) => r.y1 - r.y0 >= .35 * th && r.y1 - r.y0 <= 1.2 * th);
+  const lines = runs.filter((r) => r.y1 - r.y0 >= .35 * th && r.y1 - r.y0 <= 1.2 * th && r.x1 - r.x0 <= .8 * part.width);
   if (lines.length !== 2) return null;
   const left = Math.floor(box.x0), top = Math.floor(box.y0);
   const [job, name] = lines.map((r) => ({x0: left + r.x0, y0: top + r.y0, x1: left + r.x1, y1: top + r.y1}));
@@ -122,6 +122,9 @@ export function brightBox(frame, box, threshold = 150) {
   return {x0: bx + x0, y0: by + y0, x1: bx + x1 + 1, y1: by + y1 + 1};
 }
 
+// Olive-green bracket fill and outline, e.g. 160,185,130 and 60,85,30 (the yellow EXP gauge has red above 200).
+export const bracketColour = (r, g, b) => g > r + 12 && g > b + 20 && g > 70 && r < 200;
+
 // The olive-green [ and ] around the percentage, found in pixels (fill and outline; the yellow
 // EXP gauge has red above 200). Exactly two bracket column runs, or null: never guessed.
 export function brackets(frame, box) {
@@ -131,7 +134,7 @@ export function brackets(frame, box) {
     let count = 0;
     for (let y = 0; y < part.height; y++) {
       const i = (y * part.width + x) * 4, r = d[i], g = d[i + 1], b = d[i + 2];
-      if (g > r + 15 && g > b + 30 && g > 70 && r < 200) count++;
+      if (bracketColour(r, g, b)) count++;
     }
     if (count >= 3) { if (run && x - run.x1 <= 1) run.x1 = x + 1; else runs.push(run = {x0: x, x1: x + 1}); }
   }
