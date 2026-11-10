@@ -23,7 +23,8 @@ export function messageLines(frame, keep = false) {
       let x0 = w, x1 = -1, n = 0;
       for (let yy = start; yy < y; yy++) for (let x = 0; x < w; x++) if (text[yy * w + x]) { n++; if (x < x0) x0 = x; if (x > x1) x1 = x; }
       // Messages are right-aligned at the window edge and at least a few words long.
-      if (n > 40 && x1 > w - 30 && x1 - x0 > 80) {
+      // An open inventory window's meso row spans the box from the left; messages never do.
+      if (n > 40 && x1 > w - 30 && x1 - x0 > 80 && x0 > w * .2) {
         let key = 0;
         for (let yy = start; yy < y; yy++) for (let x = x0; x <= x1; x++) key = (key * 31 + text[yy * w + x]) | 0;
         const line = {y0: start, y1: y, x0, x1, n, key: `${x1 - x0}:${key}`};
@@ -39,27 +40,48 @@ export function messageLines(frame, keep = false) {
   return lines.reverse();  // Newest (bottom) first.
 }
 
-/**
- * How many lines are new at the bottom of the stack since the previous frame. Messages only appear at
- * the bottom and push older ones up one line height; lines only vanish from the top. So `shift` new
- * lines means every remaining old line reappears `shift` line heights higher with the same pixels.
- * That counts repeated identical messages ("+10", "+10") and several arrivals in one frame.
- */
-export function newLines(previous, current) {
-  if (!current.length) return 0;
-  if (!previous.length) return current.length;
-  const gaps = [current, previous].flatMap((stack) => stack.slice(1).map((line, k) => stack[k].y0 - line.y0)).sort((x, y) => x - y);
-  const step = gaps.length ? gaps[gaps.length >> 1] : 12;
-  for (let shift = 0; shift <= current.length; shift++) {
-    if (current.length - shift > previous.length) continue;  // Extra lines at the top cannot appear.
-    let same = true;
-    for (let k = 0; shift + k < current.length && same; k++) {
-      const line = current[shift + k], old = previous[k];
-      same = line.key === old.key && Math.abs(line.y0 - (old.y0 - shift * step)) <= 2;
-    }
-    if (same) return shift;
+// Overlap of two line masks aligned at their right edge and top (messages are right-aligned): 0..1.
+export function similarity(a, b) {
+  const wa = a.x1 - a.x0 + 1, wb = b.x1 - b.x0 + 1, h = Math.min(a.y1 - a.y0, b.y1 - b.y0), w = Math.min(wa, wb);
+  let both = 0, either = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const pa = a.bits[y * wa + wa - w + x], pb = b.bits[y * wb + wb - w + x];
+    if (pa && pb) both++;
+    if (pa || pb) either++;
   }
-  return current.filter((line) => !previous.some((p) => p.key === line.key)).length;
+  return either ? both / either : 0;
+}
+
+/**
+ * Counts pickup messages by following each line across frames (measured on a live recording: lines fade
+ * in and out, several can appear at once, and they drift up as new ones arrive). A line that matches no
+ * current track by position and shape starts a new one; it counts once it is seen on a second frame.
+ * Two identical messages on screen at once are two tracks, so repeats ("+10", "+10") still count.
+ * `update(lines, at)` takes lines with `bits` and returns the newly confirmed lines.
+ */
+export function lineTracker({forgetMs = 400} = {}) {
+  let tracks = [];
+  return {
+    update(lines, at) {
+      const used = new Set(), confirmed = [];
+      // Oldest (top) lines first: each old line claims its own track before new lines are considered.
+      for (const line of [...lines].sort((a, b) => a.y0 - b.y0)) {
+        let best = null, score = .3;
+        for (const t of tracks) {
+          const dy = t.line.y0 - line.y0;  // Lines only move up, by about one line per new message.
+          if (used.has(t) || dy < -2 || dy > 30 || Math.abs(t.line.x1 - line.x1) > 2 || Math.abs((t.line.x1 - t.line.x0) - (line.x1 - line.x0)) > 8) continue;
+          const s = similarity(t.line, line) - Math.abs(dy) * .01;
+          if (s > score) { score = s; best = t; }
+        }
+        if (!best) { best = {seen: 0, counted: false}; tracks.push(best); }
+        used.add(best);
+        Object.assign(best, {line, lastAt: at, seen: best.seen + 1});
+        if (best.seen === 2 && !best.counted) { best.counted = true; confirmed.push(line); }
+      }
+      tracks = tracks.filter((t) => at - t.lastAt < forgetMs);
+      return confirmed;
+    },
+  };
 }
 
 const amount = (s) => Number(s.replace(/[,.]/g, ''));
@@ -69,7 +91,7 @@ export function parseMessage(text) {
   const t = text.replace(/\s+/g, ' ').trim();
   let m = /gained mesos \(\+?([\d,.]+)\)/i.exec(t);
   if (m) return {kind: 'mesos', amount: amount(m[1])};
-  m = /gained (?:experience|exp)\w* \(\+?([\d,.]+)\)/i.exec(t);
+  m = /(?:gained|received) (?:experience|exp)\w* \(\+?([\d,.]+)\)/i.exec(t);
   if (m) return {kind: 'exp', amount: amount(m[1])};
   m = /^(.+?)\s*x\s?(\d+) earned\.? \((Eqp|Equip|Use|Setup|Etc|Cash)\)$/i.exec(t);
   if (m) {

@@ -218,7 +218,7 @@ test('letters: learned from verified text only when counts match; renames are au
   assert.equal(letters.k2, 'a');
 });
 
-test('pickup messages: outlined text lines, stack shifts and parsing', async () => {
+test('pickup messages: outlined text lines, line tracking and parsing', async () => {
   const P = await import(new URL('pickups.js', web));
   const width = 200, height = 60;
   const frame = (lines) => {
@@ -226,20 +226,27 @@ test('pickup messages: outlined text lines, stack shifts and parsing', async () 
     for (let i = 0; i < width * height; i++) data.set([120, 170, 220, 255], i * 4);  // Sky, no pure black.
     // Like the game font: 1-pixel light strokes, each with a pure-black outline on both sides.
     lines.forEach(([y, seed]) => {
-      for (let x = 60; x < 196; x += 3) if ((x + seed) % 7 !== 0) for (let yy = y; yy < y + 7; yy++) {
+      // Different messages use different strokes, like different words.
+      for (let x = 60; x < 196; x += 3) if (Math.floor(x / 3) % 3 === seed % 3) for (let yy = y; yy < y + 7; yy++) {
         data.set([0, 0, 0, 255], (yy * width + x - 1) * 4); data.set([235, 235, 235, 255], (yy * width + x) * 4); data.set([0, 0, 0, 255], (yy * width + x + 1) * 4);
       }
     });
     return {width, height, data};
   };
-  const a = P.messageLines(frame([[48, 1]]));
-  assert.equal(a.length, 1);
-  const twoSame = P.messageLines(frame([[36, 1], [48, 1]]));  // Same message again pushes the first up.
-  assert.equal(P.newLines(a, twoSame), 1);
-  const plusTwo = P.messageLines(frame([[12, 1], [24, 1], [36, 2], [48, 3]]));  // Two new lines in one frame.
-  assert.equal(P.newLines(twoSame, plusTwo), 2);
-  assert.equal(P.newLines(plusTwo, plusTwo), 0);
+  assert.equal(P.messageLines(frame([[48, 1]])).length, 1);
   assert.equal(P.messageLines(frame([])).length, 0);
+  // A line counts once it is seen on a second frame; following frames of the same line add nothing.
+  const tracker = P.lineTracker(), seen = (lines, at) => tracker.update(P.messageLines(frame(lines), true), at).length;
+  assert.equal(seen([[48, 1]], 0), 0);
+  assert.equal(seen([[48, 1]], 70), 1);
+  assert.equal(seen([[48, 1]], 140), 0);
+  // The same message again pushes the first up: two identical lines on screen are two messages.
+  seen([[34, 1], [48, 1]], 210);
+  assert.equal(seen([[34, 1], [48, 1]], 280), 1);
+  // Two new lines arriving together both count.
+  seen([[6, 1], [20, 1], [34, 2], [48, 3]], 350);
+  assert.equal(seen([[6, 1], [20, 1], [34, 2], [48, 3]], 420), 2);
+  assert.deepEqual(P.parseMessage('You received EXP (+19)'), {kind: 'exp', amount: 19});
   assert.deepEqual(P.parseMessage('You have gained mesos (+10)'), {kind: 'mesos', amount: 10});
   assert.deepEqual(P.parseMessage('You have gained mesos (+1,250)'), {kind: 'mesos', amount: 1250});
   assert.deepEqual(P.parseMessage('Orange Mushro... x1 earned. (Etc)'), {kind: 'item', name: 'Orange Mushro', cut: true, count: 1, tab: 'Etc'});

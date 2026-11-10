@@ -10,7 +10,7 @@ export const loadItems = () => items ??= fetch('/static/local/items/items.json')
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // The right part of the window above the status bar, past the quick-slot panel.
-export const REGION = {x0: .8, y0: .55, y1: .875};
+export const REGION = {x0: .75, y0: .45, y1: .89};  // Same box the tracker was tuned on (live recording).
 
 async function readLine(engine, line) {
   const gray = new Uint8Array(line.bits.length);

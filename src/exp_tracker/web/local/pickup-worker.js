@@ -1,7 +1,7 @@
 // Pickup message watcher, off the page's main thread. It receives the shared window's frames as a stream
 // (MediaStreamTrackProcessor), copies only the message corner, finds message lines and posts each new
 // line's text mask to the page for reading. Frames are closed at once; nothing is kept.
-import {messageLines, newLines} from './pickups.js';
+import {lineTracker, messageLines} from './pickups.js';
 
 let reader = null;
 
@@ -10,7 +10,8 @@ onmessage = async ({data}) => {
   if (data.type !== 'start') return;
   reader = data.stream.getReader();
   const canvas = new OffscreenCanvas(1, 1), context = canvas.getContext('2d', {willReadFrequently: true});
-  let previous = [], frames = 0, busy = 0, since = performance.now();
+  const tracker = lineTracker();
+  let frames = 0, busy = 0, since = performance.now();
   while (reader) {
     const {value: frame, done} = await reader.read().catch(() => ({done: true}));
     if (done) break;
@@ -22,12 +23,10 @@ onmessage = async ({data}) => {
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       context.drawImage(frame, x, y, w, h, 0, 0, w, h);
       frame.close();
-      const lines = messageLines(context.getImageData(0, 0, w, h), true), fresh = newLines(previous, lines);
-      for (let k = fresh - 1; k >= 0; k--) {
-        const line = lines[k];
-        postMessage({type: 'line', at: Date.now(), width: line.x1 - line.x0 + 1, height: line.y1 - line.y0, bits: line.bits}, [line.bits.buffer]);
+      for (const line of tracker.update(messageLines(context.getImageData(0, 0, w, h), true), Date.now())) {
+        const bits = line.bits.slice();  // The tracker keeps its own copy for matching later frames.
+        postMessage({type: 'line', at: Date.now(), width: line.x1 - line.x0 + 1, height: line.y1 - line.y0, bits}, [bits.buffer]);
       }
-      previous = lines.map(({bits, ...rest}) => rest);
     } catch (error) {
       frame.close?.();
       postMessage({type: 'error', message: String(error)});
