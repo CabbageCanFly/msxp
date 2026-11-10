@@ -81,7 +81,7 @@ async function saveCharacterForm(asNew) {
   if (!name) return $('character-name').reportValidity();
   const isNew = asNew || $('character-form').dataset.mode === 'new' || !character;
   // A renamed character keeps its history; a new one never inherits another character's readings.
-  const id = await store.saveCharacter(isNew ? {name, job} : {...character, name, job});
+  const id = await store.saveCharacter(isNew ? {name, job, nameSource: 'user'} : {...character, name, job, ...(name !== character.name ? {nameSource: 'user'} : {})});
   // A typed rename is the truth about the on-screen name: it teaches those letters for future names.
   if (!isNew && name !== character.name) await teachLetters(character.nameGlyphs, name, true);
   $('character-form').hidden = true;
@@ -330,6 +330,16 @@ async function identify(current, outcome, at) {
     current.nameStreak = null;
     // Remember the name's glyphs, so a later rename can teach its letters.
     if (!character.nameGlyphs && id.nameGlyphs) character = await store.getCharacter(await store.saveCharacter({...character, nameGlyphs: id.nameGlyphs}));
+    // A name read by OCR (never one the player typed) is re-read once per session with the current
+    // reader and learned letters; a same-length correction replaces the old label.
+    if (character.nameSource !== 'user' && current.nameChecked !== character.id) {
+      current.nameChecked = character.id;
+      const who = await readIdentity(engine, current.lastFrame, {name: outcome.boxes.name}, templatesFor(current.lastFrame), JOBS, settings.letters);
+      if (who.name && who.name !== character.name && who.name.length === character.name.length) {
+        character = await store.getCharacter(await store.saveCharacter({...character, name: who.name, nameSource: 'ocr'}));
+        await refreshCharacters(); broadcast();
+      }
+    }
     if (id.jobKey && character.jobKey !== id.jobKey) {
       current.jobStreak = current.jobStreak?.key === id.jobKey ? {key: id.jobKey, count: current.jobStreak.count + 1} : {key: id.jobKey, count: 1};
       if (current.jobStreak.count >= 2) {
@@ -358,13 +368,13 @@ async function identify(current, outcome, at) {
   if (!character.nameKey && fits) {
     // The character being tracked had no name bitmap yet: this is it.
     character = await store.getCharacter(await store.saveCharacter({...character, nameKey: id.nameKey, nameGlyphs: id.nameGlyphs, jobKey: id.jobKey,
-      ...(who.name ? {name: who.name} : {}), ...(who.job ? {job: who.job} : {})}));
+      ...(who.name ? {name: who.name, nameSource: 'ocr'} : {}), ...(who.job ? {job: who.job} : {})}));
     await refreshCharacters(); broadcast();
     return null;
   }
   // Identity is the bitmap; an unreadable name only means a placeholder label the player can rename.
   const name = who.name ?? `Character ${all.length + 1}`;
-  const created = await store.saveCharacter({name, job: who.job ?? 'Beginner', nameKey: id.nameKey, nameGlyphs: id.nameGlyphs, jobKey: id.jobKey});
+  const created = await store.saveCharacter({name, nameSource: who.name ? 'ocr' : 'placeholder', job: who.job ?? 'Beginner', nameKey: id.nameKey, nameGlyphs: id.nameGlyphs, jobKey: id.jobKey});
   await selectCharacter(created); setStatus(who.name ? `New character: ${name}` : `New character (name unreadable, rename it): ${name}`, 'ok');
   return 'character_switched';
 }

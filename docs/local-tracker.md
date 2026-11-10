@@ -100,7 +100,8 @@ and later scans read EXP from templates alone.
   verified text only: every job line that matches the job list, and every rename you type
   (authoritative); a name whose glyphs are all known is read without OCR. Only scans whose level
   matches the EXP table count toward a change, so logout fades and loading screens cannot.
-  An unreadable but stable name becomes "Character N". Because identity is
+  An unreadable but stable name becomes "Character N". A name read by OCR (never one you typed) is
+  re-read once per session and corrected if the better reading differs. Because identity is
   the bitmap, a misread name only mislabels a history, it never splits or mixes one; renaming keeps
   it. Choosing another character by hand while the game shows a known name switches back.
   Errors are accepted as on the live site rather than asking for confirmation. Measured live: a
