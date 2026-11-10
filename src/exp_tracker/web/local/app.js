@@ -740,7 +740,14 @@ function setupDebug() {
     link.click();
   });
   document.querySelector('.hud-actions').append(button);
-  window.msxpLocal = {get lastScan() { return lastScan && {...lastScan, frame: undefined}; }, get capture() { return capture; }, get settings() { return settings; }, get engine() { return engine; }};
+  // Diagnostics for the pickup-message milestone: raise or restore the share's frame rate (?debug only).
+  // Measured 2026-11-10: asked 5/15/30 fps, Chrome delivered 4.7/14.8/29.0 on the same share, no new prompt.
+  const setFrameRate = async (fps) => {
+    if (!capture) return null;
+    await capture.track.applyConstraints({frameRate: {ideal: fps, max: fps}});
+    return capture.track.getSettings().frameRate;
+  };
+  window.msxpLocal = {setFrameRate, get lastScan() { return lastScan && {...lastScan, frame: undefined}; }, get capture() { return capture; }, get settings() { return settings; }, get engine() { return engine; }};
 }
 
 init();
