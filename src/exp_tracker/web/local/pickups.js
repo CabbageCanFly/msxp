@@ -4,7 +4,8 @@
 // Message text is light neutral grey with a near-black neutral outline (pure black in a window capture,
 // dark grey in the game's own screenshots). Scenery rarely puts neutral dark right beside neutral light,
 // which separates text from clouds, fences and the quick-slot panel.
-export function messageLines(frame) {
+// With `keep`, each line also carries `bits`, its text mask (1 = text), for reading the line.
+export function messageLines(frame, keep = false) {
   const {width: w, height: h, data: d} = frame, text = new Uint8Array(w * h), rows = new Int32Array(h);
   const spread = (i) => Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]);
   const dark = (i) => Math.max(d[i], d[i + 1], d[i + 2]) < 60 && spread(i) < 30;
@@ -25,7 +26,12 @@ export function messageLines(frame) {
       if (n > 40 && x1 > w - 30 && x1 - x0 > 80) {
         let key = 0;
         for (let yy = start; yy < y; yy++) for (let x = x0; x <= x1; x++) key = (key * 31 + text[yy * w + x]) | 0;
-        lines.push({y0: start, y1: y, x0, x1, n, key: `${x1 - x0}:${key}`});
+        const line = {y0: start, y1: y, x0, x1, n, key: `${x1 - x0}:${key}`};
+        if (keep) {
+          line.bits = new Uint8Array((x1 - x0 + 1) * (y - start));
+          for (let yy = start; yy < y; yy++) line.bits.set(text.subarray(yy * w + x0, yy * w + x1 + 1), (yy - start) * (x1 - x0 + 1));
+        }
+        lines.push(line);
       }
     }
     start = -1;

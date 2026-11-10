@@ -8,6 +8,7 @@ import {displayed, learn, learnLetters} from './glyphs.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip} from './charts.js';
+import {startPickups} from './pickup-session.js';
 
 const $ = (id) => document.getElementById(id);
 const INTERVALS = [5, 10, 20, 30];
@@ -729,6 +730,47 @@ function twoStep(button, prompt, action) {
   setTimeout(() => { if (button.dataset.armed) { delete button.dataset.armed; button.textContent = button.dataset.label; } }, 5000);
 }
 
+// ?debug: a pickup-message test panel. Counts every pickup message while sharing, reads it and keeps
+// running totals, so a test can be compared with the inventory before and after. Nothing is stored.
+function setupPickupTest() {
+  const section = document.createElement('section');
+  section.className = 'board local-hud';
+  section.innerHTML = `<header class="board-header"><h2>Pickup test (debug)</h2><span id="pickup-stats" class="board-note"></span></header>
+    <div class="hud-body"><div class="hud-actions"><button id="pickup-toggle" type="button">Start pickup test</button><button id="pickup-clear" type="button">Clear</button></div>
+    <p id="pickup-totals" class="pickup-totals"></p><ol id="pickup-log" class="pickup-log" reversed></ol></div>`;
+  document.querySelector('.local-hud').after(section);
+  let session = null, messages = [];
+  const totals = () => {
+    const mesos = messages.reduce((sum, m) => sum + (m.parsed?.kind === 'mesos' ? m.parsed.amount : 0), 0);
+    const exp = messages.reduce((sum, m) => sum + (m.parsed?.kind === 'exp' ? m.parsed.amount : 0), 0);
+    const items = new Map();
+    for (const m of messages) if (m.parsed?.kind === 'item') { const name = m.item?.name ?? `${m.parsed.name}${m.parsed.cut ? '…' : ''} (?)`; items.set(name, (items.get(name) || 0) + m.parsed.count); }
+    const unread = messages.filter((m) => !m.parsed).length;
+    $('pickup-totals').textContent = `${messages.length} messages · ${fmtExp(mesos)} mesos · ${fmtExp(exp)} EXP · ` +
+      ([...items].map(([name, count]) => `${name} ×${count}`).join(', ') || 'no items') + (unread ? ` · ${unread} unread` : '');
+  };
+  $('pickup-clear').addEventListener('click', () => { messages = []; $('pickup-log').replaceChildren(); totals(); });
+  $('pickup-toggle').addEventListener('click', async () => {
+    if (session) { await session.stop(); session = null; $('pickup-toggle').textContent = 'Start pickup test'; return; }
+    if (!capture || !engine) return setStatus('Start tracking first', 'warn');
+    try {
+      session = await startPickups({track: capture.track, engine,
+        onMessage(m) {
+          messages.push(m);
+          const row = document.createElement('li');
+          const what = !m.parsed ? 'unread' : m.parsed.kind === 'item' ? `${m.item?.name ?? m.parsed.name + (m.parsed.cut ? '…' : '') + ' (?)'} ×${m.parsed.count}` : `${m.parsed.kind} +${fmtExp(m.parsed.amount)}`;
+          row.textContent = `${new Date(m.at).toLocaleTimeString()} · ${what} · “${m.text}”`;
+          $('pickup-log').prepend(row); totals();
+        },
+        onStats(s) { $('pickup-stats').textContent = `${s.fps.toFixed(1)} fps · ${s.msPerFrame.toFixed(1)} ms per frame · ${s.queued} waiting to read`; },
+        onError(message) { $('pickup-stats').textContent = `Error: ${message}`; },
+      });
+      $('pickup-toggle').textContent = 'Stop pickup test';
+    } catch (error) { $('pickup-stats').textContent = `Could not start: ${error.message}`; }
+  });
+  window.msxpPickups = {get messages() { return messages; }};
+}
+
 // ?debug: save the bottom of the last frame to a local file for diagnosing OCR. Never automatic.
 function setupDebug() {
   const button = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Save HUD strip (debug)'});
@@ -740,6 +782,7 @@ function setupDebug() {
     link.click();
   });
   document.querySelector('.hud-actions').append(button);
+  setupPickupTest();
   // Diagnostics for the pickup-message milestone: raise or restore the share's frame rate (?debug only).
   // Measured 2026-11-10: asked 5/15/30 fps, Chrome delivered 4.7/14.8/29.0 on the same share, no new prompt.
   const setFrameRate = async (fps) => {

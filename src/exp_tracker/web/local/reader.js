@@ -12,6 +12,8 @@ export const PARAMS = {
   level: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789'},
   name: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'},
   job: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz (),'},
+  // Pickup messages: "You have gained mesos (+10)", "Orange Mushro... x1 earned. (Etc)".
+  message: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,()+:'-"},
 };
 
 // Two binarized variants per field at neighbouring magnifications; both must agree for EXP.
