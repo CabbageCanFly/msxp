@@ -45,7 +45,8 @@ export async function startPickups({track, engine, onMessage, onStats, onError})
     draining = false;
   };
   worker.onmessage = ({data}) => {
-    if (data.type === 'line') { queue.push(data); drain(); }
+    // A flood of lines (noise) must never starve EXP scans of the shared OCR engine: keep the newest 30.
+    if (data.type === 'line') { queue.push(data); if (queue.length > 30) queue.splice(0, queue.length - 30); drain(); }
     else if (data.type === 'stats') onStats?.({...data, queued: queue.length});
     else if (data.type === 'error') onError?.(data.message);
   };
