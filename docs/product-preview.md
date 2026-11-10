@@ -40,6 +40,18 @@ Choosing a character's name puts that saved character's ID in the overlay URL an
 reloads the preview for that character across all four layouts. An inactive
 character shows its saved readings with a last-tracked date. An unavailable lock
 stays locked and clears the display rather than switching to another character.
+The colour builder uses Night, Day, Red, Green, Blue and Purple as presets (selecting one resets colour overrides).
+Background, Header, Graph bars, EXP bar, Stat values, Level number and Level background each have
+an independent picker. Graph bars applies to General and Last hour; EXP bar only
+changes the progress fill. Stat values changes rates, totals and the chart peak
+value. Header text and background labels adjust automatically for readability.
+Randomize chooses equally between dark, light and vibrant custom palettes,
+with related or complementary hues. Light backgrounds use deep values; dark
+backgrounds use pale values. Vibrant palettes use stronger headers and fills. It writes all seven colours into the URL without a theme parameter;
+custom colours leave the preset buttons unselected. Reset colours restores the current preset. Custom colours travel in the copied URL
+(`background`, `header`, `graph`, `bar`, `text`, `level`, `badge`, each six hex digits).
+Older `accent` URLs remain supported as a fallback. The same builder is available
+in `msxp demo` on any fictional streamer's page.
 Header text switches to black for light header colours. Roster status text is
 neutral: **Current** requires a confirmed EXP reading within five minutes;
 otherwise the pill shows the saved EXP reading's age. Published roster entries

@@ -16,6 +16,8 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,
   const buttons=[5,10,15,30,60].map(minutes=>{const button=new Element();button.dataset.window=String(minutes);return button;});
   const bucketButtons=[60,300,1800].map(seconds=>Object.assign(new Element(),{dataset:{bucket:String(seconds)}}));
   const chartButtons=[15,30,60,720,1440].map(minutes=>Object.assign(new Element(),{dataset:{chartWindow:String(minutes)}}));
+  const colorInputs=['background','header','graph','bar','text','level','badge'].map(color=>Object.assign(new Element('input'),{dataset:{color}}));
+  const themeButtons=['night','day','red','green','blue','purple'].map(value=>Object.assign(new Element('button'),{dataset:{value},closest:()=>({dataset:{option:'theme'}})}));
   const characterSortButtons=['name','level','recent'].map(value=>Object.assign(new Element(),{dataset:{characterSort:value}}));
   const pathname=view==='overlay'?'/live/overlay/alpha':view==='board'?'/':'/stream/alpha';
   const modes=['streamers','characters'].map(mode=>{const button=new Element();button.dataset.mode=mode;return button;});
@@ -24,12 +26,12 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,
     history:{state:historyState,length:1,go:steps=>visits.push(['go',steps]),pushState:(s,t,u)=>{context.history.state=s;context.history.length++;visits.push(['push',String(u)]);},replaceState:(s,t,u)=>{context.history.state=s;visits.push(['replace',String(u)]);}},
     sessionStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
     navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{documentElement:{dataset:api==null?{}:{api}},body:Object.assign(new Element('body'),{dataset:view==='overlay'?{view}:{view,loading:''}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
-      querySelectorAll:selector=>selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:selector==='[data-character-sort]'?characterSortButtons:[],createElement:tag=>Object.assign(new Element(tag),tag==='img'?{decode(){images.push(this);return decodeImage(this.src);}}:{}),createElementNS:(ns,tag)=>new Element(tag)},
+      querySelectorAll:selector=>selector==='[data-color]'?colorInputs:selector==='[data-option] button'?themeButtons:selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:selector==='[data-character-sort]'?characterSortButtons:[],createElement:tag=>Object.assign(new Element(tag),tag==='img'?{decode(){images.push(this);return decodeImage(this.src);}}:{}),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(source,context);
   // Most cases below were written against the original 5 minute card and chart windows with 1 minute bars.
   if(view==='player' && !search.includes('defaults'))vm.runInContext('windowMinutes=5;lineWindow=5;chartWindow=5;bucketSeconds=60',context);
-  return {context,elements,timers,buttons,bucketButtons,chartButtons,characterSortButtons,modes,events,visits,images,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
+  return {context,elements,timers,buttons,colorInputs,themeButtons,bucketButtons,chartButtons,characterSortButtons,modes,events,visits,images,run:expression=>vm.runInContext(expression,context),render:player=>{context.fixture={player};vm.runInContext('data=fixture;receivedAt=0;renderPlayer()',context);}};
 }
 function player(changes={}){return {channel:'alpha',character:{label:'Main'},source_kind:'twitch',reading:{exp:'71441',percentage:'5.90',bp:590,evidence:'strict_full',timestamp:'2026-01-01T00:00:00Z',level:{value:60,status:'agreement'}},
   age_seconds:1,stale:false,stale_after_seconds:45,activity:{state:'waiting'},segment:{readings:3,difference_percentage_points:'0.05',span_seconds:{approximate:30}},
@@ -1869,6 +1871,84 @@ test('overlay URL options fall back on unknown values and accept only six-digit 
   assert.equal(p.run('overlayOptions("?interval=1800&range=720").range'),'720');
   assert.equal(p.run('overlayOptions("?interval=300&range=720").range'),'60');
   assert.equal(p.run('overlayOptions("?interval=bad&range=bad").interval'),'60');
+});
+
+test('independent colours reach the live preview and copied URL; presets and reset clear overrides',()=>{
+  const p=page('player'),updates=[],colors=['ffffff','123456','112233','445566','778899','aabbcc','334455'];
+  const frame=p.elements['overlay-preview'];frame.dataset.loaded='true';frame.contentWindow={applyOverlay:o=>updates.push({...o})};
+  p.colorInputs.forEach((input,i)=>{input.value='#'+colors[i];input.listeners.input();});
+  const url=new URL(p.elements['overlay-url'].value);
+  p.colorInputs.forEach((input,i)=>{
+    const key=input.dataset.color;
+    assert.equal(url.searchParams.get(key),colors[i]);assert.equal(updates.at(-1)[key],colors[i]);
+  });
+  const overlay=page('overlay',undefined,url.search);
+  assert.equal(overlay.context.document.body.dataset.panelInk,'dark');
+  p.colorInputs.forEach((input,i)=>assert.equal(overlay.context.document.body.style['--'+input.dataset.color],'#'+colors[i]));
+  overlay.run('applyOverlay(overlayOptions("?background=000000&graph=invalid&text=red&level=%23112233"))');
+  assert.equal(overlay.context.document.body.dataset.panelInk,'light');
+  for(const key of ['graph','text','level','bar','header'])assert.equal(overlay.context.document.body.style['--'+key],undefined);
+  overlay.run('applyOverlay(overlayOptions("?accent=abcdef"))');
+  assert.equal(overlay.context.document.body.style['--accent'],'#abcdef');
+  p.themeButtons[1].listeners.click();
+  assert.equal(new URL(p.elements['overlay-url'].value).searchParams.get('theme'),'day');
+  for(const input of p.colorInputs)assert.equal(new URL(p.elements['overlay-url'].value).searchParams.has(input.dataset.color),false);
+  assert.equal(p.colorInputs[0].value,'#fff9e9');
+  p.colorInputs[0].value='#010203';p.colorInputs[0].listeners.input();p.elements['overlay-reset'].listeners.click();
+  assert.equal(p.colorInputs[0].value,'#fff9e9');assert.equal(updates.at(-1).background,undefined);
+});
+
+test('all colour presets fill every picker, round-trip in URLs and reset custom badge colours',()=>{
+  const p=page('player');
+  for(const button of p.themeButtons) {
+    button.listeners.click();
+    const url=new URL(p.elements['overlay-url'].value);
+    assert.equal(p.run(`overlayOptions(${JSON.stringify(url.search)}).theme`),button.dataset.value);
+    p.colorInputs.forEach(input=>assert.match(input.value,/^#[0-9a-f]{6}$/));
+    const badge=p.colorInputs.find(input=>input.dataset.color==='badge'),original=badge.value;
+    badge.value='#abcdef';badge.listeners.input();
+    assert.equal(new URL(p.elements['overlay-url'].value).searchParams.get('badge'),'abcdef');
+    p.elements['overlay-reset'].listeners.click();assert.equal(badge.value,original);
+    assert.equal(new URL(p.elements['overlay-url'].value).searchParams.has('badge'),false);
+  }
+});
+
+test('random palettes keep readable values across the hue wheel and copy custom colours without a preset',()=>{
+  const p=page('player'),updates=[];
+  const palettes=p.run(`Array.from({length:4320},(_,i)=>{
+    const draws=[Math.floor(i/12)/360,Math.floor(i/2)%2*.75,(Math.floor(i/4)%3+.1)/3,i%2*.999];
+    let call=0;Math.random=()=>draws[call++];
+    return randomOverlayColors();
+  })`);
+  const luminance=hex=>hex.match(/../g).map(c=>{const v=parseInt(c,16)/255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+  const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);};
+  for(const palette of palettes) {
+    for(const hex of Object.values(palette))assert.match(hex,/^[0-9a-f]{6}$/);
+    assert.ok(contrast(palette.text,palette.background)>=4.5);
+    assert.ok(contrast(palette.level,palette.badge)>=4.5);
+    assert.ok(contrast(palette.graph,palette.background)>=3,JSON.stringify(palette));
+  }
+  assert.ok(new Set(palettes.map(o=>o.background)).size>=90);
+  assert.ok(luminance(palettes[0].background)<.1);
+  assert.ok(luminance(palettes[4].background)>.8);
+  assert.ok(luminance(palettes[8].background)<.1);
+  const spread=hex=>{const rgb=hex.match(/../g).map(c=>parseInt(c,16));return Math.max(...rgb)-Math.min(...rgb);};
+  assert.ok(spread(palettes[8].header)>spread(palettes[0].header));
+  const frame=p.elements['overlay-preview'];frame.dataset.loaded='true';frame.contentWindow={applyOverlay:o=>updates.push({...o})};
+  p.elements['overlay-character'].value='12';frame.dataset.character='12';p.themeButtons[3].listeners.click();
+  p.elements['overlay-randomize'].listeners.click();
+  const first=p.elements['overlay-url'].value,url=new URL(first);
+  assert.equal(url.searchParams.has('theme'),false);assert.equal(url.searchParams.get('character'),'12');
+  for(const input of p.colorInputs) {
+    assert.equal(input.value,'#'+url.searchParams.get(input.dataset.color));
+    assert.equal(updates.at(-1)[input.dataset.color],url.searchParams.get(input.dataset.color));
+  }
+  assert.ok(p.themeButtons.every(b=>b.attributes['aria-pressed']==='false'));
+  p.context.Math.random=()=>.25;p.elements['overlay-randomize'].listeners.click();
+  assert.notEqual(p.elements['overlay-url'].value,first);
+  p.elements['overlay-reset'].listeners.click();
+  assert.equal(p.themeButtons[0].attributes['aria-pressed'],'true');
+  for(const input of p.colorInputs)assert.equal(new URL(p.elements['overlay-url'].value).searchParams.has(input.dataset.color),false);
 });
 
 test('EXP history controls update the General preview and copied URL with the selected interval and range',()=>{

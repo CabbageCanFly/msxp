@@ -51,9 +51,27 @@ let chartWindow=60,longChartWindow=1440,lineWindow=15;
 let dailyDays=30,dailyKey='',dailyData=null,dailyRequested=false,dailyController=null,dailyError=false,dailyDrawKey='';
 const dailyCache=new Map();
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
-const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],job:['off','on'],name:['both','character','twitch','none'],theme:['night','day'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
-const OVERLAY_COLORS=['header','bar','accent'];
-const THEME_COLORS={night:{header:'705035',bar:'a6ef2e',accent:'ffc56b'},day:{header:'8a6440',bar:'7fcc12',accent:'a8520a'}};
+const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],job:['off','on'],name:['both','character','twitch','none'],theme:['night','day','red','green','blue','purple'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
+const OVERLAY_COLORS=['background','header','graph','bar','text','level','badge','accent'];
+const THEME_COLORS={night:{background:'232c3e',header:'705035',graph:'ffc56b',bar:'a6ef2e',text:'ffc56b',level:'ffc56b',badge:'2b354a'},day:{background:'fff9e9',header:'8a6440',graph:'a8520a',bar:'7fcc12',text:'a8520a',level:'ffb534',badge:'6e5139'},
+  red:{background:'301f26',header:'8c3547',graph:'ff9b9b',bar:'ef6575',text:'ffb4b4',level:'ffd5bd',badge:'542b38'},
+  green:{background:'1c3029',header:'32684e',graph:'8fe0b2',bar:'70ce82',text:'b1ebc6',level:'e4f3b0',badge:'294b3b'},
+  blue:{background:'1d2b40',header:'335e91',graph:'8fc9ff',bar:'66b5ef',text:'b4d9ff',level:'d4e9ff',badge:'2b4566'},
+  purple:{background:'2a233b',header:'62458c',graph:'c4a1ff',bar:'ad87ef',text:'dbc4ff',level:'f1d5ff',badge:'45335e'}};
+function randomOverlayColors() {
+  const hue=Math.random()*360,accent=hue+(Math.random()<.5?30:180);
+  const style=Math.floor(Math.random()*3),light=style===1,vibrant=style===2,tone=Math.random();
+  const hex=(h,s,l)=>{
+    h=(h%360+360)%360;s/=100;l/=100;
+    const a=s*Math.min(l,1-l);
+    return [0,8,4].map(n=>{const k=(n+h/30)%12;return Math.round(255*(l-a*Math.max(-1,Math.min(k-3,9-k,1)))).toString(16).padStart(2,'0');}).join('');
+  };
+  // Light palettes use deep values; dark and vibrant palettes use pale values for contrast.
+  return {background:hex(hue,light || vibrant?55:28,light?94+tone*3:(vibrant?12:10)+tone*(vibrant?4:6)),
+    header:hex(hue,vibrant?80:50,light?78:vibrant?43:30),badge:hex(hue,vibrant?55:30,light?88:20+tone*(vibrant?1:3)),
+    graph:hex(accent,vibrant?95:80,light?30:vibrant?76:72),bar:hex(accent,vibrant?95:80,light?40:vibrant?55:58),
+    text:hex(accent,75,light?24:82),level:hex(accent,85,light?20:88)};
+}
 function headerInk(hex) {
   const rgb=hex.match(/../g).map(channel=>{const s=parseInt(channel,16)/255;return s<=.04045?s/12.92:((s+.055)/1.055)**2.4;});
   return .2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]>.179?'dark':'light';
@@ -73,6 +91,7 @@ function overlayOptions(search) {
 function applyOverlay(o) {
   Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon,job:o.job,interval:o.interval,range:o.range});
   document.body.dataset.headerInk=headerInk(o.header ?? THEME_COLORS[o.theme].header);
+  document.body.dataset.panelInk=o.background?headerInk(o.background):'';
   const historyLabel=`${Number(o.interval)/60} min · ${o.range==='1440'?'24h':o.range==='720'?'12h':o.range==='60'?'last hour':`last ${o.range} min`}`;
   if(view==='overlay'){
     el('general-history-caption').textContent=historyLabel;
@@ -1201,7 +1220,10 @@ if(view==='player') {
     builder.interval=String(bucketSeconds);builder.range=String(bucketSeconds===1800?longChartWindow:chartWindow);
     const url=overlayURL(),[width,height]=SIZES[builder.layout];
     el('overlay-url').value=url;el('overlay-link').href=url;el('overlay-size').textContent=`OBS size · ${width} × ${height}`;el('copy-status').textContent='';
-    document.querySelectorAll('[data-option] button').forEach(b=>b.setAttribute('aria-pressed',String(builder[b.closest('[data-option]').dataset.option]===b.dataset.value)));
+    document.querySelectorAll('[data-option] button').forEach(b=>{
+      const key=b.closest('[data-option]').dataset.option;
+      b.setAttribute('aria-pressed',String(builder[key]===b.dataset.value && (key!=='theme' || !OVERLAY_COLORS.some(color=>builder[color]))));
+    });
     document.querySelectorAll('[data-color]').forEach(input=>{input.value='#'+(builder[input.dataset.color] ?? THEME_COLORS[builder.theme][input.dataset.color]);});
     frame.width=width;frame.height=height;scalePreview();
     // The preview is this site's own overlay page, so options apply in place without reloading it.
@@ -1213,9 +1235,15 @@ if(view==='player') {
   frame.addEventListener('load',()=>{frame.dataset.loaded='true';frame.contentWindow?.applyOverlay?.(builder);});
   el('overlay-character').addEventListener('change',updateBuilder);
   document.querySelectorAll('[data-option] button').forEach(b=>b.addEventListener('click',()=>{
-    const key=b.closest('[data-option]').dataset.option;if(!OVERLAY_CHOICES[key]?.includes(b.dataset.value))return;builder[key]=b.dataset.value;updateBuilder();
+    const key=b.closest('[data-option]').dataset.option;if(!OVERLAY_CHOICES[key]?.includes(b.dataset.value))return;
+    if(key==='theme')for(const color of OVERLAY_COLORS)delete builder[color];
+    builder[key]=b.dataset.value;updateBuilder();
   }));
   document.querySelectorAll('[data-color]').forEach(input=>input.addEventListener('input',()=>{builder[input.dataset.color]=input.value.slice(1).toLowerCase();updateBuilder();}));
+  el('overlay-randomize').addEventListener('click',()=>{
+    for(const key of OVERLAY_COLORS)delete builder[key];
+    Object.assign(builder,{theme:'night'},randomOverlayColors());updateBuilder();
+  });
   el('overlay-reset').addEventListener('click',()=>{for(const key of OVERLAY_COLORS)delete builder[key];updateBuilder();});
   updateBuilder();
   el('diagnostics').href=`/dashboard/${channel}`;el('history-link').href=`/dashboard/${channel}`;

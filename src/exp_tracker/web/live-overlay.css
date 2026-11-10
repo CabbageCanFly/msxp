@@ -6,14 +6,22 @@ html, body { margin: 0; background: transparent; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-/* Themes; header, bar and accent can be overridden per overlay URL. */
-.live-overlay { --header: #705035; --bar: #a6ef2e; --accent: #ffc56b; --level: var(--accent);
-  --panel: #232c3e; --panel-edge: #4b3423; --text: #f4ebdc; --muted: #aab3c4; --line: #3a465d; --track: #19212f; --badge: #2b354a; --bar-text: #fff; --bar-shadow: 0 1px 0 #10180a, 1px 0 0 #10180a, -1px 0 0 #10180a, 0 -1px 0 #10180a, 0 2px 3px #000b; }
+/* Independent colours; accent remains a fallback for older overlay URLs. */
+.live-overlay { --header: #705035; --bar: #a6ef2e; --accent: #ffc56b; --graph: var(--accent); --level: var(--accent); --text: var(--accent);
+  --panel: #232c3e; --panel-edge: #4b3423; --ink: #f4ebdc; --muted: #aab3c4; --line: #3a465d; --track: #19212f; --badge: #2b354a; --bar-text: #fff; --bar-shadow: 0 1px 0 #10180a, 1px 0 0 #10180a, -1px 0 0 #10180a, 0 -1px 0 #10180a, 0 2px 3px #000b; }
 .live-overlay[data-theme="day"] { --header: #8a6440; --bar: #7fcc12; --accent: #a8520a; --level: #ffb534;
-  --panel: #fff9e9; --panel-edge: #725b43; --text: #493b30; --muted: #7a6855; --line: #d9ccb7; --track: #e8deca; --badge: #6e5139; --bar-text: #263310; --bar-shadow: 0 1px #f5ffc280; }
+  --panel: #fff9e9; --panel-edge: #725b43; --ink: #493b30; --text: var(--accent); --muted: #7a6855; --line: #d9ccb7; --track: #e8deca; --badge: #6e5139; --bar-text: #263310; --bar-shadow: 0 1px #f5ffc280; }
+
+.live-overlay[data-theme="red"] { --panel:#301f26; --header:#8c3547; --graph:#ff9b9b; --bar:#ef6575; --accent:#ffb4b4; --level:#ffd5bd; --badge:#542b38; --panel-edge:#693847; }
+.live-overlay[data-theme="green"] { --panel:#1c3029; --header:#32684e; --graph:#8fe0b2; --bar:#70ce82; --accent:#b1ebc6; --level:#e4f3b0; --badge:#294b3b; --panel-edge:#385e4b; }
+.live-overlay[data-theme="blue"] { --panel:#1d2b40; --header:#335e91; --graph:#8fc9ff; --bar:#66b5ef; --accent:#b4d9ff; --level:#d4e9ff; --badge:#2b4566; --panel-edge:#3b5475; }
+.live-overlay[data-theme="purple"] { --panel:#2a233b; --header:#62458c; --graph:#c4a1ff; --bar:#ad87ef; --accent:#dbc4ff; --level:#f1d5ff; --badge:#45335e; --panel-edge:#5b4675; }
+
+.live-overlay[data-panel-ink="dark"] { --ink: #000; --muted: #000; --line: #0003; --track: #0002; }
+.live-overlay[data-panel-ink="light"] { --ink: #fff; --muted: #fff; --line: #fff3; --track: #0003; }
 
 #card { width: 490px; margin: 5px; display: flex; flex-direction: column; overflow: hidden;
-  color: var(--text); background: var(--panel); border: 2px solid var(--panel-edge); border-radius: 14px; box-shadow: 0 3px 0 #0000004d; }
+  color: var(--ink); background: var(--background, var(--panel)); border: 2px solid var(--panel-edge); border-radius: 14px; box-shadow: 0 3px 0 #0000004d; }
 [data-layout="card"] #card, [data-layout="bar"] #card { height: 150px; }
 [data-layout="rates"] #card { height: 100px; }
 [data-layout="chart"] #card { height: 170px; }
@@ -54,10 +62,10 @@ progress::-moz-progress-bar { background: var(--bar); }
 .mini-history, .general-history-caption { display: none; }
 [data-layout="card"] #progress { display: none; }
 [data-layout="card"] .progress-label > :not(.general-history-caption) { display: none; }
-[data-layout="card"] .progress-label { position: static; height: 14px; justify-content: flex-start; color: var(--text); text-shadow: none; }
+[data-layout="card"] .progress-label { position: static; height: 14px; justify-content: flex-start; color: var(--ink); text-shadow: none; }
 [data-layout="card"] .general-history-caption { display: inline; margin-left: auto; color: var(--muted); font-size: 9px; }
 [data-layout="card"] .mini-history { display: block; width: 100%; height: 20px; }
-.mini-history .bar { fill: var(--accent); }
+.mini-history .bar { fill: var(--graph); }
 .mini-history .none { fill: var(--muted); opacity: .45; }
 [data-layout="card"] .general-stats { padding-top: 4px; }
 #exp { font-size: 15px; }
@@ -71,20 +79,20 @@ progress::-moz-progress-bar { background: var(--bar); }
 .stat strong[data-size="long"] { font-size: 14px; }
 /* Saved (not live) values stay readable; the status line says how old they are. */
 .stat strong[data-paused="true"], #rate[data-paused="true"] { opacity: .9; }
-.stat strong { color: var(--accent); }
+.stat strong { color: var(--text); }
 
 .hour-chart { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 6px 12px 0; }
 .hour-caption { display: flex; justify-content: space-between; align-items: baseline; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; }
-#hour-total { color: var(--accent); font: 600 15px/1 "Fredoka", sans-serif; letter-spacing: 0; text-transform: none; }
+#hour-total { color: var(--text); font: 600 15px/1 "Fredoka", sans-serif; letter-spacing: 0; text-transform: none; }
 #overlay-chart { display: block; width: 100%; flex: 1; min-height: 0; margin-top: 4px; }
-#overlay-chart .bar { fill: var(--bar); }
+#overlay-chart .bar { fill: var(--graph); }
 #overlay-chart .none { fill: var(--muted); opacity: .45; }
 #overlay-chart .base { stroke: var(--line); stroke-width: 1; }
 /* Last hour: two y-axis values with faint guides and the peak bar's value. */
 #overlay-chart text { font: 700 9px "Nunito", sans-serif; font-variant-numeric: tabular-nums; }
 #overlay-chart .axis { fill: var(--muted); }
 #overlay-chart .grid { stroke: var(--line); stroke-dasharray: 2 3; }
-#overlay-chart .peak { fill: var(--accent); font-weight: 800; }
+#overlay-chart .peak { fill: var(--text); font-weight: 800; }
 
 footer { display: flex; align-items: center; gap: 10px; margin-top: auto; padding: 0 12px 5px; height: 21px; color: var(--muted); font-size: 10px; font-weight: 700; }
 #age { flex: 1; min-width: 0; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; opacity: .85; }

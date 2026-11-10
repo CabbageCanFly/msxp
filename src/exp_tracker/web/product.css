@@ -406,10 +406,13 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 .option-row .windows, .option-row .overlay-colors { justify-content:flex-start; }
 #overlay-character { min-width:0; width:100%; max-width:330px; justify-self:start; padding:8px 12px; border:1px solid var(--line-strong); border-radius:var(--radius-sm); color:var(--text); background:var(--surface-sunken); font:700 13px var(--font-ui); }
 #overlay-character:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
-.overlay-colors { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; color:var(--text-soft); font-size:13px; font-weight:700; }
+.overlay-colors { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; gap:12px 16px; color:var(--text-soft); font-size:13px; font-weight:700; }
 .overlay-colors label { display:flex; align-items:center; gap:6px; cursor:pointer; }
-.overlay-colors input { width:30px; height:30px; padding:0; border:1px solid var(--line-strong); border-radius:8px; background:none; cursor:pointer; }
-.overlay-colors button { min-height:32px; padding:5px 13px; font-size:13px; }
+.option-row:has(.overlay-colors) { align-items:start; }
+.overlay-colors small { display:block; margin-top:2px; color:var(--text-muted); font-size:11px; font-weight:600; line-height:1.4; }
+.overlay-colors input { flex:none; width:30px; height:30px; padding:0; border:1px solid var(--line-strong); border-radius:8px; background:none; cursor:pointer; }
+.overlay-color-actions { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:8px; }
+.overlay-colors button { justify-self:start; min-height:32px; padding:5px 13px; font-size:13px; }
 .overlay-stage { position:relative; overflow:hidden; padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:repeating-conic-gradient(#1a2233 0 25%,#151c2b 0 50%) 0 0/20px 20px; }
 /* Matching the overlay page's light scheme keeps the frame transparent instead of painting it white. */
 .overlay-stage iframe { display:block; border:0; transform-origin:0 0; background:transparent; color-scheme:light; }
