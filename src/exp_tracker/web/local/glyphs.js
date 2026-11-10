@@ -4,10 +4,11 @@
 import {channel, crop, otsu} from './hud.js';
 
 // Split a field into glyphs: runs of inked columns inside the field's ink band. Keys are exact bitmaps.
-export function segment(frame, box) {
+// 'max' suits white text and green brackets on the dark bar; 'min' keeps only white digits on orange tiles.
+export function segment(frame, box, mode = 'max') {
   const part = crop(frame, box);
   if (part.width < 3 || part.height < 3) return null;
-  const gray = channel(part, 'max'), threshold = Math.min(200, Math.max(110, otsu(gray)));
+  const gray = channel(part, mode), threshold = mode === 'min' ? 170 : Math.min(200, Math.max(110, otsu(gray)));
   const ink = (x, y) => gray[y * part.width + x] > threshold;
   let top = -1, bottom = -1;
   for (let y = 0; y < part.height; y++) for (let x = 0; x < part.width; x++) if (ink(x, y)) { if (top < 0) top = y; bottom = y; break; }
@@ -27,6 +28,16 @@ export function segment(frame, box) {
   }
   return glyphs.length && glyphs.length <= 24 ? {glyphs, height: bottom - top + 1} : null;
 }
+
+// One exact bitmap for a whole text line (a name or job): identity by pixels, not by OCR.
+export function lineKey(frame, box) {
+  const part = crop(frame, box), gray = channel(part, 'min'), rows = [];
+  for (let y = 0; y < part.height; y++) { let bits = ''; for (let x = 0; x < part.width; x++) bits += gray[y * part.width + x] > 170 ? '1' : '0'; rows.push(bits); }
+  return `${part.width}x${part.height}:` + rows.join('/');
+}
+
+// Without blank top and bottom rows: compares a digit seen in a name line with one learned from EXP.
+export const trimKey = (key) => key.split('/').filter((row) => row.includes('1')).join('/');
 
 // Text from known glyphs only; any unknown or conflicted glyph means no template reading.
 export function read(segmented, templates) {

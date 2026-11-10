@@ -1,8 +1,8 @@
 // Small-field OCR of the located HUD. `engine.read(bytes, field)` returns {text, confidence};
 // the browser passes a tesseract.js worker, the Node fixture check passes its own.
-import {binarize, brackets, channel, crop, inkRows, labelEnd, magnification, orangeBox, otsu, pgm} from './hud.js';
+import {binarize, brackets, channel, crop, inkRows, labelEnd, magnification, orangeBox, otsu, panelLines, pgm} from './hud.js';
 import {parseExp, parseLevel} from './exp.js';
-import {read as readGlyphs, segment} from './glyphs.js';
+import {lineKey, read as readGlyphs, segment, trimKey} from './glyphs.js';
 
 // The thin 1-pixel brackets confuse Tesseract ('[' reads as '1'), so they are located by colour and
 // the number and percentage on either side are read separately.
@@ -10,6 +10,8 @@ export const PARAMS = {
   number: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789,.'},
   percent: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789.%'},
   level: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789'},
+  name: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'},
+  job: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz (),'},
 };
 
 // Two binarized variants per field at neighbouring magnifications; both must agree for EXP.
@@ -43,7 +45,11 @@ export function fieldBoxes(frame, regions) {
   }
   if (regions.level) {
     const b = orangeBox(frame, regions.level);
-    if (b) out.level = {x0: b.x0 - 1, y0: b.y0 - 1, x1: b.x1 + 1, y1: b.y1 + 1};
+    if (b) {
+      out.level = {x0: b.x0 - 1, y0: b.y0 - 1, x1: b.x1 + 1, y1: b.y1 + 1};
+      // The job and name lines sit at a fixed place beside the badge.
+      Object.assign(out, panelLines(frame, b) ?? {});
+    }
   }
   return out;
 }
@@ -99,10 +105,62 @@ export async function readHud(engine, frame, regions, templates = null) {
   const value = read.value;
   if (value.exp === 0 && value.bp !== 0) return {...result, status: 'invalid', reason: 'zero_exp_with_nonzero_percentage'};
   result.exp = value.exp; result.bp = value.bp; result.smooth = smooth;
+  // Name and job are compared as exact bitmaps every scan (well under a millisecond); OCR runs only
+  // when a new bitmap needs a label (readIdentity).
+  result.identity = boxes.name ? {nameKey: lineKey(frame, boxes.name), jobKey: boxes.job ? lineKey(frame, boxes.job) : null} : null;
   if (boxes.level) {
+    const levelSegments = result.levelSegments = segment(frame, boxes.level, 'min');
+    const known = parseLevel(readGlyphs(levelSegments, templates) ?? '');
+    if (known !== null) { result.level = known; result.levelSource = 'glyphs'; return result; }
     const levels = new Set((await readField(engine, frame, boxes.level, 'level', raw.level, smooth)).map(parseLevel).filter((v) => v !== null));
     if (levels.size > 1) return {...result, status: 'ambiguous', reason: 'conflicting_level_variants'};
     result.level = levels.size ? [...levels][0] : null;
+    result.levelSource = 'ocr';
   }
   return result;
+}
+
+// OCR text of one panel line at the two native magnifications that read it reliably; null unless both agree.
+async function lineText(engine, frame, box, field) {
+  const part = crop(frame, {x0: box.x0 - 2, y0: box.y0 - 2, x1: box.x1 + 2, y1: box.y1 + 2}), gray = channel(part, 'min'), texts = new Set();
+  for (const scale of [3, 4]) texts.add((await engine.read(pgm(binarize(gray, part.width, part.height, 170, scale)), field)).text.trim().replace(/\s+/g, ' '));
+  return texts.size === 1 ? [...texts][0] || null : null;
+}
+
+const letters = (s) => s.toLowerCase().replace(/[^a-z]/g, '');
+function distance(a, b) {
+  const row = Array.from({length: b.length + 1}, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0]; row[0] = i;
+    for (let j = 1; j <= b.length; j++) { const kept = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1)); previous = kept; }
+  }
+  return row[b.length];
+}
+
+// The closest known job (letters only, at most two edits), or null when two jobs are equally close.
+export function matchJob(text, jobs) {
+  if (!text) return null;
+  const ranked = jobs.map((job) => [distance(letters(text), letters(job)), job]).sort((a, b) => a[0] - b[0]);
+  return ranked[0][0] <= 2 && ranked[0][0] < (ranked[1]?.[0] ?? Infinity) ? ranked[0][1] : null;
+}
+
+/**
+ * Labels for a new name or job bitmap. A name glyph that is pixel-identical to a digit learned from the
+ * EXP bar is that digit; an OCR '0' that is not the learned zero is the letter O (the O/0 rule).
+ */
+export async function readIdentity(engine, frame, boxes, templates, jobs) {
+  const out = {name: null, job: null};
+  if (boxes.name) {
+    let name = await lineText(engine, frame, boxes.name, 'name');
+    const glyphs = segment(frame, boxes.name, 'min')?.glyphs;
+    if (name && glyphs?.length === name.length && templates) {
+      const digits = {};
+      for (const [key, char] of Object.entries(templates)) if (/^\d$/.test(char)) digits[trimKey(key)] = char;
+      const zero = Object.values(digits).includes('0');
+      name = [...name].map((char, i) => digits[trimKey(glyphs[i].key)] ?? (char === '0' && zero ? 'O' : char)).join('');
+    }
+    out.name = name && /^[A-Za-z0-9]{2,13}$/.test(name) ? name : null;
+  }
+  if (boxes.job) out.job = matchJob(await lineText(engine, frame, boxes.job, 'job'), jobs);
+  return out;
 }

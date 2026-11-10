@@ -80,9 +80,10 @@ function levelUpGain(table, from, r, maxGap) {
  * Returns {state, accept: [{...reading, gain, kind}], status, reason}. Anything unusual (first reading,
  * level change, EXP loss, a large jump, a long gap) waits for a second agreeing reading. A confirmed
  * break starts a new baseline; its gain is never counted. Only a confirmed +1 level-up within the gap
- * with a published requirement counts its cross-level EXP.
+ * with a published requirement counts its cross-level EXP. `trustedIdentity` (the character's own name
+ * is on screen) skips the different-character pause.
  */
-export function step(table, state, r, {maxGapSeconds = DEFAULTS.maxGapSeconds} = {}) {
+export function step(table, state, r, {maxGapSeconds = DEFAULTS.maxGapSeconds, trustedIdentity = false} = {}) {
   const {last, pending} = state;
   if (last && r.at <= last.at) return {state, accept: [], status: 'rejected', reason: 'non_increasing_time'};
   if (last && continues(last, r, maxGapSeconds) && quiet(last, r)) {
@@ -97,7 +98,7 @@ export function step(table, state, r, {maxGapSeconds = DEFAULTS.maxGapSeconds} =
       first = gain === null ? {...pending, gain: null, kind: 'baseline'} : {...pending, gain, kind: 'level_up'};
     }
     const reference = last ?? state.reference;
-    if (reference && first.kind === 'baseline' && suspicious(reference, pending)) {
+    if (!trustedIdentity && reference && first.kind === 'baseline' && suspicious(reference, pending)) {
       return {state: {...state, pending: r}, accept: [], status: 'identity_check', reason: 'different_character_suspected', suspect: pending};
     }
     return {state: {last: r, pending: null}, accept: [first, {...r, gain: r.exp - pending.exp, kind: 'gain'}], status: 'accepted',

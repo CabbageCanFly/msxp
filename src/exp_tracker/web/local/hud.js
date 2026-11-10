@@ -88,6 +88,28 @@ export function orangeBox(frame, box) {
   return {x0: bx + x0, y0: by + y0, x1: bx + x1 + 1, y1: by + y1 + 1};
 }
 
+// The job (top) and name (bottom) lines beside the orange level badge, found in pixels. Rows that are
+// mostly ink are panel borders. Returns {job, name} boxes in frame coordinates, or null.
+export function panelLines(frame, badge) {
+  const th = badge.y1 - badge.y0;
+  const box = {x0: badge.x1 + 3, y0: Math.max(0, badge.y0 - .6 * th), x1: Math.min(frame.width, badge.x1 + 9.2 * th), y1: Math.min(frame.height, badge.y1 + .5 * th)};
+  const part = crop(frame, box), gray = channel(part, 'min'), ink = (x, y) => gray[y * part.width + x] > 170;
+  const runs = [];
+  let run = null;
+  for (let y = 0; y <= part.height; y++) {
+    let count = 0, x0 = Infinity, x1 = -1;
+    if (y < part.height) for (let x = 0; x < part.width; x++) if (ink(x, y)) { count++; x0 = Math.min(x0, x); x1 = x; }
+    const text = count > 0 && count < part.width * .5;
+    if (text) { if (!run) runs.push(run = {y0: y, y1: y + 1, x0, x1: x1 + 1}); else { run.y1 = y + 1; run.x0 = Math.min(run.x0, x0); run.x1 = Math.max(run.x1, x1 + 1); } }
+    else run = null;
+  }
+  const lines = runs.filter((r) => r.y1 - r.y0 >= .35 * th && r.y1 - r.y0 <= 1.2 * th);
+  if (lines.length !== 2) return null;
+  const left = Math.floor(box.x0), top = Math.floor(box.y0);
+  const [job, name] = lines.map((r) => ({x0: left + r.x0, y0: top + r.y0, x1: left + r.x1, y1: top + r.y1}));
+  return {job, name};
+}
+
 // Columns containing text-bright pixels; trims a generous EXP box to the text it holds.
 export function brightBox(frame, box, threshold = 150) {
   const part = crop(frame, box), gray = channel(part, 'max');

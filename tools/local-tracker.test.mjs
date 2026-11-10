@@ -172,3 +172,36 @@ test('overlay options use the live URL parameters; unknown values fall back', ()
   assert.equal(V.headerInk('ffffff'), 'dark');
   assert.match(V.randomOverlayColors().background, /^[0-9a-f]{6}$/);
 });
+
+test('identity: a matching on-screen name skips the different-character pause; jobs match a closed list', async () => {
+  const other = [r(0, 20, 5000), r(20, 20, 5100), r(40, 35, 100), r(60, 35, 200)];
+  let state = {last: null, pending: null};
+  let last;
+  for (const reading of other) ({state, ...last} = E.step(table, state, reading, {trustedIdentity: true}));
+  assert.equal(last.status, 'accepted');  // Same name on screen: a new baseline, not an identity pause.
+  assert.equal(state.last.level, 35);
+  const R = await import(new URL('reader.js', web));
+  assert.equal(R.matchJob('Swordsman', V.JOBS), 'Swordsman');
+  assert.equal(R.matchJob('Sw0rdsman', V.JOBS), 'Swordsman');
+  assert.equal(R.matchJob('Wizard (Ice, Lightning)', V.JOBS), 'Wizard (Ice, Lightning)');
+  assert.equal(R.matchJob('Wizard', V.JOBS), null);  // Two wizard jobs are equally close.
+  assert.equal(R.matchJob('Swenrdsrman', V.JOBS), null);
+  assert.equal(R.matchJob('', V.JOBS), null);
+});
+
+test('panel lines beside the level badge give stable per-line keys', async () => {
+  const G = await import(new URL('glyphs.js', web));
+  const width = 200, height = 40, data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) data.set([50, 55, 60, 255], i * 4);
+  const paint = (x0, y0, x1, y1, rgb) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) data.set([...rgb, 255], (y * width + x) * 4); };
+  paint(10, 15, 30, 28, [240, 130, 30]);  // Orange badge.
+  for (const x of [40, 44, 48]) paint(x, 9, x + 2, 17, [255, 255, 255]);  // Job line.
+  for (const x of [40, 45]) paint(x, 23, x + 3, 33, [255, 255, 255]);  // Name line.
+  const frame = {width, height, data};
+  const badge = H.orangeBox(frame, {x0: 0, y0: 0, x1: 35, y1: 40});
+  const lines = H.panelLines(frame, badge);
+  assert.deepEqual([lines.job.y0, lines.job.y1, lines.name.y0, lines.name.y1], [9, 17, 23, 33]);
+  assert.equal(G.lineKey(frame, lines.name), G.lineKey(frame, lines.name));
+  assert.notEqual(G.lineKey(frame, lines.name), G.lineKey(frame, lines.job));
+  assert.equal(G.trimKey('000/010/000'), '010');
+});

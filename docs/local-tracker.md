@@ -9,20 +9,28 @@ sent anywhere.
 
 ## Using it
 
-1. Open `/local`, name your character (and pick a job), then **Start tracking**.
+1. Open `/local` and click **Start tracking**. Name, job and level are read from the game; a
+   character is created or chosen automatically (you can rename it; history stays with it).
 2. In the browser's sharing dialog choose **Window → MapleStory → Share**. The browser asks every
    time; the page cannot select a window itself. A window covered by other windows still captures.
 3. The first scan finds the status bar (about a second), then scans every 20 seconds
-   (5, 10, 20 or 30 s can be chosen). The first reading is confirmed by the second before it counts.
+   (5, 10, 20 or 30 s can be chosen). Changes are confirmed by a **burst**: an extra scan a second
+   later (first reading, level-up, EXP loss, new job) or three (a different name).
 4. **Stop**, Chrome's **Stop sharing**, closing the tab or a reload end the session. Saved readings
    stay; after a reload the page shows the saved progress and is not tracking until you start again.
    While tracking, a reload or close triggers the browser's own leave-page confirmation.
 
-**Pop-out overlay** opens `/local/overlay` in a small window of the same browser profile; capture it
-in OBS with **Window Capture** (`Chrome_WidgetWin_1`, the overlay title "msxp overlay · On this
-device"). Options: `?layout=card|bar|rates`, `?theme=night|day|red|green|blue|purple`,
-`?bg=dark|green|magenta` (Window Capture cannot see transparency; crop to the card or key out the
-green/magenta background), `?window=5|15|30|60`. The overlay never captures the screen.
+The page mirrors the live character page: the same stat cards and windows (5–60 min, *Current level
+only*), the EXP bar chart (1/5/30-minute bars, 15 min–24 h), the Level % line with level-up markers
+and the daily History line (30/90/365 days), drawn by `local/charts.js`, a port of the live chart
+code fed from local readings (`product.js` is unchanged).
+
+**Stream overlay**: the live overlay builder (layouts General, EXP bar, EXP rates, Last hour; title,
+icon, job, name; colour presets, custom and random colours) previews `/local/overlay` in place.
+**Open pop-out** opens it in a window of the same browser profile at the overlay's size; capture it
+in OBS with **Window Capture** (the window "msxp overlay · On this device"). It takes the live
+overlay's URL options plus `bg=dark|green|magenta`: Window Capture cannot see transparency, so crop
+to the card or key out the green/magenta background. The overlay never captures the screen.
 An OBS **Browser Source** cannot use it: OBS runs its own Chromium with separate storage, so it
 cannot read this browser's IndexedDB or BroadcastChannel. That would need a local bridge (a small
 local HTTP/WebSocket helper) and is a separate milestone.
@@ -37,10 +45,12 @@ running is skipped, never queued.
 
 | Step | Module | Notes |
 | --- | --- | --- |
-| Locate the status bar | `hud.js` `locate` | One sparse Tesseract pass over the bottom 22 % of the window finds the `EXP`, `HP`, `MP` and `LV.` labels (the Python `discover_regions` geometry). Boxes are saved normalized with the window size. |
+| Locate the status bar | `hud.js` `locate` | One sparse Tesseract pass over the bottom 22 % of the window finds the `EXP`, `HP`, `MP` and `LV.` labels (the Python `discover_regions` geometry). Boxes are saved normalized with the window size. Without `LV.`, the level box is a strip left of HP. |
+| Copy the HUD rows | `app.js` `grab` | Once boxes are known, only the band of rows holding them is copied (1368×56 instead of 1368×800 in the test). Detection and the preview use full frames. |
 | Fit the fields | `reader.js` `fieldBoxes` | Each scan finds the two olive-green brackets around the percentage in pixels, trims the `EXP.` label (it is taller than the digits) and finds the orange level tiles. Without both brackets the field is treated as hidden or covered. |
 | Read EXP | `glyphs.js`, `reader.js` | Learned glyph templates first (exact pixels, ~2 ms). Otherwise Tesseract reads the number and the percentage separately (digit whitelists), nearest-neighbour at two magnifications, then a smoothed pass for scaled HUDs. Both variants of a pass must parse to the same value. |
-| Read level | `reader.js` | Tesseract on the orange tiles (white digits via the minimum channel). |
+| Read level | `reader.js` | Learned digit templates on the orange tiles; otherwise Tesseract (white digits via the minimum channel). |
+| Name and job | `hud.js` `panelLines`, `glyphs.js` `lineKey` | The two text lines beside the badge, found in pixels. Each scan compares their exact bitmaps (about 0.1 ms); OCR runs only to label a new bitmap. |
 | Validate and track | `exp.js` | Strict parsing, EXP-table arithmetic, confirmation rules below. |
 | Store and publish | `store.js`, BroadcastChannel | IndexedDB transaction per scan; the overlay re-reads IndexedDB when notified. |
 
@@ -80,10 +90,21 @@ and later scans read EXP from templates alone.
 - **Gains**: only endpoint differences between consecutive accepted readings in the same session.
   A confirmed break starts a baseline whose difference is never counted. A confirmed +1 level-up
   inside the gap limit with a published requirement counts `to_next − previous EXP + new EXP`.
-- **Identity**: the character is chosen by the player. A confirmed reading that drops a level,
-  jumps more than one level, or loses more than 15 percentage points at the same level pauses with
-  "this looks like a different character"; the player confirms or switches. A new session keeps the
-  previous reading only as this reference, never as an interval start. No name OCR yet.
+- **Identity, automatic and by pixels**: the name line's exact bitmap identifies the character. A
+  different bitmap must repeat on three scans a second apart. Then the page switches to the
+  character with that bitmap; or gives it to the character being tracked if that one has no name
+  bitmap yet and the reading fits its history; or creates a character named by OCR (both native
+  magnifications must agree; a glyph identical to a digit learned from the EXP bar is that digit,
+  and any other OCR `0` is the letter O). No valid OCR name, no new character. Because identity is
+  the bitmap, a misread name only mislabels a history, it never splits or mixes one; renaming keeps
+  it. Choosing another character by hand while the game shows a known name switches back.
+  Errors are accepted as on the live site rather than asking for confirmation.
+- **Job**: a changed job line must repeat on two scans; OCR is matched to the 15 known jobs (at most
+  two edits, and never between two equally close jobs, e.g. the two Wizards).
+- **Fallback identity check**: without a readable name line (manual boxes, covered panel), a
+  confirmed reading that drops a level, jumps more than one level, or loses more than 15 percentage
+  points pauses with "this looks like a different character". A new session keeps the previous
+  reading only as this reference, never as an interval start.
 
 ## Statistics and storage
 
@@ -92,13 +113,23 @@ coverage (as `statistics.py`); the session rate needs two observed minutes. Unti
 window has that coverage, the card shows the session's rate labelled "So far · N observed"
 (overlay: "EXP/h · so far") instead of a blank. The 5-minute chart
 shows grey for buckets with too little observed time; missing time is never zero. ETA uses the
-selected window's rate and the published requirement.
+selected window's rate and the published requirement. The "so far" rate is shown only while a
+session is running (the overlay: while the last reading is under two minutes old).
 
-IndexedDB `msxp-local`: `characters` (name, job, last accepted reading, tracker state, all-time
-gain), `sessions` (start/end, end reason, counts per scan outcome), `readings` (accepted readings
-only: time, level, EXP, basis points, gain, kind; about 115 bytes each, so about 20 KB per hour at
-20-second scans) and `settings` (interval, window, calibration, glyph templates, active character).
-Readings older than **90 days** are pruned when tracking starts; character totals are kept.
+IndexedDB `msxp-local` (version 2): `characters` (name, job, name/job bitmaps, last accepted
+reading, tracker state, all-time gain), `sessions` (start/end, end reason, counts per scan outcome),
+`readings` (accepted readings only: time, level, EXP, basis points, gain, kind; about 115 bytes
+each), `days` (one row per character and local calendar day: last reading and EXP gained) and
+`settings` (interval, window, calibration, glyph templates, overlay options, active character).
+
+**Retention like the live site**: detailed readings are kept for **24 hours + 5 minutes** (plus one
+older boundary reading per character), pruned when tracking starts and hourly while it runs. Days
+are kept indefinitely: about 200 bytes per character per day, so a year of one character is about
+75 KB. Each accepted reading updates its day row in the same transaction, so pruning loses nothing
+the History chart uses. Version 1 databases are migrated by folding existing readings into days.
+No frames are stored. The only pixel data kept are the learned bitmaps: single HUD characters
+(about 35 pixels each) and each character's name and job lines, which are needed to read without
+OCR; *Clear all local history* deletes them.
 Sessions left open by a crash are closed at their last reading on the next visit. Only one tab
 of a browser profile can capture (Web Locks `msxp-local-capture`, released automatically when the
 tab closes); a second `/local` tab says tracking is already running and leaves that session open. *Export JSON*
@@ -142,4 +173,6 @@ located (overlays, third-party trackers, scaled layouts); manual calibration is 
   live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
 - The `_headers` detach syntax (`! Content-Security-Policy`) on real Cloudflare Pages; the local
   preview implements it the same way.
-- Character-name OCR and automatic job detection are not implemented.
+- Name/job detection, level templates, bursts and band copies were verified offline on a saved
+  native frame (template scan 1.2 ms on the band, identity OCR 34 ms); the live switch between two
+  characters and a job advancement are not yet tested.

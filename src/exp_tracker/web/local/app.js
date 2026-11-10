@@ -1,9 +1,9 @@
 // /local: capture the game window the user shares, read the HUD every few seconds, track locally.
 // No network requests besides this site's own static files; nothing leaves the browser.
 import * as store from './store.js';
-import {acceptBaseline, maxGapFor, resolveLevel, step} from './exp.js';
+import {acceptBaseline, maxGapFor, resolveLevel, step, suspicious} from './exp.js';
 import {denormalize, locate, normalize, orangeBox} from './hud.js';
-import {fieldBoxes, readHud} from './reader.js';
+import {fieldBoxes, readHud, readIdentity} from './reader.js';
 import {displayed, learn} from './glyphs.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize} from './view.js';
@@ -175,9 +175,10 @@ function guardUnload(event) {
   event.returnValue = '';
 }
 
-async function grab() {
-  const {track, grabber, video} = capture;
-  const {width, height} = track.getSettings();
+// The latest frame, or only a band of rows (the HUD) when its boxes are known: copying 1368x60 pixels
+// instead of 1368x800 is what makes one-second scans cheap. `top` and `full` map band rows to the window.
+async function grab(band = null) {
+  const {grabber, video} = capture;
   let source, w, h;
   if (grabber) {
     // A minimized window may stop producing frames; don't wait forever.
@@ -187,21 +188,35 @@ async function grab() {
     if (!video.videoWidth) throw new Error('no_frame');
     source = video; w = video.videoWidth; h = video.videoHeight;
   }
+  const top = band ? Math.max(0, Math.min(h - 1, Math.floor(band.y0))) : 0;
+  const rows = band ? Math.max(1, Math.min(h, Math.ceil(band.y1)) - top) : h;
   const canvas = capture.canvas ??= new OffscreenCanvas(1, 1);
-  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  if (canvas.width !== w || canvas.height !== rows) { canvas.width = w; canvas.height = rows; }
   const context = canvas.getContext('2d', {willReadFrequently: true});
-  context.drawImage(source, 0, 0);
+  context.drawImage(source, 0, top, w, rows, 0, 0, w, rows);
   source.close?.();
-  const frame = context.getImageData(0, 0, w, h);
-  return {width: frame.width, height: frame.height, data: frame.data, reported: {width, height}};
+  const frame = context.getImageData(0, 0, w, rows);
+  return {width: w, height: rows, data: frame.data, top, full: {width: w, height: h}};
 }
 
-function regionsFor(frame) {
+const isFull = (frame) => frame && frame.top === 0 && frame.height === frame.full.height;
+
+// Calibrated boxes in window pixels for a window of this size, or null (none, or another aspect ratio).
+function regionsFor(size) {
   const c = settings.calibration;
-  if (!c || !c.exp) return null;
+  if (!c || !c.exp || !size) return null;
   // Normalized boxes follow a resized window only when the aspect ratio is unchanged.
-  if (Math.abs(c.width / c.height - frame.width / frame.height) > .01) return null;
-  return {exp: denormalize(c.exp, frame), level: c.level && denormalize(c.level, frame)};
+  if (Math.abs(c.width / c.height - size.width / size.height) > .01) return null;
+  return {exp: denormalize(c.exp, size), level: c.level && denormalize(c.level, size)};
+}
+
+// Boxes in the coordinates of a (possibly banded) frame.
+const shifted = (regions, top) => top ? Object.fromEntries(Object.entries(regions).map(([k, b]) => [k, b && {...b, y0: b.y0 - top, y1: b.y1 - top}])) : regions;
+
+// Rows to copy: the EXP and level boxes, plus room for the name/job panel above and below the badge.
+function bandFor(regions, size) {
+  const boxes = [regions.exp, regions.level].filter(Boolean), margin = Math.max(12, size.height * .02);
+  return {y0: Math.min(...boxes.map((b) => b.y0)) - margin, y1: Math.max(...boxes.map((b) => b.y1)) + margin};
 }
 
 async function detect(frame) {
@@ -232,23 +247,27 @@ async function scan() {
   const current = capture, started = performance.now(), at = Date.now();
   let outcome;
   try {
-    const frame = await grab();
+    const known = regionsFor(current.full);
+    const redetect = !known || (current.failures >= 3 && settings.calibration?.source === 'auto' && Date.now() - current.lastDetect > 60e3);
+    // Full frames for detection and the preview; otherwise only the HUD rows.
+    const banded = Boolean(known) && !redetect && $('hud-view').hidden && !drawing;
+    const frame = await grab(banded ? bandFor(known, current.full) : null);
     if (capture !== current) return;
-    current.lastFrame = frame;
+    const resized = current.full && (frame.full.width !== current.full.width || frame.full.height !== current.full.height);
+    current.full = frame.full; current.lastFrame = frame;
+    if (resized && banded) { current.burst = Math.max(current.burst || 0, 1); return; }  // Re-measure with a full frame.
     outcome = await engine.exclusive(async () => {
-      let regions = regionsFor(frame);
-      const stale = !regions || (current.failures >= 3 && settings.calibration?.source === 'auto' && Date.now() - current.lastDetect > 60e3);
-      if (stale && settings.calibration?.source !== 'manual' || !regions) {
+      let regions = regionsFor(frame.full);
+      if (!banded && (redetect && settings.calibration?.source !== 'manual' || !regions)) {
         const reason = await detect(frame);
-        regions = regionsFor(frame);
+        regions = regionsFor(frame.full);
         if (!regions) return {status: 'no_hud', reason: reason ?? 'hud_not_found'};
       }
-      const glyphs = settings.glyphs?.size === `${frame.width}x${frame.height}` ? settings.glyphs.templates : null;
-      return readHud(engine, frame, regions, glyphs);
+      return readHud(engine, frame, shifted(regions, frame.top), templatesFor(frame));
     });
     if (!outcome) return;  // A previous scan is still running; never queue another.
     if (capture !== current) return;
-    outcome.frameWidth = frame.width; outcome.frameHeight = frame.height;
+    outcome.frameWidth = frame.full.width; outcome.frameHeight = frame.full.height;
     lastScan = {...outcome, frame, at, ms: performance.now() - started};
     await handle(current, outcome, at);
     if (!$('hud-view').hidden) drawPreview();
@@ -263,7 +282,9 @@ async function scan() {
       current.scans.push({at, ms});
       if (current.scans.length > 30) current.scans.shift();
       clearTimeout(current.timer);
-      current.timer = setTimeout(scan, Math.max(500, settings.interval * 1000 - ms));
+      // A burst re-scans after a second to confirm a change quickly; otherwise the chosen interval.
+      const delay = current.burst > 0 ? (current.burst--, 1000) : Math.max(500, settings.interval * 1000 - ms);
+      current.timer = setTimeout(scan, delay);
       renderScanStats();
     }
   }
@@ -282,24 +303,76 @@ const MESSAGES = {
   large_jump_pending: 'Big EXP jump. Confirming on the next scan…',
   gap_requires_new_baseline: 'Resuming after a gap. Confirming on the next scan…',
   non_increasing_time: 'Clock went backwards; reading skipped.',
+  name_confirming: 'A different name is on screen. Checking…',
+  name_unreadable: 'A new character is on screen, but its name couldn\'t be read yet.',
 };
+
+const templatesFor = (frame) => settings.glyphs?.size === `${frame.full.width}x${frame.full.height}` ? settings.glyphs.templates : null;
+
+/**
+ * Who is on screen, by exact name bitmap. A new bitmap must repeat on three scans a second apart. It
+ * then switches to the character with that bitmap, gives a not-yet-named character its bitmap (if the
+ * reading fits its history), or creates a character from the name OCR read. Returns a status to stop
+ * this scan, or null to continue tracking the (possibly same) character.
+ */
+async function identify(current, outcome, at) {
+  const id = outcome.identity;
+  if (!id?.nameKey) return null;
+  if (character.nameKey === id.nameKey) {
+    current.nameStreak = null;
+    if (id.jobKey && character.jobKey !== id.jobKey) {
+      current.jobStreak = current.jobStreak?.key === id.jobKey ? {key: id.jobKey, count: current.jobStreak.count + 1} : {key: id.jobKey, count: 1};
+      if (current.jobStreak.count >= 2) {
+        current.jobStreak = null;
+        const who = await readIdentity(engine, current.lastFrame, {job: outcome.boxes.job}, null, JOBS);
+        character = await store.saveCharacter({...character, jobKey: id.jobKey, ...(who.job ? {job: who.job} : {})}).then(store.getCharacter);
+        await refreshCharacters(); broadcast();
+      } else current.burst = Math.max(current.burst || 0, 1);
+    }
+    return null;
+  }
+  current.nameStreak = current.nameStreak?.key === id.nameKey ? {key: id.nameKey, count: current.nameStreak.count + 1} : {key: id.nameKey, count: 1};
+  if (current.nameStreak.count < 3) { current.burst = Math.max(current.burst || 0, 1); return 'name_confirming'; }
+  current.nameStreak = null;
+  const all = await store.characters(), match = all.find((c) => c.nameKey === id.nameKey);
+  if (match) { await selectCharacter(match.id); setStatus(`Switched to ${match.name}`, 'ok'); return 'character_switched'; }
+  const who = await readIdentity(engine, current.lastFrame, outcome.boxes, templatesFor(current.lastFrame), JOBS);
+  const resolved = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, null), reading = {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp};
+  const fits = !character.last || (resolved.level !== null && !suspicious(character.last, reading));
+  if (!character.nameKey && fits) {
+    // The character being tracked had no name bitmap yet: this is it.
+    character = await store.getCharacter(await store.saveCharacter({...character, nameKey: id.nameKey, jobKey: id.jobKey,
+      ...(who.name ? {name: who.name} : {}), ...(who.job ? {job: who.job} : {})}));
+    await refreshCharacters(); broadcast();
+    return null;
+  }
+  if (!who.name) return 'name_unreadable';
+  const created = await store.saveCharacter({name: who.name, job: who.job ?? 'Beginner', nameKey: id.nameKey, jobKey: id.jobKey});
+  await selectCharacter(created); setStatus(`New character: ${who.name}`, 'ok');
+  return 'character_switched';
+}
 
 async function handle(current, outcome, at) {
   let status = outcome.status, reason = outcome.reason, accepted = [];
+  const switched = status === 'ok' ? await identify(current, outcome, at) : null;
+  if (switched === 'character_switched' || capture !== current) { render(); return; }
+  if (switched) { status = 'identity_pending'; reason = switched; }
   if (status === 'ok') {
     const previous = current.tracker.last?.level ?? current.tracker.pending?.level ?? null;
     const resolved = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, previous);
     if (resolved.level === null) { status = 'rejected'; reason = resolved.reason; }
     else {
-      const result = step(table, current.tracker, {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp}, {maxGapSeconds: maxGapFor(settings.interval)});
+      const trustedIdentity = Boolean(character.nameKey && outcome.identity?.nameKey === character.nameKey);
+      const result = step(table, current.tracker, {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp}, {maxGapSeconds: maxGapFor(settings.interval), trustedIdentity});
       current.tracker = result.state; accepted = result.accept; status = result.status; reason = result.reason;
+      if (status === 'pending') current.burst = Math.max(current.burst || 0, 1);  // Confirm a second later.
       if (status === 'identity_check') identitySuspect = result.suspect;
     }
   }
   // Table-rejected readings count too: a box that clips digits reads 'cleanly' but never matches.
-  current.failures = ['accepted', 'pending', 'identity_check'].includes(status) ? 0 : current.failures + 1;
+  current.failures = ['accepted', 'pending', 'identity_check', 'identity_pending'].includes(status) ? 0 : current.failures + 1;
   await store.record(character.id, current.sessionId, accepted, current.tracker, status);
-  if (status === 'accepted' && outcome.source === 'ocr' && outcome.segments) await teach(outcome);
+  if (status === 'accepted') await teach(outcome);
   if (accepted.length) {
     character = await store.getCharacter(character.id);
     readingsCache.push(...accepted.map((r) => ({...r, characterId: character.id, sessionId: current.sessionId})));
@@ -317,8 +390,11 @@ async function handle(current, outcome, at) {
 async function teach(outcome) {
   const frameSize = `${outcome.frameWidth}x${outcome.frameHeight}`;
   const glyphs = settings.glyphs?.size === frameSize ? settings.glyphs : {size: frameSize, templates: {}};
-  const text = displayed(outcome.exp, outcome.bp), templates = {...glyphs.templates};
-  const added = (learn(templates, outcome.segments.number, text.number) ?? 0) + (learn(templates, outcome.segments.percent, text.percent) ?? 0);
+  const text = displayed(outcome.exp, outcome.bp), templates = {...glyphs.templates}, last = capture?.tracker.last;
+  let added = 0;
+  if (outcome.source === 'ocr' && outcome.segments) added += (learn(templates, outcome.segments.number, text.number) ?? 0) + (learn(templates, outcome.segments.percent, text.percent) ?? 0);
+  // Level digits too, once the accepted level is the one the badge showed.
+  if (outcome.levelSource === 'ocr' && outcome.levelSegments && last?.level === outcome.level) added += learn(templates, outcome.levelSegments, String(outcome.level)) ?? 0;
   if (added || JSON.stringify(templates) !== JSON.stringify(glyphs.templates)) await saveGlyphs({size: frameSize, templates});
 }
 
@@ -417,12 +493,12 @@ let drawing = null;  // 'exp' | 'level' while the user drags a box
 
 function drawPreview() {
   const frame = lastScan?.frame ?? capture?.lastFrame;
-  if (!frame) return;
+  if (!isFull(frame)) { if (capture) { clearTimeout(capture.timer); capture.timer = setTimeout(scan, 50); } return; }
   const canvas = $('hud-canvas'), y0 = Math.floor(frame.height * .6), h = frame.height - y0;
   canvas.width = frame.width; canvas.height = h;
   const context = canvas.getContext('2d');
   context.putImageData(new ImageData(frame.data, frame.width, frame.height), 0, -y0);
-  const regions = regionsFor(frame), boxes = regions ? fieldBoxes(frame, regions) : {};
+  const regions = regionsFor(frame.full), boxes = regions ? fieldBoxes(frame, regions) : {};
   for (const [key, colour] of [['exp', '#b6e65b'], ['level', '#ffb347']]) {
     const box = regions?.[key];
     if (box) { context.strokeStyle = colour; context.lineWidth = 2; context.setLineDash([5, 4]); context.strokeRect(box.x0, box.y0 - y0, box.x1 - box.x0, box.y1 - box.y0); }
@@ -452,7 +528,7 @@ function canvasPoint(event) {
 }
 
 function beginDraw(kind) {
-  if (!capture?.lastFrame) return;
+  if (!capture) return;
   drawing = {kind};
   $('hud-view').hidden = false; drawPreview();
   setStatus(kind === 'exp' ? 'Drag a box around the EXP numbers, including the [percent]' : 'Drag a box around the orange level badge', '');
@@ -475,11 +551,11 @@ function setupDrawing() {
     if (!drawing?.from) return;
     const to = canvasPoint(event), frame = capture?.lastFrame, kind = drawing.kind, from = drawing.from;
     drawing = null;
-    if (!frame) return;
+    if (!isFull(frame)) return setStatus('The preview was still updating; try again', 'warn');
     const box = {x0: Math.min(from.x, to.x), y0: Math.min(from.y, to.y), x1: Math.max(from.x, to.x), y1: Math.max(from.y, to.y)};
     if (box.x1 - box.x0 < 6 || box.y1 - box.y0 < 4) return setStatus('That box was too small; try again', 'warn');
     if (kind === 'level' && !orangeBox(frame, box)) return setStatus('No orange level badge inside that box; try again', 'warn');
-    const old = settings.calibration && regionsFor(frame) ? settings.calibration : {};
+    const old = settings.calibration && regionsFor(frame.full) ? settings.calibration : {};
     await saveCalibration({source: 'manual', width: frame.width, height: frame.height, exp: old.exp ?? null, level: old.level ?? null, [kind]: normalize(box, frame)});
     setStatus(kind === 'exp' && !settings.calibration.level ? 'EXP box saved. Now draw the level box (optional but recommended).' : 'HUD boxes saved', 'ok');
     drawPreview();
@@ -523,7 +599,7 @@ async function init() {
   setupCharts();
   setupBuilder();
   $('hud-detect').addEventListener('click', async () => {
-    if (!capture?.lastFrame || !engine) return;
+    if (!isFull(capture?.lastFrame) || !engine) { $('hud-view').hidden = false; drawPreview(); return setStatus('Getting a full frame; press again in a moment', ''); }
     const reason = await engine.exclusive(() => detect(capture.lastFrame));
     setStatus(reason ? 'Couldn\'t find the HUD automatically. Draw the boxes in the preview.' : 'Found the HUD', reason ? 'warn' : 'ok');
     if (!$('hud-view').hidden) drawPreview();
@@ -630,7 +706,7 @@ function twoStep(button, prompt, action) {
 function setupDebug() {
   const button = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Save HUD strip (debug)'});
   button.addEventListener('click', async () => {
-    const frame = capture?.lastFrame; if (!frame) return;
+    const frame = capture?.lastFrame; if (!isFull(frame)) return;
     const y0 = Math.floor(frame.height * .78), canvas = new OffscreenCanvas(frame.width, frame.height - y0);
     canvas.getContext('2d').putImageData(new ImageData(frame.data, frame.width, frame.height), 0, -y0);
     const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(await canvas.convertToBlob()), download: `msxp-hud-${frame.width}x${frame.height}-${Date.now()}.png`});
