@@ -1,14 +1,12 @@
-// View model and formatting shared by the local dashboard and the pop-out overlay.
+// View model and overlay options shared by the local dashboard and the pop-out overlay.
 import {eta, intervals, requirement, sessionStats, windowStats} from './exp.js';
 
 export const CHANNEL = 'msxp-local';
-export const WINDOWS = [5, 15, 30, 60];
-export const BUCKET_MINUTES = 5;
+export const WINDOWS = [5, 10, 15, 30, 60];
 
 const integer = new Intl.NumberFormat('en-US');
 export const exp = (n) => n == null ? '—' : integer.format(Math.round(n));
 export const percent = (bp) => bp == null ? '—' : (bp / 100).toFixed(2) + '%';
-export const compact = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + 'M' : n >= 1e4 ? (n / 1e3).toFixed(1) + 'K' : integer.format(Math.round(n));
 
 export function duration(seconds) {
   if (seconds == null || !isFinite(seconds)) return '—';
@@ -24,57 +22,85 @@ export const JOBS = ['Beginner', 'Swordsman', 'Fighter', 'Page', 'Spearman', 'Ma
 
 /**
  * Everything both pages display, from a character record and its accepted readings (oldest first).
- * `window` is minutes or 'session'. Rates need 80% coverage of their window; the session rate
- * needs two observed minutes. Missing time is never counted as zero.
+ * Rates need 80 % coverage of their window; until then the session's rate so far is shown, labelled
+ * as such, while `live`. `levelOnly` counts only EXP earned at the current level (the 24h total includes all).
  */
-export function summarize(table, character, readings, now, window = 15, sessionId = null) {
-  const all = intervals(readings), last = character?.last ?? null;
+export function summarize(table, character, readings, now, window = 15, {sessionId = null, levelOnly = false, live = false} = {}) {
+  const last = character?.last ?? null, all = intervals(readings);
+  const scoped = levelOnly && last ? all.filter((it) => it.level === last.level) : all;
   const current = sessionId ?? readings.at(-1)?.sessionId ?? null;
-  const session = sessionStats(all.filter((it) => it.sessionId === current));
-  const rates = Object.fromEntries(WINDOWS.map((m) => [m, windowStats(all, now, m * 60)]));
-  const selected = window === 'session' ? {perHour: session.perHour, ok: session.perHour != null, covered: session.covered}
-    : rates[window];
-  // Until a window has 80 % coverage, show the session's rate so far, labelled as such.
-  const early = !selected.ok && session.perHour != null;
+  const session = sessionStats(scoped.filter((it) => it.sessionId === current));
+  const rates = Object.fromEntries(WINDOWS.map((m) => [m, windowStats(scoped, now, m * 60)]));
+  const selected = rates[window] ?? rates[15];
+  // "So far" only describes a session that is still running, never an old one.
+  const early = live && !selected.ok && session.perHour != null;
   const perHour = selected.ok ? selected.perHour : early ? session.perHour : null;
   const total = last && requirement(table, last.level);
-  const recent = windowStats(all, now, 300);
+  const recent = windowStats(scoped, now, 300), day = windowStats(all, now, 86400);
   return {
     name: character?.name ?? '', job: character?.job ?? '', last, total,
     progress: last && total ? Math.min(100, last.exp / total * 100) : last ? last.bp / 100 : 0,
     perHour, window, covered: early ? session.covered : selected.covered, early,
     rates: Object.fromEntries(WINDOWS.map((m) => [m, rates[m].ok ? rates[m].perHour : null])),
-    recent: recent.covered > 0 ? recent.gain : null, recentCovered: recent.covered,
+    recent: recent.covered > 0 ? recent.gain : null,
     percentPerHour: perHour != null && total ? perHour / total * 100 : null,
     eta: eta(table, last, perHour),
-    sessionGain: session.gain, sessionCovered: session.covered, totalGain: character?.totalGain ?? 0,
-    buckets: buckets(all, now, 120),
+    dayGain: day.covered > 0 ? day.gain : null, dayCovered: day.covered, totalGain: character?.totalGain ?? 0,
+    intervals: scoped, allIntervals: all,
     age: last ? (now - last.at) / 1000 : null,
   };
 }
 
-// EXP per 5-minute bucket; a bucket with little observed time is null (shown as missing, not zero).
-export function buckets(list, now, minutes) {
-  const size = BUCKET_MINUTES * 60e3, end = Math.ceil(now / size) * size, count = minutes / BUCKET_MINUTES, out = [];
-  for (let i = count - 1; i >= 0; i--) {
-    const to = end - i * size, from = to - size;
-    let gain = 0, covered = 0;
-    for (const it of list) {
-      // Gains are attributed to the bucket where their interval ends (never split between buckets).
-      if (it.end > from && it.end <= to) { gain += it.gain; covered += Math.min(it.end - it.start, size); }
-    }
-    out.push({from, to, gain: covered >= size * .5 || (to > now && covered > 0) ? gain : null});
-  }
-  return out;
+// ---------- overlay options (ported from product.js; same URL parameters as the live overlay) ----------
+
+// Anything unknown falls back to the first choice. 'name' has no Twitch option here; 'bg' is the
+// opaque window colour around the card (OBS Window Capture cannot see transparency).
+export const OVERLAY_CHOICES = {layout: ['card', 'bar', 'rates', 'chart'], title: ['site', 'tracker'], icon: ['off', 'on'], job: ['off', 'on'],
+  name: ['character', 'none'], theme: ['night', 'day', 'red', 'green', 'blue', 'purple'], bg: ['dark', 'green', 'magenta'],
+  interval: ['60', '300', '1800'], range: ['60', '15', '30', '720', '1440']};
+export const OVERLAY_COLORS = ['background', 'header', 'graph', 'bar', 'text', 'level', 'badge', 'accent'];
+export const THEME_COLORS = {night: {background: '232c3e', header: '705035', graph: 'ffc56b', bar: 'a6ef2e', text: 'ffc56b', level: 'ffc56b', badge: '2b354a'},
+  day: {background: 'fff9e9', header: '8a6440', graph: 'a8520a', bar: '7fcc12', text: 'a8520a', level: 'ffb534', badge: '6e5139'},
+  red: {background: '301f26', header: '8c3547', graph: 'ff9b9b', bar: 'ef6575', text: 'ffb4b4', level: 'ffd5bd', badge: '542b38'},
+  green: {background: '1c3029', header: '32684e', graph: '8fe0b2', bar: '70ce82', text: 'b1ebc6', level: 'e4f3b0', badge: '294b3b'},
+  blue: {background: '1d2b40', header: '335e91', graph: '8fc9ff', bar: '66b5ef', text: 'b4d9ff', level: 'd4e9ff', badge: '2b4566'},
+  purple: {background: '2a233b', header: '62458c', graph: 'c4a1ff', bar: 'ad87ef', text: 'dbc4ff', level: 'f1d5ff', badge: '45335e'}};
+export const OVERLAY_SIZES = {card: [500, 160], bar: [500, 160], rates: [500, 110], chart: [500, 180]};
+
+export function overlayOptions(search) {
+  const q = new URLSearchParams(search), options = {};
+  for (const [key, allowed] of Object.entries(OVERLAY_CHOICES)) options[key] = allowed.includes(q.get(key)) ? q.get(key) : allowed[0];
+  if (options.interval === '1800') { if (!['720', '1440'].includes(options.range)) options.range = '1440'; }
+  else if (['720', '1440'].includes(options.range)) options.range = '60';
+  for (const key of OVERLAY_COLORS) if (/^[0-9a-f]{6}$/i.test(q.get(key) ?? '')) options[key] = q.get(key).toLowerCase();
+  return options;
 }
 
-export function chartSvg(list, {width = 462, height = 76, gap = 2} = {}) {
-  const max = Math.max(1, ...list.map((b) => b.gain ?? 0)), w = width / list.length;
-  return list.map((b, i) => {
-    const x = (i * w + gap / 2).toFixed(1), bw = Math.max(1, w - gap).toFixed(1);
-    if (b.gain == null) return `<rect class="exp-column missing" x="${x}" y="${height - 2}" width="${bw}" height="2"><title>No data</title></rect>`;
-    const h = Math.max(b.gain ? 2 : 1, b.gain / max * (height - 4));
-    const label = `${new Date(b.from).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}: ${exp(b.gain)} EXP`;
-    return `<rect class="exp-column" x="${x}" y="${(height - h).toFixed(1)}" width="${bw}" height="${h.toFixed(1)}"><title>${label}</title></rect>`;
-  }).join('');
+export function overlayQuery(options) {
+  const q = new URLSearchParams();
+  for (const [key, allowed] of Object.entries(OVERLAY_CHOICES)) if (options[key] !== allowed[0]) q.set(key, options[key]);
+  for (const key of OVERLAY_COLORS) if (options[key]) q.set(key, options[key]);
+  return String(q);
 }
+
+export function headerInk(hex) {
+  const rgb = hex.match(/../g).map((c) => { const s = parseInt(c, 16) / 255; return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4; });
+  return .2126 * rgb[0] + .7152 * rgb[1] + .0722 * rgb[2] > .179 ? 'dark' : 'light';
+}
+
+export function randomOverlayColors() {
+  const hue = Math.random() * 360, accent = hue + (Math.random() < .5 ? 30 : 180);
+  const style = Math.floor(Math.random() * 3), light = style === 1, vibrant = style === 2, tone = Math.random();
+  const hex = (h, s, l) => {
+    h = (h % 360 + 360) % 360; s /= 100; l /= 100;
+    const a = s * Math.min(l, 1 - l);
+    return [0, 8, 4].map((n) => { const k = (n + h / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))).toString(16).padStart(2, '0'); }).join('');
+  };
+  // Light palettes use deep values; dark and vibrant palettes use pale values for contrast.
+  return {background: hex(hue, light || vibrant ? 55 : 28, light ? 94 + tone * 3 : (vibrant ? 12 : 10) + tone * (vibrant ? 4 : 6)),
+    header: hex(hue, vibrant ? 80 : 50, light ? 78 : vibrant ? 43 : 30), badge: hex(hue, vibrant ? 55 : 30, light ? 88 : 20 + tone * (vibrant ? 1 : 3)),
+    graph: hex(accent, vibrant ? 95 : 80, light ? 30 : vibrant ? 76 : 72), bar: hex(accent, vibrant ? 95 : 80, light ? 40 : vibrant ? 55 : 58),
+    text: hex(accent, 75, light ? 24 : 82), level: hex(accent, 85, light ? 20 : 88)};
+}
+
+export const historyLabel = (o) => `${Number(o.interval) / 60} min · ${o.range === '1440' ? '24h' : o.range === '720' ? '12h' : o.range === '60' ? 'last hour' : `last ${o.range} min`}`;

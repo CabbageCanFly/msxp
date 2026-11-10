@@ -5,7 +5,9 @@ import {acceptBaseline, maxGapFor, resolveLevel, step} from './exp.js';
 import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud} from './reader.js';
 import {displayed, learn} from './glyphs.js';
-import {CHANNEL, JOBS, chartSvg, compact, duration, exp as fmtExp, jobIcon, percent, summarize} from './view.js';
+import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
+  overlayQuery, percent, randomOverlayColors, summarize} from './view.js';
+import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip} from './charts.js';
 
 const $ = (id) => document.getElementById(id);
 const INTERVALS = [5, 10, 20, 30];
@@ -31,7 +33,10 @@ const lockHeldElsewhere = async () => Boolean((await navigator.locks?.query?.())
 let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, valid only for one calibration (window size and boxes).
 let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null};
-let character = null, readingsCache = [];
+let character = null, readingsCache = [], daysCache = [];
+// Chart and overlay-builder choices, as on the live character page (kept for this page view only).
+const charts = {mode: 'exp', bucket: 300, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
+const builder = overlayOptions('');
 // Capture session state; only exists while the user is sharing a window.
 let capture = null;  // {stream, track, grabber, video, sessionId, tracker, timer, lastFrame, ...}
 let lastScan = null, identitySuspect = null;
@@ -56,7 +61,8 @@ async function refreshCharacters() {
   character = list.find((c) => c.id === settings.activeCharacterId) ?? list[0] ?? null;
   select.value = character ? String(character.id) : 'new';
   if (!character) openCharacterForm(true);
-  readingsCache = character ? await store.readings(character.id, Date.now() - 6 * 3600e3) : [];
+  readingsCache = character ? await store.readings(character.id, Date.now() - store.DETAIL_MS) : [];
+  daysCache = character ? await store.days(character.id) : [];
   render();
 }
 
@@ -124,6 +130,7 @@ async function start() {
   setStatus('Loading the text reader…');
   try { await getEngine(); } catch (error) { stop('ocr_failed'); return setStatus(`Text reader failed to load: ${error.message}`, 'warn'); }
   store.prune().catch(() => {});
+  capture.pruneTimer = setInterval(() => store.prune().catch(() => {}), 3600e3);
   navigator.storage?.persist?.().then(updateStorageNote).catch(() => {});
   scan();
 }
@@ -148,7 +155,7 @@ async function stop(reason = 'stopped') {
   if (!capture) return;
   const current = capture;
   capture = null;
-  clearTimeout(current.timer);
+  clearTimeout(current.timer); clearInterval(current.pruneTimer);
   current.stream.getTracks().forEach((t) => t.stop());
   if (current.video) current.video.srcObject = null;
   window.removeEventListener('beforeunload', guardUnload);
@@ -296,6 +303,8 @@ async function handle(current, outcome, at) {
   if (accepted.length) {
     character = await store.getCharacter(character.id);
     readingsCache.push(...accepted.map((r) => ({...r, characterId: character.id, sessionId: current.sessionId})));
+    readingsCache = readingsCache.filter((r) => r.at >= Date.now() - store.DETAIL_MS);
+    daysCache = await store.days(character.id);
     broadcast();
   }
   if (status === 'accepted') setStatus('Tracking', 'ok');
@@ -334,7 +343,7 @@ function setStatus(text, tone = '') {
 function render() {
   if (!table) return;
   const now = Date.now();
-  const view = summarize(table, character, readingsCache, now, settings.window, capture?.sessionId ?? null);
+  const view = summarize(table, character, readingsCache, now, settings.window, {sessionId: capture?.sessionId ?? null, levelOnly: charts.levelOnly, live: Boolean(capture)});
   $('player-name').textContent = character?.name || 'Your character';
   $('player-job').hidden = !character?.job;
   if (character?.job) { $('player-job-icon').src = jobIcon(character.job); $('player-job-name').textContent = character.job; }
@@ -344,20 +353,41 @@ function render() {
   $('percentage').textContent = view.last ? ` [${percent(view.last.bp)}]` : '';
   $('age').textContent = view.last ? `· last reading ${duration(view.age)} ago` : '';
   $('rate').textContent = view.perHour == null ? '—' : fmtExp(view.perHour);
-  $('rate-label').textContent = settings.window === 'session' ? 'EXP / hour · session' : `EXP / hour · ${settings.window} min`;
+  $('rate-label').textContent = `EXP / hour · ${settings.window} min`;
   $('rate-note').textContent = view.perHour == null ? 'Needs a few minutes of readings'
     : (view.early ? `So far · ${duration(view.covered)} observed` : '') + (view.percentPerHour != null ? `${view.early ? ' · ' : ''}${view.percentPerHour.toFixed(2)}% / hour` : '');
   $('movement').textContent = view.recent == null ? '—' : fmtExp(view.recent);
-  $('tracked-exp').textContent = capture ? compact(view.sessionGain) : compact(view.totalGain);
-  $('tracked-note').textContent = capture ? `This session · ${duration(view.sessionCovered)} observed` : 'All time on this device';
+  $('tracked-exp').textContent = view.dayGain == null ? '—' : expText(view.dayGain);
+  $('tracked-note').textContent = view.dayGain == null ? `${expText(view.totalGain)} EXP tracked on this device` : `${duration(view.dayCovered)} observed · ${expText(view.totalGain)} all time`;
   $('eta').textContent = view.eta == null ? '—' : duration(view.eta);
   $('eta-note').textContent = view.eta == null ? (view.last && !view.total ? 'No EXP table for this level' : 'Needs an EXP / hour') : `${fmtExp(view.total - view.last.exp)} EXP to go`;
-  $('chart').innerHTML = chartSvg(view.buckets, {height: 120});
   $('identity').hidden = !identitySuspect;
   if (identitySuspect) {
     const ref = capture?.tracker.last ?? capture?.tracker.reference;
     $('identity-text').textContent = `The game shows Lv. ${identitySuspect.level} at ${percent(identitySuspect.bp)}, but ${character.name} was last Lv. ${ref?.level} at ${percent(ref?.bp)}. Readings are paused so histories don't mix.`;
   }
+  drawHistory(view, now);
+}
+
+// The live character page's chart panel: EXP bars, Level % line, or daily History.
+function drawHistory(view, now = Date.now()) {
+  const svg = $('history-chart'), daily = charts.mode === 'daily', long = charts.bucket === 1800;
+  pressed('[data-chart]', 'chart', charts.mode); pressed('[data-bucket]', 'bucket', charts.bucket);
+  pressed('[data-line-window]', 'lineWindow', charts.lineWindow); pressed('[data-daily-days]', 'dailyDays', charts.days);
+  for (const button of document.querySelectorAll('[data-chart-window]')) {
+    const minutes = Number(button.dataset.chartWindow);
+    button.disabled = (minutes >= 720) !== long;
+    button.setAttribute('aria-pressed', String(!button.disabled && minutes === (long ? charts.longWindow : charts.chartWindow)));
+  }
+  $('history-controls').hidden = daily; $('daily-controls').hidden = !daily;
+  $('bucket-controls').hidden = charts.mode !== 'exp'; $('line-controls').hidden = charts.mode !== 'percentage';
+  let note = '';
+  if (charts.mode === 'exp') note = drawExpChart(svg, view.intervals, {anchor: now, seconds: charts.bucket, range: (long ? charts.longWindow : charts.chartWindow) * 60});
+  else if (charts.mode === 'percentage') {
+    const points = charts.levelOnly && view.last ? readingsCache.filter((r) => r.level === view.last.level) : readingsCache;
+    note = drawPercentChart(svg, points, {anchor: now, minutes: charts.lineWindow});
+  } else drawDailyChart(svg, daysCache, {now, range: charts.days});
+  $('history-note').textContent = daily ? `One point per day: your last reading that day · ${daysCache.length} day${daysCache.length === 1 ? '' : 's'} saved` : note;
 }
 
 function renderScanStats() {
@@ -486,13 +516,12 @@ async function init() {
     if (capture) { clearTimeout(capture.timer); capture.timer = setTimeout(scan, settings.interval * 1000); }
   });
   for (const button of document.querySelectorAll('[data-window]')) button.addEventListener('click', async () => {
-    settings.window = button.dataset.window === 'session' ? 'session' : Number(button.dataset.window);
+    settings.window = Number(button.dataset.window);
     pressed('[data-window]', 'window', settings.window); await store.setSetting('window', settings.window); render();
   });
-  $('popout').addEventListener('click', () => {
-    // A separate window from this browser profile shares IndexedDB and BroadcastChannel with this tab.
-    window.open('/local/overlay', 'msxp-local-overlay', 'popup,width=520,height=200');
-  });
+  $('current-level-only').addEventListener('change', (event) => { charts.levelOnly = event.target.checked; render(); });
+  setupCharts();
+  setupBuilder();
   $('hud-detect').addEventListener('click', async () => {
     if (!capture?.lastFrame || !engine) return;
     const reason = await engine.exclusive(() => detect(capture.lastFrame));
@@ -525,14 +554,69 @@ async function init() {
       if (value !== undefined) settings[key] = value;
     }
     if (!INTERVALS.includes(settings.interval)) settings.interval = 20;
+    if (!WINDOWS.includes(settings.window)) settings.window = 15;
     pressed('[data-interval]', 'interval', settings.interval); pressed('[data-window]', 'window', settings.window);
+    Object.assign(builder, overlayOptions((await store.getSetting('overlay')) ?? ''));
     await refreshCharacters();
+    updateBuilder();
+    store.prune().catch(() => {});
     updateStorageNote();
   } catch (error) {
     setStatus(`Local storage is unavailable: ${error.message}`, 'warn');
     $('start').disabled = true;
   }
   setInterval(render, 5000);
+}
+
+function setupCharts() {
+  const on = (selector, handler) => { for (const button of document.querySelectorAll(selector)) button.addEventListener('click', () => { if (button.disabled) return; handler(button); hideTip(); render(); updateBuilder(); }); };
+  on('[data-chart]', (b) => { charts.mode = b.dataset.chart; });
+  on('[data-bucket]', (b) => { charts.bucket = Number(b.dataset.bucket); });
+  on('[data-chart-window]', (b) => { const minutes = Number(b.dataset.chartWindow); if (charts.bucket === 1800) charts.longWindow = minutes; else charts.chartWindow = minutes; });
+  on('[data-line-window]', (b) => { charts.lineWindow = Number(b.dataset.lineWindow); });
+  on('[data-daily-days]', (b) => { charts.days = Number(b.dataset.dailyDays); });
+  window.addEventListener('scroll', hideTip, true);
+  window.addEventListener('resize', () => render());
+}
+
+// The live overlay builder: options, presets and colours, previewed in place. "Open pop-out" opens a
+// window of this browser profile at the overlay's size, for OBS Window Capture.
+function overlayURL() { const query = overlayQuery(builder); return `/local/overlay${query ? '?' + query : ''}`; }
+function updateBuilder() {
+  builder.interval = String(charts.bucket); builder.range = String(charts.bucket === 1800 ? charts.longWindow : charts.chartWindow);
+  const url = overlayURL(), [width, height] = OVERLAY_SIZES[builder.layout], frame = $('overlay-preview');
+  $('overlay-url').value = location.origin + url; $('overlay-link').href = url; $('overlay-size').textContent = `Window · ${width} × ${height}`;
+  for (const button of document.querySelectorAll('[data-option] button')) {
+    const key = button.closest('[data-option]').dataset.option;
+    button.setAttribute('aria-pressed', String(builder[key] === button.dataset.value && (key !== 'theme' || !OVERLAY_COLORS.some((color) => builder[color]))));
+  }
+  for (const input of document.querySelectorAll('[data-color]')) input.value = '#' + (builder[input.dataset.color] ?? THEME_COLORS[builder.theme][input.dataset.color]);
+  frame.width = width; frame.height = height; scalePreview();
+  if (frame.dataset.loaded) frame.contentWindow?.applyOverlay?.({...builder}); else if (!frame.src) frame.src = url;
+}
+function scalePreview() {
+  const frame = $('overlay-preview'), scale = Math.min(1, (($('overlay-stage').clientWidth || 524) - 26) / frame.width);
+  frame.style.transform = `scale(${scale})`; $('overlay-stage').style.height = `${Math.ceil(frame.height * scale) + 26}px`;
+}
+const saveBuilder = () => store.setSetting('overlay', overlayQuery(builder)).catch(() => {});
+function setupBuilder() {
+  const frame = $('overlay-preview');
+  frame.addEventListener('load', () => { frame.dataset.loaded = 'true'; frame.contentWindow?.applyOverlay?.({...builder}); });
+  for (const button of document.querySelectorAll('[data-option] button')) button.addEventListener('click', () => {
+    const key = button.closest('[data-option]').dataset.option;
+    if (!OVERLAY_CHOICES[key]?.includes(button.dataset.value)) return;
+    if (key === 'theme') for (const color of OVERLAY_COLORS) delete builder[color];
+    builder[key] = button.dataset.value; saveBuilder(); updateBuilder();
+  });
+  for (const input of document.querySelectorAll('[data-color]')) input.addEventListener('input', () => { builder[input.dataset.color] = input.value.slice(1).toLowerCase(); saveBuilder(); updateBuilder(); });
+  $('overlay-randomize').addEventListener('click', () => { for (const key of OVERLAY_COLORS) delete builder[key]; Object.assign(builder, {theme: 'night'}, randomOverlayColors()); saveBuilder(); updateBuilder(); });
+  $('overlay-reset').addEventListener('click', () => { for (const key of OVERLAY_COLORS) delete builder[key]; saveBuilder(); updateBuilder(); });
+  $('popout').addEventListener('click', () => {
+    // A separate window of this browser profile shares IndexedDB and BroadcastChannel with this tab.
+    const [width, height] = OVERLAY_SIZES[builder.layout];
+    window.open(overlayURL(), 'msxp-local-overlay', `popup,width=${width},height=${height}`);
+  });
+  window.addEventListener('resize', scalePreview);
 }
 
 // Destructive actions use a second click instead of a blocking dialog.

@@ -92,7 +92,7 @@ test('long gaps and level jumps start baselines; different characters pause for 
   assert.deepEqual(E.acceptBaseline(fresh.out[1].suspect).accept[0].kind, 'baseline');
 });
 
-test('rates use observed time only and need coverage; gaps are not zeros', () => {
+test('rates use observed time only and need coverage; gaps are not zeros', async () => {
   const readings = [];
   for (let s = 0; s <= 600; s += 20) readings.push({...r(s, 20, 5000 + s), sessionId: 1, gain: s ? 20 : null});
   const list = E.intervals(readings);
@@ -102,9 +102,14 @@ test('rates use observed time only and need coverage; gaps are not zeros', () =>
   assert.equal(E.windowStats(list, at(600), 3600).ok, false);
   // Readings in another session never form an interval with this one.
   assert.equal(E.intervals([{...readings[0], sessionId: 1}, {...readings[1], sessionId: 2}]).length, 0);
-  const buckets = V.buckets(list, at(600), 60);
-  assert.ok(buckets.some((b) => b.gain === null));
-  assert.ok(buckets.some((b) => b.gain > 0));
+  const C = await import(new URL('charts.js', web));
+  const chart = C.bucketHistory(list, at(600), 300, 3600);  // 5-minute bars over the last hour.
+  assert.ok(chart.bins.some((b) => b.state === 'missing' && b.value === null));  // Unobserved time is missing, not zero.
+  assert.equal(Math.round(chart.bins.reduce((sum, b) => sum + (b.value ?? 0), 0)), 600);  // Every gain is drawn exactly once.
+  // "So far" rates describe only a running session.
+  const character = {last: readings.at(-1), totalGain: 600};
+  assert.equal(V.summarize(table, character, readings, at(600), 30, {live: false}).perHour, null);
+  assert.equal(Math.round(V.summarize(table, character, readings, at(600), 30, {live: true}).perHour), 3600);
 });
 
 test('HUD geometry: labels bind to one status bar; brackets are found by colour', () => {
@@ -147,4 +152,23 @@ test('glyph templates: learned only from aligned confirmed text; conflicts are p
   G.learn(templates, seg, '812');  // The same bitmap later confirmed as another character.
   assert.equal(G.read(seg, templates), null);
   assert.deepEqual(G.displayed(1234567, 905), {number: '1,234,567', percent: '9.05%'});
+});
+
+test('daily summaries keep the last reading of each local day and add up its gains', async () => {
+  const S = await import(new URL('store.js', web));
+  const morning = new Date(2026, 10, 10, 8).getTime(), evening = new Date(2026, 10, 10, 21).getTime();
+  let day = S.foldDay(undefined, {characterId: 1, at: evening, level: 21, exp: 50, bp: 20, gain: 300});
+  day = S.foldDay(day, {characterId: 1, at: morning, level: 20, exp: 900, bp: 4000, gain: 100});  // An older reading arrives later.
+  assert.deepEqual(day, {characterId: 1, day: '2026-11-10', gain: 400, at: evening, level: 21, exp: 50, bp: 20});
+  assert.equal(S.dayOf(new Date(2026, 0, 2, 23, 59).getTime()), '2026-01-02');
+  assert.ok(S.DETAIL_MS > 24 * 3600e3 && S.DETAIL_MS <= 25 * 3600e3);
+});
+
+test('overlay options use the live URL parameters; unknown values fall back', () => {
+  const o = V.overlayOptions('?layout=chart&theme=blue&name=twitch&interval=1800&range=60&background=ABCDEF&bg=green&evil=1');
+  assert.deepEqual([o.layout, o.theme, o.name, o.interval, o.range, o.background, o.bg], ['chart', 'blue', 'character', '1800', '1440', 'abcdef', 'green']);
+  assert.equal(V.overlayQuery(o), 'layout=chart&theme=blue&bg=green&interval=1800&range=1440&background=abcdef');
+  assert.equal(V.overlayQuery(V.overlayOptions('')), '');
+  assert.equal(V.headerInk('ffffff'), 'dark');
+  assert.match(V.randomOverlayColors().background, /^[0-9a-f]{6}$/);
 });

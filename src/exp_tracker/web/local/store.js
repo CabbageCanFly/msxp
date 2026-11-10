@@ -1,23 +1,38 @@
-// IndexedDB for the local tracker: characters, sessions, accepted readings and settings.
+// IndexedDB for the local tracker: characters, sessions, accepted readings, daily summaries and settings.
 // Structured numbers and timestamps only; no frames or crops are ever stored.
 
-const NAME = 'msxp-local', VERSION = 1;
-// Retention: accepted readings older than this are pruned when tracking starts. Character totals
-// survive pruning because they are kept on the character record.
-export const RETENTION_DAYS = 90;
+const NAME = 'msxp-local', VERSION = 2;
+// Retention like the live site: detailed readings for 24 hours (+5 minutes, plus one older boundary
+// reading per character so the oldest interval keeps its start), then only one summary per character
+// and local day, kept indefinitely (about 200 bytes each). Character totals live on the character.
+export const DETAIL_MS = 24 * 3600e3 + 5 * 60e3;
 
 let opening = null;
 export function open() {
   return opening ??= new Promise((resolve, reject) => {
     const request = indexedDB.open(NAME, VERSION);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
-      db.createObjectStore('characters', {keyPath: 'id', autoIncrement: true});
-      db.createObjectStore('sessions', {keyPath: 'id', autoIncrement: true}).createIndex('character', 'characterId');
-      const readings = db.createObjectStore('readings', {keyPath: 'id', autoIncrement: true});
-      readings.createIndex('character_at', ['characterId', 'at']);
-      readings.createIndex('at', 'at');
-      db.createObjectStore('settings');
+      if (event.oldVersion < 1) {
+        db.createObjectStore('characters', {keyPath: 'id', autoIncrement: true});
+        db.createObjectStore('sessions', {keyPath: 'id', autoIncrement: true}).createIndex('character', 'characterId');
+        const readings = db.createObjectStore('readings', {keyPath: 'id', autoIncrement: true});
+        readings.createIndex('character_at', ['characterId', 'at']);
+        readings.createIndex('at', 'at');
+        db.createObjectStore('settings');
+      }
+      if (event.oldVersion < 2) {
+        db.createObjectStore('days', {keyPath: ['characterId', 'day']});
+        // Existing readings seed the daily history (an additive migration; nothing is deleted here).
+        const tx = request.transaction, days = tx.objectStore('days');
+        tx.objectStore('readings').openCursor().onsuccess = function () {
+          const cursor = this.result;
+          if (!cursor) return;
+          const r = cursor.value, key = [r.characterId, dayOf(r.at)];
+          days.get(key).onsuccess = function () { days.put(foldDay(this.result, r)); };
+          cursor.continue();
+        };
+      }
     };
     request.onsuccess = () => {
       // Another tab upgrading or deleting the database must not be blocked by this one.
@@ -27,6 +42,19 @@ export function open() {
     request.onerror = () => { opening = null; reject(request.error); };
     request.onblocked = () => reject(new Error('Close other msxp tabs to open local history'));
   });
+}
+
+// The player's own calendar day (a personal tracker), not UTC as on the shared live site.
+export function dayOf(at) {
+  const d = new Date(at);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// A day's summary keeps its latest accepted reading and the EXP gained that day.
+export function foldDay(day, r) {
+  const later = !day || r.at >= day.at;
+  return {characterId: r.characterId, day: dayOf(r.at), gain: (day?.gain || 0) + (r.gain || 0),
+    ...(later ? {at: r.at, level: r.level, exp: r.exp, bp: r.bp} : {at: day.at, level: day.level, exp: day.exp, bp: day.bp})};
 }
 
 const done = (tx) => new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(tx.error); });
@@ -73,17 +101,19 @@ export function closeAbandoned() {
 }
 
 /**
- * Persist one scan outcome atomically: accepted readings, the tracker state and status counts.
- * The tracker state is stored on the character so a reload continues from the last accepted reading.
+ * Persist one scan outcome atomically: accepted readings, their daily summaries, the tracker state
+ * and status counts. The tracker state is stored on the character so a reload continues from it.
  */
 export function record(characterId, sessionId, accepted, trackerState, status) {
-  return run(['characters', 'sessions', 'readings'], 'readwrite', async (tx) => {
-    const characters = tx.objectStore('characters'), sessions = tx.objectStore('sessions'), readings = tx.objectStore('readings');
+  return run(['characters', 'sessions', 'readings', 'days'], 'readwrite', async (tx) => {
+    const characters = tx.objectStore('characters'), sessions = tx.objectStore('sessions'), readings = tx.objectStore('readings'), days = tx.objectStore('days');
     const character = await result(characters.get(characterId)), session = await result(sessions.get(sessionId));
     if (!character || !session || session.characterId !== characterId) throw new Error('Character or session no longer exists');
     let gain = 0;
     for (const r of accepted) {
-      readings.add({characterId, sessionId, at: r.at, level: r.level, exp: r.exp, bp: r.bp, gain: r.gain, kind: r.kind});
+      const row = {characterId, sessionId, at: r.at, level: r.level, exp: r.exp, bp: r.bp, gain: r.gain, kind: r.kind};
+      readings.add(row);
+      days.put(foldDay(await result(days.get([characterId, dayOf(r.at)])), row));
       gain += r.gain ?? 0;
     }
     characters.put({...character, totalGain: (character.totalGain || 0) + gain, tracker: trackerState,
@@ -98,29 +128,39 @@ export function readings(characterId, since = 0) {
     .getAll(IDBKeyRange.bound([characterId, since], [characterId, Infinity]))));
 }
 
+export function days(characterId) {
+  return run('days', 'readonly', (tx) => result(tx.objectStore('days').getAll(IDBKeyRange.bound([characterId, ''], [characterId, '￿']))));
+}
+
+// Drop detailed readings past the 24-hour window. Daily summaries were already folded in on record.
 export function prune(now = Date.now()) {
-  const cutoff = now - RETENTION_DAYS * 86400e3;
-  return run('readings', 'readwrite', async (tx) => {
-    const store = tx.objectStore('readings');
-    for (const key of await result(store.index('at').getAllKeys(IDBKeyRange.upperBound(cutoff)))) store.delete(key);
+  const cutoff = now - DETAIL_MS;
+  return run(['characters', 'readings'], 'readwrite', async (tx) => {
+    const index = tx.objectStore('readings').index('character_at');
+    for (const id of await result(tx.objectStore('characters').getAllKeys())) {
+      const old = await result(index.getAllKeys(IDBKeyRange.bound([id, 0], [id, cutoff])));
+      for (const key of old.slice(0, -1)) tx.objectStore('readings').delete(key);  // Keep one boundary reading.
+    }
   });
 }
 
 export function exportAll() {
-  return run(['characters', 'sessions', 'readings', 'settings'], 'readonly', async (tx) => ({
-    format: 'msxp-local-v1', exportedAt: new Date().toISOString(),
+  return run(['characters', 'sessions', 'readings', 'days', 'settings'], 'readonly', async (tx) => ({
+    format: 'msxp-local-v2', exportedAt: new Date().toISOString(),
     characters: await result(tx.objectStore('characters').getAll()),
     sessions: await result(tx.objectStore('sessions').getAll()),
     readings: await result(tx.objectStore('readings').getAll()),
+    days: await result(tx.objectStore('days').getAll()),
   }));
 }
 
 export function deleteCharacter(id) {
-  return run(['characters', 'sessions', 'readings'], 'readwrite', async (tx) => {
+  return run(['characters', 'sessions', 'readings', 'days'], 'readwrite', async (tx) => {
     tx.objectStore('characters').delete(id);
     for (const key of await result(tx.objectStore('sessions').index('character').getAllKeys(id))) tx.objectStore('sessions').delete(key);
     const index = tx.objectStore('readings').index('character_at');
     for (const key of await result(index.getAllKeys(IDBKeyRange.bound([id, 0], [id, Infinity])))) tx.objectStore('readings').delete(key);
+    tx.objectStore('days').delete(IDBKeyRange.bound([id, ''], [id, '￿']));
   });
 }
 

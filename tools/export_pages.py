@@ -49,7 +49,7 @@ DEVELOPER_LINKS = {'/dev/streams', '/demo/leaderboard'}
 REDIRECTS = ('/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
              '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200',
              '/local/ /local 200', '/local/overlay /local-overlay 200', '/local/overlay/ /local-overlay 200')
-ROUTES = {'/', '/streams', '/local'}
+ROUTES = {'/', '/streams', '/local', '/local/overlay'}
 # The local tracker compiles WebAssembly (OCR) in a same-origin worker and never contacts the API.
 LOCAL_PATHS = ('/local', '/local/*', '/local-overlay', '/static/local/*')
 LOCAL_POLICY = ("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; "

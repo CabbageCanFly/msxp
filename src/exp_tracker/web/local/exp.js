@@ -130,7 +130,7 @@ export function intervals(readings) {
   for (let i = 1; i < readings.length; i++) {
     const a = readings[i - 1], b = readings[i];
     if (b.gain == null || a.sessionId !== b.sessionId) continue;
-    out.push({start: a.at, end: b.at, gain: b.gain, sessionId: b.sessionId});
+    out.push({start: a.at, end: b.at, gain: b.gain, sessionId: b.sessionId, level: b.level});
   }
   return out;
 }

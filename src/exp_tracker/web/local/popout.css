@@ -4,6 +4,3 @@ html:has(.local-overlay), .local-overlay { background:#14181f; }
 html:has(.local-overlay[data-bg="green"]), .local-overlay[data-bg="green"] { background:#00ff00; }
 html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] { background:#ff00ff; }
 .local-overlay { overflow:hidden; }
-.local-overlay #overlay-job { flex:none; font-size:11px; font-weight:700; opacity:.85; }
-.local-overlay .mini-history .exp-column { fill:var(--graph); }
-.local-overlay .mini-history .exp-column.missing { fill:var(--muted); opacity:.5; }
