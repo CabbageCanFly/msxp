@@ -21,6 +21,13 @@ A 1-minute demo of the site: https://www.youtube.com/watch?v=K_PUYS978gM
 
 ---
 
+## Track your own EXP, no install
+
+Open **[msxp.pages.dev/local](https://msxp.pages.dev/local)** in Chrome or Edge, click
+**Start tracking** and share your MapleStory window. Your browser reads the EXP bar every 20 seconds
+and keeps the history on your computer; nothing is uploaded. A pop-out overlay can be captured in
+OBS with Window Capture. Details and limits: [personal tracker](docs/local-tracker.md).
+
 ## Try it in 5 minutes
 
 You need **[Python 3.11 or newer](https://www.python.org/downloads/)** (on Windows, tick

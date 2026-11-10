@@ -384,7 +384,7 @@ def test_stream_directory_frontend_logic():
     subprocess.run([node,'--test','tools/streams.test.mjs'],check=True,timeout=20)
 
 
-@pytest.mark.parametrize('script', ['product', 'admin-invalidations', 'admin-streamers', 'admin-time', 'obs-client'])
+@pytest.mark.parametrize('script', ['product', 'admin-invalidations', 'admin-streamers', 'admin-time', 'obs-client', 'local-tracker'])
 def test_site_and_admin_frontend_logic(script):
     node = shutil.which('node')
     if not node: pytest.skip('Optional Node.js frontend tests')

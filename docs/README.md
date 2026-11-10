@@ -8,6 +8,7 @@ The README's [Next improvements](../README.md#next-improvements) is the single s
 - [Database-managed streamers](database-streamer-roster.md) · [Admin and corrections](manual-exp-admin.md)
 - [Twitch status keys](twitch-authentication.md) · [Twitch Turbo playback](twitch-turbo.md)
 - [Multi-character profiles and History](multi-character-profiles.md) · [OBS overlay and read-only API](overlay.md)
+- [Personal tracker in the browser (`/local`)](local-tracker.md): share your game window, no install
 - [Demo previews](demo-leaderboard.md) · [Real-data preview](product-preview.md)
 - [Validated-level repair](level-floor-repair.md)
 

@@ -31,6 +31,8 @@ on new API fields must wait for that backend to be live.
 | `static/classes/*.gif` | Class badges for the home job filter (see README credits), copied byte for byte |
 | `static/sleepywood.webp`, `static/sleepywood-forest.webp` | Original town/forest background, lossless WebP (see [sources](website-background.md)) |
 | `static/kerning.webp`, `static/kerning-sky.webp` | Original Kerning City town/sunset background, lossless WebP |
+| `local.html`, `local-overlay.html`, `static/local/*` | The browser-only personal tracker and its self-hosted OCR runtime ([local tracker](local-tracker.md)) |
+| `static/local/community-exp.json` | Copy of `src/exp_tracker/data/community-exp-v2.json` for the local tracker's checks |
 | `_redirects`, `_headers`, `404.html` | Generated: routes, security headers, not-found page |
 | `.msxp-pages-export` | Marker that lets a rerun replace its own output |
 
@@ -80,7 +82,10 @@ slashes, uppercase or wildcards, stops the build; `product.js` also refuses to s
 a malformed value. The origin is fixed at build time; no URL parameter can change it.
 `_headers` sends `default-src 'self'; connect-src 'self' <API origin>`, so browsers load
 every script, stylesheet, font, image and frame from the Pages origin and send network
-requests only there and to the API.
+requests only there and to the API. `/local`, `/local/*`, `/local-overlay` and `/static/local/*`
+detach that policy (`! Content-Security-Policy`) and send their own: the same rules plus
+`'wasm-unsafe-eval'` and `worker-src 'self'` for the OCR worker, and `connect-src 'self'` with no
+API origin, because the local tracker never contacts the API.
 
 The Caddy allowlist (`deploy/Caddyfile`) already covers the player GET routes, including
 `/api/players/{channel}/daily-history`; no proxy change is needed for that endpoint.
@@ -100,6 +105,8 @@ CORS-simple GETs, so no preflight is needed.
 | `/streams`, `/streams/` | `index.html` |
 | `/stream/{channel}`, `/stream/{channel}/` (any `?character=` / `?mode=`) | `player.html` |
 | `/live/overlay/{channel}`, `/live/overlay/{channel}/` (any `?layout=…&theme=…`) | `live-overlay.html` |
+| `/local`, `/local/` | `local.html` (personal tracker; Pages serves `/local` from `local.html`) |
+| `/local/overlay`, `/local/overlay/` | `local-overlay.html` |
 | anything else, e.g. `/dev/streams`, `/dashboard/…`, `/admin`, `/overlay/…`, `/stream/a/b` | `404.html` with status 404 |
 
 A `404.html` at the root also stops Pages from treating unknown paths as a single-page

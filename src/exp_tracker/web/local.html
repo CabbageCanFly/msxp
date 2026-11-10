@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Track your own EXP · EXP Tracker</title>
+<link rel="icon" href="/static/steely.png" type="image/png">
+<meta name="description" content="Track your MapleStory Classic EXP privately in your browser by sharing the game window. Nothing is uploaded.">
+<link rel="preload" href="/static/fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/static/fonts/fredoka-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/leaderboard.css"><link rel="stylesheet" href="/static/product.css"><link rel="stylesheet" href="/static/local/local.css">
+<script type="module" src="/static/local/app.js"></script></head>
+<body class="product local-page" data-view="player" data-tracking="off"><main>
+<header class="masthead"><a class="brand" href="/"><img class="emblem" src="/static/steely.png" width="42" height="42" alt=""><div><strong>msxp.pages.dev</strong><span>EXP Tracker · MapleStory Classic</span></div></a></header>
+<p class="reading-info">Track your own EXP. Your browser reads the game's EXP bar from a window you share; <strong>readings stay on this device</strong>.</p>
+
+<section class="board player-board" aria-labelledby="player-name"><header class="board-header"><h1 id="player-name">Your character</h1><span id="player-job" class="player-job" hidden><img id="player-job-icon" width="32" height="32" alt=""><span id="player-job-name"></span></span><span class="source-label">On this device</span></header>
+<div class="local-controls">
+  <button id="start" class="local-start" type="button">Start tracking</button>
+  <button id="stop" class="local-stop" type="button" hidden>Stop</button>
+  <label class="local-field"><span>Character</span><select id="character-select" aria-label="Character"></select></label>
+  <button id="character-edit" type="button">Edit</button>
+  <button id="popout" type="button" title="Open a compact overlay window you can capture in OBS">Pop-out overlay</button>
+  <div class="windows interval" role="group" aria-label="Scan every"><span>Scan every</span><button data-interval="5" aria-pressed="false">5<span class="unit"> s</span></button><button data-interval="10" aria-pressed="false">10<span class="unit"> s</span></button><button data-interval="20" aria-pressed="true">20<span class="unit"> s</span></button><button data-interval="30" aria-pressed="false">30<span class="unit"> s</span></button></div>
+</div>
+<form id="character-form" class="character-form" hidden>
+  <label class="local-field"><span>Name</span><input id="character-name" maxlength="20" autocomplete="off" required placeholder="Character name"></label>
+  <label class="local-field"><span>Job</span><select id="character-job"></select></label>
+  <button type="submit">Save</button><button type="button" id="character-new">Save as new character</button><button type="button" id="character-cancel">Cancel</button>
+  <button type="button" id="character-delete" class="danger">Delete character…</button>
+</form>
+<div id="identity" class="identity-check" role="alert" hidden><p id="identity-text"></p><button id="identity-same" type="button">Same character, continue</button><button id="identity-switch" type="button">Choose another character</button></div>
+<div class="player-reading"><span class="level" id="level">Lv. —</span><div class="exp-section"><div class="exp-bar"><progress id="progress" max="100" value="0" aria-label="EXP progress"></progress><span class="exp-label"><span id="exp">—</span><span id="percentage">—</span></span></div><p class="status-line"><span id="status" class="status" role="status">Not tracking</span><span id="age" class="exp-detail"></span></p></div></div>
+<div class="toolbar"><div class="windows" role="group" aria-label="Time window"><span>Last</span><button data-window="5" aria-pressed="false">5<span class="unit"> min</span></button><button data-window="15" aria-pressed="true">15<span class="unit"> min</span></button><button data-window="30" aria-pressed="false">30<span class="unit"> min</span></button><button data-window="60" aria-pressed="false">60<span class="unit"> min</span></button><button data-window="session" aria-pressed="false">Session</button></div></div>
+<div class="companion-cards"><div class="early-pace"><span id="rate-label">EXP / hour</span><strong id="rate">—</strong><small id="rate-note">Needs a few minutes of readings</small></div><div class="recent-card"><span>Last 5 min</span><strong id="movement">—</strong><small>EXP gained</small></div><div class="tracked-card"><span>EXP tracked</span><strong id="tracked-exp">—</strong><small id="tracked-note">This session</small></div><div class="next-card"><span>Next level</span><strong id="eta">—</strong><small id="eta-note">At this pace</small></div></div>
+</section>
+
+<section class="board history-board"><header class="board-header"><h2>EXP per 5 min</h2><span class="board-note">Last 2 hours · grey means no readings</span></header><div class="history-chart"><svg id="chart" viewBox="0 0 462 120" preserveAspectRatio="none" role="img" aria-label="EXP gained per 5 minutes over the last two hours"></svg></div></section>
+
+<section class="board local-hud" aria-labelledby="hud-title"><header class="board-header"><h2 id="hud-title">Game HUD</h2><span id="scan-stats" class="board-note"></span></header>
+  <div class="hud-body">
+    <p id="hud-help">After you start, msxp finds the EXP bar at the bottom of the game window. If it can't, open the preview and drag a box around the EXP numbers, then around the orange level badge.</p>
+    <div class="hud-actions"><button id="hud-detect" type="button" disabled>Find HUD again</button><button id="hud-preview" type="button" disabled>Show preview</button><button id="hud-draw-exp" type="button" disabled>Draw EXP box</button><button id="hud-draw-level" type="button" disabled>Draw level box</button></div>
+    <div id="hud-view" class="hud-view" hidden><canvas id="hud-canvas"></canvas><div class="hud-crops"><figure><canvas id="crop-exp"></canvas><figcaption>EXP <code id="text-exp">—</code></figcaption></figure><figure><canvas id="crop-level"></canvas><figcaption>Level <code id="text-level">—</code></figcaption></figure></div></div>
+  </div>
+</section>
+
+<section class="board local-data"><header class="board-header"><h2>Your data</h2></header>
+  <div class="hud-body">
+    <p>History is saved in this browser only (IndexedDB) and kept for 90 days; totals stay with each character. Screen frames are read in memory and never saved. <span id="storage-note"></span></p>
+    <div class="hud-actions"><button id="export" type="button">Export JSON</button><button id="clear" type="button" class="danger">Clear all local history…</button></div>
+  </div>
+</section>
+<footer class="site-footer"><span>Not affiliated with <a href="https://www.nexon.com/maplestory/" target="_blank" rel="noopener noreferrer">Official MapleStory</a> · <a href="https://github.com/cabbagecanfly/msxp/issues" target="_blank" rel="noopener noreferrer">Report an issue</a></span></footer>
+</main></body></html>

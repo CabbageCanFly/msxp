@@ -27,7 +27,8 @@ import export_pages
 sys.path.insert(0, str(export_pages.ROOT / 'src'))
 
 TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-         '.woff2': 'font/woff2', '.png': 'image/png', '.webp': 'image/webp', '.txt': 'text/plain; charset=utf-8'}
+         '.woff2': 'font/woff2', '.png': 'image/png', '.webp': 'image/webp', '.txt': 'text/plain; charset=utf-8',
+         '.json': 'application/json', '.wasm': 'application/wasm', '.gz': 'application/gzip', '.md': 'text/plain; charset=utf-8'}
 
 
 def rewrites(root):
@@ -45,6 +46,7 @@ def header_rules(root):
     rules, current = [], None
     for line in (root / '_headers').read_text(encoding='utf-8').splitlines():
         if line and not line[0].isspace():current = (line.strip(), []);rules.append(current)
+        elif line.strip().startswith('!'):current[1].append((line.strip()[1:].strip(), None))  # Detach an earlier rule's header.
         elif line.strip():name, value = line.strip().split(':', 1);current[1].append((name, value.strip()))
     return rules
 
@@ -76,10 +78,13 @@ def handler(root, source_origin=None):
             self.send_response(status)
             self.send_header('Content-Type', TYPES.get(file.suffix, mimetypes.guess_type(file.name)[0] or 'application/octet-stream'))
             self.send_header('Content-Length', str(len(body)))
+            sent = []
             for pattern, values in headers:
                 if fnmatch(path, pattern):
                     for name, value in values:
-                        if source_origin is None or name.lower() != 'cache-control':self.send_header(name, value)
+                        if value is None:sent = [item for item in sent if item[0].lower() != name.lower()]
+                        elif source_origin is None or name.lower() != 'cache-control':sent.append((name, value))
+            for name, value in sent:self.send_header(name, value)
             if source_origin is not None:self.send_header('Cache-Control', 'no-store')
             self.end_headers()
             self.wfile.write(body)

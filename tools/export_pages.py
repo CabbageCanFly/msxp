@@ -28,22 +28,34 @@ LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 ORIGIN = re.compile(rf"https://{LABEL}(?:\.{LABEL})+(?::[0-9]{{1,5}})?|http://(?:localhost|127\.0\.0\.1)(?::[0-9]{{1,5}})?")
 
 # Exported path -> source under web/. Anything not listed is never published.
-PAGES = {'index.html': 'tracker.html', 'player.html': 'player.html', 'live-overlay.html': 'live-overlay.html'}
+PAGES = {'index.html': 'tracker.html', 'player.html': 'player.html', 'live-overlay.html': 'live-overlay.html',
+         'local.html': 'local.html', 'local-overlay.html': 'local-overlay.html'}
 STATIC = ('product.js', 'product.css', 'leaderboard.css', 'live-overlay.css', 'steely.png', 'sleepywood.webp', 'sleepywood-forest.webp',
           'kerning.webp', 'kerning-sky.webp',
           'fonts/fredoka-latin.woff2', 'fonts/nunito-latin.woff2', 'fonts/OFL-Fredoka.txt', 'fonts/OFL-Nunito.txt',
           *sorted(f'mobs/{p.name}' for p in WEB.glob('mobs/*.*')),  # Wandering mob sprites; the folder holds only these.
           *sorted(f'jobs/{p.name}' for p in WEB.glob('jobs/*.png')),  # Job skill icons.
-          *sorted(f'classes/{p.name}' for p in WEB.glob('classes/*.gif')))  # Class badges for the home job filter.
+          *sorted(f'classes/{p.name}' for p in WEB.glob('classes/*.gif')),  # Class badges for the home job filter.
+          # The browser-only personal tracker (/local) and its self-hosted OCR runtime (docs/local-tracker.md).
+          *sorted(f'local/{p.name}' for p in WEB.glob('local/*.*')),
+          *sorted(f'local/vendor/{p.name}' for p in WEB.glob('local/vendor/*.*')),
+          'local/community-exp.json')
+# Exported files that live outside web/: the local tracker reads the same EXP table as the Python tracker.
+DATA = {'local/community-exp.json': ROOT / 'src' / 'exp_tracker' / 'data' / 'community-exp-v2.json'}
 # Developer links kept in the shared HTML; [data-site=public] hides them and they 404 on Pages.
 DEVELOPER_LINKS = {'/dev/streams', '/demo/leaderboard'}
 # Status 200 rewrites keep the browser URL, so product.js still reads the channel from location.pathname
 # (with or without a trailing slash). Anything unmatched gets 404.html.
 REDIRECTS = ('/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
-             '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200')
-ROUTES = {'/', '/streams'}
+             '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200',
+             '/local/ /local 200', '/local/overlay /local-overlay 200', '/local/overlay/ /local-overlay 200')
+ROUTES = {'/', '/streams', '/local'}
+# The local tracker compiles WebAssembly (OCR) in a same-origin worker and never contacts the API.
+LOCAL_PATHS = ('/local', '/local/*', '/local-overlay', '/static/local/*')
+LOCAL_POLICY = ("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; "
+                "object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'")
 CACHED = ('/static/fonts/*', '/static/steely.png', '/static/sleepywood.webp', '/static/sleepywood-forest.webp',
-          '/static/kerning.webp', '/static/kerning-sky.webp', '/static/mobs/*', '/static/jobs/*', '/static/classes/*')
+          '/static/kerning.webp', '/static/kerning-sky.webp', '/static/mobs/*', '/static/jobs/*', '/static/classes/*', '/static/local/vendor/*')
 NOT_FOUND = '''<!doctype html>
 <html lang="en" data-site="public"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Not found · EXP Tracker</title><link rel="icon" href="/static/steely.png" type="image/png">
@@ -62,6 +74,7 @@ def api_origin(value):
 
 
 def source(name):
+    if name in DATA:return DATA[name].read_bytes()
     path = WEB / name
     # Allowlisted names only; a symlink could publish something outside web/.
     if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(WEB.resolve()):
@@ -81,6 +94,8 @@ def headers(origin):
     policy = f"default-src 'self'; connect-src 'self' {origin}; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'"
     lines = ['/*', f'  Content-Security-Policy: {policy}', '  X-Content-Type-Options: nosniff',
              '  Referrer-Policy: strict-origin-when-cross-origin']
+    # '!' detaches the site-wide policy so these paths get their own (Cloudflare _headers syntax).
+    for path in LOCAL_PATHS:lines += [path, '  ! Content-Security-Policy', f'  Content-Security-Policy: {LOCAL_POLICY}']
     for path in CACHED:lines += [path, '  Cache-Control: public, max-age=86400']
     return '\n'.join(lines) + '\n'
 

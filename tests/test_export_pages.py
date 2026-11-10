@@ -23,9 +23,10 @@ EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'index.h
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
             'static/product.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp',
             'static/kerning.webp', 'static/kerning-sky.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')} \
-    | {f'static/jobs/{p.name}' for p in (export_pages.WEB / 'jobs').glob('*.png')}     | {f'static/classes/{p.name}' for p in (export_pages.WEB / 'classes').glob('*.gif')}
+    | {f'static/jobs/{p.name}' for p in (export_pages.WEB / 'jobs').glob('*.png')}     | {f'static/classes/{p.name}' for p in (export_pages.WEB / 'classes').glob('*.gif')}     | {'local.html', 'local-overlay.html', 'static/local/community-exp.json'}     | {f'static/local/{p.relative_to(export_pages.WEB / "local").as_posix()}' for p in (export_pages.WEB / 'local').rglob('*.*')}
 ROUTES = ['/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
-          '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200']
+          '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200',
+          '/local/ /local 200', '/local/overlay /local-overlay 200', '/local/overlay/ /local-overlay 200']
 
 
 def tree(root):
@@ -64,7 +65,9 @@ def test_export_contains_exactly_the_public_allowlist_and_is_repeatable(out):
 def test_private_and_developer_files_are_never_exported(out):
     names = set(tree(out))
     for private in ('admin', 'shadow', 'streams', 'overlay.js', 'overlay.css', 'leaderboard.html', 'leaderboard.js', '.py', '.sqlite', '.json', '.env'):
-        assert not any(private in name.replace('live-overlay', '') for name in names), private
+        # The public community EXP table is the one JSON file: the local tracker validates readings with it.
+        assert not any(private in name.replace('live-overlay', '') for name in names - {'static/local/community-exp.json'}), private
+    assert (out / 'static/local/community-exp.json').read_bytes() == (export_pages.ROOT / 'src/exp_tracker/data/community-exp-v2.json').read_bytes()
     text = b'\n'.join(tree(out).values())
     assert b'8766' not in text and b'/admin' not in text and b'/dev/api' not in text
 
@@ -270,3 +273,26 @@ def test_about_popover_is_identical_on_home_and_player_pages():
         block = re.search(r'<div id="about".*?\n\s*</div>\n', html, re.S).group()
         return [line.strip() for line in block.splitlines()], html.count('popovertarget="about"')
     assert about('tracker.html') == about('player.html')
+
+
+def test_local_tracker_pages_get_their_own_policy_and_never_contact_the_api(out, preview):
+    """/local runs OCR (WebAssembly in a same-origin worker) and keeps readings in the browser."""
+    headers = (out / '_headers').read_text(encoding='utf-8')
+    for path in export_pages.LOCAL_PATHS:
+        assert f'{path}\n  ! Content-Security-Policy\n  Content-Security-Policy: {export_pages.LOCAL_POLICY}' in headers
+    assert "connect-src 'self';" in export_pages.LOCAL_POLICY and API not in export_pages.LOCAL_POLICY
+    for path, marker in (('/local', b'Start tracking'), ('/local/', b'Start tracking'), ('/local/overlay', b'local-overlay'),
+                         ('/local/overlay?layout=rates', b'local-overlay')):
+        status, body, response = get(preview + path)
+        assert status == 200 and marker in body, path
+        assert response['Content-Security-Policy'] == export_pages.LOCAL_POLICY, path
+    _, _, response = get(preview + '/static/local/vendor/worker.min.js')
+    assert response['Content-Security-Policy'] == export_pages.LOCAL_POLICY  # A worker gets its own script's policy.
+    assert get(preview + '/static/local/vendor/tesseract-core-simd-lstm.wasm')[2]['Content-Type'] == 'application/wasm'
+    assert "'wasm-unsafe-eval'" not in get(preview + '/')[2]['Content-Security-Policy']  # Other pages keep the strict policy.
+    # Local modules fetch only same-origin static files and never read the API origin.
+    for module in (export_pages.WEB / 'local').glob('*.js'):
+        source = module.read_text(encoding='utf-8')
+        assert 'data-api' not in source and 'dataset.api' not in source and '/api/' not in source, module.name
+        assert set(re.findall(r"fetch\('([^']*)'", source)) <= {'/static/local/community-exp.json'}, module.name
+        assert 'https://' not in source and 'http://' not in source, module.name
