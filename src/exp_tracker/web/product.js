@@ -1,10 +1,16 @@
 "use strict";
 
 const view=document.body.dataset.view;
-if(view==='board' || view==='player') {
+// The town background and its mobs can be switched off with the picture tab; only "off" is remembered, in this
+// browser (localStorage), like the time zone. Nothing about it leaves the browser.
+let sceneryOn=(()=>{try {return localStorage.getItem('scenery')!=='off';} catch {return true;}})();
+function showBackground() {
   const background=new URLSearchParams(location.search).get('background');
   document.body.dataset.background=['sleepywood','kerning'].includes(background)?background:new Date().getDate()%2?'sleepywood':'kerning';
   prepareBackground(document.body.dataset.background);
+}
+if(view==='board' || view==='player') {
+  if(sceneryOn)showBackground();
   try {
     if(!sessionStorage.getItem('site-intro-seen'))document.body.dataset.intro='true';
     sessionStorage.setItem('site-intro-seen','true');
@@ -16,6 +22,7 @@ async function prepareBackground(town) {
   try {
     await Promise.all(files.map(file=>{const image=node('img');image.src=`/static/${file}`;return image.decode();}));
     document.body.dataset.backgroundState='ready';
+    if(!sceneryOn){delete document.body.dataset.background;delete document.body.dataset.backgroundState;}  // Switched off while loading.
   } catch { document.body.dataset.backgroundState='failed'; } // Keep the navy fallback if either layer fails.
 }
 const channel=view==='overlay'?location.pathname.split('/')[3]:view==='player'?location.pathname.split('/')[2]:null;
@@ -1375,12 +1382,23 @@ function spawnMob(lane) {
 }
 // Every 10–45 s, whether or not others are still walking: occasionally a boss (one at a time), otherwise a mob, at most 3 at once.
 function wander(lane) {
-  if(!document.hidden) {
+  if(!document.hidden && sceneryOn) {
     if(Math.random()<1/12 && !document.querySelector('.boss'))spawnBoss();
     else if(lane.querySelectorAll('.mob').length<3)spawnMob(lane);
   }
   setTimeout(()=>wander(lane),10000+Math.random()*35000);
 }
+const sceneryTab=view==='overlay'?null:el('scenery-toggle');
+function setScenery(on) {
+  sceneryOn=on;
+  try {if(on)localStorage.removeItem('scenery');else localStorage.setItem('scenery','off');} catch {}
+  sceneryTab?.setAttribute('aria-pressed',String(on));
+  if(sceneryTab)sceneryTab.title=on?'Hide the town background and mobs':'Show the town background and mobs';
+  if(on){if(!document.body.dataset.background)showBackground();return;}
+  delete document.body.dataset.background;delete document.body.dataset.backgroundState;
+  document.querySelectorAll('.mob-lane .mob, .boss').forEach(mob=>mob.remove());
+}
+if(sceneryTab){sceneryTab.setAttribute('aria-pressed',String(sceneryOn));sceneryTab.addEventListener('click',()=>setScenery(!sceneryOn));}
 // No matchMedia (the Node tests) or reduced motion: no mobs. Never on the OBS overlay.
 if(view!=='overlay' && globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches===false) {
   const board=document.querySelector('.board'),lane=node('div','mob-lane');lane.setAttribute('aria-hidden','true');

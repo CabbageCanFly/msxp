@@ -1,16 +1,11 @@
 /* /local: additions on top of leaderboard.css and product.css. */
 .source-label { margin-left:auto; color:var(--text-muted); font-size:13px; font-weight:700; }
-/* Bookmark tabs on the first panel's top edge, as the live pages' About. The scenery toggle is a small,
-   plain icon tab beside it (a switch, not a second menu): gold picture when on, dim when off. Phones hide
-   both for the masthead chip. */
-.reading-tabs { position:absolute; right:20px; bottom:-15px; display:flex; align-items:flex-end; gap:6px; }
-.reading-tabs .about-tab { position:static; }
-.scenery-tab { display:grid; place-items:center; width:34px; height:26px; min-height:0; padding:0 0 2px; border:1px solid var(--line); border-bottom:0;
-  border-radius:var(--radius) var(--radius) 0 0; background:#2a3346; color:#f6e3c466; cursor:pointer; }
-.scenery-tab:hover { color:#f6e3c4; }
-.scenery-tab[aria-pressed="true"] { color:#ffd68c; }
-@media(max-width:650px) { .reading-tabs { display:none; } }
 .about-path { color:var(--text-muted); font-weight:500; }
+/* A small sticker on the site name's top-right corner: this is the local tracker. Navy and gold, tilted. */
+.masthead .brand { position:relative; }
+.brand-tag { position:absolute; top:-9px; right:-12px; padding:2px 8px 3px; border:1px solid var(--gold-deep); border-radius:var(--radius);
+  background:#1b2232; box-shadow:0 2px 6px #0008; color:var(--gold);
+  font:500 12px/1.1 var(--font-display); letter-spacing:.2px; transform:rotate(12deg); pointer-events:none; }
 .local-controls, .character-form, .identity-check, .hud-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:12px 25px 4px; }
 /* Not the toggle pills, which keep the live pages' look (.windows, .chart-modes). */
 .local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }

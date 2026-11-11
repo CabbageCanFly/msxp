@@ -77,7 +77,14 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 [data-site=public] .dev-link { display:none; }
 /* /local exists only in the Pages export (which sets data-api); the Python server does not serve it. */
 .reading-info .local-link { margin-left:10px; font-weight:800; }
-html:not([data-api]) .local-link { display:none; }
+/* Wide screens: the link is a gold bookmark tab beside About (an action, like the selected buttons); phones keep the
+   text link, as the tabs are hidden there. Only on the deployed site, like the link. */
+@media(min-width:651px) { .reading-info .local-link { display:none; } }
+.local-tab { display:block; padding:5px 14px 7px; border:1px solid var(--line); border-bottom:0; border-radius:var(--radius) var(--radius) 0 0;
+  background:linear-gradient(var(--gold),var(--gold-deep)); box-shadow:inset 0 2px #ffe0a8; color:var(--on-gold); font:500 14px/18px var(--font-display); text-decoration:none; }
+.reading-info .local-tab { color:var(--on-gold); }  /* Over the intro line's muted link colour. */
+.local-tab:hover { background:linear-gradient(#ffd38a,var(--gold)); }
+html:not([data-api]) :is(.local-link, .local-tab) { display:none; }
 .welcome { padding:18px 4px 30px; }
 .eyebrow { color:var(--gold); letter-spacing:2px; font-size:12px; font-weight:800; margin:0; }
 .welcome h1 { font-size:clamp(34px,5vw,54px); font-weight:600; line-height:1.05; text-transform:none; letter-spacing:-.5px; margin:10px 0 14px; color:var(--text); text-shadow:0 3px 0 #0a1124; }
@@ -249,6 +256,16 @@ html:not([data-api]) .local-link { display:none; }
 .reading-info .about-tab:hover:not(:disabled) { border-color:var(--line); background:linear-gradient(#a56d38,#94602f); color:#fff; }
 .masthead .about-icon { display:none; place-items:center; margin-left:auto; width:40px; height:40px; min-height:0; padding:0; border-color:#56637d66; border-radius:var(--radius); background:#232c3e90; color:var(--text-soft); }
 @media(max-width:650px) { .about-tab { display:none; } .masthead .about-icon { display:grid; } }
+/* Bookmark tabs on the first panel's top edge, as the live pages' About. The scenery toggle is a small,
+   plain icon tab beside it (a switch, not a second menu): gold picture when on, dim when off. Phones hide
+   both for the masthead chip. */
+.reading-tabs { position:absolute; right:20px; bottom:-15px; display:flex; align-items:flex-end; gap:6px; }
+.reading-tabs .about-tab { position:static; }
+.scenery-tab { display:grid; place-items:center; width:34px; height:26px; min-height:0; padding:0 0 2px; border:1px solid var(--line); border-bottom:0;
+  border-radius:var(--radius) var(--radius) 0 0; background:#2a3346; color:#f6e3c466; cursor:pointer; }
+.scenery-tab:hover { color:#f6e3c4; }
+.scenery-tab[aria-pressed="true"] { color:#ffd68c; }
+@media(max-width:650px) { .reading-tabs { display:none; } }
 .about { width:min(560px,calc(100vw - 32px)); box-sizing:border-box; padding:16px 22px 18px; color:var(--text-soft); font-size:14px; line-height:1.6;
   background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--radius-lg); box-shadow:var(--shadow); }
 .about::backdrop { background:#050b1c99; }
