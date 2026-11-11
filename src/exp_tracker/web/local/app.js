@@ -34,7 +34,8 @@ async function acquireLock() {
 const lockHeldElsewhere = async () => Boolean((await navigator.locks?.query?.())?.held?.some((l) => l.name === LOCK));
 
 let table = null, engine = null, enginePromise = null;
-// glyphs: templates learned from confirmed readings, valid only for one calibration (window size and boxes).
+// glyphs: templates learned from confirmed readings, per window size ({'1368x800': templates}): another size
+// draws other pixels, and a size used before reads at once again. messageFont: the same for pickup messages.
 let settings = {interval: 1, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, messageFont: null};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
@@ -286,14 +287,11 @@ async function detect(frame) {
 async function saveCalibration(calibration) {
   settings.calibration = calibration;
   await store.setSetting('calibration', calibration);
-  // A different window size or box means different pixels: start learning glyphs again.
-  const size = `${calibration.width}x${calibration.height}`;
-  if (settings.glyphs?.size !== size) await saveGlyphs({size, templates: {}});
 }
 
-async function saveGlyphs(glyphs) {
-  settings.glyphs = glyphs;
-  await store.setSetting('glyphs', glyphs);
+async function saveGlyphs(size, templates) {
+  settings.glyphs = {...settings.glyphs, [size]: templates};
+  await store.setSetting('glyphs', settings.glyphs);
 }
 
 async function scan() {
@@ -361,7 +359,7 @@ const MESSAGES = {
   name_confirming: 'A different name is on screen. Checking…',
 };
 
-const templatesFor = (frame) => settings.glyphs?.size === `${frame.full.width}x${frame.full.height}` ? settings.glyphs.templates : null;
+const templatesFor = (frame) => settings.glyphs?.[`${frame.full.width}x${frame.full.height}`] ?? null;
 
 async function teachLetters(keys, text, authoritative = false) {
   const letters = {...settings.letters};
@@ -488,13 +486,13 @@ async function handle(current, outcome, at) {
 // Only a reading the tracker accepted (table-consistent, confirmed by a second scan) teaches glyphs.
 async function teach(outcome) {
   const frameSize = `${outcome.frameWidth}x${outcome.frameHeight}`;
-  const glyphs = settings.glyphs?.size === frameSize ? settings.glyphs : {size: frameSize, templates: {}};
-  const text = displayed(outcome.exp, outcome.bp), templates = {...glyphs.templates}, last = capture?.tracker.last;
+  const known = settings.glyphs?.[frameSize] ?? {};
+  const text = displayed(outcome.exp, outcome.bp), templates = {...known}, last = capture?.tracker.last;
   let added = 0;
   if (outcome.source === 'ocr' && outcome.segments) added += (learn(templates, outcome.segments.number, text.number) ?? 0) + (learn(templates, outcome.segments.percent, text.percent) ?? 0);
   // Level digits too, once the accepted level is the one the badge showed.
   if (outcome.levelSource === 'ocr' && outcome.levelSegments && last?.level === outcome.level) added += learn(templates, outcome.levelSegments, String(outcome.level)) ?? 0;
-  if (added || JSON.stringify(templates) !== JSON.stringify(glyphs.templates)) await saveGlyphs({size: frameSize, templates});
+  if (added || JSON.stringify(templates) !== JSON.stringify(known)) await saveGlyphs(frameSize, templates);
 }
 
 async function confirmIdentity() {
@@ -517,9 +515,9 @@ async function startPickupTracking() {
   const state = current.pickups = {since: Date.now(), session: null, fontSaved: Date.now()};
   // The learned message font is kept per game-window size: another size draws other pixels.
   const {width, height} = current.track.getSettings(), size = `${width}x${height}`;
-  if (settings.messageFont?.size !== size) settings.messageFont = {size, glyphs: {}};
+  const font = (settings.messageFont ??= {})[size] ??= {};
   try {
-    state.session = await startPickups({track: current.track, engine, font: settings.messageFont.glyphs,
+    state.session = await startPickups({track: current.track, engine, font,
       onMessage: (m) => savePickup(current, m).catch((error) => setStatus(`Couldn't save a pickup: ${error.message}`, 'warn')),
       onStats(s) { $('pickup-stats').textContent = `Reading pickups · ${s.fps.toFixed(1)} fps${s.queued ? ` · ${s.queued} waiting` : ''}`; },
       onError(message) { $('pickup-stats').textContent = `Pickup reading stopped: ${message}`; },
@@ -828,6 +826,9 @@ async function init() {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
+    // Saved before sizes were kept apart: {size, templates} and {size, glyphs}.
+    if (settings.glyphs?.templates) settings.glyphs = {[settings.glyphs.size]: settings.glyphs.templates};
+    if (settings.messageFont?.glyphs) settings.messageFont = {[settings.messageFont.size]: settings.messageFont.glyphs};
     if (!INTERVALS.includes(settings.interval)) settings.interval = 1;
     if (!WINDOWS.includes(settings.window)) settings.window = 15;
     pressed('[data-interval]', 'interval', settings.interval); pressed('[data-window]', 'window', settings.window);
