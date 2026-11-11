@@ -26,3 +26,19 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 .live-brand { margin-top:-2px; text-align:right; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.3px; opacity:.75; }
 [data-brand="off"] .live-brand { display:none; }
 [data-layout="live"] footer:has(#status[hidden]) { display:none; }
+
+/* Items layout (local only): icons and counts of the items picked up in the last 24 hours. */
+.items-panel { display:none; }
+[data-layout="items"] #card { width:360px; height:215px; }
+[data-layout="items"] :is(.reading, .general-stats, .rate-stats, .hour-chart, .brand, .charm) { display:none; }
+[data-layout="items"] header { padding-left:12px; }
+[data-layout="items"] .identity { justify-content:flex-start; }
+[data-layout="items"] .items-panel { display:flex; flex-direction:column; gap:6px; flex:1; min-height:0; padding:8px 12px 6px; }
+.items-caption { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; font-weight:700; }
+.items-caption strong { color:var(--text); }
+.items-grid { display:flex; flex-wrap:wrap; align-content:flex-start; gap:6px; flex:1; min-height:0; margin:0; padding:0; overflow:hidden; list-style:none; }
+.items-grid li { display:flex; align-items:center; gap:2px; padding:2px 7px 2px 2px; border-radius:8px; background:var(--badge); }
+.items-grid .icon { width:32px; height:32px; flex:none; background-repeat:no-repeat; image-rendering:pixelated; }
+.items-grid strong { color:var(--text); font:600 13px/1 "Fredoka", sans-serif; font-variant-numeric:tabular-nums; }
+.items-grid .items-empty { padding:0; background:none; color:var(--muted); font-size:12px; font-weight:700; }
+[data-layout="items"] footer:has(#status[hidden]) { display:none; }

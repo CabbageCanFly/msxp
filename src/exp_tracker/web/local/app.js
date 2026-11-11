@@ -779,7 +779,7 @@ async function init() {
   });
   $('current-level-only').addEventListener('change', (event) => { charts.levelOnly = event.target.checked; render(); });
   for (const button of document.querySelectorAll('[data-live-kind]')) button.addEventListener('click', () => { settings.liveKind = button.dataset.liveKind; store.setSetting('liveKind', settings.liveKind).catch(() => {}); showLive(); });
-  for (const button of document.querySelectorAll('[data-live-window]')) button.addEventListener('click', () => { settings.liveWindow = Number(button.dataset.liveWindow); store.setSetting('liveWindow', settings.liveWindow).catch(() => {}); showLive(); });
+  for (const button of document.querySelectorAll('[data-live-window]')) button.addEventListener('click', () => { settings.liveWindow = Number(button.dataset.liveWindow); store.setSetting('liveWindow', settings.liveWindow).then(broadcast, () => {}); showLive(); });
   liveChart($('live-canvas'), liveSource);
   $('scenery-toggle').addEventListener('click', () => {
     settings.scenery = $('scenery-toggle').getAttribute('aria-pressed') !== 'true';
@@ -921,13 +921,14 @@ function liveSource() {
   // From the saved data (24 hours), not only this session, always up to now: time with no gains (not
   // tracking, or nothing picked up) counts as nothing gained, so the line falls toward 0.
   const since = rows[0]?.at ?? now, to = now;
-  const raw = rateSeries(events, {from: now - window - 60e3, to, window, since});
+  // The note quotes the drawn (eased) value, so it matches the line's tip.
+  const drawn = smooth(rateSeries(events, {from: now - window - 60e3, to, window, since}));
   const unit = kind === 'mesos' ? 'mesos / h' : 'EXP / h';
-  const latest = raw.at(-1), gained = events.filter((e) => e.at > now - window).reduce((sum, e) => sum + e.amount, 0);
+  const latest = drawn.at(-1), gained = events.filter((e) => e.at > now - window).reduce((sum, e) => sum + e.amount, 0);
   $('live-note').textContent = latest
     ? `${fmtExp(latest.perHour)} ${kind === 'mesos' ? 'mesos' : 'EXP'} / hour now · ${fmtExp(gained)} gained in the last ${settings.liveWindow} min${kind === 'mesos' ? ' (approximate)' : ''}`
     : kind === 'mesos' && !settings.pickups ? 'Turn on Track pickups to see mesos.' : 'The line starts after a few gains while tracking.';
-  live.view = {series: smooth(raw), window, unit, empty: kind === 'mesos' && !settings.pickups ? 'Turn on Track pickups' : 'Waiting for a few gains…'};
+  live.view = {series: drawn, window, unit, empty: kind === 'mesos' && !settings.pickups ? 'Turn on Track pickups' : 'Waiting for a few gains…'};
   return live.view;
 }
 

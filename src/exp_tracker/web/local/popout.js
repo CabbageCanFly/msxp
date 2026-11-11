@@ -3,17 +3,19 @@
 // arrive over BroadcastChannel; IndexedDB is the source of truth (initial state, missed messages and a
 // slow poll while the tracker tab is in the background).
 import * as store from './store.js';
-import {CHANNEL, OVERLAY_COLORS, THEME_COLORS, duration, exp, headerInk, historyLabel, overlayOptions, percent, summarize} from './view.js';
+import {CHANNEL, OVERLAY_COLORS, THEME_COLORS, duration, exp, headerInk, historyLabel, overlayOptions, percent, summarize, summarizePickups} from './view.js';
 import {drawHourChart, expText} from './charts.js';
 import {liveChart, rateSeries, smooth} from './live-chart.js';
+import {eta} from './exp.js';
+import {loadItems} from './pickup-session.js';
 
 const $ = (id) => document.getElementById(id);
-let table = null, character = null, readings = [], pickups = [], loading = null, options = overlayOptions(location.search);
+let table = null, character = null, readings = [], pickups = [], liveWindow = 5, loading = null, icons = null, options = overlayOptions(location.search);
 
 // Also called by the builder's same-origin preview as options change.
 function applyOverlay(o) {
   options = o;
-  Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, brand: o.brand, bg: o.bg, interval: o.interval, range: o.range});
+  Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, brand: o.brand, focus: o.focus, bg: o.bg, interval: o.interval, range: o.range});
   document.body.dataset.headerInk = headerInk(o.header ?? THEME_COLORS[o.theme].header);
   document.body.dataset.panelInk = o.background ? headerInk(o.background) : '';
   $('general-history-caption').textContent = historyLabel(o);
@@ -28,7 +30,8 @@ async function load() {
   const id = await store.getSetting('activeCharacterId');
   character = id == null ? null : await store.getCharacter(id) ?? null;
   readings = character ? await store.readings(character.id, Date.now() - 25 * 3600e3) : [];
-  pickups = character ? await store.pickups(character.id, Date.now() - 2 * 3600e3) : [];
+  pickups = character ? await store.pickups(character.id, Date.now() - 24 * 3600e3) : [];
+  liveWindow = (await store.getSetting('liveWindow')) ?? 5;
   render();
 }
 
@@ -61,6 +64,7 @@ function render() {
   const total = drawHourChart($('overlay-chart'), view.allIntervals, {...chart, labelled: true});
   $('hour-total').textContent = total == null ? '—' : `${expText(total)} EXP`;
   renderLive(view, now);
+  renderItems(now);
   // Old readings are shown as such, never as live progress.
   const stale = view.age == null || view.age > 120;
   $('status').hidden = !stale;
@@ -68,28 +72,49 @@ function render() {
   $('age').textContent = view.last && stale ? `Updated ${duration(view.age)} ago` : '';
 }
 
-// The Live layout: EXP/hour, time to the next level, a live EXP line (each second's rate over the last
-// 5 minutes, as on the tracker page) and mesos/hour from tracked pickups over the last 15 minutes.
-const LIVE_WINDOW = 5 * 60e3;
-let liveView = {series: [], window: LIVE_WINDOW, unit: 'EXP / h', empty: ''};
+// The Live layout mirrors the tracker page's Live rate panel: the big number is the line's latest value,
+// each second's rate over the panel's window ("Last 5/10/15/30/60 min", saved as liveWindow), for EXP or
+// mesos (the Live shows option); the bottom row has the other one. The time to the next level uses the
+// same EXP rate, so every number on the card agrees with the line.
+let liveView = {series: [], window: 5 * 60e3, unit: 'EXP / h', empty: ''};
 function renderLive(view, now) {
   if (options.layout !== 'live') return;
-  $('live-rate').textContent = view.perHour == null ? '—' : exp(view.perHour);
-  $('live-rate-label').textContent = view.early ? 'EXP / hour · so far' : 'EXP / hour';
-  $('live-eta').textContent = view.eta == null ? '—' : duration(view.eta);
+  const window = liveWindow * 60e3, series = (rows, value) => {
+    const events = rows.filter((r) => value(r) != null).map((r) => ({at: r.at, amount: value(r)}));
+    return rateSeries(events, {from: now - window - 60e3, to: now, window, since: rows[0]?.at ?? now});
+  };
+  // The drawn (eased) values, so the numbers are exactly where the line's tip is.
+  const expLine = smooth(series(readings, (r) => r.gain)), mesoLine = smooth(series(pickups.filter((r) => r.kind === 'mesos'), (r) => r.amount));
+  const expRate = expLine.at(-1)?.perHour ?? null, mesoRate = mesoLine.at(-1)?.perHour ?? null, mesos = options.focus === 'mesos';
+  $('live-rate').textContent = (mesos ? mesoRate : expRate) == null ? '—' : exp(mesos ? mesoRate : expRate);
+  $('live-rate-label').textContent = `${mesos ? 'Mesos' : 'EXP'} / hour · last ${liveWindow} min`;
+  $('live-other').textContent = (mesos ? expRate : mesoRate) == null ? '—' : exp(mesos ? expRate : mesoRate);
+  $('live-other-label').textContent = mesos ? 'EXP / hour' : 'Mesos / hour';
+  const left = eta(table, view.last, expRate);
+  $('live-eta').textContent = left == null ? '—' : duration(left);
   $('live-eta-label').textContent = view.last ? `to Lv. ${view.last.level + 1}` : 'to next level';
   $('live-progress').value = view.progress;
   $('live-percent').textContent = view.last ? percent(view.last.bp) : '—';
   $('live-level').textContent = view.last ? `of Lv. ${view.last.level}` : 'of Lv. —';
   $('live-exp').textContent = view.last ? exp(view.last.exp) : '—';
-  // As on the tracker page: from the saved data, always up to now, so a pause slopes down toward 0.
-  const series = (rows, value, window) => {
-    const events = rows.filter((r) => value(r) != null).map((r) => ({at: r.at, amount: value(r)}));
-    return rateSeries(events, {from: now - window - 60e3, to: now, window, since: rows[0]?.at ?? now});
-  };
-  const mesos = pickups.filter((r) => r.kind === 'mesos'), mesoRate = mesos.length ? series(mesos, (r) => r.amount, 15 * 60e3).at(-1) : null;
-  $('live-mesos').textContent = mesoRate ? exp(mesoRate.perHour) : '—';
-  liveView = {series: smooth(series(readings, (r) => r.gain, LIVE_WINDOW)), window: LIVE_WINDOW, unit: 'EXP / h', empty: ''};
+  liveView = {series: mesos ? mesoLine : expLine, window, unit: mesos ? 'mesos / h' : 'EXP / h', empty: ''};
+}
+
+// The Items layout: what was picked up in the last 24 hours, largest counts first, with the drop list's icons.
+function renderItems(now) {
+  if (options.layout !== 'items') return;
+  const items = summarizePickups(pickups, now).items;
+  if (items.length && !icons) { icons = new Map(); loadItems().then((list) => { icons = new Map(list.map((i) => [i.id, i])); render(); }).catch(() => {}); }
+  $('items-total').textContent = items.length ? `${items.reduce((sum, i) => sum + i.count, 0)} items` : '';
+  $('items-grid').replaceChildren(...(items.length ? items.slice(0, 12) : [null]).map((item) => {
+    const li = document.createElement('li');
+    if (!item) { li.className = 'items-empty'; li.textContent = 'No items picked up yet'; return li; }
+    const icon = document.createElement('span'), known = icons?.get(item.itemId);
+    icon.className = 'icon'; li.title = item.name;
+    if (known) icon.style.cssText = `background-image:url(/static/local/items/icons-${known.sheet}.png);background-position:-${known.cell % 16 * 32}px -${Math.floor(known.cell / 16) * 32}px`;
+    li.append(icon, Object.assign(document.createElement('strong'), {textContent: `×${exp(item.count)}`}));
+    return li;
+  }));
 }
 
 async function init() {

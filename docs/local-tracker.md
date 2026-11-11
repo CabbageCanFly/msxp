@@ -154,10 +154,14 @@ gained, so the line slopes down toward 0 until gains resume (unlike the EXP prog
 6-second moving average turns each step into a curve; hovering shows the nearest second. The Pickups
 panel's *Mesos / hour* uses the same rule over the page's selected window.
 
-The pop-out overlay has a **Live** layout (local only, 360x290): EXP/hour, time to the next level, a
-thin progress bar, the live EXP line (5-minute rate, no axes), and mesos/hour (last 15 minutes of saved
-pickups), % of level and EXP; *Branding* shows or hides a small msxp.pages.dev line. It refreshes when
-the tracker tab saves a reading or a pickup (BroadcastChannel) and draws the line itself.
+The pop-out overlay has two local-only layouts. **Live** (360x290) mirrors the Live rate panel: the big
+number is the line's tip (the drawn, eased value) over the panel's window ("Last 5/10/15/30/60 min",
+read from the saved setting and followed when it changes), for EXP or mesos (*Live shows*), with the other
+one, % of level and EXP below; the time to the next level uses the same EXP rate, so every number on the
+card agrees with the line. The page's "/ hour now" note quotes the same eased value. **Items** (360x215)
+shows up to 12 items picked up in the last 24 hours with their icons and counts. *Branding* shows or hides
+a small msxp.pages.dev line on both. They refresh when the tracker tab saves a reading or a pickup
+(BroadcastChannel) and draw the line themselves.
 
 The round button in the character card's header switches the live pages' scenery (town background,
 wandering mobs; `local/scenery.js` mirrors `product.js`) on or off; on by default, remembered.
