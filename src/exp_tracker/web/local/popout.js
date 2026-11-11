@@ -85,12 +85,14 @@ function renderLive(view, now) {
   };
   // The drawn (eased) values, so the numbers are exactly where the line's tip is.
   const expLine = smooth(series(readings, (r) => r.gain)), mesoLine = smooth(series(pickups.filter((r) => r.kind === 'mesos'), (r) => r.amount));
-  const expRate = expLine.at(-1)?.perHour ?? null, mesoRate = mesoLine.at(-1)?.perHour ?? null, mesos = options.focus === 'mesos';
+  // The eased line only approaches 0: below 1 an hour it is 0 (else the time to the next level is absurd).
+  const tip = (line) => { const v = line.at(-1)?.perHour; return v == null ? null : v < 1 ? 0 : v; };
+  const expRate = tip(expLine), mesoRate = tip(mesoLine), mesos = options.focus === 'mesos';
   $('live-rate').textContent = (mesos ? mesoRate : expRate) == null ? '—' : exp(mesos ? mesoRate : expRate);
   $('live-rate-label').textContent = `${mesos ? 'Mesos' : 'EXP'} / hour · last ${liveWindow} min`;
   $('live-other').textContent = (mesos ? expRate : mesoRate) == null ? '—' : exp(mesos ? expRate : mesoRate);
   $('live-other-label').textContent = mesos ? 'EXP / hour' : 'Mesos / hour';
-  const left = eta(table, view.last, expRate);
+  const left = expRate ? eta(table, view.last, expRate) : null;
   $('live-eta').textContent = left == null ? '—' : duration(left);
   $('live-eta-label').textContent = view.last ? `to Lv. ${view.last.level + 1}` : 'to next level';
   $('live-progress').value = view.progress;

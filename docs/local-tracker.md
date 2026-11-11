@@ -151,7 +151,9 @@ frames a second, paused while hidden or off screen). Each point is what was gain
 (at least a minute), starting at the third gain. It uses the saved 24 hours, not only this session, so it
 survives a refresh, and always runs to now: quiet time (not tracking, nothing picked up) counts as nothing
 gained, so the line slopes down toward 0 until gains resume (unlike the EXP progress charts, where missing time is never zero). A
-6-second moving average turns each step into a curve; hovering shows the nearest second. The Pickups
+6-second moving average turns each step into a curve; hovering shows the nearest second. A dot with a
+slow pulse marks the tip (now) and a faint light sweeps along the line every 3.2 s; rates under 1 an hour
+count as 0 (the eased line only approaches 0), so an idle card shows 0 and no time to the next level. The Pickups
 panel's *Mesos / hour* uses the same rule over the page's selected window.
 
 The pop-out overlay has two local-only layouts. **Live** (360x290) mirrors the Live rate panel: the big

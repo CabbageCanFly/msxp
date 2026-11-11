@@ -15,6 +15,7 @@ export function rateSeries(events, {from, to, window, since, minEvents = 3, step
   for (let t = Math.ceil(Math.max(from, list[minEvents - 1].at) / step) * step; t <= to; t += step) {
     while (hi < list.length && list[hi].at <= t) sum += list[hi++].amount;
     while (lo < hi && list[lo].at <= t - window) sum -= list[lo++].amount;
+    if (lo === hi) sum = 0;  // Nothing in the window: exactly 0, not a float remainder.
     out.push({at: t, perHour: sum / Math.max(60e3, Math.min(window, t - since)) * 3600e3});
   }
   return out;
@@ -53,7 +54,8 @@ export function liveChart(canvas, source, {axes = true} = {}) {
     const {series, window, unit, empty} = source(), now = Date.now(), ratio = devicePixelRatio || 1;
     const width = canvas.clientWidth, height = canvas.clientHeight;
     if (!width || !height) return;
-    if (canvas.width !== Math.round(width * ratio)) { canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); }
+    // Height too: the overlay's canvas fills a flexible space, and a stale height leaves old frames below.
+    if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) { canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); }
     const c = canvas.getContext('2d'), style = getComputedStyle(canvas), css = (name) => style.getPropertyValue(name).trim();
     c.setTransform(ratio, 0, 0, ratio, 0, 0); c.clearRect(0, 0, width, height);
     const left = axes ? 46 : 2, right = width - (axes ? 12 : 2), bottom = height - (axes ? 24 : 4), upper = axes ? 10 : 6;
@@ -84,16 +86,29 @@ export function liveChart(canvas, source, {axes = true} = {}) {
     // Through each second's point, then flat to "now"; a soft fill below.
     c.save(); c.beginPath(); c.rect(left, 0, right - left, height); c.clip();
     const points = [...shown.map((p) => [x(p.at), y(p.perHour)]), [x(now), y(shown.at(-1).perHour)]];
-    c.beginPath(); c.moveTo(...points[0]);
+    const line = new Path2D();
+    line.moveTo(...points[0]);
     for (let i = 1; i < points.length; i++) {
       const [px, py] = points[i - 1], [qx, qy] = points[i];
-      c.quadraticCurveTo(px, py, (px + qx) / 2, (py + qy) / 2);
+      line.quadraticCurveTo(px, py, (px + qx) / 2, (py + qy) / 2);
     }
-    c.lineTo(...points.at(-1));
-    c.strokeStyle = color; c.lineWidth = 2.5; c.lineJoin = 'round'; c.stroke();
-    c.lineTo(points.at(-1)[0], bottom); c.lineTo(points[0][0], bottom); c.closePath();
-    c.globalAlpha = .12; c.fillStyle = color; c.fill(); c.globalAlpha = 1;
+    line.lineTo(...points.at(-1));
+    const area = new Path2D(line);
+    area.lineTo(points.at(-1)[0], bottom); area.lineTo(points[0][0], bottom); area.closePath();
+    c.globalAlpha = .12; c.fillStyle = color; c.fill(area); c.globalAlpha = 1;
+    c.strokeStyle = color; c.lineWidth = 2.5; c.lineJoin = 'round'; c.stroke(line);
+    // "Live": a faint light sweeps along the line every 3.2 s, toward the tip.
+    const pulse = performance.now(), sweep = left - 80 + (pulse % 3200) / 3200 * (right - left + 160);
+    const glow = c.createLinearGradient(sweep - 70, 0, sweep + 70, 0);
+    glow.addColorStop(0, '#fff0'); glow.addColorStop(.5, '#ffffff59'); glow.addColorStop(1, '#fff0');
+    c.strokeStyle = glow; c.lineWidth = 2.5; c.stroke(line);
     c.restore();
+    // The leading edge: a dot at "now" with a slow, soft pulse around it.
+    const [tx, ty] = points.at(-1), beat = (Math.sin(pulse / 260) + 1) / 2;
+    c.fillStyle = color;
+    c.globalAlpha = .18 + .12 * beat; c.beginPath(); c.arc(tx - 3, ty, 6 + 3 * beat, 0, Math.PI * 2); c.fill();
+    c.globalAlpha = 1; c.beginPath(); c.arc(tx - 3, ty, 3.5, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(tx - 3, ty, 1.4, 0, Math.PI * 2); c.fill();
     if (hover != null && hover >= left && hover <= right) {
       const at = now - window + (hover - left) / (right - left) * window;
       const p = shown.reduce((best, q) => (Math.abs(q.at - at) < Math.abs(best.at - at) ? q : best));

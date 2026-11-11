@@ -65,3 +65,5 @@
 .remove-kinds input { accent-color:var(--gold); }
 .remove-kinds [hidden] { display:none; }
 .remove-range small { align-self:center; color:var(--text-muted); font-size:12px; font-weight:600; }
+/* On narrow screens the live pages' pills drop " min" for "m"; the scan interval is in seconds. */
+@media(max-width:650px) { .product[data-view="player"] .interval button:has(.unit)::after { content:"s"; } }
