@@ -56,6 +56,11 @@ def drops(page):
     return found
 
 
+def named(parts):
+    """Monster names only: not "3 monsters", "2 other monsters", "a reward from 2 quests" (older caches kept those)."""
+    return [m for m in parts if not re.match(r'(or )?(\d+ (other )?monsters?$|a reward )', m)]
+
+
 def item_page(page):
     """(game ID, name, monsters) when an item page marks the item as a monster drop, else None.
 
@@ -68,8 +73,9 @@ def item_page(page):
     description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', page).group(1)) if 'name="description"' in page else ''
     dropped = re.search(r'dropped by (.+?)(?: and \d+ other monsters?)?\.', description)
     if not gid or not name or not ('Monster Drop' in query or dropped): return None
-    monsters = re.split(r', | and ', dropped.group(1)) if dropped else []
-    return int(gid.group(1)), name.group(1).strip(), monsters
+    # Only named monsters: not "3 monsters", "2 other monsters" or "or a reward from 2 quests".
+    monsters = named(re.split(r',? and |,? or |, ', dropped.group(1))) if dropped else []
+    return [int(gid.group(1)), name.group(1).strip(), monsters]
 
 
 def item_pages(delay, cache, misses=100, limit=20000):
@@ -92,7 +98,7 @@ def item_pages(delay, cache, misses=100, limit=20000):
                 print(f'item page {n}: {error}'); continue  # Not cached: tried again on the next run.
             seen[n] = found; gap = 0 if found != 'missing' else gap + 1
             log.write(json.dumps([n, found]) + '\n'); log.flush()
-            if n % 100 == 0: print(f'item page {n}: {sum(isinstance(v, list) for v in seen.values())} monster drops so far')
+            if n % 100 == 0: print(f'item page {n}: {sum(isinstance(v, list) for v in seen.values())} monster drops so far')  # Drops are lists, as in the cache.
     return [v for v in seen.values() if isinstance(v, list)]
 
 
@@ -114,7 +120,7 @@ def build(out, delay, icon_delay, pages=False, cache=None):
         for gid, name, mobs in item_pages(delay, cache):
             if str(gid)[0] in TABS:
                 items.setdefault(gid, name)
-                sources.setdefault(gid, []).extend(mobs)
+                sources.setdefault(gid, []).extend(named(mobs))
     out.mkdir(parents=True, exist_ok=True)
     rows, sheet, index = [], None, 0
     for n, gid in enumerate(sorted(items)):
