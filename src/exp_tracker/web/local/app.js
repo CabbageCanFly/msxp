@@ -39,7 +39,7 @@ let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, per window size ({'1368x800': templates}): another size
 // draws other pixels, and a size used before reads at once again. pickupFont: the same for pickup messages
 // (fonts saved as messageFont, learned before the word alignment, held misread shapes and are not loaded).
-let settings = {interval: 1, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, itemWindow: 1440, pickupFont: null};
+let settings = {interval: 1, window: 5, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, mesoWindow: 5, itemWindow: 1440, pickupFont: null};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 60, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -501,7 +501,10 @@ async function handle(current, outcome, at) {
   if (status === 'accepted') setStatus('Tracking', 'ok');
   else if (status === 'identity_check') setStatus('Paused: this looks like a different character', 'warn');
   // A minute without a usable reading: one steady explanation instead of a new reason every scan.
-  else if (stuck) setStatus(`Can't read the EXP bar in this ${current.full?.width}×${current.full?.height} window yet. Keep the HUD visible, try the game at 1366×768, or draw the HUD boxes below.`, 'warn');
+  else if (stuck) {
+    $('hud-tools').open = true;  // The tools for this open by themselves.
+    setStatus(`Can't read the EXP bar in this ${current.full?.width}×${current.full?.height} window yet. Keep the HUD visible, try the game at 1366×768, or draw the HUD boxes below.`, 'warn');
+  }
   else setStatus(MESSAGES[reason] ?? MESSAGES[status] ?? reason, 'warn');
   render();
 }
@@ -586,14 +589,14 @@ async function savePickup(current, m) {
 }
 
 function renderPickups(now) {
-  const view = summarizePickups(pickupsCache, now, settings.itemWindow), window = settings.window * 60e3;
+  const view = summarizePickups(pickupsCache, now, settings.itemWindow), window = settings.mesoWindow * 60e3;
   // Like the Live rate line: from the saved pickups (not only this session), an estimate from the third meso
   // pickup on; time without pickups counts as none, so it falls to 0 while not tracking.
   const mesos = pickupsCache.filter((r) => r.kind === 'mesos').map((r) => ({at: r.at, amount: r.amount})), since = mesos[0]?.at ?? null;
   const rate = since == null ? null : rateSeries(mesos, {from: now - 1000, to: now, window, since}).at(-1)?.perHour ?? null;
   $('pickups-board').hidden = !settings.pickups && !pickupsCache.length;
   if ($('pickups-board').hidden) return;
-  $('meso-rate-label').textContent = `Mesos / hour · ${settings.window} min`;
+  $('meso-rate-label').textContent = `Mesos / hour · ${settings.mesoWindow} min`;
   $('meso-rate').textContent = rate == null ? '—' : fmtExp(rate);
   $('meso-rate-note').textContent = rate == null ? 'After a few meso pickups with Track pickups on' : !capture?.pickups ? 'Not reading pickups right now'
     : now - since < window ? `So far · ${duration((now - since) / 1000)} tracked` : 'Approximate';
@@ -633,7 +636,8 @@ function render() {
   $('progress').value = view.progress;
   $('exp').textContent = view.last ? fmtExp(view.last.exp) : '—';
   $('percentage').textContent = view.last ? ` [${percent(view.last.bp)}]` : '';
-  $('age').textContent = view.last ? `· last reading ${duration(view.age)} ago` : '';
+  // The shared style (product.css) puts the dot before it.
+  $('age').textContent = view.last ? `last reading ${duration(view.age)} ago` : '';
   $('rate').textContent = view.perHour == null ? '—' : fmtExp(view.perHour);
   $('rate-label').textContent = `EXP / hour · ${settings.window} min`;
   $('rate-note').textContent = view.perHour == null ? 'Needs a few minutes of readings'
@@ -811,6 +815,10 @@ async function init() {
   });
   $('current-level-only').addEventListener('change', (event) => { charts.levelOnly = event.target.checked; render(); });
   for (const button of document.querySelectorAll('[data-live-kind]')) button.addEventListener('click', () => { settings.liveKind = button.dataset.liveKind; store.setSetting('liveKind', settings.liveKind).catch(() => {}); showLive(); });
+  for (const button of document.querySelectorAll('[data-meso-window]')) button.addEventListener('click', () => {
+    settings.mesoWindow = Number(button.dataset.mesoWindow); store.setSetting('mesoWindow', settings.mesoWindow).catch(() => {});
+    pressed('[data-meso-window]', 'mesoWindow', settings.mesoWindow); render();
+  });
   for (const button of document.querySelectorAll('[data-item-window]')) button.addEventListener('click', () => {
     settings.itemWindow = Number(button.dataset.itemWindow); store.setSetting('itemWindow', settings.itemWindow).catch(() => {});
     pressed('[data-item-window]', 'itemWindow', settings.itemWindow); render();
@@ -856,7 +864,7 @@ async function init() {
     text: 'Every character, reading and pickup in this browser is deleted, along with what the reader has learned. This can\'t be undone.', yes: 'Clear everything'}, async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
-    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow, itemWindow: settings.itemWindow};
+    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow, mesoWindow: settings.mesoWindow, itemWindow: settings.itemWindow};
     character = null; readingsCache = []; pickupsCache = []; $('track-pickups').checked = false;
     await refreshCharacters(); broadcast(); setStatus('Local history cleared');
   }));
@@ -866,7 +874,7 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'itemWindow', 'pickupFont']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'mesoWindow', 'itemWindow', 'pickupFont']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
@@ -878,7 +886,7 @@ async function init() {
       if (glyphSize({width, height}) === 'game') { settings.glyphs = {...settings.glyphs, game: {...settings.glyphs[size], ...settings.glyphs.game}}; delete settings.glyphs[size]; }
     }
     if (!INTERVALS.includes(settings.interval)) settings.interval = 1;
-    if (!WINDOWS.includes(settings.window)) settings.window = 15;
+    if (!WINDOWS.includes(settings.window)) settings.window = 5;
     pressed('[data-interval]', 'interval', settings.interval); pressed('[data-window]', 'window', settings.window);
     $('track-pickups').checked = Boolean(settings.pickups);
     showScenery(settings.scenery !== false);
@@ -959,6 +967,8 @@ function showLive() {
   if (!['exp', 'mesos'].includes(settings.liveKind)) settings.liveKind = 'exp';
   if (!WINDOWS.includes(settings.liveWindow)) settings.liveWindow = 5;
   if (![...WINDOWS, 60, 1440].includes(settings.itemWindow)) settings.itemWindow = 1440;
+  if (!WINDOWS.includes(settings.mesoWindow)) settings.mesoWindow = 5;
+  pressed('[data-meso-window]', 'mesoWindow', settings.mesoWindow);
   pressed('[data-item-window]', 'itemWindow', settings.itemWindow);
   pressed('[data-live-kind]', 'liveKind', settings.liveKind); pressed('[data-live-window]', 'liveWindow', settings.liveWindow);
   $('live-board').dataset.kind = settings.liveKind;
@@ -1004,7 +1014,7 @@ function setupPickupLog() {
   const section = document.createElement('section');
   section.className = 'board local-hud';
   section.innerHTML = '<header class="board-header"><h2>Pickup messages (debug)</h2></header><ol id="pickup-log" class="pickup-log" reversed></ol>';
-  document.querySelector('.local-hud').after(section);
+  document.querySelector('.local-data').before(section);
   window.msxpPickups = {messages: []};
 }
 

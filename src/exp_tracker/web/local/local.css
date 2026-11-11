@@ -7,11 +7,17 @@
   background:#1b2232; box-shadow:0 2px 6px #0008; color:var(--gold);
   font:500 12px/1.1 var(--font-display); letter-spacing:.2px; transform:rotate(12deg); pointer-events:none; }
 .local-controls, .character-form, .identity-check, .hud-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:12px 25px 4px; }
+/* The controls row: a little more air above and below, so it, the EXP bar and the time pills sit evenly. */
+.player-board .local-controls { margin:16px 25px 12px; }
 /* Not the toggle pills, which keep the live pages' look (.windows, .chart-modes). */
 .local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
 .local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab):hover:not(:disabled) { border-color:var(--gold); }
 .local-page button:disabled { opacity:.45; cursor:default; }
-.local-page .local-start { background:var(--green); border-color:transparent; color:#1d2a0b; font-size:15px; padding:0 22px; min-height:40px; }
+/* The one main action: gold like the site's selected buttons (by id, over the general button rule, which had
+   made it a plain grey pill). */
+.local-page #start { min-height:38px; padding:0 20px; border-color:#ffdf9f; background:linear-gradient(#ffd68c,var(--gold-deep)); color:var(--on-gold);
+  box-shadow:inset 0 -3px #b06d1d40, 0 2px 0 #00000040; }
+.local-page #start:hover:not(:disabled) { border-color:#fff3d6; background:linear-gradient(#ffe0a3,var(--gold)); }
 .local-page .local-stop { border-color:var(--orange); }
 /* The confirm panel for deleting: the About card's look, smaller, with Cancel and a red action. */
 .confirm { width:min(420px,calc(100vw - 32px)); }
@@ -53,7 +59,7 @@
 }
 .pickup-totals { margin:8px 25px; color:var(--text); font-weight:700; }
 .pickup-log { max-height:260px; overflow:auto; margin:8px 25px 0; padding-left:28px; color:var(--text-muted); font-size:13px; line-height:1.6; font-variant-numeric:tabular-nums; }
-.pickup-cards { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:16px; }
+.pickup-cards { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:8px; }
 .pickup-cards > div { min-height:0; }
 /* About four and a half rows of items, then a scrollbar: the half row shows there is more. */
 .pickup-items { display:flex; flex-wrap:wrap; align-content:flex-start; gap:8px; max-height:220px; overflow-y:auto; overscroll-behavior:contain; margin:0 25px 12px; padding:0 4px 0 0; list-style:none; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
@@ -74,7 +80,17 @@
 .remove-kinds input { accent-color:var(--gold); }
 .remove-kinds [hidden] { display:none; }
 .option-row[hidden] { display:none; }  /* Options for one layout only (Live shows, Items from). */
-.pickup-toolbar { margin:0 25px 10px; }
+/* Placed like the Live rate panel's pills (the toolbar's own padding, no extra margin), so both panels line up. */
+.pickup-toolbar { margin:0; }
+.pickup-toolbar:not(.meso-toolbar) { padding-top:0; }
+.hud-help { margin:0 25px 16px; }
+.hud-help .hud-body { margin:8px 0 0; }
+.hud-help .hud-actions { margin:10px 0 4px; }
+.hud-help #hud-help { margin:0; }
+.scan-stats { margin:6px 0 0; color:var(--text-muted); font-size:12px; }
+/* Phones can't share a game window; a note there only. */
+.phone-only { display:none; }
+@media(max-width:650px) { .phone-only { display:inline; } }
 .remove-range small { align-self:center; color:var(--text-muted); font-size:12px; font-weight:600; }
 /* On narrow screens the live pages' pills drop " min" for "m"; the scan interval is in seconds. */
 @media(max-width:650px) { .product[data-view="player"] .interval button:has(.unit)::after { content:"s"; } }
