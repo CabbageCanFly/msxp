@@ -117,10 +117,11 @@ export async function readMessage(engine, samples, list, font = null) {
 // The parts a whole-line read shows, or nulls: "... (+1 6)" gives amount 16; "Tree Branch x1 seamed. (Etc)"
 // gives name, count and tab. A font read leaves "?" for glyphs it does not know: "?ree ?ra??h ?1 ..."
 // still gives the count, but never a name.
-function lineParts(text) {
+export function lineParts(text) {
   // One bracket may be lost ("+17)", "(+17"), not both: "+121" is often "(+12)" with ")" read as a 1.
   const amount = (/\(\s*\+?\s*(\d[\d,. ]*)\)?\s*$/.exec(text) ?? /\+\s*(\d[\d,. ]*)\)\s*$/.exec(text))?.[1].replace(/\D/g, '');
-  const item = /^(.*?)\s+[x×?]\s?(\d+)\s/.exec(text), tab = /\(\s*([A-Za-z]{2,5})\W*$/.exec(text)?.[1];
+  // "x1" can also come out as ":1" or ":x1", glued to the name ("Leather:1 eamed.").
+  const item = /^(.*?)(?:\s+[x×?]\s?|\s*:\s*[x×]?)(\d+)\s/.exec(text), tab = /\(\s*([A-Za-z]{2,5})\W*$/.exec(text)?.[1];
   const name = item?.[1].includes('?') ? null : item?.[1].replace(/[^A-Za-z0-9' .:-]/g, '').trim();
   return {amount: amount ? Number(amount) : null, name: name || null, count: item ? Number(item[2]) : null, tab: item && tab ? tabOf(tab) : null};
 }

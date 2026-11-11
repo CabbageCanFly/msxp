@@ -331,6 +331,15 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   assert.equal(P.resolveItem(items, {name: 'Blue Mushroom', cut: true, tab: null}), null);  // Ambiguous without the tab: no guess.
   assert.equal(P.resolveItem(items, {name: "Fig's Ribhon", cut: false, tab: 'Etc'}).name, "Pig's Ribbon");  // OCR slips are tolerated.
   assert.equal(P.resolveItem(items, {name: 'Squishy Liquid', cut: false, tab: 'Etc'}), null);  // Not in the list.
+  // Up to a third of the letters misread, when nothing else is close; short names must be exact.
+  const more = [...items, {name: 'Squishy Liquid', tab: 'Etc'}, {name: 'Silver Ore', tab: 'Etc'}, {name: 'Sai', tab: 'Equip'}];
+  assert.equal(P.resolveItem(more, {name: 'Syulshy Liguld', cut: false, tab: null}).name, 'Squishy Liquid');
+  assert.equal(P.resolveItem(more, {name: 'Sliver Ora', cut: false, tab: null}).name, 'Silver Ore');
+  assert.equal(P.resolveItem(more, {name: 'Si', cut: false, tab: null}), null);
+  assert.equal(P.resolveItem([...more, {name: 'Silver Ora', tab: 'Etc'}], {name: 'Sliver Orb', cut: false, tab: null}), null);  // Two close: no guess.
+  const S = await import(new URL('pickup-session.js', web));
+  assert.deepEqual(S.lineParts('Leather:1 eamed. (Etc)'), {amount: null, name: 'Leather', count: 1, tab: 'Etc'});  // "x1" read as ":1".
+  assert.deepEqual(S.lineParts('Tree Branch x2 earned. (Etc)'), {amount: null, name: 'Tree Branch', count: 2, tab: 'Etc'});
 });
 
 test('pickup message font: learned glyphs read later lines, misaligned lines are refused', async () => {

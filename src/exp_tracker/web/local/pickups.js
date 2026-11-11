@@ -234,11 +234,15 @@ export const tabOf = (text) => {
 export function resolveItem(items, {name, cut, tab}) {
   const norm = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, ''), want = norm(name);
   if (!want) return null;
-  let best = null, score = Infinity, tie = false;
+  let best = null, score = Infinity, second = Infinity;
   for (const item of items) {
     if (tab && item.tab !== tab) continue;
     const full = norm(item.name), d = editDistance(want, cut ? full.slice(0, want.length) : full);
-    if (d < score) { best = item; score = d; tie = false; } else if (d === score) tie = true;
+    if (d < score) { best = item; second = score; score = d; } else if (d < second) second = d;
   }
-  return best && !tie && score <= Math.max(1, Math.floor(want.length / 4)) ? best : null;
+  // Up to a quarter of the letters may be misread; up to a third ("Syulshy Liguld") only when no other
+  // item comes within two edits of it (measured live: thin strokes garble several letters of a name).
+  if (!best || second === score) return null;
+  if (want.length < 4) return score === 0 ? best : null;  // "Si" is not "Sai".
+  return score <= Math.max(1, Math.floor(want.length / 4)) || (score <= Math.floor(want.length / 3) && second - score >= 2) ? best : null;
 }
