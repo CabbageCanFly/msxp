@@ -1,4 +1,5 @@
 // The Live rate chart: EXP or mesos per hour, one point per second, scrolling with the clock.
+import {timeZone} from './charts.js';
 
 /**
  * Per-hour rate at each second from `from` to `to`: what was gained in the trailing `window` (ms) over
@@ -29,7 +30,7 @@ export function smooth(series, seconds = 6) {
 }
 
 const short = new Intl.NumberFormat('en-US', {notation: 'compact', maximumFractionDigits: 1});
-const clock = (at) => new Date(at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+const clock = (at) => new Date(at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', timeZone});
 
 /**
  * Draws `source()` ({series, window, unit}) on a canvas about 30 times a second while it is on screen

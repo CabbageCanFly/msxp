@@ -8,7 +8,7 @@ import {HUD_GLYPHS, displayed, learn, learnLetters} from './glyphs.js';
 import {GAME_HEIGHT, GAME_WIDTH, unstretch} from './pickups.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
-import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, zoneLabel} from './charts.js';
+import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, setTimeZone, timeZone} from './charts.js';
 import {loadItems, startPickups} from './pickup-session.js';
 import {seedFont} from './message-font.js';
 import {setScenery} from './scenery.js';
@@ -118,7 +118,8 @@ const KINDS = ['exp', 'mesos', 'items'];
 function resetRemoval() {
   const now = Date.now();
   $('remove-from').value = localInput(now - 15 * 60e3); $('remove-to').value = localInput(now);
-  $('remove-zone').textContent = `${zoneLabel()} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+  const own = new Intl.DateTimeFormat('en-US', {timeZoneName: 'short'}).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value;
+  $('remove-zone').textContent = `${own ?? 'local time'} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
   for (const kind of KINDS) $(`remove-${kind}`).checked = false;
   renderRemoval();
 }
@@ -809,6 +810,15 @@ async function init() {
   for (const button of document.querySelectorAll('[data-live-kind]')) button.addEventListener('click', () => { settings.liveKind = button.dataset.liveKind; store.setSetting('liveKind', settings.liveKind).catch(() => {}); showLive(); });
   for (const button of document.querySelectorAll('[data-live-window]')) button.addEventListener('click', () => { settings.liveWindow = Number(button.dataset.liveWindow); store.setSetting('liveWindow', settings.liveWindow).then(broadcast, () => {}); showLive(); });
   liveChart($('live-canvas'), liveSource);
+  // Footer: the zone for times on this page, as on the live pages.
+  const zones = $('timezone'), own = Intl.DateTimeFormat().resolvedOptions().timeZone, list = Intl.supportedValuesOf?.('timeZone') ?? [];
+  zones.append(new Option(`${own.replaceAll('_', ' ')} (local)`, ''), ...(list.includes('UTC') ? list : ['UTC', ...list]).map((z) => new Option(z.replaceAll('_', ' '), z)));
+  zones.value = timeZone ?? '';
+  zones.addEventListener('change', () => {
+    setTimeZone(zones.value);
+    try { if (zones.value) localStorage.setItem('timezone', zones.value); else localStorage.removeItem('timezone'); } catch {}
+    render();
+  });
   $('scenery-toggle').addEventListener('click', () => {
     settings.scenery = $('scenery-toggle').getAttribute('aria-pressed') !== 'true';
     showScenery(settings.scenery); store.setSetting('scenery', settings.scenery).catch(() => {});

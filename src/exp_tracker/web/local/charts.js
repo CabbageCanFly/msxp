@@ -4,11 +4,20 @@
 
 const numbers = new Intl.NumberFormat('en-US'), shortNumber = new Intl.NumberFormat('en-US', {maximumSignificantDigits: 3});
 const wholeNumbers = new Intl.NumberFormat('en-US', {maximumFractionDigits: 0});
-const localDates = new Intl.DateTimeFormat(undefined, {dateStyle: 'medium', timeStyle: 'long'});
-const clockMinutes = new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit'});
-const clockSeconds = new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
-const monthDay = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'});
-export const zoneLabel = () => new Intl.DateTimeFormat('en-US', {timeZoneName: 'short'}).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value ?? 'local time';
+// Times use the browser's zone, or one picked in the footer (remembered in this browser under the same key as
+// the live pages, so the choice carries over). Days for daily totals stay the browser's own.
+export let timeZone;
+let localDates, clockMinutes, clockSeconds, monthDay;
+export function setTimeZone(zone) {
+  try { new Intl.DateTimeFormat('en-US', {timeZone: zone || undefined}); } catch { zone = null; }
+  timeZone = zone || undefined;
+  localDates = new Intl.DateTimeFormat(undefined, {dateStyle: 'medium', timeStyle: 'long', timeZone});
+  clockMinutes = new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit', timeZone});
+  clockSeconds = new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone});
+  monthDay = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric', timeZone});
+}
+setTimeZone((() => { try { return localStorage.getItem('timezone'); } catch { return null; } })());
+export const zoneLabel = () => new Intl.DateTimeFormat('en-US', {timeZone, timeZoneName: 'short'}).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value ?? 'local time';
 
 // Same formatting as the live site: 12.3K / 4.56M, or the whole number.
 export function expText(value, full = false) {
@@ -103,7 +112,7 @@ export function drawExpChart(svg, intervals, {anchor, seconds, range}) {
     if (chart.range >= 43200) shape('text', {...attrs, y: 248}).textContent = monthDay.format(tick);
   }
   const count = chart.bins.filter((b) => b.value != null).length;
-  return `${chart.seconds / 60} min per bar · last ${chart.range < 3600 ? chart.range / 60 + ' min' : chart.range / 3600 + ' hours'} · times in ${zoneLabel()}${count ? '' : ' · no data in this period'}`;
+  return `${chart.seconds / 60} min per bar · last ${chart.range <= 3600 ? chart.range / 60 + ' min' : chart.range / 3600 + ' hours'} · times in ${zoneLabel()}${count ? '' : ' · no data in this period'}`;
 }
 
 // Line chart: Level % of accepted readings, level-ups marked (drawPercentageHistory).
@@ -185,7 +194,7 @@ export function drawDailyChart(svg, days, {now, range}) {
     if (previous) shape('line', {x1: x(previous.time), y1: y(previous.value), x2: x(r.time), y2: y(r.value), class: 'trend'});
     shape('circle', {cx: x(r.time), cy: y(r.value), r: 4, class: 'sample'});
   });
-  const dates = new Intl.DateTimeFormat(undefined, {month: '2-digit', day: '2-digit'}), shown = new Set();
+  const dates = new Intl.DateTimeFormat(undefined, {month: '2-digit', day: '2-digit', timeZone}), shown = new Set();
   for (let i = 0; i < ticks; i++) {
     const stamp = first + (last - first) * i / (ticks - 1), label = dates.format(new Date(stamp));
     if (shown.has(label)) continue; shown.add(label);

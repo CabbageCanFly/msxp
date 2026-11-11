@@ -1,14 +1,16 @@
 /* /local: additions on top of leaderboard.css and product.css. */
 .source-label { margin-left:auto; color:var(--text-muted); font-size:13px; font-weight:700; }
-/* Scenery on/off: a small round icon in the character card's header, gold when on. */
-/* A rounded square: the site-wide button min-height (40px) had made it a 32x40 oval. */
-.scenery-toggle { display:grid; place-items:center; flex:none; align-self:center; width:32px; height:32px; min-height:0; margin-left:12px; padding:0; border:1px solid #00000040; border-radius:8px; background:#00000026; color:#f6e3c480; cursor:pointer; }
-.scenery-toggle:hover { border-color:#ffdf9f; color:#f6e3c4; }
-.scenery-toggle[aria-pressed="true"] { color:#ffd68c; }
+/* Bookmark tabs on the first panel's top edge, as the live pages' About: Background (scenery on/off) and
+   About. Background off reads as a pressed-in tab. Phones hide both (product.css) for the masthead chip. */
+.reading-tabs { position:absolute; right:20px; bottom:-15px; display:flex; gap:6px; }
+.reading-tabs .about-tab { position:static; }
+.scenery-tab[aria-pressed="false"] { background:linear-gradient(#5b4330,#4c3828); box-shadow:none; color:#f6e3c499; }
+@media(max-width:650px) { .reading-tabs { display:none; } }
+.about-path { color:var(--text-muted); font-weight:500; }
 .local-controls, .character-form, .identity-check, .hud-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:12px 25px 4px; }
 /* Not the toggle pills, which keep the live pages' look (.windows, .chart-modes). */
-.local-page button:not(.windows button, .chart-modes button, .scenery-toggle) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
-.local-page button:not(.windows button, .chart-modes button, .scenery-toggle):hover:not(:disabled) { border-color:var(--gold); }
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon):hover:not(:disabled) { border-color:var(--gold); }
 .local-page button:disabled { opacity:.45; cursor:default; }
 .local-page .local-start { background:var(--green); border-color:transparent; color:#1d2a0b; font-size:15px; padding:0 22px; min-height:40px; }
 .local-page .local-stop { border-color:var(--orange); }
