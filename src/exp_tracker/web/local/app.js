@@ -37,8 +37,9 @@ const lockHeldElsewhere = async () => Boolean((await navigator.locks?.query?.())
 
 let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, per window size ({'1368x800': templates}): another size
-// draws other pixels, and a size used before reads at once again. messageFont: the same for pickup messages.
-let settings = {interval: 1, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, messageFont: null};
+// draws other pixels, and a size used before reads at once again. pickupFont: the same for pickup messages
+// (fonts saved as messageFont, learned before the word alignment, held misread shapes and are not loaded).
+let settings = {interval: 1, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, pickupFont: null};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 300, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -538,7 +539,7 @@ async function startPickupTracking() {
   // reads any window at least the game's width in game pixels (unstretched when wider), so those share one.
   const {width, height} = current.track.getSettings(), size = fontSize({width, height});
   // Game pixels start from the shipped font; another size draws other pixels, so it learns its own.
-  const font = (settings.messageFont ??= {})[size] ??= {};
+  const font = (settings.pickupFont ??= {})[size] ??= {};
   if (size === 'game') seedFont(font);
   try {
     state.session = await startPickups({track: current.track, engine, font,
@@ -564,7 +565,7 @@ async function stopPickupTracking(current = capture) {
   saveFont();
 }
 
-const saveFont = () => store.setSetting('messageFont', settings.messageFont).catch(() => {});
+const saveFont = () => store.setSetting('pickupFont', settings.pickupFont).catch(() => {});
 const fontSize = ({width, height}) => (width >= GAME_WIDTH ? 'game' : `${width}x${height}`);
 
 // Mesos and items that resolve to a known item are kept; EXP comes from the EXP bar, exactly.
@@ -847,7 +848,7 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'messageFont']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'pickupFont']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
@@ -857,14 +858,6 @@ async function init() {
     for (const size of Object.keys(settings.glyphs ?? {})) {
       const [width, height] = size.split('x').map(Number);
       if (glyphSize({width, height}) === 'game') { settings.glyphs = {...settings.glyphs, game: {...settings.glyphs[size], ...settings.glyphs.game}}; delete settings.glyphs[size]; }
-    }
-    if (settings.messageFont?.glyphs) settings.messageFont = {[settings.messageFont.size]: settings.messageFont.glyphs};
-    for (const size of Object.keys(settings.messageFont ?? {})) {
-      const [width, height] = size.split('x').map(Number);
-      if (fontSize({width, height}) !== 'game') continue;
-      const game = settings.messageFont.game ??= {};
-      for (const [char, glyphs] of Object.entries(settings.messageFont[size])) game[char] = [...(game[char] ?? []), ...glyphs].slice(0, 6);  // PER_CHAR
-      delete settings.messageFont[size];
     }
     if (!INTERVALS.includes(settings.interval)) settings.interval = 1;
     if (!WINDOWS.includes(settings.window)) settings.window = 15;

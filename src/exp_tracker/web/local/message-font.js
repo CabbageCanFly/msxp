@@ -91,14 +91,14 @@ export function alignLine(glyphs, text) {
       const i = close[0][2];
       group = [...group.slice(0, i - 1), join(group[i - 1], group[i]), ...group.slice(i + 1)];
     }
-    return group.length === chars.length ? group.map((g, i) => [g, chars[i]]) : [];
+    return group.length === chars.length ? group.map((g, i) => [g, chars[i], k]) : [];
   });
 }
 
 /**
- * Learns the glyphs of a line whose text is known, word by word (alignLine), and nothing if a glyph
- * already looks like another character (scenery can add one glyph and merge two, leaving the count right
- * but the line misaligned). Returns the number of glyphs paired.
+ * Learns the glyphs of a line whose text is known, word by word (alignLine), leaving out a word with a
+ * glyph that already looks like another character (scenery can add one glyph and merge two, leaving the
+ * count right but the word misaligned). Returns the number of glyphs paired.
  */
 // Characters reaching the capitals' top row, and those starting lower; others (i, j, punctuation) unchecked.
 const TALL = /[A-Z0-9bdfhklt()']/, SHORT = /[acemnorsuvwxz]/;
@@ -110,11 +110,13 @@ export function learnLine(font, mask, text) {
   // up evenly, teaching half an "x" as "x" and the other half as "1").
   const unlike = ([glyph, char]) => (TALL.test(char) && rows(glyph)[0] > top + 1) || (SHORT.test(char) && rows(glyph)[0] <= top + 1)
     || (font[char]?.length && !font[char].some((g) => Math.abs(g.w - glyph.w) <= 1));
-  const pairs = alignLine(glyphs, text).filter((pair) => !unlike(pair));
-  if (pairs.some(([glyph, char]) => {
+  const aligned = alignLine(glyphs, text).filter((pair) => !unlike(pair));
+  // A glyph that already looks like another character marks its word as misaligned; other words still teach.
+  const wrong = new Set(aligned.filter(([glyph, char]) => {
     const other = nearest(font, glyph, (c) => c !== char);
     return other <= 1 && other < nearest(font, glyph, (c) => c === char);
-  })) return 0;
+  }).map(([, , word]) => word));
+  const pairs = aligned.filter(([, , word]) => !wrong.has(word));
   for (const [glyph, char] of pairs) {
     const known = font[char] ??= [];
     if (known.length < PER_CHAR && !known.some((g) => distance(g, glyph) <= 1)) known.push({w: glyph.w, h: glyph.h, bits: glyph.bits});

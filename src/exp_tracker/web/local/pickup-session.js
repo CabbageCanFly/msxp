@@ -83,7 +83,8 @@ function parseFont(text, list) {
 // exactly (a cut-off name, an equipment tab whose spelling is unconfirmed).
 function shown({parsed, item}) {
   if (!parsed || parsed.approx) return null;
-  if (parsed.kind === 'mesos') return `You have gained mesos (+${parsed.amount.toLocaleString('en-US')})`;
+  // Meso amounts show no thousands comma ("(+1500)", reported live).
+  if (parsed.kind === 'mesos') return `You have gained mesos (+${parsed.amount})`;
   if (parsed.kind === 'exp') return `You received EXP (+${parsed.amount.toLocaleString('en-US')})`;
   return item && !parsed.cut && parsed.tab !== 'Equip' ? `${item.name} x${parsed.count} earned. (${parsed.tab})` : null;
 }

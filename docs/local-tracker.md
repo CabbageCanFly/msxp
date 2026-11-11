@@ -225,7 +225,9 @@ JSON export and deleted with the character). EXP messages are read but never kep
 from the EXP bar. Items are kept only when the name matches the drop list; unread messages are
 dropped. The Pickups panel shows mesos per hour (see Live rate), mesos in the last 24 hours, and the items picked up with their icons. With `?debug`
 a log lists every message as read. Not yet in the OBS overlay; the learned message font is saved
-(setting `messageFont`) per game-window size, so reading starts from it next time; *Clear all* resets it.
+(setting `pickupFont`; the older `messageFont` held shapes misread before word alignment and is ignored), one
+font for game pixels and one per other window size, so reading starts from it next time; *Clear all* resets it.
+Every browser starts from a shipped font (`message-font-base.js`, 57 characters learned from recorded play).
 
 `local/pickups.js` follows the message stack in the bottom-right corner (pickup-worker.js, 15 fps).
 The text is light grey with a dark drop shadow one pixel right and down, so a text pixel is a light
