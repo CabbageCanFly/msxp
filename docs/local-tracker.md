@@ -186,8 +186,12 @@ located (overlays, third-party trackers, scaled layouts); manual calibration is 
 each new message enters at the bottom slot and pushes every line up 14 px, several can arrive in
 one frame, and the whole stack fades out together. Each frame picks the shift that best explains
 the lines; a message is reported once its line leaves the screen, with up to four masks of it.
-Reading (pickup-session.js) takes the kind from whole-line OCR, then OCRs only the digits of
-"(+N)" or "xN", votes across the masks, and matches item names to the item list allowing OCR slips.
+Reading (pickup-session.js) first tries the message font learned during the session
+(message-font.js): every confirmed reading teaches it each glyph of its lines, and a line it reads
+completely needs no OCR. Otherwise OCR gives the kind from the whole line, then reads only the
+digits of "(+N)" or "xN", voting across the masks, and item names are matched to the item list
+allowing OCR slips. Meso amounts are approximate by design: an unconfirmed amount is rounded down
+to the digits the reads agree on ("23" and "28" count as 20).
 
 Measured offline on one private 118 s recording (1,461 frames over clouds, grass, a bush and dark
 rock; ground truth from the inventory: 30 meso messages totalling +497, 21 item messages):
@@ -197,9 +201,11 @@ rock; ground truth from the inventory: 30 meso messages totalling +497, 21 item 
   nearly exact; a frame bringing three messages at once is still missed).
 - Reading: 21 meso messages read, totalling +340; clean lines over clouds read exactly
   (+10 to +18, Arrows for Bows x2-x5), lines over grass often stay unread.
+- Learned font: lines over clouds read exactly once their digits have been seen (digits are learned
+  one by one as they occur). Over grass the masks stay too noisy for the font and for OCR.
 - Not solved: a full stack of identical lines ("+13" six times) looks the same after one more,
   and the text mask of the same line changes by up to ~15 pixels over different scenery, which
-  limits both counting and reading. Learned glyph templates (as for EXP) are the likely next step.
+  limits both counting and reading over grass.
 
 ## Not yet verified
 

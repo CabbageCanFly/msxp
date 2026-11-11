@@ -266,6 +266,33 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   assert.equal(P.resolveItem(items, {name: 'Squishy Liquid', cut: false, tab: 'Etc'}), null);  // Not in the list.
 });
 
+test('pickup message font: learned glyphs read later lines, misaligned lines are refused', async () => {
+  const F = await import(new URL('message-font.js', web));
+  // Three made-up 3x7 glyphs drawn into a line mask, two empty columns apart (five for a space).
+  const shapes = {a: ['111', '101', '101', '101', '101', '101', '111'], b: ['100', '100', '111', '101', '101', '101', '111'], 1: ['010', '110', '010', '010', '010', '010', '111']};
+  const line = (text) => {
+    const cols = [];
+    for (const char of text) {
+      if (char === ' ') { cols.push(...Array(3).fill(null)); continue; }
+      if (cols.length) cols.push(null, null);
+      for (let x = 0; x < 3; x++) cols.push(shapes[char].map((row) => row[x] === '1' ? 1 : 0));
+    }
+    const width = cols.length, height = 9, bits = new Uint8Array(width * height);
+    cols.forEach((col, x) => col?.forEach((v, y) => { bits[(y + 1) * width + x] = v; }));
+    return {width, height, bits};
+  };
+  const font = {};
+  assert.equal(F.learnLine(font, line('ab'), 'ab'), true);
+  assert.equal(F.readLine(font, line('ba')), 'ba');
+  assert.equal(F.readLine(font, line('b1 a')), 'b? a');  // An unknown glyph is "?", never a guess.
+  assert.equal(F.learnLine(font, line('ab'), 'ba'), false);  // Glyphs that look like other characters.
+  assert.equal(F.learnLine(font, line('a1'), 'a'), false);  // Glyph and character counts differ.
+  const S = await import(new URL('pickup-session.js', web));
+  assert.equal(S.rounded([23, 28]), 20);  // Unconfirmed reads round down to what they agree on.
+  assert.equal(S.rounded([23]), 20);
+  assert.equal(S.rounded([1250, 1290]), 1200);
+});
+
 test('the digit row ignores a panel border caught by a box that is too tall', () => {
   const width = 30, height = 14, data = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < width * height; i++) data.set([60, 60, 60, 255], i * 4);
