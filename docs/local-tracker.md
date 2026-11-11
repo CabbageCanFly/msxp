@@ -70,8 +70,9 @@ Tesseract reading has been **accepted by the tracker** (both variants agreed, th
 and a second scan confirmed it), each glyph bitmap is paired with the HUD's own spelling of that
 value (`5,477` and `27.09%`) if and only if the glyph count equals the character count. A bitmap
 ever paired with two characters is poisoned and never used. A field with any unknown glyph falls
-back to Tesseract. No game font data ships with msxp; templates are stored only in this browser and
-reset when the window size changes. In the live test 11 templates were learned within two minutes
+back to Tesseract. No game font data ships with msxp; templates are stored only in this browser, one
+set for every frame of game pixels (a native window, or a stretched one read unstretched) and one per
+other window size, so a size used before reads at once. In the live test 11 templates were learned within two minutes
 and later scans read EXP from templates alone.
 
 ## Trust rules (port of `parsing.py`, `exp_consistency.py`, `validation.py`)
@@ -273,8 +274,12 @@ meso total:
   dialog were checked only indirectly (a synthetic `beforeunload` is cancelled while tracking).
 - Other resolutions: a 1920x1080 window measured 2026-11-11 draws the game's 1366x768 screen
   stretched about 1.4x, so text is blurred: EXP digits 11 px tall instead of 7, and OCR read 7 as 2 on
-  some passes. The EXP table now picks, among a pass's readings, the one that fits the level (badge or
-  last accepted); then the learned digits for that size take over. A name bitmap is kept per screen
+  some passes. The HUD is now read unstretched, like the pickup corner below: the scan's rows are
+  turned back into the game's own pixels, so the digits learned on a native window read at 1080p too.
+  Measured live 2026-11-11 (1080p, 768p, 1080p): 212 of 212 scans read from learned digits, each switch
+  2 s. Before, stretched digits looked different at every position (53 learned shapes) and the first
+  minutes skipped scans. The EXP table picks, among a pass's OCR readings, the one that fits the level
+  (badge or last accepted). A name bitmap is kept per screen
   size, adopted when the EXP carries on from the character's last reading. Pickups at a stretched
   size: the game's bilinear stretch is undone in the message corner (least squares per row and column,
   factored once; ~12 ms a frame, only when the window is >3% wider than 1366), so the detector sees the

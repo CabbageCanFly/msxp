@@ -5,6 +5,7 @@ import {acceptBaseline, maxGapFor, resolveLevel, step, suspicious} from './exp.j
 import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud, readIdentity} from './reader.js';
 import {displayed, learn, learnLetters} from './glyphs.js';
+import {GAME_HEIGHT, GAME_WIDTH, unstretch} from './pickups.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, zoneLabel} from './charts.js';
@@ -232,6 +233,10 @@ function guardUnload(event) {
 
 // The latest frame, or only a band of rows (the HUD) when its boxes are known: copying 1368x60 pixels
 // instead of 1368x800 is what makes one-second scans cheap. `top` and `full` map band rows to the window.
+// A window wider than the game's screen shows it stretched (fullscreen 1920x1080): the frame is then the
+// game's own pixels, so the HUD reads as it does natively (measured: stretched digits looked different
+// at every position, and needed 53 learned shapes and minutes of skipped scans).
+// shortcut: assumes the window shows only the game (fullscreen or borderless), as the pickup reader does.
 async function grab(band = null) {
   const {grabber, video} = capture;
   let source, w, h;
@@ -243,15 +248,19 @@ async function grab(band = null) {
     if (!video.videoWidth) throw new Error('no_frame');
     source = video; w = video.videoWidth; h = video.videoHeight;
   }
-  const top = band ? Math.max(0, Math.min(h - 1, Math.floor(band.y0))) : 0;
-  const rows = band ? Math.max(1, Math.min(h, Math.ceil(band.y1)) - top) : h;
+  const sx = w / GAME_WIDTH > 1.03 ? w / GAME_WIDTH : 1, sy = sx > 1 ? h / GAME_HEIGHT : 1;
+  // Band rows are in frame (game) pixels; a stretched window needs a few more rows around them.
+  const pad = sx > 1 ? 2 : 0, top = band ? Math.max(0, Math.min(h - 1, Math.floor(band.y0 * sy) - pad)) : 0;
+  const rows = band ? Math.max(1, Math.min(h, Math.ceil(band.y1 * sy) + pad) - top) : h;
   const canvas = capture.canvas ??= new OffscreenCanvas(1, 1);
   if (canvas.width !== w || canvas.height !== rows) { canvas.width = w; canvas.height = rows; }
   const context = canvas.getContext('2d', {willReadFrequently: true});
   context.drawImage(source, 0, top, w, rows, 0, 0, w, rows);
   source.close?.();
   const frame = context.getImageData(0, 0, w, rows);
-  return {width: w, height: rows, data: frame.data, top, full: {width: w, height: h}};
+  if (sx === 1) return {width: w, height: rows, data: frame.data, top, full: {width: w, height: h}};
+  const game = unstretch(frame, sx, sy, 0, top, capture.unstretch ??= {});
+  return {width: game.width, height: game.height, data: game.data, top: Math.ceil(top / sy), full: {width: Math.round(w / sx), height: Math.round(h / sy)}};
 }
 
 const isFull = (frame) => frame && frame.top === 0 && frame.height === frame.full.height;
@@ -359,7 +368,10 @@ const MESSAGES = {
   name_confirming: 'A different name is on screen. Checking…',
 };
 
-const templatesFor = (frame) => settings.glyphs?.[`${frame.full.width}x${frame.full.height}`] ?? null;
+// Learned glyphs are kept per size, and every frame of game pixels (a native window, or a stretched one
+// read unstretched) shares one set: the same digits at 768p and 1080p.
+const glyphSize = ({width, height}) => (width >= GAME_WIDTH && width / GAME_WIDTH <= 1.03 ? 'game' : `${width}x${height}`);
+const templatesFor = (frame) => settings.glyphs?.[glyphSize(frame.full)] ?? null;
 
 async function teachLetters(keys, text, authoritative = false) {
   const letters = {...settings.letters};
@@ -485,7 +497,7 @@ async function handle(current, outcome, at) {
 
 // Only a reading the tracker accepted (table-consistent, confirmed by a second scan) teaches glyphs.
 async function teach(outcome) {
-  const frameSize = `${outcome.frameWidth}x${outcome.frameHeight}`;
+  const frameSize = glyphSize({width: outcome.frameWidth, height: outcome.frameHeight});
   const known = settings.glyphs?.[frameSize] ?? {};
   const text = displayed(outcome.exp, outcome.bp), templates = {...known}, last = capture?.tracker.last;
   let added = 0;
@@ -828,6 +840,11 @@ async function init() {
     }
     // Saved before sizes were kept apart: {size, templates} and {size, glyphs}.
     if (settings.glyphs?.templates) settings.glyphs = {[settings.glyphs.size]: settings.glyphs.templates};
+    // Sets learned per window size before game pixels were shared: a native window's become the shared set.
+    for (const size of Object.keys(settings.glyphs ?? {})) {
+      const [width, height] = size.split('x').map(Number);
+      if (glyphSize({width, height}) === 'game') { settings.glyphs = {...settings.glyphs, game: {...settings.glyphs[size], ...settings.glyphs.game}}; delete settings.glyphs[size]; }
+    }
     if (settings.messageFont?.glyphs) settings.messageFont = {[settings.messageFont.size]: settings.messageFont.glyphs};
     if (!INTERVALS.includes(settings.interval)) settings.interval = 1;
     if (!WINDOWS.includes(settings.window)) settings.window = 15;
