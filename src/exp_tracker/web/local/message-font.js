@@ -7,17 +7,25 @@ import {lineWords} from './pickups.js';
 
 const PER_CHAR = 6;  // Variants kept per character.
 
-// Characters the player's font has not learned yet start from the shipped ones (message-font-base.js);
-// at most three each, so learning keeps room for the player's own. Changes `font` in place.
+// The shipped font (message-font-base.js), unpacked once.
+let base = null;
+const baseFont = () => base ??= Object.fromEntries(Object.entries(BASE_FONT).map(([char, packed]) => [char, packed.map((v) => {
+  const [w, h, b64] = v.split(','), raw = atob(b64), bits = new Uint8Array(w * h);
+  for (let i = 0; i < bits.length; i++) bits[i] = (raw.charCodeAt(i >> 3) >> (i & 7)) & 1;
+  return {w: Number(w), h: Number(h), bits};
+})]));
+
+// Characters the player's font has not learned yet start from the shipped ones, at most three each so
+// learning keeps room for the player's own; a learned variant clearly closer to another character's
+// shipped one is dropped (measured: OCR misreads had taught a 6 as "8", and 6666 mesos read as 8888).
+// Changes `font` in place.
 export function seedFont(font) {
-  for (const [char, packed] of Object.entries(BASE_FONT)) {
-    if (font[char]?.length) continue;
-    font[char] = packed.map((v) => {
-      const [w, h, b64] = v.split(','), raw = atob(b64), bits = new Uint8Array(w * h);
-      for (let i = 0; i < bits.length; i++) bits[i] = (raw.charCodeAt(i >> 3) >> (i & 7)) & 1;
-      return {w: Number(w), h: Number(h), bits};
-    });
+  const shipped = baseFont();
+  for (const [char, variants] of Object.entries(font)) {
+    if (!shipped[char]) continue;
+    font[char] = variants.filter((g) => !(nearest(shipped, g, (c) => c !== char) + 2 <= nearest(shipped, g, (c) => c === char)));
   }
+  for (const [char, variants] of Object.entries(shipped)) if (!font[char]?.length) font[char] = variants.map((g) => ({...g}));
   return font;
 }
 
@@ -112,9 +120,10 @@ export function learnLine(font, mask, text) {
     || (font[char]?.length && !font[char].some((g) => Math.abs(g.w - glyph.w) <= 1));
   const aligned = alignLine(glyphs, text).filter((pair) => !unlike(pair));
   // A glyph that already looks like another character marks its word as misaligned; other words still teach.
+  // So does one clearly closer to another character than to this one's learned variants.
   const wrong = new Set(aligned.filter(([glyph, char]) => {
-    const other = nearest(font, glyph, (c) => c !== char);
-    return other <= 1 && other < nearest(font, glyph, (c) => c === char);
+    const other = nearest(font, glyph, (c) => c !== char), same = nearest(font, glyph, (c) => c === char);
+    return (other <= 1 && other < same) || (Number.isFinite(same) && other + 2 <= same);
   }).map(([, , word]) => word));
   const pairs = aligned.filter(([, , word]) => !wrong.has(word));
   for (const [glyph, char] of pairs) {

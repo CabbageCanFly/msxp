@@ -404,10 +404,13 @@ test('pickup message font: learned glyphs read later lines, misaligned lines are
   assert.equal(F.readLine(font, line('b1 a')), 'b? a');  // An unknown glyph is "?", never a guess.
   assert.equal(F.learnLine(font, line('ab'), 'ba'), 0);  // Glyphs that look like other characters.
   assert.equal(F.learnLine(font, line('ab1'), 'a'), 0);  // Glyph and character counts differ.
-  // The shipped font fills only characters not learned yet, with at most three variants each.
-  const seeded = F.seedFont({e: [{w: 1, h: 1, bits: new Uint8Array([1])}]});
-  assert.equal(seeded.e.length, 1);
-  assert.ok(Object.keys(seeded).length > 40 && Object.values(seeded).every((v) => v.length <= 3 && v.every((g) => g.bits.length === g.w * g.h)));
+  // The shipped font fills characters not learned yet (at most three variants each), keeps learned
+  // variants, and drops one clearly closer to another character: a 6 learned as "8".
+  const shipped = F.seedFont({});
+  assert.ok(Object.keys(shipped).length > 40 && Object.values(shipped).every((v) => v.length <= 3 && v.every((g) => g.bits.length === g.w * g.h)));
+  const kept = F.seedFont({8: [{...shipped[8][0]}]}), healed = F.seedFont({8: [{...shipped[6][0]}]});
+  assert.equal(kept[8].length, 1);
+  assert.ok(healed[8].every((g) => g.bits.join('') !== shipped[6][0].bits.join('')));
   // Words pair up by the widest gaps; a word with one piece too many joins its narrowest close pair
   // (an "x" whose centre was not seen comes in two 2-px pieces).
   const g = (w, gap) => ({w, h: 3, gap, bits: new Uint8Array(w * 3).fill(1)});

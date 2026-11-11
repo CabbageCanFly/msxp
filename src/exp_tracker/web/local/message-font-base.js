@@ -1,21 +1,22 @@
-// The pickup-message font every browser starts from: up to three variants of each character, learned from
-// confirmed lines of recorded play (768p and 1080p read in game pixels). Each variant is 'width,height,bits'
-// with bits packed 8 to a byte, row by row (base64). A player's own learning adds to these.
+// The pickup-message font every browser starts from: up to three variants of each letter, learned from
+// confirmed lines of recorded play (768p and 1080p read in game pixels), and one checked variant of each
+// digit (learning had filed a 6 under 8 and a 2 under 0, from OCR misreads). Each variant is
+// 'width,height,bits' with bits packed 8 to a byte, row by row (base64). A player's own learning adds to these.
 export const BASE_FONT = {
   "(": ["3,12,lJIkEgE=", "3,12,lJIkAgA=", "3,12,kJIEEgE="],
   ")": ["3,12,kUiSUgA=", "3,12,EUiSEgA=", "3,12,EEiyEwA="],
   "+": ["5,12,ABDyCQEAAAA=", "5,12,ABDQCQEAAAA=", "5,12,AhDwCQFBBAE="],
   ".": ["1,12,AAE="],
-  "0": ["5,12,LsYYY4wOAAA=", "5,12,LuYYY6QOAAA=", "6,12,nyiKoiiKHAAA"],
-  "1": ["3,12,dEmSBAA=", "3,12,ZEiSAAA="],
-  "2": ["5,12,LkKIEBEfAAA=", "5,12,LmKKEBEfAAA=", "5,12,JmKKEAEfAAA="],
-  "3": ["5,12,LkLIIIwOAAA=", "5,12,LmJIIIwOAAA=", "5,12,JmJIIIQOAAA="],
+  "0": ["5,12,LsYYY4wOAAA="],
+  "1": ["3,12,dEmSBAA="],
+  "2": ["5,12,LkKIEBEfAAA="],
+  "3": ["5,12,LkLIIIwOAAA="],
   "4": ["5,12,iDGl0kcIAAA="],
-  "5": ["5,12,XoQXIYwOAAA=", "5,12,XoAXMYwOAAA=", "5,12,RIQHIYQKAAA="],
-  "6": ["5,12,JgYyY6YOAAA="],
+  "5": ["5,12,XoQXIYwOAAA="],
+  "6": ["5,12,LoY2Y4wOAAA="],
   "7": ["5,12,HyFCiBACAAA="],
-  "8": ["5,12,LoY2Y4wOAAA=", "5,12,LsboYowOAAA=", "6,12,jCgk5yijHAAA"],
-  "9": ["5,12,LsaYLYwOAAA=", "5,12,LuaaLYwOAAA=", "5,12,JoKYJQAOAAA="],
+  "8": ["5,12,LsboYowOAAA="],
+  "9": ["5,12,LsaYLYwOAAA="],
   "A": ["7,12,CAqFInMJgkEAAAA="],
   "B": ["6,12,XxiGfxiGHwAA", "6,12,XxiWfxiWHwAA", "7,12,v6Fw6BcKhT4BAAA="],
   "C": ["7,12,DEEwEAgAQRwAAAA="],
