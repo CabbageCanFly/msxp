@@ -192,6 +192,10 @@ test('pickups: 24h mesos and items', () => {
   const off = V.summarizePickups(rows, now);
   assert.equal(off.mesosDay, 150);
   assert.deepEqual(off.items.map((i) => [i.name, i.count]), [['Tree Branch', 3], ['Arrows for Bows', 1]]);
+  // Items over a shorter window (mesos stay the day's): the branch from 400 s ago is left out of 5 min.
+  const recent = V.summarizePickups(rows, now, 5);
+  assert.equal(recent.mesosDay, 150);
+  assert.deepEqual(recent.items.map((i) => [i.name, i.count]), [['Tree Branch', 2], ['Arrows for Bows', 1]]);
 });
 
 test('tracked data in a time range: EXP gains, mesos and items, for removing it', () => {
