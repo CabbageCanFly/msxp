@@ -1,8 +1,8 @@
 /* /local: additions on top of leaderboard.css and product.css. */
 .source-label { margin-left:auto; color:var(--text-muted); font-size:13px; font-weight:700; }
 /* Scenery on/off: a small round icon in the character card's header, gold when on. */
-/* A rounded square, not stretched by the header row (it was 32x40, an oval). */
-.scenery-toggle { display:grid; place-items:center; flex:none; align-self:center; width:32px; height:32px; margin-left:12px; padding:0; border:1px solid #00000040; border-radius:8px; background:#00000026; color:#f6e3c480; cursor:pointer; }
+/* A rounded square: the site-wide button min-height (40px) had made it a 32x40 oval. */
+.scenery-toggle { display:grid; place-items:center; flex:none; align-self:center; width:32px; height:32px; min-height:0; margin-left:12px; padding:0; border:1px solid #00000040; border-radius:8px; background:#00000026; color:#f6e3c480; cursor:pointer; }
 .scenery-toggle:hover { border-color:#ffdf9f; color:#f6e3c4; }
 .scenery-toggle[aria-pressed="true"] { color:#ffd68c; }
 .local-controls, .character-form, .identity-check, .hud-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:12px 25px 4px; }
