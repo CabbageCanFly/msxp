@@ -8,7 +8,7 @@ const localDates = new Intl.DateTimeFormat(undefined, {dateStyle: 'medium', time
 const clockMinutes = new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit'});
 const clockSeconds = new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
 const monthDay = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'});
-const zoneLabel = () => new Intl.DateTimeFormat('en-US', {timeZoneName: 'short'}).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value ?? 'local time';
+export const zoneLabel = () => new Intl.DateTimeFormat('en-US', {timeZoneName: 'short'}).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value ?? 'local time';
 
 // Same formatting as the live site: 12.3K / 4.56M, or the whole number.
 export function expText(value, full = false) {

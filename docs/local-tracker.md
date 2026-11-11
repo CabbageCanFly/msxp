@@ -127,11 +127,20 @@ shows grey for buckets with too little observed time; missing time is never zero
 selected window's rate and the published requirement. The "so far" rate is shown only while a
 session is running (the overlay: while the last reading is under two minutes old).
 
-IndexedDB `msxp-local` (version 2): `characters` (name, job, name/job bitmaps, last accepted
+IndexedDB `msxp-local` (version 3): `characters` (name, job, name/job bitmaps, last accepted
 reading, tracker state, all-time gain), `sessions` (start/end, end reason, counts per scan outcome),
 `readings` (accepted readings only: time, level, EXP, basis points, gain, kind; about 115 bytes
-each), `days` (one row per character and local calendar day: last reading and EXP gained) and
-`settings` (interval, window, calibration, glyph templates, overlay options, active character).
+each), `days` (one row per character and local calendar day: last reading and EXP gained),
+`pickups` (version 3: meso and item pickups, see below) and `settings` (interval, window,
+calibration, glyph templates, overlay options, active character, Track pickups).
+
+**Edit** opens a popup with the character's name and job and *Remove tracked data*: between two
+times (default the last 15 minutes) it lists the EXP, mesos and items tracked, and removes the kinds
+ticked (only kinds with data are offered; two clicks). Removed EXP keeps each reading's level and
+EXP but drops its gain, so that time counts as not observed (rates are not lowered) and the day and
+all-time totals fall by it; removed pickups are deleted. Only the 24 hours of detail can be edited.
+Times are the browser's local time, labelled with its zone (e.g. "EST · America/Toronto"). The popup
+also has *Clear all local history* (two clicks), like the page's data section.
 
 **Retention like the live site**: detailed readings are kept for **24 hours + 5 minutes** (plus one
 older boundary reading per character), pruned when tracking starts and hourly while it runs. Days

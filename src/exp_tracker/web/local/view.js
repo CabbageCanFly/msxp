@@ -68,6 +68,14 @@ export function summarizePickups(rows, now, {since = null, minutes = 60} = {}) {
     items: [...items.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))};
 }
 
+/** What was tracked between two times (inclusive), for removing it: EXP gained, mesos and items. */
+export function trackedBetween(readings, pickups, from, to) {
+  const inside = (r) => r.at >= from && r.at <= to, gains = readings.filter((r) => inside(r) && r.gain != null);
+  const found = pickups.filter(inside), items = summarizePickups(found.filter((r) => r.kind === 'item'), to).items;
+  return {exp: gains.reduce((sum, r) => sum + r.gain, 0), expReadings: gains.length,
+    mesos: found.reduce((sum, r) => sum + (r.kind === 'mesos' ? r.amount : 0), 0), mesoPickups: found.filter((r) => r.kind === 'mesos').length, items};
+}
+
 // ---------- overlay options (ported from product.js; same URL parameters as the live overlay) ----------
 
 // Anything unknown falls back to the first choice. 'name' has no Twitch option here; 'bg' is the

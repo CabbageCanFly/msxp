@@ -137,6 +137,34 @@ export function pickups(characterId, since = 0) {
     .getAll(IDBKeyRange.bound([characterId, since], [characterId, Infinity]))));
 }
 
+/**
+ * Removes what was tracked between two times for one character, by kind. EXP readings keep their level
+ * and EXP but lose their gain, so the time counts as unobserved (like a gap), not as zero EXP, and the
+ * day and all-time totals drop by it. Mesos and items are deleted. Only detail (24 hours) can be edited.
+ */
+export function removeTracked(characterId, from, to, {exp = false, mesos = false, items = false}) {
+  return run(['characters', 'readings', 'days', 'pickups'], 'readwrite', async (tx) => {
+    const range = IDBKeyRange.bound([characterId, from], [characterId, to]);
+    if (exp) {
+      const readings = tx.objectStore('readings'), days = tx.objectStore('days');
+      let removed = 0;
+      for (const r of await result(readings.index('character_at').getAll(range))) {
+        if (r.gain == null) continue;
+        readings.put({...r, gain: null, removed: true});
+        const day = await result(days.get([characterId, dayOf(r.at)]));
+        if (day) days.put({...day, gain: day.gain - r.gain});
+        removed += r.gain;
+      }
+      const character = await result(tx.objectStore('characters').get(characterId));
+      if (character) tx.objectStore('characters').put({...character, totalGain: (character.totalGain || 0) - removed});
+    }
+    const pickups = tx.objectStore('pickups');
+    for (const p of await result(pickups.index('character_at').getAll(range))) {
+      if ((p.kind === 'mesos' && mesos) || (p.kind === 'item' && items)) pickups.delete(p.id);
+    }
+  });
+}
+
 export function readings(characterId, since = 0) {
   return run('readings', 'readonly', (tx) => result(tx.objectStore('readings').index('character_at')
     .getAll(IDBKeyRange.bound([characterId, since], [characterId, Infinity]))));

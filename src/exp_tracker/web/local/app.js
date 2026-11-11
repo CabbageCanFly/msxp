@@ -6,8 +6,8 @@ import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud, readIdentity} from './reader.js';
 import {displayed, learn, learnLetters} from './glyphs.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
-  overlayQuery, percent, randomOverlayColors, summarize, summarizePickups} from './view.js';
-import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip} from './charts.js';
+  overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
+import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, zoneLabel} from './charts.js';
 import {loadItems, startPickups} from './pickup-session.js';
 
 const $ = (id) => document.getElementById(id);
@@ -68,9 +68,14 @@ async function refreshCharacters() {
   render();
 }
 
+// The Edit popup: the character's name and job, and removing tracked data between two times.
 function openCharacterForm(isNew) {
   const form = $('character-form');
-  form.hidden = false; form.dataset.mode = isNew ? 'new' : 'edit';
+  form.dataset.mode = isNew ? 'new' : 'edit';
+  $('editor-title').textContent = isNew ? 'New character' : 'Edit';
+  $('remove-tracked').hidden = isNew || !character;
+  if (!isNew && character) resetRemoval();
+  if (!$('editor').matches(':popover-open')) $('editor').showPopover();
   $('character-name').value = isNew ? '' : character?.name ?? '';
   $('character-job').value = isNew ? 'Beginner' : character?.job || 'Beginner';
   $('character-new').hidden = isNew || !character; $('character-delete').hidden = isNew || !character;
@@ -86,7 +91,7 @@ async function saveCharacterForm(asNew) {
   const id = await store.saveCharacter(isNew ? {name, job, nameSource: 'user'} : {...character, name, job, ...(name !== character.name ? {nameSource: 'user'} : {})});
   // A typed rename is the truth about the on-screen name: it teaches those letters for future names.
   if (!isNew && name !== character.name) await teachLetters(character.nameGlyphs, name, true);
-  $('character-form').hidden = true;
+  $('editor').hidePopover();
   await selectCharacter(id);
 }
 
@@ -96,6 +101,45 @@ async function selectCharacter(id) {
   identitySuspect = null;
   await refreshCharacters();
   broadcast();
+}
+
+// ---------- removing tracked data ----------
+
+// datetime-local inputs hold local time to the minute; "To" covers its whole minute.
+const localInput = (at) => new Date(at - new Date(at).getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+const KINDS = ['exp', 'mesos', 'items'];
+
+function resetRemoval() {
+  const now = Date.now();
+  $('remove-from').value = localInput(now - 15 * 60e3); $('remove-to').value = localInput(now);
+  $('remove-zone').textContent = `${zoneLabel()} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+  for (const kind of KINDS) $(`remove-${kind}`).checked = false;
+  renderRemoval();
+}
+
+// Each kind is offered only when something of it was tracked in the range.
+function renderRemoval() {
+  const from = new Date($('remove-from').value).getTime(), to = new Date($('remove-to').value).getTime() + 59999;
+  const found = from <= to ? trackedBetween(readingsCache, pickupsCache, from, to) : {expReadings: 0, mesoPickups: 0, items: []};
+  $('remove-exp-row').hidden = !found.expReadings; $('remove-exp-text').textContent = `EXP · ${fmtExp(found.exp)}`;
+  $('remove-mesos-row').hidden = !found.mesoPickups;
+  $('remove-mesos-text').textContent = `Mesos · ${fmtExp(found.mesos)} from ${found.mesoPickups} pickup${found.mesoPickups === 1 ? '' : 's'}`;
+  $('remove-items-row').hidden = !found.items.length;
+  $('remove-items-text').textContent = `Items · ${found.items.map((item) => `${item.name} ×${item.count}`).join(', ')}`;
+  $('remove-empty').hidden = Boolean(found.expReadings || found.mesoPickups || found.items.length);
+  const chosen = KINDS.filter((kind) => !$(`remove-${kind}-row`).hidden && $(`remove-${kind}`).checked);
+  $('remove-apply').disabled = !chosen.length;
+  return {from, to, chosen};
+}
+
+async function applyRemoval() {
+  const {from, to, chosen} = renderRemoval();
+  if (!character || !chosen.length) return;
+  await store.removeTracked(character.id, from, to, Object.fromEntries(chosen.map((kind) => [kind, true])));
+  await refreshCharacters(); broadcast();
+  for (const kind of KINDS) $(`remove-${kind}`).checked = false;
+  renderRemoval();
+  setStatus(`Removed tracked ${chosen.join(' and ').replace('exp', 'EXP')} from ${$('remove-from').value.replace('T', ' ')} to ${$('remove-to').value.replace('T', ' ')}`, 'ok');
 }
 
 // ---------- capture ----------
@@ -673,14 +717,18 @@ async function init() {
   $('start').addEventListener('click', start);
   $('stop').addEventListener('click', () => stop('stopped'));
   $('character-select').addEventListener('change', (event) => event.target.value === 'new' ? openCharacterForm(true) : selectCharacter(Number(event.target.value)));
-  $('character-edit').addEventListener('click', () => { if ($('character-form').hidden) openCharacterForm(!character); else $('character-form').hidden = true; });
+  $('character-edit').addEventListener('click', () => openCharacterForm(!character));
+  // Closing the popup any way (Cancel, ×, Escape, a click outside) leaves the selected character as it was.
+  $('editor').addEventListener('toggle', (event) => { if (event.newState === 'closed') $('character-select').value = character ? String(character.id) : 'new'; });
+  for (const id of ['remove-from', 'remove-to', 'remove-exp', 'remove-mesos', 'remove-items']) $(id).addEventListener('input', renderRemoval);
+  $('remove-apply').addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to remove', applyRemoval));
   $('character-form').addEventListener('submit', (event) => { event.preventDefault(); saveCharacterForm(false); });
   $('character-new').addEventListener('click', () => saveCharacterForm(true));
-  $('character-cancel').addEventListener('click', () => { $('character-form').hidden = true; $('character-select').value = character ? String(character.id) : 'new'; });
+  $('character-cancel').addEventListener('click', () => $('editor').hidePopover());
   $('character-delete').addEventListener('click', (event) => twoStep(event.currentTarget, 'Delete its history too?', async () => {
     if (capture) await stop('character_deleted');
     await store.deleteCharacter(character.id);
-    settings.activeCharacterId = null; $('character-form').hidden = true;
+    settings.activeCharacterId = null; $('editor').hidePopover();
     await refreshCharacters(); broadcast();
   }));
   $('identity-same').addEventListener('click', confirmIdentity);
@@ -717,7 +765,7 @@ async function init() {
     const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(blob), download: `msxp-local-${new Date().toISOString().slice(0, 10)}.json`});
     link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   });
-  $('clear').addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to delete everything', async () => {
+  for (const id of ['clear', 'editor-clear']) $(id).addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to delete everything', async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
     settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false};

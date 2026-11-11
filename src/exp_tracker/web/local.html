@@ -18,12 +18,28 @@
   <div class="windows interval" role="group" aria-label="Scan every"><span>Scan every</span><button data-interval="5" aria-pressed="false">5<span class="unit"> s</span></button><button data-interval="10" aria-pressed="false">10<span class="unit"> s</span></button><button data-interval="20" aria-pressed="true">20<span class="unit"> s</span></button><button data-interval="30" aria-pressed="false">30<span class="unit"> s</span></button></div>
   <label class="level-filter" title="Also count meso and item pickups from the game's pickup messages. Approximate, and it reads the game window more often (15 times a second)."><input id="track-pickups" type="checkbox"> Track pickups</label>
 </div>
-<form id="character-form" class="character-form" hidden>
-  <label class="local-field"><span>Name</span><input id="character-name" maxlength="20" autocomplete="off" required placeholder="Character name"></label>
-  <label class="local-field"><span>Job</span><select id="character-job"></select></label>
-  <button type="submit">Save</button><button type="button" id="character-new">Save as new character</button><button type="button" id="character-cancel">Cancel</button>
-  <button type="button" id="character-delete" class="danger">Delete character…</button>
-</form>
+<div id="editor" class="about local-editor" popover aria-labelledby="editor-title">
+  <header><h2 id="editor-title">Edit</h2><button type="button" class="about-close" popovertarget="editor" popovertargetaction="hide" aria-label="Close">×</button></header>
+  <h3>Character</h3>
+  <form id="character-form" class="character-form">
+    <label class="local-field"><span>Name</span><input id="character-name" maxlength="20" autocomplete="off" required placeholder="Character name"></label>
+    <label class="local-field"><span>Job</span><select id="character-job"></select></label>
+    <button type="submit">Save</button><button type="button" id="character-new">Save as new character</button><button type="button" id="character-cancel">Cancel</button>
+    <button type="button" id="character-delete" class="danger">Delete character…</button>
+  </form>
+  <section id="remove-tracked" class="remove-tracked" aria-labelledby="remove-title"><h3 id="remove-title">Remove tracked data</h3>
+    <p>Remove what was tracked between two times (last 24 hours). Removed EXP counts as untracked time.</p>
+    <div class="remove-range"><label class="local-field"><span>From</span><input id="remove-from" type="datetime-local"></label><label class="local-field"><span>To</span><input id="remove-to" type="datetime-local"></label><small id="remove-zone"></small></div>
+    <div class="remove-kinds">
+      <label id="remove-exp-row"><input id="remove-exp" type="checkbox"> <span id="remove-exp-text">EXP</span></label>
+      <label id="remove-mesos-row"><input id="remove-mesos" type="checkbox"> <span id="remove-mesos-text">Mesos</span></label>
+      <label id="remove-items-row"><input id="remove-items" type="checkbox"> <span id="remove-items-text">Items</span></label>
+      <p id="remove-empty">Nothing was tracked in this time range.</p>
+    </div>
+    <button id="remove-apply" type="button" class="danger" disabled>Remove selected</button>
+  </section>
+  <section class="remove-tracked"><h3>All data</h3><button id="editor-clear" type="button" class="danger">Clear all local history…</button></section>
+</div>
 <div id="identity" class="identity-check" role="alert" hidden><p id="identity-text"></p><button id="identity-same" type="button">Same character, continue</button><button id="identity-switch" type="button">Choose another character</button></div>
 <div class="player-reading"><span class="level" id="level">Lv. —</span><div class="exp-section"><div class="exp-bar"><progress id="progress" max="100" value="0" aria-label="EXP progress"></progress><span class="exp-label"><span id="exp">—</span><span id="percentage">—</span></span></div><p class="status-line"><span id="status" class="status" role="status">Not tracking</span><span id="age" class="exp-detail"></span></p></div></div>
 <div class="toolbar"><div class="windows" role="group" aria-label="Time window"><span>Last</span><button data-window="5" aria-pressed="false">5<span class="unit"> min</span></button><button data-window="10" aria-pressed="false">10<span class="unit"> min</span></button><button data-window="15" aria-pressed="true">15<span class="unit"> min</span></button><button data-window="30" aria-pressed="false">30<span class="unit"> min</span></button><button data-window="60" aria-pressed="false">60<span class="unit"> min</span></button></div><label class="level-filter" title="Only count EXP earned at your current level. The 24h total always includes all levels."><input id="current-level-only" type="checkbox"> Current level only</label></div>

@@ -200,6 +200,18 @@ test('pickups: 24h mesos and items, and a meso rate only over time spent trackin
   assert.equal(V.summarizePickups(rows, now, {since: now - 3 * 3600e3}).perHour, 50);
 });
 
+test('tracked data in a time range: EXP gains, mesos and items, for removing it', () => {
+  const t = (s) => at(s);
+  const readings = [{at: t(0), gain: null}, {at: t(20), gain: 30}, {at: t(40), gain: 0}, {at: t(60), gain: 50}, {at: t(80), gain: 70}];
+  const pickups = [{at: t(30), kind: 'mesos', amount: 12}, {at: t(50), kind: 'item', itemId: 1, name: 'Iron Ore', count: 1},
+    {at: t(55), kind: 'item', itemId: 1, name: 'Iron Ore', count: 2}, {at: t(90), kind: 'mesos', amount: 99}];
+  const range = V.trackedBetween(readings, pickups, t(20), t(60));
+  assert.deepEqual([range.exp, range.expReadings, range.mesos, range.mesoPickups], [80, 3, 12, 1]);
+  assert.deepEqual(range.items.map((i) => [i.name, i.count]), [['Iron Ore', 3]]);
+  const empty = V.trackedBetween(readings, pickups, t(81), t(85));
+  assert.deepEqual([empty.expReadings, empty.mesoPickups, empty.items.length], [0, 0, 0]);
+});
+
 test('overlay options use the live URL parameters; unknown values fall back', () => {
   const o = V.overlayOptions('?layout=chart&theme=blue&name=twitch&interval=1800&range=60&background=ABCDEF&bg=green&evil=1');
   assert.deepEqual([o.layout, o.theme, o.name, o.interval, o.range, o.background, o.bg], ['chart', 'blue', 'character', '1800', '1440', 'abcdef', 'green']);

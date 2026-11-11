@@ -40,3 +40,16 @@
 .pickup-items .count { color:var(--gold); font-variant-numeric:tabular-nums; }
 .pickups-board .segment-note { margin:0 25px 16px; }
 @media (max-width:650px) { .pickup-items, .pickups-board .segment-note { margin-left:14px; margin-right:14px; } }
+.local-editor { width:min(640px,calc(100vw - 32px)); }
+.local-editor h3 { margin:14px 0 6px; color:var(--gold); font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; }
+.local-editor .character-form { margin:0; gap:12px 14px; }
+.local-editor .character-form > button:first-of-type { margin-right:6px; }
+/* The page's button padding would push the × off centre. */
+.local-editor .about-close { display:grid; place-items:center; padding:0; min-height:0; font-size:18px; line-height:1; }
+.remove-tracked { margin-top:18px; padding-top:4px; border-top:1px solid var(--line); }
+.remove-range, .remove-kinds { display:flex; flex-wrap:wrap; gap:8px 14px; margin:10px 0; }
+.remove-kinds { flex-direction:column; gap:6px; }
+.remove-kinds label { display:flex; align-items:baseline; gap:8px; color:var(--text); font-weight:700; cursor:pointer; }
+.remove-kinds input { accent-color:var(--gold); }
+.remove-kinds [hidden] { display:none; }
+.remove-range small { align-self:center; color:var(--text-muted); font-size:12px; font-weight:600; }
