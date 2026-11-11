@@ -294,6 +294,8 @@ test('pickup message font: learned glyphs read later lines, misaligned lines are
   assert.equal(S.rounded([23, 28]), 20);  // Unconfirmed reads round down to what they agree on.
   assert.equal(S.rounded([23]), 20);
   assert.equal(S.rounded([1250, 1290]), 1200);
+  assert.equal(S.rounded([132, 13]), 10);  // A ")" read as a digit does not make it 100.
+  assert.equal(S.rounded([132, 13, 138]), 130);  // Unless most reads have three digits.
 });
 
 test('the digit row ignores a panel border caught by a box that is too tall', () => {

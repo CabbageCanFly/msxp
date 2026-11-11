@@ -44,8 +44,11 @@ async function vote(reads) {
 
 // Unconfirmed digit reads, rounded down to what they agree on: "23" and "28" make 20, a lone "23" also
 // 20. Meso totals are approximate by design (a sense of the rate), so a near amount beats no amount.
+// The length most reads have wins, the shorter on a tie: a ")" read as a digit turns "13" into "132"
+// (measured live: four EXP lines counted 100 each).
 export function rounded(values) {
-  const strings = values.map(String), length = strings[0]?.length;
+  const strings = values.map(String), count = (n) => strings.filter((s) => s.length === n).length;
+  const length = strings.map((s) => s.length).sort((a, b) => count(b) - count(a) || a - b)[0];
   const same = strings.filter((s) => s.length === length);
   if (!same.length) return null;
   let prefix = same[0].slice(0, same.length > 1 ? length : 1);
@@ -115,8 +118,8 @@ export async function readMessage(engine, samples, list, font = null) {
 // gives name, count and tab. A font read leaves "?" for glyphs it does not know: "?ree ?ra??h ?1 ..."
 // still gives the count, but never a name.
 function lineParts(text) {
-  // The "(" is often lost ("+17)"), so either it or the "+" marks the amount.
-  const amount = /(?:\(\s*\+?|\+)\s*(\d[\d,. ]*)\)?\s*$/.exec(text)?.[1].replace(/\D/g, '');
+  // One bracket may be lost ("+17)", "(+17"), not both: "+121" is often "(+12)" with ")" read as a 1.
+  const amount = (/\(\s*\+?\s*(\d[\d,. ]*)\)?\s*$/.exec(text) ?? /\+\s*(\d[\d,. ]*)\)\s*$/.exec(text))?.[1].replace(/\D/g, '');
   const item = /^(.*?)\s+[x×?]\s?(\d+)\s/.exec(text), tab = /\(\s*([A-Za-z]{2,5})\W*$/.exec(text)?.[1];
   const name = item?.[1].includes('?') ? null : item?.[1].replace(/[^A-Za-z0-9' .:-]/g, '').trim();
   return {amount: amount ? Number(amount) : null, name: name || null, count: item ? Number(item[2]) : null, tab: item && tab ? tabOf(tab) : null};
