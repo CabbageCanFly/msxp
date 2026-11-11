@@ -144,7 +144,7 @@ function difference(a, b, cap = 30) {
   return best;
 }
 
-const PITCH = 14, MAX_SLOTS = 7;  // Measured: messages stack 14 px apart, at most 6 on screen.
+const PITCH = 14, MAX_SLOTS = 7, VOTE_FRAMES = 150;  // About 10 s at 15 frames a second.  // Measured: messages stack 14 px apart, at most 6 on screen.
 // Costs of explaining a frame (tuned on two recordings against counted messages; a wide plateau of
 // settings scored the same): each new message costs NEW_COST, further ones in the same frame EXTRA_COST
 // (bursts bring 3-4 per frame); a remembered line costs PIXEL_COST per differing pixel, at most MATCH_CAP,
@@ -165,16 +165,21 @@ const NEW_COST = 30, EXTRA_COST = 30, PIXEL_COST = 3, MATCH_CAP = 30, UNEXPLAINE
  */
 export function stackTracker({forgetMs = 1500} = {}) {
   let bottom = null, slots = [];  // slots[k]: {msg, line, at} for the line k slots above the bottom.
-  const votes = new Map();
+  const votes = new Map(), recent = [];
   let arrived = 0, started = false;
   const retire = (entry, done) => { if (entry?.msg) done.push(entry.msg); };
   return {
     update(lines, at) {
       const done = [];
       slots = slots.map((entry) => (entry && at - entry.at > forgetMs ? (retire(entry, done), undefined) : entry));
-      // The bottom slot is where the lowest line sits most often; a stray line further down is outvoted.
+      // The bottom slot is where the lowest line sits most often in the last VOTE_FRAMES frames with lines: a
+      // stray line further down is outvoted, and an old lead fades (measured live: a reader that had run for
+      // minutes put every line in the wrong slot while a fresh one read the same frames well).
       const lowest = lines.reduce((y, line) => Math.max(y, line.y0), -1);
-      if (lowest >= 0) votes.set(lowest, (votes.get(lowest) ?? 0) + 1);
+      if (lowest >= 0) {
+        votes.set(lowest, (votes.get(lowest) ?? 0) + 1); recent.push(lowest);
+        if (recent.length > VOTE_FRAMES) { const old = recent.shift(); if (votes.get(old) > 1) votes.set(old, votes.get(old) - 1); else votes.delete(old); }
+      }
       const voted = [...votes].reduce((top, [y, n]) => (n > (votes.get(top) ?? 0) ? y : top), bottom ?? lowest);
       if (bottom === null) bottom = lowest >= 0 ? voted : null;  // Unknown until a line is seen.
       else if (Math.abs(voted - bottom) > 3) {

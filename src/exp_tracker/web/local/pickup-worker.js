@@ -10,7 +10,7 @@ onmessage = async ({data}) => {
   if (data.type !== 'start') return;
   reader = data.stream.getReader();
   const canvas = new OffscreenCanvas(1, 1), context = canvas.getContext('2d', {willReadFrequently: true});
-  const tracker = stackTracker(), cache = {};
+  let tracker = stackTracker(), cache = {}, size = '';
   let frames = 0, busy = 0, since = performance.now();
   while (reader) {
     const {value: frame, done} = await reader.read().catch(() => ({done: true}));
@@ -18,6 +18,9 @@ onmessage = async ({data}) => {
     const started = performance.now();
     try {
       const W = frame.displayWidth, H = frame.displayHeight;
+      // A resized window (e.g. to fullscreen) moves every line: count afresh, or the slots voted for the
+      // old size keep winning and every line lands in the wrong one (measured live).
+      if (`${W}x${H}` !== size) { size = `${W}x${H}`; tracker = stackTracker(); cache = {}; }
       // Right of the quick-slot panel, above the status bar: where pickup messages stack up.
       const x = Math.floor(W * data.region.x0), y = Math.floor(H * data.region.y0), w = W - x, h = Math.floor(H * data.region.y1) - y;
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
