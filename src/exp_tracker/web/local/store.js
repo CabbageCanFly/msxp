@@ -140,9 +140,10 @@ export function pickups(characterId, since = 0) {
 /**
  * Removes what was tracked between two times for one character, by kind. EXP readings keep their level
  * and EXP but lose their gain, so the time counts as unobserved (like a gap), not as zero EXP, and the
- * day and all-time totals drop by it. Mesos and items are deleted. Only detail (24 hours) can be edited.
+ * day and all-time totals drop by it. Mesos and items are deleted. Older days (`oldDays`, 'YYYY-MM-DD'
+ * keys) have only a summary: removing their EXP deletes that day's history point and its gain.
  */
-export function removeTracked(characterId, from, to, {exp = false, mesos = false, items = false}) {
+export function removeTracked(characterId, from, to, {exp = false, mesos = false, items = false, oldDays = []}) {
   return run(['characters', 'readings', 'days', 'pickups'], 'readwrite', async (tx) => {
     const range = IDBKeyRange.bound([characterId, from], [characterId, to]);
     if (exp) {
@@ -154,6 +155,10 @@ export function removeTracked(characterId, from, to, {exp = false, mesos = false
         const day = await result(days.get([characterId, dayOf(r.at)]));
         if (day) days.put({...day, gain: day.gain - r.gain});
         removed += r.gain;
+      }
+      for (const key of oldDays) {
+        const day = await result(days.get([characterId, key]));
+        if (day) { days.delete([characterId, key]); removed += day.gain || 0; }
       }
       const character = await result(tx.objectStore('characters').get(characterId));
       if (character) tx.objectStore('characters').put({...character, totalGain: (character.totalGain || 0) - removed});

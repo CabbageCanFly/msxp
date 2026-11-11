@@ -138,9 +138,14 @@ calibration, glyph templates, overlay options, active character, Track pickups).
 times (default the last 15 minutes) it lists the EXP, mesos and items tracked, and removes the kinds
 ticked (only kinds with data are offered; two clicks). Removed EXP keeps each reading's level and
 EXP but drops its gain, so that time counts as not observed (rates are not lowered) and the day and
-all-time totals fall by it; removed pickups are deleted. Only the 24 hours of detail can be edited.
+all-time totals fall by it; removed pickups are deleted. Days older than the 24 hours of detail keep
+only a summary, so EXP there is removed by whole local days the range covers (the day's History point
+and its gain).
 Times are the browser's local time, labelled with its zone (e.g. "EST · America/Toronto"). The popup
 also has *Clear all local history* (two clicks), like the page's data section.
+
+The round button in the character card's header switches the live pages' scenery (town background,
+wandering mobs; `local/scenery.js` mirrors `product.js`) on or off; on by default, remembered.
 
 **Retention like the live site**: detailed readings are kept for **24 hours + 5 minutes** (plus one
 older boundary reading per character), pruned when tracking starts and hourly while it runs. Days

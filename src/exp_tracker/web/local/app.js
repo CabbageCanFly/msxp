@@ -9,6 +9,7 @@ import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COL
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, zoneLabel} from './charts.js';
 import {loadItems, startPickups} from './pickup-session.js';
+import {setScenery} from './scenery.js';
 
 const $ = (id) => document.getElementById(id);
 const INTERVALS = [5, 10, 20, 30];
@@ -33,7 +34,7 @@ const lockHeldElsewhere = async () => Boolean((await navigator.locks?.query?.())
 
 let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, valid only for one calibration (window size and boxes).
-let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false};
+let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 300, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -120,22 +121,24 @@ function resetRemoval() {
 // Each kind is offered only when something of it was tracked in the range.
 function renderRemoval() {
   const from = new Date($('remove-from').value).getTime(), to = new Date($('remove-to').value).getTime() + 59999;
-  const found = from <= to ? trackedBetween(readingsCache, pickupsCache, from, to) : {expReadings: 0, mesoPickups: 0, items: []};
-  $('remove-exp-row').hidden = !found.expReadings; $('remove-exp-text').textContent = `EXP · ${fmtExp(found.exp)}`;
+  const found = from <= to ? trackedBetween(readingsCache, pickupsCache, from, to, daysCache, Date.now() - store.DETAIL_MS) : {expReadings: 0, oldDays: [], mesoPickups: 0, items: []};
+  const old = found.oldDays.length;
+  $('remove-exp-row').hidden = !found.expReadings && !old;
+  $('remove-exp-text').textContent = `EXP · ${fmtExp(found.exp)}${old ? ` (incl. ${old} older day${old === 1 ? '' : 's'} of history)` : ''}`;
   $('remove-mesos-row').hidden = !found.mesoPickups;
   $('remove-mesos-text').textContent = `Mesos · ${fmtExp(found.mesos)} from ${found.mesoPickups} pickup${found.mesoPickups === 1 ? '' : 's'}`;
   $('remove-items-row').hidden = !found.items.length;
   $('remove-items-text').textContent = `Items · ${found.items.map((item) => `${item.name} ×${item.count}`).join(', ')}`;
-  $('remove-empty').hidden = Boolean(found.expReadings || found.mesoPickups || found.items.length);
+  $('remove-empty').hidden = Boolean(found.expReadings || old || found.mesoPickups || found.items.length);
   const chosen = KINDS.filter((kind) => !$(`remove-${kind}-row`).hidden && $(`remove-${kind}`).checked);
   $('remove-apply').disabled = !chosen.length;
-  return {from, to, chosen};
+  return {from, to, chosen, oldDays: found.oldDays.map((d) => d.day)};
 }
 
 async function applyRemoval() {
-  const {from, to, chosen} = renderRemoval();
+  const {from, to, chosen, oldDays} = renderRemoval();
   if (!character || !chosen.length) return;
-  await store.removeTracked(character.id, from, to, Object.fromEntries(chosen.map((kind) => [kind, true])));
+  await store.removeTracked(character.id, from, to, {...Object.fromEntries(chosen.map((kind) => [kind, true])), oldDays});
   await refreshCharacters(); broadcast();
   for (const kind of KINDS) $(`remove-${kind}`).checked = false;
   renderRemoval();
@@ -743,6 +746,10 @@ async function init() {
     pressed('[data-window]', 'window', settings.window); await store.setSetting('window', settings.window); render();
   });
   $('current-level-only').addEventListener('change', (event) => { charts.levelOnly = event.target.checked; render(); });
+  $('scenery-toggle').addEventListener('click', () => {
+    settings.scenery = $('scenery-toggle').getAttribute('aria-pressed') !== 'true';
+    showScenery(settings.scenery); store.setSetting('scenery', settings.scenery).catch(() => {});
+  });
   $('track-pickups').addEventListener('change', async (event) => {
     settings.pickups = event.target.checked;
     await store.setSetting('pickups', settings.pickups);
@@ -768,7 +775,7 @@ async function init() {
   for (const id of ['clear', 'editor-clear']) $(id).addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to delete everything', async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
-    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false};
+    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: settings.scenery};
     character = null; readingsCache = []; pickupsCache = []; $('track-pickups').checked = false;
     await refreshCharacters(); broadcast(); setStatus('Local history cleared');
   }));
@@ -778,7 +785,7 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
@@ -786,6 +793,7 @@ async function init() {
     if (!WINDOWS.includes(settings.window)) settings.window = 15;
     pressed('[data-interval]', 'interval', settings.interval); pressed('[data-window]', 'window', settings.window);
     $('track-pickups').checked = Boolean(settings.pickups);
+    showScenery(settings.scenery !== false);
     Object.assign(builder, overlayOptions((await store.getSetting('overlay')) ?? ''));
     await refreshCharacters();
     updateBuilder();
@@ -847,6 +855,12 @@ function setupBuilder() {
     window.open(overlayURL(), 'msxp-local-overlay', `popup,width=${width},height=${height}`);
   });
   window.addEventListener('resize', scalePreview);
+}
+
+function showScenery(on) {
+  setScenery(on);
+  $('scenery-toggle').setAttribute('aria-pressed', String(on));
+  $('scenery-toggle').title = on ? 'Hide the town background and mobs' : 'Show the town background and mobs';
 }
 
 // Destructive actions use a second click instead of a blocking dialog.

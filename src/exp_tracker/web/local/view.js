@@ -68,11 +68,20 @@ export function summarizePickups(rows, now, {since = null, minutes = 60} = {}) {
     items: [...items.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))};
 }
 
-/** What was tracked between two times (inclusive), for removing it: EXP gained, mesos and items. */
-export function trackedBetween(readings, pickups, from, to) {
+/**
+ * What was tracked between two times (inclusive), for removing it: EXP gained, mesos and items. Days
+ * older than `detailSince` keep only a daily summary, so those count only when the range covers the
+ * whole local day (`oldDays`: their summaries).
+ */
+export function trackedBetween(readings, pickups, from, to, days = [], detailSince = -Infinity) {
   const inside = (r) => r.at >= from && r.at <= to, gains = readings.filter((r) => inside(r) && r.gain != null);
   const found = pickups.filter(inside), items = summarizePickups(found.filter((r) => r.kind === 'item'), to).items;
-  return {exp: gains.reduce((sum, r) => sum + r.gain, 0), expReadings: gains.length,
+  const oldDays = days.filter((d) => {
+    const start = new Date(`${d.day}T00:00`), end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return +start >= from && +end - 1 <= to && +end <= detailSince;
+  });
+  return {exp: gains.reduce((sum, r) => sum + r.gain, 0) + oldDays.reduce((sum, d) => sum + (d.gain || 0), 0), expReadings: gains.length, oldDays,
     mesos: found.reduce((sum, r) => sum + (r.kind === 'mesos' ? r.amount : 0), 0), mesoPickups: found.filter((r) => r.kind === 'mesos').length, items};
 }
 

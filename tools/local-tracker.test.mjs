@@ -210,6 +210,11 @@ test('tracked data in a time range: EXP gains, mesos and items, for removing it'
   assert.deepEqual(range.items.map((i) => [i.name, i.count]), [['Iron Ore', 3]]);
   const empty = V.trackedBetween(readings, pickups, t(81), t(85));
   assert.deepEqual([empty.expReadings, empty.mesoPickups, empty.items.length], [0, 0, 0]);
+  // Older days keep only a summary: they count when the range covers the whole local day.
+  const days = [{day: '2026-03-01', gain: 400}, {day: '2026-03-02', gain: 500}, {day: '2026-03-04', gain: 900}];
+  const local = (text) => new Date(text).getTime(), detail = local('2026-03-04T00:00');
+  const old = V.trackedBetween([], [], local('2026-03-01T12:00'), local('2026-03-05T00:00'), days, detail);
+  assert.deepEqual([old.oldDays.map((d) => d.day), old.exp], [['2026-03-02'], 500]);  // Not the half of the 1st, nor the 4th (detail).
 });
 
 test('overlay options use the live URL parameters; unknown values fall back', () => {

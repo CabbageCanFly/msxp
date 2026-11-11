@@ -1,8 +1,13 @@
 /* /local: additions on top of leaderboard.css and product.css. */
 .source-label { margin-left:auto; color:var(--text-muted); font-size:13px; font-weight:700; }
+/* Scenery on/off: a small round icon in the character card's header, gold when on. */
+.scenery-toggle { display:grid; place-items:center; width:32px; height:32px; margin-left:12px; padding:0; border:1px solid #00000040; border-radius:50%; background:#00000026; color:#f6e3c480; cursor:pointer; }
+.scenery-toggle:hover { border-color:#ffdf9f; color:#f6e3c4; }
+.scenery-toggle[aria-pressed="true"] { color:#ffd68c; }
 .local-controls, .character-form, .identity-check, .hud-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:12px 25px 4px; }
-.local-page button:not(.windows button) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
-.local-page button:not(.windows button):hover:not(:disabled) { border-color:var(--gold); }
+/* Not the toggle pills, which keep the live pages' look (.windows, .chart-modes). */
+.local-page button:not(.windows button, .chart-modes button, .scenery-toggle) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+.local-page button:not(.windows button, .chart-modes button, .scenery-toggle):hover:not(:disabled) { border-color:var(--gold); }
 .local-page button:disabled { opacity:.45; cursor:default; }
 .local-page .local-start { background:var(--green); border-color:transparent; color:#1d2a0b; font-size:15px; padding:0 22px; min-height:40px; }
 .local-page .local-stop { border-color:var(--orange); }
@@ -15,7 +20,7 @@
 .status[data-tone="warn"] { color:var(--orange); }
 .status[data-tone="ok"] { color:var(--green); }
 .board-note { color:var(--text-muted); font-size:12px; font-weight:700; }
-.local-hud, .local-data { margin-top:22px; }
+.pickups-board, .local-hud, .local-data { margin-top:22px; }
 .hud-body { padding:4px 0 16px; }
 .hud-body > p { margin:8px 25px; color:var(--text-muted); font-size:14px; line-height:1.5; }
 .hud-view { margin:10px 25px 0; }
@@ -32,9 +37,9 @@
 }
 .pickup-totals { margin:8px 25px; color:var(--text); font-weight:700; }
 .pickup-log { max-height:260px; overflow:auto; margin:8px 25px 0; padding-left:28px; color:var(--text-muted); font-size:13px; line-height:1.6; font-variant-numeric:tabular-nums; }
-.pickup-cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.pickup-cards { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:16px; }
 .pickup-cards > div { min-height:0; }
-.pickup-items { display:flex; flex-wrap:wrap; gap:8px; margin:0 25px 8px; padding:0; list-style:none; }
+.pickup-items { display:flex; flex-wrap:wrap; gap:8px; margin:0 25px 12px; padding:0; list-style:none; }
 .pickup-items li { display:flex; align-items:center; gap:8px; padding:4px 10px 4px 4px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-raised); color:var(--text); font-size:13px; font-weight:700; }
 .pickup-items .icon { width:32px; height:32px; flex:none; background-repeat:no-repeat; image-rendering:pixelated; }
 .pickup-items .count { color:var(--gold); font-variant-numeric:tabular-nums; }
