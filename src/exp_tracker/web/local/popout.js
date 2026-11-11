@@ -6,7 +6,7 @@ import * as store from './store.js';
 import {CHANNEL, OVERLAY_COLORS, THEME_COLORS, duration, exp, headerInk, historyLabel, overlayOptions, percent, summarize, summarizePickups} from './view.js';
 import {drawHourChart, expText} from './charts.js';
 import {liveChart, rateSeries, smooth} from './live-chart.js';
-import {eta} from './exp.js';
+import {eta, requirement} from './exp.js';
 import {loadItems} from './pickup-session.js';
 
 const $ = (id) => document.getElementById(id);
@@ -108,9 +108,11 @@ function renderLive(view, now) {
   $('live-eta').textContent = left == null ? '—' : duration(left);
   $('live-eta-label').textContent = view.last ? `to Lv. ${view.last.level + 1}` : 'to next level';
   $('live-progress').value = view.progress;
-  $('live-percent').textContent = view.last ? percent(view.last.bp) : '—';
-  $('live-level').textContent = view.last ? `of Lv. ${view.last.level}` : 'of Lv. —';
-  $('live-exp').textContent = view.last ? exp(view.last.exp) : '—';
+  // Share of the level gained per hour at the line's EXP rate; then EXP gained over the line's window.
+  const need = view.last ? requirement(table, view.last.level) : null, gained = readings.filter((r) => r.at > now - window && r.gain != null);
+  $('live-percent').textContent = expRate != null && need ? `${(expRate / need * 100).toFixed(2)}%` : '—';
+  $('live-exp').textContent = view.last ? exp(gained.reduce((sum, r) => sum + r.gain, 0)) : '—';
+  $('live-exp-label').textContent = `EXP · last ${liveWindow} min`;
   liveView = {series: mesos ? mesoLine : expLine, window, unit: mesos ? 'mesos / h' : 'EXP / h', empty: ''};
 }
 

@@ -97,7 +97,7 @@ export const THEME_COLORS = {night: {background: '232c3e', header: '705035', gra
   blue: {background: '1d2b40', header: '335e91', graph: '8fc9ff', bar: '66b5ef', text: 'b4d9ff', level: 'd4e9ff', badge: '2b4566'},
   purple: {background: '2a233b', header: '62458c', graph: 'c4a1ff', bar: 'ad87ef', text: 'dbc4ff', level: 'f1d5ff', badge: '45335e'}};
 // The pop-out window around each card (5 px each side), measured with the footer hidden.
-export const OVERLAY_SIZES = {card: [500, 135], bar: [500, 135], rates: [500, 96], chart: [500, 153], live: [370, 300], items: [370, 203]};
+export const OVERLAY_SIZES = {card: [500, 135], bar: [500, 135], rates: [500, 96], chart: [500, 180], live: [370, 300], items: [370, 203]};
 
 export function overlayOptions(search) {
   const q = new URLSearchParams(search), options = {};

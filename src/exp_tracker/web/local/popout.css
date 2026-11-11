@@ -5,10 +5,11 @@ html:has(.local-overlay[data-bg="green"]), .local-overlay[data-bg="green"] { bac
 html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] { background:#ff00ff; }
 .local-overlay { overflow:hidden; }
 /* The footer only has something to say about old readings; otherwise the card ends at its content (a fixed
-   height left an empty strip at the bottom). Live keeps its height: its line fills the space. */
+   height left an empty strip at the bottom). Live and Last hour keep theirs: their charts fill the space. */
 .local-overlay footer:has(#status[hidden]) { display:none; }
-.local-overlay:not([data-layout="live"]) #card { height:auto; }
-.local-overlay:is([data-layout="card"], [data-layout="bar"], [data-layout="rates"], [data-layout="chart"]) #card { padding-bottom:8px; }
+.local-overlay:not([data-layout="live"], [data-layout="chart"]) #card { height:auto; }
+.local-overlay:is([data-layout="card"], [data-layout="bar"], [data-layout="rates"]) #card { padding-bottom:8px; }
+.local-overlay[data-layout="chart"] .hour-chart { padding-bottom:12px; }
 
 /* Live layout (local only): big EXP/hour, time to next level, a thin progress bar, the live EXP line and
    a row of mesos/hour, % of level and EXP. */
