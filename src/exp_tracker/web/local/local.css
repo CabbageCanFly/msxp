@@ -13,7 +13,11 @@
 .local-page button:disabled { opacity:.45; cursor:default; }
 .local-page .local-start { background:var(--green); border-color:transparent; color:#1d2a0b; font-size:15px; padding:0 22px; min-height:40px; }
 .local-page .local-stop { border-color:var(--orange); }
-.local-page .danger[data-armed] { background:#7a2f2f; border-color:#d76b6b; color:#fff; }
+/* The confirm panel for deleting: the About card's look, smaller, with Cancel and a red action. */
+.confirm { width:min(420px,calc(100vw - 32px)); }
+.confirm h2 { margin:0 0 6px; }
+.confirm-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:16px; }
+.local-page .confirm .danger { background:#7a2f2f; border-color:#d76b6b; color:#fff; }
 .local-field { display:inline-flex; align-items:center; gap:6px; color:var(--text-muted); font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; }
 .local-field :is(select, input) { min-height:34px; padding:0 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--text); font:inherit; font-size:14px; text-transform:none; letter-spacing:0; }
 .local-controls .interval { margin-left:auto; }

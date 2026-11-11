@@ -786,11 +786,13 @@ async function init() {
   // Closing the popup any way (Cancel, ×, Escape, a click outside) leaves the selected character as it was.
   $('editor').addEventListener('toggle', (event) => { if (event.newState === 'closed') $('character-select').value = character ? String(character.id) : 'new'; });
   for (const id of ['remove-from', 'remove-to', 'remove-exp', 'remove-mesos', 'remove-items']) $(id).addEventListener('input', renderRemoval);
-  $('remove-apply').addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to remove', applyRemoval));
+  $('remove-apply').addEventListener('click', (event) => confirmFirst(event.currentTarget, {title: 'Remove the selected data?',
+    text: 'The checked EXP, mesos and items in this time range are removed from this browser. This can\'t be undone.', yes: 'Remove'}, applyRemoval));
   $('character-form').addEventListener('submit', (event) => { event.preventDefault(); saveCharacterForm(false); });
   $('character-new').addEventListener('click', () => saveCharacterForm(true));
   $('character-cancel').addEventListener('click', () => $('editor').hidePopover());
-  $('character-delete').addEventListener('click', (event) => twoStep(event.currentTarget, 'Delete its history too?', async () => {
+  $('character-delete').addEventListener('click', (event) => confirmFirst(event.currentTarget, {title: `Delete ${character?.name ?? 'this character'}?`,
+    text: 'Its tracked EXP, mesos and items in this browser are deleted with it. This can\'t be undone.', yes: 'Delete character'}, async () => {
     if (capture) await stop('character_deleted');
     await store.deleteCharacter(character.id);
     settings.activeCharacterId = null; $('editor').hidePopover();
@@ -850,7 +852,8 @@ async function init() {
     const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(blob), download: `msxp-local-${new Date().toISOString().slice(0, 10)}.json`});
     link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   });
-  for (const id of ['clear', 'editor-clear']) $(id).addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to delete everything', async () => {
+  for (const id of ['clear', 'editor-clear']) $(id).addEventListener('click', (event) => confirmFirst(event.currentTarget, {title: 'Clear all local history?',
+    text: 'Every character, reading and pickup in this browser is deleted, along with what the reader has learned. This can\'t be undone.', yes: 'Clear everything'}, async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
     settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow, itemWindow: settings.itemWindow};
@@ -985,11 +988,15 @@ function liveSource() {
   return live.view;
 }
 
-// Destructive actions use a second click instead of a blocking dialog.
-function twoStep(button, prompt, action) {
-  if (button.dataset.armed) { delete button.dataset.armed; button.textContent = button.dataset.label; return action(); }
-  button.dataset.label = button.textContent; button.dataset.armed = '1'; button.textContent = prompt;
-  setTimeout(() => { if (button.dataset.armed) { delete button.dataset.armed; button.textContent = button.dataset.label; } }, 5000);
+// Destructive actions ask first in a small panel saying what goes (a second click on the same button was
+// too easy to do by accident). Cancel has the focus, so Enter or Escape keeps everything. Opened from the
+// button (`source`), it sits over the Edit popup instead of closing it.
+function confirmFirst(button, {title, text, yes}, action) {
+  const box = $('confirm');
+  $('confirm-title').textContent = title; $('confirm-text').textContent = text; $('confirm-yes').textContent = yes;
+  $('confirm-yes').onclick = () => { box.hidePopover(); action(); };
+  try { box.showPopover({source: button}); } catch { box.showPopover(); }
+  $('confirm-no').focus();
 }
 
 // ?debug: every pickup message as read (unread and EXP included), newest first, to compare with the game.
