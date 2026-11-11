@@ -42,8 +42,9 @@ def monster_ids(page):
 def drops(page):
     """(game ID, Classic name) for every drop on a monster page; icons are named by game ID."""
     found = {}
-    for gid, name in re.findall(r'<img src="https://cdn\.meowdb\.com/icons/(\d+)\.png" alt="([^"]+)"', page):
-        found[int(gid)] = html.unescape(name).strip()
+    # The name is the icon's alt text, or (drop tables with alt="", e.g. ores) the label right after it.
+    for gid, alt, label in re.findall(r'<img src="https://cdn\.meowdb\.com/icons/(\d+)\.png" alt="([^"]*)"[^>]*>(?:<span[^>]*>([^<]+)</span>)?', page):
+        if alt or label: found.setdefault(int(gid), html.unescape(alt or label).strip())
     return found
 
 

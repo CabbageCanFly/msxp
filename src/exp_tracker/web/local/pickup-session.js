@@ -160,11 +160,14 @@ async function readByOcr(engine, order, list, fontTexts) {
     const read = await ocr(engine, span(mask, words[0].x0, words.at(-4).x1), 'message', 3);
     return read.replace(/[^A-Za-z0-9' .:-]/g, '').trim() || null;
   })])).value;
-  if (!n?.amount || !name) return none;
+  if (!name) return none;
   const cut = /\.\s*\.$/.test(name), named = name.replace(/[\s.]+$/, ''), item = resolveItem(list, {name: named, cut, tab: tab.value});
+  // A known item whose count is unreadable ("Leather:1") counts as 1, approximate: at least one was picked up.
+  if (!n?.amount && !item) return none;
+  const count = n?.amount ? n : {amount: 1, approx: true};
   // An unread tab ("(Etc)" often comes out "Ex)") is the named item's own; a misread one never confirms.
-  return {result: {text, parsed: {kind, name: named, cut, count: n.amount, approx: n.approx, tab: tab.value ?? item?.tab ?? null}, item},
-    confirmed: !n.approx && Boolean(item) && (tab.agreed || tab.value === null)};
+  return {result: {text, parsed: {kind, name: named, cut, count: count.amount, approx: count.approx, tab: tab.value ?? item?.tab ?? null}, item},
+    confirmed: !count.approx && Boolean(item) && (tab.agreed || tab.value === null)};
 }
 
 export async function startPickups({track, engine, onMessage, onStats, onError}) {
