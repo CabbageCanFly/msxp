@@ -144,6 +144,15 @@ and its gain).
 Times are the browser's local time, labelled with its zone (e.g. "EST · America/Toronto"). The popup
 also has *Clear all local history* (two clicks), like the page's data section.
 
+**Live rate** (beside Pickups on wide screens, below it on narrow ones) draws EXP or mesos per hour as
+a smooth line, one point per second, scrolling with the clock (`local/live-chart.js`, canvas, about 30
+frames a second, paused while hidden or off screen). Each point is what was gained in the last 5, 10,
+15, 30 or 60 minutes (the pills) over that span, or over the time tracked so far while shorter (at least
+a minute), starting at the third gain of the session; quiet time counts as nothing gained, so the line
+slopes down until gains resume (unlike the EXP progress charts, where missing time is never zero). A
+6-second moving average turns each step into a curve; hovering shows the nearest second. The Pickups
+panel's *Mesos / hour* uses the same rule over the page's selected window.
+
 The round button in the character card's header switches the live pages' scenery (town background,
 wandering mobs; `local/scenery.js` mirrors `product.js`) on or off; on by default, remembered.
 
@@ -200,8 +209,7 @@ located (overlays, third-party trackers, scaled layouts); manual calibration is 
 keeps meso and item pickups in IndexedDB (`pickups` store, 24 hours like readings; included in the
 JSON export and deleted with the character). EXP messages are read but never kept: EXP comes only
 from the EXP bar. Items are kept only when the name matches the drop list; unread messages are
-dropped. The Pickups panel shows mesos per hour over the last 60 minutes of pickup tracking (after 5
-minutes of it), mesos in the last 24 hours, and the items picked up with their icons. With `?debug`
+dropped. The Pickups panel shows mesos per hour (see Live rate), mesos in the last 24 hours, and the items picked up with their icons. With `?debug`
 a log lists every message as read. Not yet in the OBS overlay; the learned message font is kept for
 one tracking session only.
 

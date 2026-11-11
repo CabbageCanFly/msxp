@@ -10,6 +10,7 @@ import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COL
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, zoneLabel} from './charts.js';
 import {loadItems, startPickups} from './pickup-session.js';
 import {setScenery} from './scenery.js';
+import {liveChart, rateSeries, smooth} from './live-chart.js';
 
 const $ = (id) => document.getElementById(id);
 const INTERVALS = [1, 5, 10, 20, 30];
@@ -34,7 +35,7 @@ const lockHeldElsewhere = async () => Boolean((await navigator.locks?.query?.())
 
 let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, valid only for one calibration (window size and boxes).
-let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true};
+let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 300, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -189,7 +190,7 @@ async function start() {
 
 async function beginSession() {
   const at = Date.now();
-  capture.sessionId = await store.startSession(character.id, at);
+  capture.sessionId = await store.startSession(character.id, at); capture.startedAt = at;
   // A new session never continues the previous interval; the last reading is only an identity reference.
   capture.tracker = {last: null, pending: null, reference: character.last ?? null};
 }
@@ -532,11 +533,16 @@ async function savePickup(current, m) {
 }
 
 function renderPickups(now) {
-  const view = summarizePickups(pickupsCache, now, {since: capture?.pickups?.since ?? null});
+  const view = summarizePickups(pickupsCache, now), since = capture?.pickups?.since ?? null, window = settings.window * 60e3;
+  // Like the Live rate line: an estimate from the third meso pickup on, over the time tracked while shorter.
+  const mesos = pickupsCache.filter((r) => r.kind === 'mesos').map((r) => ({at: r.at, amount: r.amount}));
+  const rate = since == null ? null : rateSeries(mesos, {from: now - 1000, to: now, window, since}).at(-1)?.perHour ?? null;
   $('pickups-board').hidden = !settings.pickups && !pickupsCache.length;
   if ($('pickups-board').hidden) return;
-  $('meso-rate').textContent = view.perHour == null ? '—' : fmtExp(view.perHour);
-  $('meso-rate-note').textContent = !capture?.pickups ? 'While tracking with Track pickups on' : view.perHour == null ? 'Needs 5 minutes of pickup tracking' : `Over the last ${duration(view.covered)}`;
+  $('meso-rate-label').textContent = `Mesos / hour · ${settings.window} min`;
+  $('meso-rate').textContent = rate == null ? '—' : fmtExp(rate);
+  $('meso-rate-note').textContent = since == null ? 'While tracking with Track pickups on' : rate == null ? 'After a few meso pickups'
+    : now - since < window ? `So far · ${duration((now - since) / 1000)} tracked` : 'Approximate';
   $('meso-day').textContent = fmtExp(view.mesosDay);
   // Item icons come from the drop list's sprite sheets (32 px cells), loaded once.
   if (view.items.length && !itemIcons) {
@@ -746,6 +752,9 @@ async function init() {
     pressed('[data-window]', 'window', settings.window); await store.setSetting('window', settings.window); render();
   });
   $('current-level-only').addEventListener('change', (event) => { charts.levelOnly = event.target.checked; render(); });
+  for (const button of document.querySelectorAll('[data-live-kind]')) button.addEventListener('click', () => { settings.liveKind = button.dataset.liveKind; store.setSetting('liveKind', settings.liveKind).catch(() => {}); showLive(); });
+  for (const button of document.querySelectorAll('[data-live-window]')) button.addEventListener('click', () => { settings.liveWindow = Number(button.dataset.liveWindow); store.setSetting('liveWindow', settings.liveWindow).catch(() => {}); showLive(); });
+  liveChart($('live-canvas'), liveSource);
   $('scenery-toggle').addEventListener('click', () => {
     settings.scenery = $('scenery-toggle').getAttribute('aria-pressed') !== 'true';
     showScenery(settings.scenery); store.setSetting('scenery', settings.scenery).catch(() => {});
@@ -775,7 +784,7 @@ async function init() {
   for (const id of ['clear', 'editor-clear']) $(id).addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to delete everything', async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
-    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: settings.scenery};
+    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow};
     character = null; readingsCache = []; pickupsCache = []; $('track-pickups').checked = false;
     await refreshCharacters(); broadcast(); setStatus('Local history cleared');
   }));
@@ -785,7 +794,7 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
@@ -794,6 +803,7 @@ async function init() {
     pressed('[data-interval]', 'interval', settings.interval); pressed('[data-window]', 'window', settings.window);
     $('track-pickups').checked = Boolean(settings.pickups);
     showScenery(settings.scenery !== false);
+    showLive();
     Object.assign(builder, overlayOptions((await store.getSetting('overlay')) ?? ''));
     await refreshCharacters();
     updateBuilder();
@@ -861,6 +871,40 @@ function showScenery(on) {
   setScenery(on);
   $('scenery-toggle').setAttribute('aria-pressed', String(on));
   $('scenery-toggle').title = on ? 'Hide the town background and mobs' : 'Show the town background and mobs';
+}
+
+// ---------- Live rate ----------
+
+function showLive() {
+  if (!['exp', 'mesos'].includes(settings.liveKind)) settings.liveKind = 'exp';
+  if (!WINDOWS.includes(settings.liveWindow)) settings.liveWindow = 5;
+  pressed('[data-live-kind]', 'liveKind', settings.liveKind); pressed('[data-live-window]', 'liveWindow', settings.liveWindow);
+  $('live-board').dataset.kind = settings.liveKind;
+  live.key = null;
+}
+
+// The chart asks about 30 times a second; the series is rebuilt once a second or when data changes.
+const live = {key: null, view: null};
+function liveSource() {
+  const kind = settings.liveKind, window = settings.liveWindow * 60e3, now = Date.now();
+  const key = `${kind}|${window}|${Math.floor(now / 1000)}|${readingsCache.length}|${pickupsCache.length}|${Boolean(capture?.pickups)}`;
+  if (live.key === key) return live.view;
+  live.key = key;
+  const rows = kind === 'mesos' ? pickupsCache.filter((r) => r.kind === 'mesos') : readingsCache;
+  const events = rows.filter((r) => (r.amount ?? r.gain) != null).map((r) => ({at: r.at, amount: r.amount ?? r.gain}));
+  // The line starts with the latest session: from tracking start while tracking (pickups: from Track pickups
+  // on), else its first row; quiet time counts as nothing gained. Without tracking it stops at the last row.
+  const session = rows.at(-1)?.sessionId, first = rows.find((r) => r.sessionId === session)?.at ?? now;
+  const since = kind === 'mesos' ? capture?.pickups?.since ?? first : capture && capture.sessionId === session ? Math.min(first, capture.startedAt ?? first) : first;
+  const to = capture ? now : rows.at(-1)?.at ?? now;
+  const raw = rateSeries(events, {from: now - window - 60e3, to, window, since});
+  const unit = kind === 'mesos' ? 'mesos / h' : 'EXP / h';
+  const latest = raw.at(-1), gained = events.filter((e) => e.at > now - window).reduce((sum, e) => sum + e.amount, 0);
+  $('live-note').textContent = latest
+    ? `${fmtExp(latest.perHour)} ${kind === 'mesos' ? 'mesos' : 'EXP'} / hour now · ${fmtExp(gained)} gained in the last ${settings.liveWindow} min${kind === 'mesos' ? ' (approximate)' : ''}`
+    : kind === 'mesos' && !settings.pickups ? 'Turn on Track pickups to see mesos.' : 'The line starts after a few gains while tracking.';
+  live.view = {series: smooth(raw), window, unit, empty: kind === 'mesos' && !settings.pickups ? 'Turn on Track pickups' : 'Waiting for a few gains…'};
+  return live.view;
 }
 
 // Destructive actions use a second click instead of a blocking dialog.

@@ -20,7 +20,15 @@
 .status[data-tone="warn"] { color:var(--orange); }
 .status[data-tone="ok"] { color:var(--green); }
 .board-note { color:var(--text-muted); font-size:12px; font-weight:700; }
-.pickups-board, .local-hud, .local-data { margin-top:22px; }
+.local-hud, .local-data { margin-top:22px; }
+/* Pickups and Live rate share a row on wide screens (Live rate alone when pickups are off). */
+.local-pair { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; margin-top:22px; }
+.local-pair:has(> .board[hidden]) { grid-template-columns:minmax(0,1fr); }
+@media (max-width:900px) { .local-pair { grid-template-columns:minmax(0,1fr); } }
+.live-chart { margin:4px 25px 6px; }
+.live-chart canvas { display:block; width:100%; height:220px; --stroke:var(--green); --grid:#3a465d; --muted:var(--text-muted); --tip:var(--surface-raised); --text:var(--text); }
+.live-board[data-kind="mesos"] .live-chart canvas { --stroke:var(--gold); }
+@media (max-width:650px) { .live-chart { margin-left:14px; margin-right:14px; } }
 .hud-body { padding:4px 0 16px; }
 .hud-body > p { margin:8px 25px; color:var(--text-muted); font-size:14px; line-height:1.5; }
 .hud-view { margin:10px 25px 0; }

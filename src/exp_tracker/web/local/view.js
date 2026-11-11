@@ -51,20 +51,15 @@ export function summarize(table, character, readings, now, window = 15, {session
   };
 }
 
-/**
- * Pickups for display, from stored rows (oldest first): mesos and items of the last 24 hours, and mesos
- * per hour over the last `minutes` of pickup tracking. `since` is when the current pickup tracking began
- * (null when off): a rate needs 5 minutes of it, since time without tracking says nothing about pickups.
- */
-export function summarizePickups(rows, now, {since = null, minutes = 60} = {}) {
-  const day = rows.filter((r) => r.at >= now - 86400e3), mesos = (list) => list.reduce((sum, r) => sum + (r.kind === 'mesos' ? r.amount : 0), 0);
-  const from = since == null ? null : Math.max(since, now - minutes * 60e3), covered = from == null ? 0 : Math.max(0, (now - from) / 1000);
+/** Pickups for display, from stored rows: mesos and items (largest count first) of the last 24 hours. */
+export function summarizePickups(rows, now) {
+  const day = rows.filter((r) => r.at >= now - 86400e3);
   const items = new Map();
   for (const r of day) if (r.kind === 'item') {
     const item = items.get(r.name) ?? {name: r.name, itemId: r.itemId, count: 0};
     item.count += r.count; items.set(r.name, item);
   }
-  return {mesosDay: mesos(day), perHour: covered >= 300 ? mesos(rows.filter((r) => r.at >= from)) / covered * 3600 : null, covered,
+  return {mesosDay: day.reduce((sum, r) => sum + (r.kind === 'mesos' ? r.amount : 0), 0),
     items: [...items.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))};
 }
 

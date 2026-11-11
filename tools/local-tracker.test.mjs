@@ -183,7 +183,7 @@ test('text reader lock: EXP scans wait for a pickup read, pickup reads give way,
   assert.equal(await exclusive(async () => 'free', {background: true}), 'free');
 });
 
-test('pickups: 24h mesos and items, and a meso rate only over time spent tracking pickups', () => {
+test('pickups: 24h mesos and items', () => {
   const now = at(100000), row = (s, extra) => ({at: now - s * 1000, ...extra});
   const rows = [row(90000, {kind: 'mesos', amount: 999}),  // Older than a day.
     row(4000, {kind: 'mesos', amount: 100}), row(500, {kind: 'mesos', amount: 30}), row(100, {kind: 'mesos', amount: 20}),
@@ -191,13 +191,7 @@ test('pickups: 24h mesos and items, and a meso rate only over time spent trackin
     row(60, {kind: 'item', itemId: 2, name: 'Arrows for Bows', count: 1})];
   const off = V.summarizePickups(rows, now);
   assert.equal(off.mesosDay, 150);
-  assert.equal(off.perHour, null);  // Pickups not being tracked: no rate.
   assert.deepEqual(off.items.map((i) => [i.name, i.count]), [['Tree Branch', 3], ['Arrows for Bows', 1]]);
-  assert.equal(V.summarizePickups(rows, now, {since: now - 200e3}).perHour, null);  // Under 5 minutes.
-  // Tracking for 10 minutes: 50 mesos in 600 s is 300 an hour; the 100 from earlier is outside it.
-  assert.equal(V.summarizePickups(rows, now, {since: now - 600e3}).perHour, 300);
-  // Tracking for 3 hours: the rate covers the last 60 minutes only.
-  assert.equal(V.summarizePickups(rows, now, {since: now - 3 * 3600e3}).perHour, 50);
 });
 
 test('tracked data in a time range: EXP gains, mesos and items, for removing it', () => {
@@ -215,6 +209,23 @@ test('tracked data in a time range: EXP gains, mesos and items, for removing it'
   const local = (text) => new Date(text).getTime(), detail = local('2026-03-04T00:00');
   const old = V.trackedBetween([], [], local('2026-03-01T12:00'), local('2026-03-05T00:00'), days, detail);
   assert.deepEqual([old.oldDays.map((d) => d.day), old.exp], [['2026-03-02'], 500]);  // Not the half of the 1st, nor the 4th (detail).
+});
+
+test('live rate: trailing-window rate per second, early estimate, quiet time slopes down', async () => {
+  const L = await import(new URL('live-chart.js', web));
+  const s = (n) => n * 1000, since = 0, window = s(300);
+  const events = [{at: s(10), amount: 100}, {at: s(20), amount: 100}, {at: s(70), amount: 100}];
+  assert.deepEqual(L.rateSeries(events.slice(0, 2), {from: 0, to: s(400), window, since}), []);  // Fewer than 3 gains: nothing yet.
+  const series = L.rateSeries(events, {from: 0, to: s(400), window, since});
+  const at = (sec) => Math.round(series.find((p) => p.at === s(sec)).perHour * 1000) / 1000, near = (v) => Math.round(v * 1000) / 1000;
+  assert.equal(series[0].at, s(70));  // Starts at the third gain.
+  assert.equal(at(70), near(300 / 70 * 3600));  // Early: over the 70 s tracked so far.
+  assert.equal(at(300), near(300 / 300 * 3600));  // Full window.
+  assert.equal(at(312), near(200 / 300 * 3600));  // The first gain left the window; nothing new: the rate falls.
+  assert.equal(at(400), 0);
+  assert.equal(L.rateSeries([{at: s(1), amount: 50}, {at: s(2), amount: 50}, {at: s(3), amount: 50}], {from: 0, to: s(3), window, since})[0].perHour, 150 / 60 * 3600);  // At least a minute.
+  const eased = L.smooth([{at: 0, perHour: 0}, {at: 1, perHour: 600}, {at: 2, perHour: 600}]).map((p) => p.perHour);
+  assert.ok(eased[1] > 0 && eased[1] < eased[2] && eased[2] < 600);  // A jump becomes a curve.
 });
 
 test('overlay options use the live URL parameters; unknown values fall back', () => {
