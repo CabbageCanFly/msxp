@@ -32,3 +32,11 @@
 }
 .pickup-totals { margin:8px 25px; color:var(--text); font-weight:700; }
 .pickup-log { max-height:260px; overflow:auto; margin:8px 25px 0; padding-left:28px; color:var(--text-muted); font-size:13px; line-height:1.6; font-variant-numeric:tabular-nums; }
+.pickup-cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.pickup-cards > div { min-height:0; }
+.pickup-items { display:flex; flex-wrap:wrap; gap:8px; margin:0 25px 8px; padding:0; list-style:none; }
+.pickup-items li { display:flex; align-items:center; gap:8px; padding:4px 10px 4px 4px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-raised); color:var(--text); font-size:13px; font-weight:700; }
+.pickup-items .icon { width:32px; height:32px; flex:none; background-repeat:no-repeat; image-rendering:pixelated; }
+.pickup-items .count { color:var(--gold); font-variant-numeric:tabular-nums; }
+.pickups-board .segment-note { margin:0 25px 16px; }
+@media (max-width:650px) { .pickup-items, .pickups-board .segment-note { margin-left:14px; margin-right:14px; } }

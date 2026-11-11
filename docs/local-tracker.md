@@ -180,7 +180,16 @@ Offline replay of the 26 labelled Twitch frames (`samples/live-regression`, comp
 not the target input): no reading was accepted with a wrong value. Most are rejected or not
 located (overlays, third-party trackers, scaled layouts); manual calibration is the fallback there.
 
-## Pickup messages (`?debug` test panel, in progress)
+## Pickup messages (Track pickups)
+
+**Track pickups** (off by default, remembered) reads the game's pickup messages while tracking and
+keeps meso and item pickups in IndexedDB (`pickups` store, 24 hours like readings; included in the
+JSON export and deleted with the character). EXP messages are read but never kept: EXP comes only
+from the EXP bar. Items are kept only when the name matches the drop list; unread messages are
+dropped. The Pickups panel shows mesos per hour over the last 60 minutes of pickup tracking (after 5
+minutes of it), mesos in the last 24 hours, and the items picked up with their icons. With `?debug`
+a log lists every message as read. Not yet in the OBS overlay; the learned message font is kept for
+one tracking session only.
 
 `local/pickups.js` follows the message stack in the bottom-right corner (pickup-worker.js, 15 fps).
 The text is light grey with a dark drop shadow one pixel right and down, so a text pixel is a light

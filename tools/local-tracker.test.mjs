@@ -164,6 +164,23 @@ test('daily summaries keep the last reading of each local day and add up its gai
   assert.ok(S.DETAIL_MS > 24 * 3600e3 && S.DETAIL_MS <= 25 * 3600e3);
 });
 
+test('pickups: 24h mesos and items, and a meso rate only over time spent tracking pickups', () => {
+  const now = at(100000), row = (s, extra) => ({at: now - s * 1000, ...extra});
+  const rows = [row(90000, {kind: 'mesos', amount: 999}),  // Older than a day.
+    row(4000, {kind: 'mesos', amount: 100}), row(500, {kind: 'mesos', amount: 30}), row(100, {kind: 'mesos', amount: 20}),
+    row(400, {kind: 'item', itemId: 1, name: 'Tree Branch', count: 1}), row(50, {kind: 'item', itemId: 1, name: 'Tree Branch', count: 2}),
+    row(60, {kind: 'item', itemId: 2, name: 'Arrows for Bows', count: 1})];
+  const off = V.summarizePickups(rows, now);
+  assert.equal(off.mesosDay, 150);
+  assert.equal(off.perHour, null);  // Pickups not being tracked: no rate.
+  assert.deepEqual(off.items.map((i) => [i.name, i.count]), [['Tree Branch', 3], ['Arrows for Bows', 1]]);
+  assert.equal(V.summarizePickups(rows, now, {since: now - 200e3}).perHour, null);  // Under 5 minutes.
+  // Tracking for 10 minutes: 50 mesos in 600 s is 300 an hour; the 100 from earlier is outside it.
+  assert.equal(V.summarizePickups(rows, now, {since: now - 600e3}).perHour, 300);
+  // Tracking for 3 hours: the rate covers the last 60 minutes only.
+  assert.equal(V.summarizePickups(rows, now, {since: now - 3 * 3600e3}).perHour, 50);
+});
+
 test('overlay options use the live URL parameters; unknown values fall back', () => {
   const o = V.overlayOptions('?layout=chart&theme=blue&name=twitch&interval=1800&range=60&background=ABCDEF&bg=green&evil=1');
   assert.deepEqual([o.layout, o.theme, o.name, o.interval, o.range, o.background, o.bg], ['chart', 'blue', 'character', '1800', '1440', 'abcdef', 'green']);

@@ -6,9 +6,9 @@ import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud, readIdentity} from './reader.js';
 import {displayed, learn, learnLetters} from './glyphs.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
-  overlayQuery, percent, randomOverlayColors, summarize} from './view.js';
+  overlayQuery, percent, randomOverlayColors, summarize, summarizePickups} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip} from './charts.js';
-import {startPickups} from './pickup-session.js';
+import {loadItems, startPickups} from './pickup-session.js';
 
 const $ = (id) => document.getElementById(id);
 const INTERVALS = [5, 10, 20, 30];
@@ -33,8 +33,8 @@ const lockHeldElsewhere = async () => Boolean((await navigator.locks?.query?.())
 
 let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, valid only for one calibration (window size and boxes).
-let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}};
-let character = null, readingsCache = [], daysCache = [];
+let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false};
+let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 300, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
 const builder = overlayOptions('');
@@ -64,6 +64,7 @@ async function refreshCharacters() {
   if (!character) openCharacterForm(true);
   readingsCache = character ? await store.readings(character.id, Date.now() - store.DETAIL_MS) : [];
   daysCache = character ? await store.days(character.id) : [];
+  pickupsCache = character ? await store.pickups(character.id, Date.now() - store.DETAIL_MS) : [];
   render();
 }
 
@@ -136,6 +137,7 @@ async function start() {
   capture.pruneTimer = setInterval(() => store.prune().catch(() => {}), 3600e3);
   navigator.storage?.persist?.().then(updateStorageNote).catch(() => {});
   scan();
+  startPickupTracking();
 }
 
 async function beginSession() {
@@ -159,6 +161,7 @@ async function stop(reason = 'stopped') {
   const current = capture;
   capture = null;
   clearTimeout(current.timer); clearInterval(current.pruneTimer);
+  await stopPickupTracking(current);
   current.stream.getTracks().forEach((t) => t.stop());
   if (current.video) current.video.srcObject = null;
   window.removeEventListener('beforeunload', guardUnload);
@@ -437,6 +440,72 @@ async function confirmIdentity() {
   setStatus('Tracking', 'ok'); render(); broadcast();
 }
 
+// ---------- pickups ----------
+
+// Meso and item pickups, read from the game's messages while "Track pickups" is on (pickup-session.js).
+async function startPickupTracking() {
+  const current = capture;
+  if (!current || !engine || current.pickups || !settings.pickups) return;
+  const state = current.pickups = {since: Date.now(), session: null};
+  try {
+    state.session = await startPickups({track: current.track, engine,
+      onMessage: (m) => savePickup(current, m).catch((error) => setStatus(`Couldn't save a pickup: ${error.message}`, 'warn')),
+      onStats(s) { $('pickup-stats').textContent = `Reading pickups · ${s.fps.toFixed(1)} fps${s.queued ? ` · ${s.queued} waiting` : ''}`; },
+      onError(message) { $('pickup-stats').textContent = `Pickup reading stopped: ${message}`; },
+    });
+    // Stopped, or switched off, while starting.
+    if (capture !== current || current.pickups !== state) await state.session.stop();
+  } catch (error) {
+    if (current.pickups === state) current.pickups = null;
+    $('pickup-stats').textContent = `Can't track pickups here: ${error.message}`;
+  }
+  render();
+}
+
+async function stopPickupTracking(current = capture) {
+  const state = current?.pickups;
+  if (!state) return;
+  current.pickups = null;
+  $('pickup-stats').textContent = '';
+  await state.session?.stop();
+}
+
+// Mesos and items that resolve to a known item are kept; EXP comes from the EXP bar, exactly.
+async function savePickup(current, m) {
+  if (debug) logPickup(m);
+  const p = m.parsed;
+  if (capture !== current || !character || !p || p.kind === 'exp' || (p.kind === 'item' && !m.item)) return;
+  const row = {characterId: character.id, sessionId: current.sessionId, at: m.at, kind: p.kind, approx: Boolean(p.approx),
+    ...(p.kind === 'mesos' ? {amount: p.amount} : {itemId: m.item.id, name: m.item.name, count: p.count})};
+  await store.addPickup(row);
+  pickupsCache.push(row);
+  pickupsCache = pickupsCache.filter((r) => r.at >= Date.now() - store.DETAIL_MS);
+  render();
+}
+
+function renderPickups(now) {
+  const view = summarizePickups(pickupsCache, now, {since: capture?.pickups?.since ?? null});
+  $('pickups-board').hidden = !settings.pickups && !pickupsCache.length;
+  if ($('pickups-board').hidden) return;
+  $('meso-rate').textContent = view.perHour == null ? '—' : fmtExp(view.perHour);
+  $('meso-rate-note').textContent = !capture?.pickups ? 'While tracking with Track pickups on' : view.perHour == null ? 'Needs 5 minutes of pickup tracking' : `Over the last ${duration(view.covered)}`;
+  $('meso-day').textContent = fmtExp(view.mesosDay);
+  // Item icons come from the drop list's sprite sheets (32 px cells), loaded once.
+  if (view.items.length && !itemIcons) {
+    itemIcons = new Map();
+    loadItems().then((list) => { itemIcons = new Map(list.map((i) => [i.id, i])); render(); }).catch(() => {});
+  }
+  $('pickup-items').replaceChildren(...view.items.map((item) => {
+    const li = document.createElement('li'), icon = document.createElement('span'), known = itemIcons?.get(item.itemId);
+    icon.className = 'icon';
+    if (known) icon.style.cssText = `background-image:url(/static/local/items/icons-${known.sheet}.png);background-position:-${known.cell % 16 * 32}px -${Math.floor(known.cell / 16) * 32}px`;
+    li.append(icon, item.name, Object.assign(document.createElement('span'), {className: 'count', textContent: `×${fmtExp(item.count)}`}));
+    return li;
+  }));
+  $('pickup-note').textContent = (view.items.length ? 'Items picked up in the last 24 hours. ' : 'No items picked up in the last 24 hours. ')
+    + 'Pickups are read from the game\'s messages, so a few can be missed or misread.';
+}
+
 // ---------- rendering ----------
 
 function setStatus(text, tone = '') {
@@ -465,6 +534,7 @@ function render() {
   $('tracked-note').textContent = view.dayGain == null ? `${expText(view.totalGain)} EXP tracked on this device` : `${duration(view.dayCovered)} observed · ${expText(view.totalGain)} all time`;
   $('eta').textContent = view.eta == null ? '—' : duration(view.eta);
   $('eta-note').textContent = view.eta == null ? (view.last && !view.total ? 'No EXP table for this level' : 'Needs an EXP / hour') : `${fmtExp(view.total - view.last.exp)} EXP to go`;
+  renderPickups(now);
   $('identity').hidden = !identitySuspect;
   if (identitySuspect) {
     const ref = capture?.tracker.last ?? capture?.tracker.reference;
@@ -624,6 +694,12 @@ async function init() {
     pressed('[data-window]', 'window', settings.window); await store.setSetting('window', settings.window); render();
   });
   $('current-level-only').addEventListener('change', (event) => { charts.levelOnly = event.target.checked; render(); });
+  $('track-pickups').addEventListener('change', async (event) => {
+    settings.pickups = event.target.checked;
+    await store.setSetting('pickups', settings.pickups);
+    if (settings.pickups) await startPickupTracking(); else await stopPickupTracking();
+    render();
+  });
   setupCharts();
   setupBuilder();
   $('hud-detect').addEventListener('click', async () => {
@@ -643,8 +719,8 @@ async function init() {
   $('clear').addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to delete everything', async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
-    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}};
-    character = null; readingsCache = [];
+    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false};
+    character = null; readingsCache = []; pickupsCache = []; $('track-pickups').checked = false;
     await refreshCharacters(); broadcast(); setStatus('Local history cleared');
   }));
   setupDrawing();
@@ -653,13 +729,14 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
     if (!INTERVALS.includes(settings.interval)) settings.interval = 20;
     if (!WINDOWS.includes(settings.window)) settings.window = 15;
     pressed('[data-interval]', 'interval', settings.interval); pressed('[data-window]', 'window', settings.window);
+    $('track-pickups').checked = Boolean(settings.pickups);
     Object.assign(builder, overlayOptions((await store.getSetting('overlay')) ?? ''));
     await refreshCharacters();
     updateBuilder();
@@ -730,45 +807,21 @@ function twoStep(button, prompt, action) {
   setTimeout(() => { if (button.dataset.armed) { delete button.dataset.armed; button.textContent = button.dataset.label; } }, 5000);
 }
 
-// ?debug: a pickup-message test panel. Counts every pickup message while sharing, reads it and keeps
-// running totals, so a test can be compared with the inventory before and after. Nothing is stored.
-function setupPickupTest() {
+// ?debug: every pickup message as read (unread and EXP included), newest first, to compare with the game.
+function setupPickupLog() {
   const section = document.createElement('section');
   section.className = 'board local-hud';
-  section.innerHTML = `<header class="board-header"><h2>Pickup test (debug)</h2><span id="pickup-stats" class="board-note"></span></header>
-    <div class="hud-body"><div class="hud-actions"><button id="pickup-toggle" type="button">Start pickup test</button><button id="pickup-clear" type="button">Clear</button></div>
-    <p id="pickup-totals" class="pickup-totals"></p><ol id="pickup-log" class="pickup-log" reversed></ol></div>`;
+  section.innerHTML = '<header class="board-header"><h2>Pickup messages (debug)</h2></header><ol id="pickup-log" class="pickup-log" reversed></ol>';
   document.querySelector('.local-hud').after(section);
-  let session = null, messages = [];
-  const totals = () => {
-    const mesos = messages.reduce((sum, m) => sum + (m.parsed?.kind === 'mesos' ? m.parsed.amount : 0), 0);
-    const exp = messages.reduce((sum, m) => sum + (m.parsed?.kind === 'exp' ? m.parsed.amount : 0), 0);
-    const items = new Map();
-    for (const m of messages) if (m.parsed?.kind === 'item') { const name = m.item?.name ?? `${m.parsed.name}${m.parsed.cut ? '…' : ''} (?)`; items.set(name, (items.get(name) || 0) + m.parsed.count); }
-    const unread = messages.filter((m) => !m.parsed).length;
-    $('pickup-totals').textContent = `${messages.length} messages · ${fmtExp(mesos)} mesos · ${fmtExp(exp)} EXP · ` +
-      ([...items].map(([name, count]) => `${name} ×${count}`).join(', ') || 'no items') + (unread ? ` · ${unread} unread` : '');
-  };
-  $('pickup-clear').addEventListener('click', () => { messages = []; $('pickup-log').replaceChildren(); totals(); });
-  $('pickup-toggle').addEventListener('click', async () => {
-    if (session) { await session.stop(); session = null; $('pickup-toggle').textContent = 'Start pickup test'; return; }
-    if (!capture || !engine) return setStatus('Start tracking first', 'warn');
-    try {
-      session = await startPickups({track: capture.track, engine,
-        onMessage(m) {
-          messages.push(m);
-          const row = document.createElement('li');
-          const what = !m.parsed ? 'unread' : m.parsed.kind === 'item' ? `${m.item?.name ?? m.parsed.name + (m.parsed.cut ? '…' : '') + ' (?)'} ×${m.parsed.count}` : `${m.parsed.kind} +${fmtExp(m.parsed.amount)}`;
-          row.textContent = `${new Date(m.at).toLocaleTimeString()} · ${what} · “${m.text}”`;
-          $('pickup-log').prepend(row); totals();
-        },
-        onStats(s) { $('pickup-stats').textContent = `${s.fps.toFixed(1)} fps · ${s.msPerFrame.toFixed(1)} ms per frame · ${s.queued} waiting to read`; },
-        onError(message) { $('pickup-stats').textContent = `Error: ${message}`; },
-      });
-      $('pickup-toggle').textContent = 'Stop pickup test';
-    } catch (error) { $('pickup-stats').textContent = `Could not start: ${error.message}`; }
-  });
-  window.msxpPickups = {get messages() { return messages; }};
+  window.msxpPickups = {messages: []};
+}
+
+function logPickup(m) {
+  window.msxpPickups.messages.push(m);
+  const p = m.parsed, row = document.createElement('li');
+  const what = !p ? 'unread' : p.kind === 'item' ? `${m.item?.name ?? p.name + (p.cut ? '…' : '') + ' (?)'} ×${p.count}` : `${p.kind} +${fmtExp(p.amount)}${p.approx ? '~' : ''}`;
+  row.textContent = `${new Date(m.at).toLocaleTimeString()} · ${what} · “${m.text}”`;
+  $('pickup-log').prepend(row);
 }
 
 // ?debug: save the bottom of the last frame to a local file for diagnosing OCR. Never automatic.
@@ -782,7 +835,7 @@ function setupDebug() {
     link.click();
   });
   document.querySelector('.hud-actions').append(button);
-  setupPickupTest();
+  setupPickupLog();
   // Diagnostics for the pickup-message milestone: raise or restore the share's frame rate (?debug only).
   // Measured 2026-11-10: asked 5/15/30 fps, Chrome delivered 4.7/14.8/29.0 on the same share, no new prompt.
   const setFrameRate = async (fps) => {

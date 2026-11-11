@@ -1,7 +1,8 @@
-// IndexedDB for the local tracker: characters, sessions, accepted readings, daily summaries and settings.
+// IndexedDB for the local tracker: characters, sessions, accepted readings, daily summaries, pickups and
+// settings.
 // Structured numbers and timestamps only; no frames or crops are ever stored.
 
-const NAME = 'msxp-local', VERSION = 2;
+const NAME = 'msxp-local', VERSION = 3;
 // Retention like the live site: detailed readings for 24 hours (+5 minutes, plus one older boundary
 // reading per character so the oldest interval keeps its start), then only one summary per character
 // and local day, kept indefinitely (about 200 bytes each). Character totals live on the character.
@@ -32,6 +33,10 @@ export function open() {
           days.get(key).onsuccess = function () { days.put(foldDay(this.result, r)); };
           cursor.continue();
         };
+      }
+      if (event.oldVersion < 3) {
+        // Meso and item pickups read from the game's messages (approximate by design), kept like readings.
+        db.createObjectStore('pickups', {keyPath: 'id', autoIncrement: true}).createIndex('character_at', ['characterId', 'at']);
       }
     };
     request.onsuccess = () => {
@@ -123,6 +128,15 @@ export function record(characterId, sessionId, accepted, trackerState, status) {
   });
 }
 
+// One pickup: {characterId, sessionId, at, kind: 'mesos', amount} or {..., kind: 'item', itemId, name, count};
+// `approx` marks an amount rounded from unclear digits.
+export const addPickup = (row) => run('pickups', 'readwrite', (tx) => { tx.objectStore('pickups').add(row); });
+
+export function pickups(characterId, since = 0) {
+  return run('pickups', 'readonly', (tx) => result(tx.objectStore('pickups').index('character_at')
+    .getAll(IDBKeyRange.bound([characterId, since], [characterId, Infinity]))));
+}
+
 export function readings(characterId, since = 0) {
   return run('readings', 'readonly', (tx) => result(tx.objectStore('readings').index('character_at')
     .getAll(IDBKeyRange.bound([characterId, since], [characterId, Infinity]))));
@@ -132,10 +146,14 @@ export function days(characterId) {
   return run('days', 'readonly', (tx) => result(tx.objectStore('days').getAll(IDBKeyRange.bound([characterId, ''], [characterId, '￿']))));
 }
 
-// Drop detailed readings past the 24-hour window. Daily summaries were already folded in on record.
+// Drop detailed readings and pickups past the 24-hour window. Daily summaries were already folded in on record.
 export function prune(now = Date.now()) {
   const cutoff = now - DETAIL_MS;
-  return run(['characters', 'readings'], 'readwrite', async (tx) => {
+  return run(['characters', 'readings', 'pickups'], 'readwrite', async (tx) => {
+    tx.objectStore('pickups').openCursor().onsuccess = function () {
+      const cursor = this.result;
+      if (cursor) { if (cursor.value.at < cutoff) cursor.delete(); cursor.continue(); }
+    };
     const index = tx.objectStore('readings').index('character_at');
     for (const id of await result(tx.objectStore('characters').getAllKeys())) {
       const old = await result(index.getAllKeys(IDBKeyRange.bound([id, 0], [id, cutoff])));
@@ -145,18 +163,23 @@ export function prune(now = Date.now()) {
 }
 
 export function exportAll() {
-  return run(['characters', 'sessions', 'readings', 'days', 'settings'], 'readonly', async (tx) => ({
-    format: 'msxp-local-v2', exportedAt: new Date().toISOString(),
+  return run(['characters', 'sessions', 'readings', 'days', 'pickups', 'settings'], 'readonly', async (tx) => ({
+    format: 'msxp-local-v3', exportedAt: new Date().toISOString(),
     characters: await result(tx.objectStore('characters').getAll()),
     sessions: await result(tx.objectStore('sessions').getAll()),
     readings: await result(tx.objectStore('readings').getAll()),
     days: await result(tx.objectStore('days').getAll()),
+    pickups: await result(tx.objectStore('pickups').getAll()),
   }));
 }
 
 export function deleteCharacter(id) {
-  return run(['characters', 'sessions', 'readings', 'days'], 'readwrite', async (tx) => {
+  return run(['characters', 'sessions', 'readings', 'days', 'pickups'], 'readwrite', async (tx) => {
     tx.objectStore('characters').delete(id);
+    tx.objectStore('pickups').index('character_at').openCursor(IDBKeyRange.bound([id, 0], [id, Infinity])).onsuccess = function () {
+      const cursor = this.result;
+      if (cursor) { cursor.delete(); cursor.continue(); }
+    };
     for (const key of await result(tx.objectStore('sessions').index('character').getAllKeys(id))) tx.objectStore('sessions').delete(key);
     const index = tx.objectStore('readings').index('character_at');
     for (const key of await result(index.getAllKeys(IDBKeyRange.bound([id, 0], [id, Infinity])))) tx.objectStore('readings').delete(key);
