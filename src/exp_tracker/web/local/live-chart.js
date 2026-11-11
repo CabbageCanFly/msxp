@@ -61,9 +61,10 @@ export function liveChart(canvas, source, {axes = true} = {}) {
     const left = axes ? 46 : 2, right = width - (axes ? 12 : 2), bottom = height - (axes ? 24 : 4), upper = axes ? 10 : 6;
     const x = (at) => left + (at - (now - window)) / window * (right - left);
     const shown = series.filter((p) => p.at >= now - window - 2000);
-    // The scale eases toward the visible peak instead of jumping.
+    // The scale eases toward the visible peak instead of jumping: quickly across a big change (switching
+    // between EXP and mesos), gently for the line's own ups and downs.
     const target = Math.max(1, ...shown.map((p) => p.perHour)) * 1.2;
-    top = top ? top + (target - top) * .08 : target;
+    top = top ? top + (target - top) * (Math.max(target, top) > 2 * Math.min(target, top) ? .35 : .12) : target;
     const y = (value) => bottom - value / top * (bottom - upper);
     c.font = `600 11px ${style.fontFamily}`; c.fillStyle = css('--muted'); c.strokeStyle = css('--grid'); c.lineWidth = 1;
     if (axes) {

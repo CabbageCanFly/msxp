@@ -42,7 +42,7 @@ let table = null, engine = null, enginePromise = null;
 let settings = {interval: 1, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, pickupFont: null};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
-const charts = {mode: 'exp', bucket: 300, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
+const charts = {mode: 'exp', bucket: 60, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
 const builder = overlayOptions('');
 // Capture session state; only exists while the user is sharing a window.
 let capture = null;  // {stream, track, grabber, video, sessionId, tracker, timer, lastFrame, ...}

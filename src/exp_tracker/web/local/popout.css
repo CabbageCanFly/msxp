@@ -4,15 +4,18 @@ html:has(.local-overlay), .local-overlay { background:#14181f; }
 html:has(.local-overlay[data-bg="green"]), .local-overlay[data-bg="green"] { background:#00ff00; }
 html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] { background:#ff00ff; }
 .local-overlay { overflow:hidden; }
+/* The footer only has something to say about old readings; otherwise the card ends at its content (a fixed
+   height left an empty strip at the bottom). Live keeps its height: its line fills the space. */
+.local-overlay footer:has(#status[hidden]) { display:none; }
+.local-overlay:not([data-layout="live"]) #card { height:auto; }
+.local-overlay:is([data-layout="card"], [data-layout="bar"], [data-layout="rates"], [data-layout="chart"]) #card { padding-bottom:8px; }
 
 /* Live layout (local only): big EXP/hour, time to next level, a thin progress bar, the live EXP line and
-   a row of mesos/hour, % of level and EXP. The credit moves to a small footer line (Branding option). */
+   a row of mesos/hour, % of level and EXP. */
 .live-panel { display:none; }
 [data-layout="live"] #card { width:360px; height:290px; }
-[data-layout="live"] :is(.reading, .general-stats, .rate-stats, .hour-chart, .brand, .charm) { display:none; }
-[data-layout="live"] header { padding-left:12px; }
-[data-layout="live"] .identity { justify-content:flex-start; }
-[data-layout="live"] .live-panel { display:flex; flex-direction:column; gap:7px; flex:1; min-height:0; padding:10px 14px 6px; font-variant-numeric:tabular-nums; }
+[data-layout="live"] :is(.reading, .general-stats, .rate-stats, .hour-chart) { display:none; }
+[data-layout="live"] .live-panel { display:flex; flex-direction:column; gap:7px; flex:1; min-height:0; padding:10px 14px 12px; font-variant-numeric:tabular-nums; }
 .live-top { display:flex; justify-content:space-between; align-items:flex-end; gap:10px; }
 .live-rate strong { display:block; color:var(--text); font:600 40px/1 "Fredoka", sans-serif; }
 .live-eta { text-align:right; }
@@ -23,17 +26,12 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 .live-stats { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); padding-top:7px; border-top:1px solid var(--line); }
 .live-stats > div + div { padding-left:10px; border-left:1px solid var(--line); }
 .live-stats strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font:600 18px/1.1 "Fredoka", sans-serif; }
-.live-brand { margin-top:-2px; text-align:right; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.3px; opacity:.75; }
-[data-brand="off"] .live-brand { display:none; }
-[data-layout="live"] footer:has(#status[hidden]) { display:none; }
 
 /* Items layout (local only): icons and counts of the items picked up in the last 24 hours. */
 .items-panel { display:none; }
 [data-layout="items"] #card { width:360px; height:215px; }
-[data-layout="items"] :is(.reading, .general-stats, .rate-stats, .hour-chart, .brand, .charm) { display:none; }
-[data-layout="items"] header { padding-left:12px; }
-[data-layout="items"] .identity { justify-content:flex-start; }
-[data-layout="items"] .items-panel { display:flex; flex-direction:column; gap:6px; flex:1; min-height:0; padding:8px 12px 6px; }
+[data-layout="items"] :is(.reading, .general-stats, .rate-stats, .hour-chart) { display:none; }
+[data-layout="items"] .items-panel { display:flex; flex-direction:column; gap:6px; flex:1; min-height:0; padding:8px 12px 12px; }
 .items-caption { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; font-weight:700; }
 .items-caption strong { color:var(--text); }
 .items-grid { display:flex; flex-wrap:wrap; align-content:flex-start; gap:6px; flex:1; min-height:0; margin:0; padding:0; overflow:hidden; list-style:none; }
@@ -41,4 +39,3 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 .items-grid .icon { width:32px; height:32px; flex:none; background-repeat:no-repeat; image-rendering:pixelated; }
 .items-grid strong { color:var(--text); font:600 13px/1 "Fredoka", sans-serif; font-variant-numeric:tabular-nums; }
 .items-grid .items-empty { padding:0; background:none; color:var(--muted); font-size:12px; font-weight:700; }
-[data-layout="items"] footer:has(#status[hidden]) { display:none; }

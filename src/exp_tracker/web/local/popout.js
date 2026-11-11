@@ -15,13 +15,13 @@ let table = null, character = null, readings = [], pickups = [], liveWindow = 5,
 // Also called by the builder's same-origin preview as options change.
 function applyOverlay(o) {
   options = o;
-  Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, brand: o.brand, focus: o.focus, bg: o.bg, interval: o.interval, range: o.range});
+  Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, title: o.title, focus: o.focus, bg: o.bg, interval: o.interval, range: o.range});
   document.body.dataset.headerInk = headerInk(o.header ?? THEME_COLORS[o.theme].header);
   document.body.dataset.panelInk = o.background ? headerInk(o.background) : '';
   $('general-history-caption').textContent = historyLabel(o);
   $('hour-caption').textContent = `EXP per ${Number(o.interval) / 60} min · ${historyLabel(o).split(' · ')[1]}`;
   for (const key of OVERLAY_COLORS) if (/^[0-9a-f]{6}$/.test(o[key] ?? '')) document.body.style.setProperty('--' + key, '#' + o[key]); else document.body.style.removeProperty('--' + key);
-  $('overlay-brand').textContent = o.title === 'site' ? 'msxp.pages.dev' : 'EXP TRACKER';
+  $('overlay-brand').textContent = {site: 'msxp.pages.dev', tracker: 'EXP TRACKER', none: ''}[o.title];
   render();
 }
 window.applyOverlay = applyOverlay;

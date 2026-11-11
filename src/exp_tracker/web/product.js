@@ -51,7 +51,7 @@ let chartWindow=60,longChartWindow=1440,lineWindow=15;
 let dailyDays=30,dailyKey='',dailyData=null,dailyRequested=false,dailyController=null,dailyError=false,dailyDrawKey='';
 const dailyCache=new Map();
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
-const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker'],icon:['off','on'],job:['off','on'],name:['both','character','twitch','none'],theme:['night','day','red','green','blue','purple'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
+const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker','none'],icon:['off','on'],job:['off','on'],name:['both','character','twitch','none'],theme:['night','day','red','green','blue','purple'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
 const OVERLAY_COLORS=['background','header','graph','bar','text','level','badge','accent'];
 const THEME_COLORS={night:{background:'232c3e',header:'705035',graph:'ffc56b',bar:'a6ef2e',text:'ffc56b',level:'ffc56b',badge:'2b354a'},day:{background:'fff9e9',header:'8a6440',graph:'a8520a',bar:'7fcc12',text:'a8520a',level:'ffb534',badge:'6e5139'},
   red:{background:'301f26',header:'8c3547',graph:'ff9b9b',bar:'ef6575',text:'ffb4b4',level:'ffd5bd',badge:'542b38'},
@@ -89,7 +89,7 @@ function overlayOptions(search) {
 }
 // Also called by the character page's live preview (same origin) as options change.
 function applyOverlay(o) {
-  Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon,job:o.job,interval:o.interval,range:o.range});
+  Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon,job:o.job,title:o.title,interval:o.interval,range:o.range});
   document.body.dataset.headerInk=headerInk(o.header ?? THEME_COLORS[o.theme].header);
   document.body.dataset.panelInk=o.background?headerInk(o.background):'';
   const historyLabel=`${Number(o.interval)/60} min · ${o.range==='1440'?'24h':o.range==='720'?'12h':o.range==='60'?'last hour':`last ${o.range} min`}`;
@@ -98,7 +98,7 @@ function applyOverlay(o) {
     el('general-chart').setAttribute('aria-label',`EXP history: ${historyLabel}; dashes mean no data`);
   }
   for(const key of OVERLAY_COLORS)if(/^[0-9a-f]{6}$/.test(o[key] ?? ''))document.body.style.setProperty('--'+key,'#'+o[key]);else document.body.style.removeProperty?.('--'+key);
-  el('overlay-brand').textContent=o.title==='site'?'msxp.pages.dev':'EXP TRACKER';
+  el('overlay-brand').textContent={site:'msxp.pages.dev',tracker:'EXP TRACKER',none:''}[o.title];
   if(data?.player)renderPlayer();
 }
 let rollingData=null,rollingReceived=0,rollingRevision=null,rollingFailed=false,rollingController=null,rollingTimer=null;
