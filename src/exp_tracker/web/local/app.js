@@ -385,7 +385,8 @@ async function identify(current, outcome, at) {
 
 async function handle(current, outcome, at) {
   let status = outcome.status, reason = outcome.reason, accepted = [];
-  const switched = status === 'ok' ? await identify(current, outcome, at) : null;
+  // Name and job reads hold the text reader too, so a pickup read cannot change its settings midway.
+  const switched = status === 'ok' ? await engine.exclusive(() => identify(current, outcome, at)) : null;
   if (switched === 'character_switched' || capture !== current) { render(); return; }
   if (switched) { status = 'identity_pending'; reason = switched; }
   if (status === 'ok') {

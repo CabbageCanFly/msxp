@@ -3,6 +3,7 @@
 import Tesseract from './vendor/tesseract.esm.min.js';
 import {PARAMS} from './reader.js';
 import {mapWords, pgm, stripImage, words} from './hud.js';
+import {readerLock} from './lock.js';
 
 const VENDOR = new URL('./vendor/', import.meta.url).href;
 
@@ -15,7 +16,7 @@ export async function createEngine() {
     cacheMethod: 'none',   // The HTTP cache already holds the language file; keep IndexedDB for history only.
     gzip: true,
   });
-  let mode = null, busy = false;
+  let mode = null;
   const setMode = async (next, params) => {
     if (mode !== next) { await worker.setParameters(params); mode = next; }
   };
@@ -35,12 +36,7 @@ export async function createEngine() {
       const {data} = await worker.recognize(pgm(image), {}, {blocks: true, text: false});
       return mapWords(words(data), box, scale);
     },
-    // Guards against overlapping jobs: a scan that is still running makes the next tick skip.
-    async exclusive(task) {
-      if (busy) return null;
-      busy = true;
-      try { return await task(); } finally { busy = false; }
-    },
+    exclusive: readerLock(),
     terminate: () => worker.terminate(),
   };
   return engine;

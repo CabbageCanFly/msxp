@@ -164,6 +164,25 @@ test('daily summaries keep the last reading of each local day and add up its gai
   assert.ok(S.DETAIL_MS > 24 * 3600e3 && S.DETAIL_MS <= 25 * 3600e3);
 });
 
+test('text reader lock: EXP scans wait for a pickup read, pickup reads give way, scans never queue', async () => {
+  const {readerLock} = await import(new URL('lock.js', web));
+  const exclusive = readerLock(), order = [];
+  let finish;
+  const pickup = exclusive(() => new Promise((resolve) => { finish = () => { order.push('pickup'); resolve('p'); }; }), {background: true});
+  const scan = exclusive(async () => { order.push('scan'); return 's'; });  // Waits instead of skipping.
+  assert.equal(await exclusive(async () => 'x', {background: true}), null);  // A scan is waiting: give way.
+  assert.equal(await exclusive(async () => 'y'), null);  // A second scan never queues.
+  finish();
+  assert.deepEqual([await pickup, await scan], ['p', 's']);
+  assert.deepEqual(order, ['pickup', 'scan']);
+  let release;
+  const running = exclusive(() => new Promise((resolve) => { release = resolve; }));
+  assert.equal(await exclusive(async () => 'z'), null);  // A scan still running makes the next tick skip.
+  release('done');
+  assert.equal(await running, 'done');
+  assert.equal(await exclusive(async () => 'free', {background: true}), 'free');
+});
+
 test('pickups: 24h mesos and items, and a meso rate only over time spent tracking pickups', () => {
   const now = at(100000), row = (s, extra) => ({at: now - s * 1000, ...extra});
   const rows = [row(90000, {kind: 'mesos', amount: 999}),  // Older than a day.

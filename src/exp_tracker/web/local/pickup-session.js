@@ -13,7 +13,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // The right part of the window above the status bar, past the quick-slot panel.
 export const REGION = {x0: .75, y0: .45, y1: .89};  // Same box the tracker was tuned on (live recording).
 
-// OCR of a mask, padded and magnified. Waits while an EXP scan holds the engine.
+// OCR of a mask, padded and magnified. A background job: waits while an EXP scan holds or wants the engine.
 async function ocr(engine, mask, field, scale) {
   const pad = 4, width = mask.width + pad * 2, height = mask.height + pad * 2, gray = new Uint8Array(width * height);
   // Masks have 1-px strokes; Tesseract reads them far better thickened to 2x2 (measured: digits went from
@@ -23,7 +23,7 @@ async function ocr(engine, mask, field, scale) {
     gray[(y + pad) * width + x + pad] = on(x, y) || on(x - 1, y) || on(x, y - 1) || on(x - 1, y - 1) ? 255 : 0;
   }
   for (;;) {
-    const result = await engine.exclusive(() => engine.read(pgm(binarize(gray, width, height, 127, scale)), field));
+    const result = await engine.exclusive(() => engine.read(pgm(binarize(gray, width, height, 127, scale)), field), {background: true});
     if (result) return result.text.replace(/\s+/g, ' ').trim();
     await sleep(100);
   }
@@ -147,7 +147,8 @@ async function readByOcr(engine, order, list, fontTexts) {
   };
   const none = {result: {text, parsed: null, item: null}, confirmed: false};
   if (kind === 'mesos' || kind === 'exp') {
-    const n = await digits('amount', amountSpan);
+    // EXP comes from the EXP bar, never from messages: its digits get no reads of their own.
+    const n = await digits('amount', kind === 'exp' ? () => null : amountSpan);
     return n?.amount ? {result: {text, parsed: {kind, ...n}, item: null}, confirmed: !n.approx} : none;
   }
   if (kind !== 'item') return none;
