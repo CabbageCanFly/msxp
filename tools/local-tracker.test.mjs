@@ -348,6 +348,12 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   feed([], 5000);  // The stack has faded out.
   assert.deepEqual(done.map((m) => m.at), [0, 140, 280, 280]);
   assert.ok(done.every((m) => m.samples.length && m.samples[0].bits.length === m.samples[0].width * m.samples[0].height));
+  // A stray first line sets the bottom 6 px off the real stack: the vote moves it onto the real rows.
+  const off = P.stackTracker(), late = [];
+  off.update(P.messageLines(frame([[42, 1]]), true), 0);
+  for (let i = 1; i <= 20; i++) off.update(P.messageLines(frame([[48, 2]]), true), i * 70);
+  late.push(...off.update(P.messageLines(frame([[34, 2], [48, 3]]), true), 1500), ...off.update([], 9000));
+  assert.ok(late.length >= 1, 'messages after a misplaced bottom are counted');
 
   // A line mask: "(+" then the digits "13" (a narrow 1 followed by a 4-column gap) and ")".
   const mask = {width: 24, height: 12, bits: new Uint8Array(24 * 12)};

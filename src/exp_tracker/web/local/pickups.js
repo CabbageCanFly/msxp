@@ -183,8 +183,10 @@ export function stackTracker({forgetMs = 1500} = {}) {
       const voted = [...votes].reduce((top, [y, n]) => (n > (votes.get(top) ?? 0) ? y : top), bottom ?? lowest);
       if (bottom === null) bottom = lowest >= 0 ? voted : null;  // Unknown until a line is seen.
       else if (Math.abs(voted - bottom) > 3) {
+        // To the voted row itself: whole-slot steps can never close a 4-10 px gap (measured live: a bottom
+        // 4-7 px off placed no line again, so a reader went silent for minutes).
         const move = Math.round((voted - bottom) / PITCH);
-        bottom += move * PITCH;
+        bottom = voted;
         if (move > 0) slots = [...Array(move), ...slots];
         else for (const entry of slots.splice(0, -move)) retire(entry, done);
       }
