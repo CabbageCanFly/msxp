@@ -2,9 +2,24 @@
 // OCR and confirmed, or completed from the item list). A font is
 // {char: [glyph, ...]}, each glyph {w, h, bits} as seen in a line mask; scenery behind the see-through
 // text changes a few pixels, so reading takes the nearest learned glyph rather than an exact match.
+import {BASE_FONT} from './message-font-base.js';
 import {lineWords} from './pickups.js';
 
 const PER_CHAR = 6;  // Variants kept per character.
+
+// Characters the player's font has not learned yet start from the shipped ones (message-font-base.js);
+// at most three each, so learning keeps room for the player's own. Changes `font` in place.
+export function seedFont(font) {
+  for (const [char, packed] of Object.entries(BASE_FONT)) {
+    if (font[char]?.length) continue;
+    font[char] = packed.map((v) => {
+      const [w, h, b64] = v.split(','), raw = atob(b64), bits = new Uint8Array(w * h);
+      for (let i = 0; i < bits.length; i++) bits[i] = (raw.charCodeAt(i >> 3) >> (i & 7)) & 1;
+      return {w: Number(w), h: Number(h), bits};
+    });
+  }
+  return font;
+}
 
 // Glyphs of a line mask in order, each with the empty columns before it (a space is 4 or more).
 export function glyphsOf(mask) {

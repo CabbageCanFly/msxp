@@ -10,6 +10,7 @@ import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COL
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, zoneLabel} from './charts.js';
 import {loadItems, startPickups} from './pickup-session.js';
+import {seedFont} from './message-font.js';
 import {setScenery} from './scenery.js';
 import {liveChart, rateSeries, smooth} from './live-chart.js';
 
@@ -536,7 +537,9 @@ async function startPickupTracking() {
   // The learned message font is kept per game-window size: another size draws other pixels. The worker
   // reads any window at least the game's width in game pixels (unstretched when wider), so those share one.
   const {width, height} = current.track.getSettings(), size = fontSize({width, height});
+  // Game pixels start from the shipped font; another size draws other pixels, so it learns its own.
   const font = (settings.messageFont ??= {})[size] ??= {};
+  if (size === 'game') seedFont(font);
   try {
     state.session = await startPickups({track: current.track, engine, font,
       onMessage: (m) => savePickup(current, m).catch((error) => setStatus(`Couldn't save a pickup: ${error.message}`, 'warn')),
