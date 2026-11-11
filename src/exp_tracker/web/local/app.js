@@ -525,8 +525,9 @@ async function startPickupTracking() {
   const current = capture;
   if (!current || !engine || current.pickups || !settings.pickups) return;
   const state = current.pickups = {since: Date.now(), session: null, fontSaved: Date.now()};
-  // The learned message font is kept per game-window size: another size draws other pixels.
-  const {width, height} = current.track.getSettings(), size = `${width}x${height}`;
+  // The learned message font is kept per game-window size: another size draws other pixels. The worker
+  // reads any window at least the game's width in game pixels (unstretched when wider), so those share one.
+  const {width, height} = current.track.getSettings(), size = fontSize({width, height});
   const font = (settings.messageFont ??= {})[size] ??= {};
   try {
     state.session = await startPickups({track: current.track, engine, font,
@@ -553,6 +554,7 @@ async function stopPickupTracking(current = capture) {
 }
 
 const saveFont = () => store.setSetting('messageFont', settings.messageFont).catch(() => {});
+const fontSize = ({width, height}) => (width >= GAME_WIDTH ? 'game' : `${width}x${height}`);
 
 // Mesos and items that resolve to a known item are kept; EXP comes from the EXP bar, exactly.
 async function savePickup(current, m) {
@@ -846,6 +848,13 @@ async function init() {
       if (glyphSize({width, height}) === 'game') { settings.glyphs = {...settings.glyphs, game: {...settings.glyphs[size], ...settings.glyphs.game}}; delete settings.glyphs[size]; }
     }
     if (settings.messageFont?.glyphs) settings.messageFont = {[settings.messageFont.size]: settings.messageFont.glyphs};
+    for (const size of Object.keys(settings.messageFont ?? {})) {
+      const [width, height] = size.split('x').map(Number);
+      if (fontSize({width, height}) !== 'game') continue;
+      const game = settings.messageFont.game ??= {};
+      for (const [char, glyphs] of Object.entries(settings.messageFont[size])) game[char] = [...(game[char] ?? []), ...glyphs].slice(0, 6);  // PER_CHAR
+      delete settings.messageFont[size];
+    }
     if (!INTERVALS.includes(settings.interval)) settings.interval = 1;
     if (!WINDOWS.includes(settings.window)) settings.window = 15;
     pressed('[data-interval]', 'interval', settings.interval); pressed('[data-window]', 'window', settings.window);
