@@ -1,7 +1,7 @@
 """Calibrated, bounded pixel-glyph matching for a single EXP text line.
 
-Profiles contain font cells, not readings or screen coordinates. No game font
-assets ship with this module. A profile must be calibrated on permitted crops.
+Profiles contain font cells, not readings or screen coordinates. A profile must be
+calibrated on permitted crops.
 Level recognition remains a separate concern because it uses another font.
 """
 

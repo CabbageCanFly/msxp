@@ -4,7 +4,7 @@ import * as store from './store.js';
 import {acceptBaseline, maxGapFor, resolveLevel, step, suspicious} from './exp.js';
 import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud, readIdentity} from './reader.js';
-import {displayed, learn, learnLetters} from './glyphs.js';
+import {HUD_GLYPHS, displayed, learn, learnLetters} from './glyphs.js';
 import {GAME_HEIGHT, GAME_WIDTH, unstretch} from './pickups.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
@@ -309,12 +309,17 @@ async function scan() {
   let outcome;
   try {
     const known = regionsFor(current.full);
-    const redetect = !known || (current.failures >= 3 && settings.calibration?.source === 'auto' && Date.now() - current.lastDetect > 60e3);
+    // Failing scans look for the HUD again once a minute; within two minutes of a resize every 5 s, since a
+    // look taken while the window was still changing can land on the wrong rows (measured live: 2 minutes
+    // without readings after a switch to 768p).
+    const retry = Date.now() - (current.resizedAt ?? 0) < 120e3 ? 5e3 : 60e3;
+    const redetect = !known || (current.failures >= 3 && settings.calibration?.source === 'auto' && Date.now() - current.lastDetect > retry);
     // Full frames for detection and the preview; otherwise only the HUD rows.
     const banded = Boolean(known) && !redetect && $('hud-view').hidden && !drawing;
     const frame = await grab(banded ? bandFor(known, current.full) : null);
     if (capture !== current) return;
     const resized = current.full && (frame.full.width !== current.full.width || frame.full.height !== current.full.height);
+    if (resized) current.resizedAt = Date.now();
     current.full = frame.full; current.lastFrame = frame;
     if (resized && banded) { current.burst = Math.max(current.burst || 0, 1); return; }  // Re-measure with a full frame.
     outcome = await engine.exclusive(async () => {
@@ -369,9 +374,12 @@ const MESSAGES = {
 };
 
 // Learned glyphs are kept per size, and every frame of game pixels (a native window, or a stretched one
-// read unstretched) shares one set: the same digits at 768p and 1080p.
+// read unstretched) shares one set: the same digits at 768p and 1080p, over the built-in HUD_GLYPHS.
 const glyphSize = ({width, height}) => (width >= GAME_WIDTH && width / GAME_WIDTH <= 1.03 ? 'game' : `${width}x${height}`);
-const templatesFor = (frame) => settings.glyphs?.[glyphSize(frame.full)] ?? null;
+const templatesFor = (frame) => {
+  const size = glyphSize(frame.full), learned = settings.glyphs?.[size] ?? null;
+  return size === 'game' ? {...HUD_GLYPHS, ...learned} : learned;
+};
 
 async function teachLetters(keys, text, authoritative = false) {
   const letters = {...settings.letters};

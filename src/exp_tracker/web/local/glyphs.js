@@ -1,7 +1,20 @@
-// Exact glyph templates learned on the player's own machine. A native window capture draws the HUD's
-// bitmap font identically every time, so once a glyph has been seen in a confirmed reading, the same
-// pixels are the same character. No game font data ships with msxp; templates live only in this browser.
+// Exact glyph templates. A native window capture draws the HUD's bitmap font identically every time, so
+// once a glyph has been seen in a confirmed reading, the same pixels are the same character. HUD_GLYPHS
+// ship with the page; templates learned on the player's machine add to them.
 import {bracketColour, channel, crop, otsu} from './hud.js';
+
+// The HUD's digits in the game's own pixels (a native window, or a stretched one read unstretched), as
+// learned from confirmed readings: the EXP number and percentage, and level-badge 1s and 2s. The first
+// scan reads with these; other badge digits fall back to OCR until learned.
+export const HUD_GLYPHS = {
+  '01110/10001/10001/10001/10001/10001/01110': '0', '01/11/01/01/01/01/01': '1', '01110/10001/00001/00010/00100/01000/11111': '2',
+  '01110/10001/00001/00110/00001/10001/01110': '3', '00010/00110/01010/10010/11111/00010/00010': '4', '11111/10000/10000/01110/00001/10001/01110': '5',
+  '01110/10001/10000/11110/10001/10001/01110': '6', '11111/00001/00001/00001/00010/00100/00100': '7', '01110/10001/10001/01110/10001/10001/01110': '8',
+  '01110/10001/10001/01111/00001/10001/01110': '9', '00/00/00/00/00/01/10': ',', '0/0/0/0/0/0/1': '.', '0100001/1010010/0100100/0001000/0010010/0100101/1000010': '%',
+  '011/111/011/011/011/011/000': '1', '011/111/011/011/011/011/011': '1', '11/11/11/11/11/11/11': '1',
+  '0111110/1100011/0000011/0011110/0110000/1100000/1111110': '2', '0111110/1100011/0000011/0011110/0110000/1100000/1111111': '2',
+  '0111110/0100011/0000011/0011110/0110000/1100000/1111110': '2',
+};
 
 // Split a field into glyphs: runs of inked columns inside the field's ink band. Keys are exact bitmaps.
 // 'max' suits white text and green brackets on the dark bar; 'min' keeps only white digits on orange tiles.

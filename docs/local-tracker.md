@@ -70,7 +70,8 @@ Tesseract reading has been **accepted by the tracker** (both variants agreed, th
 and a second scan confirmed it), each glyph bitmap is paired with the HUD's own spelling of that
 value (`5,477` and `27.09%`) if and only if the glyph count equals the character count. A bitmap
 ever paired with two characters is poisoned and never used. A field with any unknown glyph falls
-back to Tesseract. No game font data ships with msxp; templates are stored only in this browser, one
+back to Tesseract. The HUD digits ship with the page (`HUD_GLYPHS`), so the first scan reads at once;
+learned templates are stored in this browser and add to them, one
 set for every frame of game pixels (a native window, or a stretched one read unstretched) and one per
 other window size, so a size used before reads at once. In the live test 11 templates were learned within two minutes
 and later scans read EXP from templates alone.

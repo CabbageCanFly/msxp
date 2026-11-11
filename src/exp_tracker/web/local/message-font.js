@@ -1,5 +1,5 @@
 // The pickup-message font, learned on the player's own machine from lines whose text is known (read by
-// OCR and confirmed, or completed from the item list). No game font data ships with msxp. A font is
+// OCR and confirmed, or completed from the item list). A font is
 // {char: [glyph, ...]}, each glyph {w, h, bits} as seen in a line mask; scenery behind the see-through
 // text changes a few pixels, so reading takes the nearest learned glyph rather than an exact match.
 import {lineWords} from './pickups.js';
