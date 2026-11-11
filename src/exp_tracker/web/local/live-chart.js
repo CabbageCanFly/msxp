@@ -32,9 +32,10 @@ const clock = (at) => new Date(at).toLocaleTimeString([], {hour: '2-digit', minu
 
 /**
  * Draws `source()` ({series, window, unit}) on a canvas about 30 times a second while it is on screen
- * and the tab is visible; hovering shows the nearest second's value.
+ * and the tab is visible; hovering shows the nearest second's value. `axes: false` draws the line alone
+ * (the pop-out overlay).
  */
-export function liveChart(canvas, source) {
+export function liveChart(canvas, source, {axes = true} = {}) {
   let hover = null, frame = 0, last = 0, visible = true, top = 0;
   const loop = (time) => {
     frame = 0;
@@ -55,7 +56,7 @@ export function liveChart(canvas, source) {
     if (canvas.width !== Math.round(width * ratio)) { canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); }
     const c = canvas.getContext('2d'), style = getComputedStyle(canvas), css = (name) => style.getPropertyValue(name).trim();
     c.setTransform(ratio, 0, 0, ratio, 0, 0); c.clearRect(0, 0, width, height);
-    const left = 46, right = width - 12, bottom = height - 24, upper = 10;
+    const left = axes ? 46 : 2, right = width - (axes ? 12 : 2), bottom = height - (axes ? 24 : 4), upper = axes ? 10 : 6;
     const x = (at) => left + (at - (now - window)) / window * (right - left);
     const shown = series.filter((p) => p.at >= now - window - 2000);
     // The scale eases toward the visible peak instead of jumping.
@@ -63,6 +64,7 @@ export function liveChart(canvas, source) {
     top = top ? top + (target - top) * .08 : target;
     const y = (value) => bottom - value / top * (bottom - upper);
     c.font = `600 11px ${style.fontFamily}`; c.fillStyle = css('--muted'); c.strokeStyle = css('--grid'); c.lineWidth = 1;
+    if (axes) {
     // Gridlines on round steps (1, 2 or 5 times a power of ten), about three of them.
     const power = 10 ** Math.floor(Math.log10(top / 3)), step = [1, 2, 5, 10].map((m) => m * power).find((s) => top / s <= 3.5);
     for (let v = 0; v <= top; v += step) {
@@ -73,6 +75,7 @@ export function liveChart(canvas, source) {
     c.textAlign = 'center';
     for (const f of [0, .5]) c.fillText(clock(now - window * (1 - f)), left + f * (right - left), height - 6);
     c.textAlign = 'right'; c.fillText('now', right, height - 6);
+    }
     if (!shown.length) {
       c.textAlign = 'center'; c.fillText(empty ?? 'Waiting for data…', (left + right) / 2, (upper + bottom) / 2);
       return;

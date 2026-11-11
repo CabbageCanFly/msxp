@@ -84,7 +84,8 @@ export function trackedBetween(readings, pickups, from, to, days = [], detailSin
 
 // Anything unknown falls back to the first choice. 'name' has no Twitch option here; 'bg' is the
 // opaque window colour around the card (OBS Window Capture cannot see transparency).
-export const OVERLAY_CHOICES = {layout: ['card', 'bar', 'rates', 'chart'], title: ['site', 'tracker'], icon: ['off', 'on'], job: ['off', 'on'],
+// 'live' and 'brand' exist only here (the local pop-out): a live EXP line, mesos, and an optional small credit.
+export const OVERLAY_CHOICES = {layout: ['card', 'bar', 'rates', 'chart', 'live'], title: ['site', 'tracker'], icon: ['off', 'on'], job: ['off', 'on'], brand: ['on', 'off'],
   name: ['character', 'none'], theme: ['night', 'day', 'red', 'green', 'blue', 'purple'], bg: ['dark', 'green', 'magenta'],
   interval: ['60', '300', '1800'], range: ['60', '15', '30', '720', '1440']};
 export const OVERLAY_COLORS = ['background', 'header', 'graph', 'bar', 'text', 'level', 'badge', 'accent'];
@@ -94,7 +95,7 @@ export const THEME_COLORS = {night: {background: '232c3e', header: '705035', gra
   green: {background: '1c3029', header: '32684e', graph: '8fe0b2', bar: '70ce82', text: 'b1ebc6', level: 'e4f3b0', badge: '294b3b'},
   blue: {background: '1d2b40', header: '335e91', graph: '8fc9ff', bar: '66b5ef', text: 'b4d9ff', level: 'd4e9ff', badge: '2b4566'},
   purple: {background: '2a233b', header: '62458c', graph: 'c4a1ff', bar: 'ad87ef', text: 'dbc4ff', level: 'f1d5ff', badge: '45335e'}};
-export const OVERLAY_SIZES = {card: [500, 160], bar: [500, 160], rates: [500, 110], chart: [500, 180]};
+export const OVERLAY_SIZES = {card: [500, 160], bar: [500, 160], rates: [500, 110], chart: [500, 180], live: [370, 300]};
 
 export function overlayOptions(search) {
   const q = new URLSearchParams(search), options = {};

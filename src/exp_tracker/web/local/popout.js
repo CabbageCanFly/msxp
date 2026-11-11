@@ -5,14 +5,15 @@
 import * as store from './store.js';
 import {CHANNEL, OVERLAY_COLORS, THEME_COLORS, duration, exp, headerInk, historyLabel, overlayOptions, percent, summarize} from './view.js';
 import {drawHourChart, expText} from './charts.js';
+import {liveChart, rateSeries, smooth} from './live-chart.js';
 
 const $ = (id) => document.getElementById(id);
-let table = null, character = null, readings = [], loading = null, options = overlayOptions(location.search);
+let table = null, character = null, readings = [], pickups = [], loading = null, options = overlayOptions(location.search);
 
 // Also called by the builder's same-origin preview as options change.
 function applyOverlay(o) {
   options = o;
-  Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, bg: o.bg, interval: o.interval, range: o.range});
+  Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, brand: o.brand, bg: o.bg, interval: o.interval, range: o.range});
   document.body.dataset.headerInk = headerInk(o.header ?? THEME_COLORS[o.theme].header);
   document.body.dataset.panelInk = o.background ? headerInk(o.background) : '';
   $('general-history-caption').textContent = historyLabel(o);
@@ -27,6 +28,7 @@ async function load() {
   const id = await store.getSetting('activeCharacterId');
   character = id == null ? null : await store.getCharacter(id) ?? null;
   readings = character ? await store.readings(character.id, Date.now() - 25 * 3600e3) : [];
+  pickups = character ? await store.pickups(character.id, Date.now() - 2 * 3600e3) : [];
   render();
 }
 
@@ -58,6 +60,7 @@ function render() {
   drawHourChart($('general-chart'), view.allIntervals, {...chart, labelled: false});
   const total = drawHourChart($('overlay-chart'), view.allIntervals, {...chart, labelled: true});
   $('hour-total').textContent = total == null ? '—' : `${expText(total)} EXP`;
+  renderLive(view, now);
   // Old readings are shown as such, never as live progress.
   const stale = view.age == null || view.age > 120;
   $('status').hidden = !stale;
@@ -65,7 +68,32 @@ function render() {
   $('age').textContent = view.last && stale ? `Updated ${duration(view.age)} ago` : '';
 }
 
+// The Live layout: EXP/hour, time to the next level, a live EXP line (each second's rate over the last
+// 5 minutes, as on the tracker page) and mesos/hour from tracked pickups over the last 15 minutes.
+const LIVE_WINDOW = 5 * 60e3;
+let liveView = {series: [], window: LIVE_WINDOW, unit: 'EXP / h', empty: ''};
+function renderLive(view, now) {
+  if (options.layout !== 'live') return;
+  $('live-rate').textContent = view.perHour == null ? '—' : exp(view.perHour);
+  $('live-rate-label').textContent = view.early ? 'EXP / hour · so far' : 'EXP / hour';
+  $('live-eta').textContent = view.eta == null ? '—' : duration(view.eta);
+  $('live-eta-label').textContent = view.last ? `to Lv. ${view.last.level + 1}` : 'to next level';
+  $('live-progress').value = view.progress;
+  $('live-percent').textContent = view.last ? percent(view.last.bp) : '—';
+  $('live-level').textContent = view.last ? `of Lv. ${view.last.level}` : 'of Lv. —';
+  $('live-exp').textContent = view.last ? exp(view.last.exp) : '—';
+  // As on the tracker page: from the saved data, always up to now, so a pause slopes down toward 0.
+  const series = (rows, value, window) => {
+    const events = rows.filter((r) => value(r) != null).map((r) => ({at: r.at, amount: value(r)}));
+    return rateSeries(events, {from: now - window - 60e3, to: now, window, since: rows[0]?.at ?? now});
+  };
+  const mesos = pickups.filter((r) => r.kind === 'mesos'), mesoRate = mesos.length ? series(mesos, (r) => r.amount, 15 * 60e3).at(-1) : null;
+  $('live-mesos').textContent = mesoRate ? exp(mesoRate.perHour) : '—';
+  liveView = {series: smooth(series(readings, (r) => r.gain, LIVE_WINDOW)), window: LIVE_WINDOW, unit: 'EXP / h', empty: ''};
+}
+
 async function init() {
+  liveChart($('live-chart'), () => liveView, {axes: false});
   table = await (await fetch('/static/local/community-exp.json')).json();
   if ('BroadcastChannel' in window) new BroadcastChannel(CHANNEL).onmessage = (event) => { if (event.data?.type === 'update') refresh(); };
   applyOverlay(options);

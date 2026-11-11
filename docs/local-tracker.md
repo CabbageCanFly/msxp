@@ -147,11 +147,17 @@ also has *Clear all local history* (two clicks), like the page's data section.
 **Live rate** (beside Pickups on wide screens, below it on narrow ones) draws EXP or mesos per hour as
 a smooth line, one point per second, scrolling with the clock (`local/live-chart.js`, canvas, about 30
 frames a second, paused while hidden or off screen). Each point is what was gained in the last 5, 10,
-15, 30 or 60 minutes (the pills) over that span, or over the time tracked so far while shorter (at least
-a minute), starting at the third gain of the session; quiet time counts as nothing gained, so the line
-slopes down until gains resume (unlike the EXP progress charts, where missing time is never zero). A
+15, 30 or 60 minutes (the pills) over that span, or over the time since the first saved gain while shorter
+(at least a minute), starting at the third gain. It uses the saved 24 hours, not only this session, so it
+survives a refresh, and always runs to now: quiet time (not tracking, nothing picked up) counts as nothing
+gained, so the line slopes down toward 0 until gains resume (unlike the EXP progress charts, where missing time is never zero). A
 6-second moving average turns each step into a curve; hovering shows the nearest second. The Pickups
 panel's *Mesos / hour* uses the same rule over the page's selected window.
+
+The pop-out overlay has a **Live** layout (local only, 360x290): EXP/hour, time to the next level, a
+thin progress bar, the live EXP line (5-minute rate, no axes), and mesos/hour (last 15 minutes of saved
+pickups), % of level and EXP; *Branding* shows or hides a small msxp.pages.dev line. It refreshes when
+the tracker tab saves a reading or a pickup (BroadcastChannel) and draws the line itself.
 
 The round button in the character card's header switches the live pages' scenery (town background,
 wandering mobs; `local/scenery.js` mirrors `product.js`) on or off; on by default, remembered.

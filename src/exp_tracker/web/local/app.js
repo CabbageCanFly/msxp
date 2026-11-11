@@ -551,21 +551,23 @@ async function savePickup(current, m) {
   const row = {characterId: character.id, sessionId: current.sessionId, at: m.at, kind: p.kind, approx: Boolean(p.approx),
     ...(p.kind === 'mesos' ? {amount: p.amount} : {itemId: m.item.id, name: m.item.name, count: p.count})};
   await store.addPickup(row);
+  broadcast();  // The pop-out's mesos/hour.
   pickupsCache.push(row);
   pickupsCache = pickupsCache.filter((r) => r.at >= Date.now() - store.DETAIL_MS);
   render();
 }
 
 function renderPickups(now) {
-  const view = summarizePickups(pickupsCache, now), since = capture?.pickups?.since ?? null, window = settings.window * 60e3;
-  // Like the Live rate line: an estimate from the third meso pickup on, over the time tracked while shorter.
-  const mesos = pickupsCache.filter((r) => r.kind === 'mesos').map((r) => ({at: r.at, amount: r.amount}));
+  const view = summarizePickups(pickupsCache, now), window = settings.window * 60e3;
+  // Like the Live rate line: from the saved pickups (not only this session), an estimate from the third meso
+  // pickup on; time without pickups counts as none, so it falls to 0 while not tracking.
+  const mesos = pickupsCache.filter((r) => r.kind === 'mesos').map((r) => ({at: r.at, amount: r.amount})), since = mesos[0]?.at ?? null;
   const rate = since == null ? null : rateSeries(mesos, {from: now - 1000, to: now, window, since}).at(-1)?.perHour ?? null;
   $('pickups-board').hidden = !settings.pickups && !pickupsCache.length;
   if ($('pickups-board').hidden) return;
   $('meso-rate-label').textContent = `Mesos / hour · ${settings.window} min`;
   $('meso-rate').textContent = rate == null ? '—' : fmtExp(rate);
-  $('meso-rate-note').textContent = since == null ? 'While tracking with Track pickups on' : rate == null ? 'After a few meso pickups'
+  $('meso-rate-note').textContent = rate == null ? 'After a few meso pickups with Track pickups on' : !capture?.pickups ? 'Not reading pickups right now'
     : now - since < window ? `So far · ${duration((now - since) / 1000)} tracked` : 'Approximate';
   $('meso-day').textContent = fmtExp(view.mesosDay);
   // Item icons come from the drop list's sprite sheets (32 px cells), loaded once.
@@ -916,11 +918,9 @@ function liveSource() {
   live.key = key;
   const rows = kind === 'mesos' ? pickupsCache.filter((r) => r.kind === 'mesos') : readingsCache;
   const events = rows.filter((r) => (r.amount ?? r.gain) != null).map((r) => ({at: r.at, amount: r.amount ?? r.gain}));
-  // The line starts with the latest session: from tracking start while tracking (pickups: from Track pickups
-  // on), else its first row; quiet time counts as nothing gained. Without tracking it stops at the last row.
-  const session = rows.at(-1)?.sessionId, first = rows.find((r) => r.sessionId === session)?.at ?? now;
-  const since = kind === 'mesos' ? capture?.pickups?.since ?? first : capture && capture.sessionId === session ? Math.min(first, capture.startedAt ?? first) : first;
-  const to = capture ? now : rows.at(-1)?.at ?? now;
+  // From the saved data (24 hours), not only this session, always up to now: time with no gains (not
+  // tracking, or nothing picked up) counts as nothing gained, so the line falls toward 0.
+  const since = rows[0]?.at ?? now, to = now;
   const raw = rateSeries(events, {from: now - window - 60e3, to, window, since});
   const unit = kind === 'mesos' ? 'mesos / h' : 'EXP / h';
   const latest = raw.at(-1), gained = events.filter((e) => e.at > now - window).reduce((sum, e) => sum + e.amount, 0);

@@ -4,3 +4,25 @@ html:has(.local-overlay), .local-overlay { background:#14181f; }
 html:has(.local-overlay[data-bg="green"]), .local-overlay[data-bg="green"] { background:#00ff00; }
 html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] { background:#ff00ff; }
 .local-overlay { overflow:hidden; }
+
+/* Live layout (local only): big EXP/hour, time to next level, a thin progress bar, the live EXP line and
+   a row of mesos/hour, % of level and EXP. The credit moves to a small footer line (Branding option). */
+.live-panel { display:none; }
+[data-layout="live"] #card { width:360px; height:290px; }
+[data-layout="live"] :is(.reading, .general-stats, .rate-stats, .hour-chart, .brand, .charm) { display:none; }
+[data-layout="live"] header { padding-left:12px; }
+[data-layout="live"] .identity { justify-content:flex-start; }
+[data-layout="live"] .live-panel { display:flex; flex-direction:column; gap:7px; flex:1; min-height:0; padding:10px 14px 6px; font-variant-numeric:tabular-nums; }
+.live-top { display:flex; justify-content:space-between; align-items:flex-end; gap:10px; }
+.live-rate strong { display:block; color:var(--text); font:600 40px/1 "Fredoka", sans-serif; }
+.live-eta { text-align:right; }
+.live-eta strong { display:block; color:var(--bar); font:600 21px/1 "Fredoka", sans-serif; }
+.live-panel span { display:block; margin-top:3px; color:var(--muted); font-size:11px; font-weight:700; }
+#live-progress { height:8px; border-radius:4px; }
+#live-chart { display:block; width:100%; flex:1; min-height:0; --stroke:var(--graph); --grid:var(--line); --tip:var(--badge); --text:var(--ink); }
+.live-stats { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); padding-top:7px; border-top:1px solid var(--line); }
+.live-stats > div + div { padding-left:10px; border-left:1px solid var(--line); }
+.live-stats strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font:600 18px/1.1 "Fredoka", sans-serif; }
+.live-brand { margin-top:-2px; text-align:right; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.3px; opacity:.75; }
+[data-brand="off"] .live-brand { display:none; }
+[data-layout="live"] footer:has(#status[hidden]) { display:none; }
