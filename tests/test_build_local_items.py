@@ -33,3 +33,18 @@ def test_fetch_waits_the_minimum_gap_and_stops_at_a_refusal(monkeypatch):
     with pytest.raises(SystemExit):
         b.fetch('https://example.invalid/item-db/1', 2)
     assert waits == [b.MIN_GAP]
+
+
+def test_fetch_asks_for_gzip_and_unpacks_it(monkeypatch):
+    import gzip
+    import tools.build_local_items as b
+    monkeypatch.setattr(b.time, 'sleep', lambda s: None)
+    class Response:
+        headers = {'Content-Encoding': 'gzip'}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return gzip.compress(b'<html>page</html>')
+    asked = []
+    monkeypatch.setattr(b, 'urlopen', lambda request, timeout: (asked.append(request.get_header('Accept-encoding')), Response())[1])
+    assert b.fetch('https://example.invalid/item-db/1', 0) == b'<html>page</html>'
+    assert asked == ['gzip']

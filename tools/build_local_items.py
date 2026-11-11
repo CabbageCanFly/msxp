@@ -16,6 +16,7 @@ in --cache, so an interrupted run resumes where it stopped.
 """
 
 import argparse
+import gzip
 import html
 import tempfile
 from urllib.error import HTTPError
@@ -44,8 +45,10 @@ MIN_GAP = 10  # Seconds between any two requests, icons included.
 def fetch(url, delay):
     time.sleep(max(delay, MIN_GAP))
     try:
-        with urlopen(Request(url, headers={'User-Agent': AGENT}), timeout=60) as response:
-            return response.read()
+        # Compressed: an item page is ~280 KB as HTML (measured), several times smaller gzipped.
+        with urlopen(Request(url, headers={'User-Agent': AGENT, 'Accept-Encoding': 'gzip'}), timeout=60) as response:
+            body = response.read()
+            return gzip.decompress(body) if response.headers.get('Content-Encoding') == 'gzip' else body
     except HTTPError as error:
         if error.code in (403, 429):  # Refused: never retry; SystemExit passes every `except Exception`.
             raise SystemExit(f'Stopped: {url} answered {error.code}. Ask the site before running again.') from error
