@@ -228,6 +228,18 @@ test('live rate: trailing-window rate per second, early estimate, quiet time slo
   assert.ok(eased[1] > 0 && eased[1] < eased[2] && eased[2] < 600);  // A jump becomes a curve.
 });
 
+test('EXP reading: the EXP table picks the reading that fits the level, else variants must agree', async () => {
+  const R = await import(new URL('reader.js', web));
+  const total = E.requirement(table, 21), exp = Math.round(total * .3015), shown = exp.toLocaleString('en-US');
+  const percent = `${(Math.floor(exp * 10000 / total) / 100).toFixed(2)}%`, fits = (e, bp) => E.consistency(table, 21, e, bp) === 'consistent';
+  // A stretched HUD (measured): the percentage once lost its first digit; the other pass read 7 as 2.
+  assert.deepEqual(R.pickExp([shown, shown], [percent, percent.slice(1)]), {reason: 'exp_variants_disagree'});
+  assert.equal(R.pickExp([shown, shown], [percent, percent.slice(1)], fits).value.exp, exp);
+  const misread = `2${shown.slice(1)}`;
+  assert.deepEqual(R.pickExp([misread, misread], [percent, percent], fits), {reason: 'exp_disagrees_with_table'});
+  assert.equal(R.pickExp([misread, misread], [percent, percent]).value.exp, Number(misread.replace(/,/g, '')));  // Without a level: agreement only.
+});
+
 test('overlay options use the live URL parameters; unknown values fall back', () => {
   const o = V.overlayOptions('?layout=chart&theme=blue&name=twitch&interval=1800&range=60&background=ABCDEF&bg=green&evil=1');
   assert.deepEqual([o.layout, o.theme, o.name, o.interval, o.range, o.background, o.bg], ['chart', 'blue', 'character', '1800', '1440', 'abcdef', 'green']);

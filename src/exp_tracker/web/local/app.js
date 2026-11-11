@@ -317,7 +317,8 @@ async function scan() {
         regions = regionsFor(frame.full);
         if (!regions) return {status: 'no_hud', reason: reason ?? 'hud_not_found'};
       }
-      return readHud(engine, frame, shifted(regions, frame.top), templatesFor(frame));
+      return readHud(engine, frame, shifted(regions, frame.top), templatesFor(frame),
+        {table, previousLevel: current.tracker.last?.level ?? current.tracker.pending?.level ?? current.tracker.reference?.level ?? null});
     });
     if (!outcome) return;  // A previous scan is still running; never queue another.
     if (capture !== current) return;
@@ -375,10 +376,13 @@ async function teachLetters(keys, text, authoritative = false) {
  * reading fits its history), or creates a character from the name OCR read. Returns a status to stop
  * this scan, or null to continue tracking the (possibly same) character.
  */
+// A character's name bitmap, or one learned for another screen size (each size draws other pixels).
+const ownsName = (c, key) => c.nameKey === key || Object.values(c.nameKeys ?? {}).includes(key);
+
 async function identify(current, outcome, at) {
   const id = outcome.identity;
   if (!id?.nameKey) return null;
-  if (character.nameKey === id.nameKey) {
+  if (ownsName(character, id.nameKey)) {
     current.nameStreak = null;
     // Remember the name's glyphs, so a later rename can teach its letters.
     if (!character.nameGlyphs && id.nameGlyphs) character = await store.getCharacter(await store.saveCharacter({...character, nameGlyphs: id.nameGlyphs}));
@@ -411,12 +415,20 @@ async function identify(current, outcome, at) {
   current.nameStreak = current.nameStreak?.key === id.nameKey ? {key: id.nameKey, count: current.nameStreak.count + 1} : {key: id.nameKey, count: 1};
   if (current.nameStreak.count < 3) { current.burst = Math.max(current.burst || 0, 1); return 'name_confirming'; }
   current.nameStreak = null;
-  const all = await store.characters(), match = all.find((c) => c.nameKey === id.nameKey);
+  const resolved = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, null), reading = {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp};
+  const fits = !character.last || (resolved.level !== null && !suspicious(character.last, reading));
+  // At a screen size this character has no name bitmap for yet, the name is drawn with other pixels
+  // (measured: a stretched 1920x1080 window). When the EXP carries on from its last reading, it is still
+  // this character, and the bitmap is remembered for this size.
+  const size = `${outcome.frameWidth}x${outcome.frameHeight}`;
+  if (character.nameKey && character.last && fits && !character.nameKeys?.[size]) {
+    character = await store.getCharacter(await store.saveCharacter({...character, nameKeys: {...character.nameKeys, [size]: id.nameKey}}));
+    return null;
+  }
+  const all = await store.characters(), match = all.find((c) => ownsName(c, id.nameKey));
   if (match) { await selectCharacter(match.id); setStatus(`Switched to ${match.name}`, 'ok'); return 'character_switched'; }
   const who = await readIdentity(engine, current.lastFrame, outcome.boxes, templatesFor(current.lastFrame), JOBS, settings.letters);
   if (who.job) await teachLetters(id.jobGlyphs, who.job);
-  const resolved = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, null), reading = {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp};
-  const fits = !character.last || (resolved.level !== null && !suspicious(character.last, reading));
   if (!character.nameKey && fits) {
     // The character being tracked had no name bitmap yet: this is it.
     character = await store.getCharacter(await store.saveCharacter({...character, nameKey: id.nameKey, nameGlyphs: id.nameGlyphs, jobKey: id.jobKey,
@@ -442,7 +454,7 @@ async function handle(current, outcome, at) {
     const resolved = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, previous);
     if (resolved.level === null) { status = 'rejected'; reason = resolved.reason; }
     else {
-      const trustedIdentity = Boolean(character.nameKey && outcome.identity?.nameKey === character.nameKey);
+      const trustedIdentity = Boolean(character.nameKey && outcome.identity?.nameKey && ownsName(character, outcome.identity.nameKey));
       const result = step(table, current.tracker, {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp}, {maxGapSeconds: maxGapFor(settings.interval), trustedIdentity});
       current.tracker = result.state; accepted = result.accept; status = result.status; reason = result.reason;
       if (status === 'pending') current.burst = Math.max(current.burst || 0, 1);  // Confirm a second later.

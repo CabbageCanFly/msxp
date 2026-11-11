@@ -259,8 +259,13 @@ meso total:
   producing frames; scans then report "No picture from the game window".
 - Chrome's own **Stop sharing** button (handled by the track's `ended` event) and the leave-page
   dialog were checked only indirectly (a synthetic `beforeunload` is cancelled while tracking).
-- Other resolutions, a stretched/fullscreen game, Edge, level-ups and character switches on a
-  live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
+- Other resolutions: a 1920x1080 window measured 2026-11-11 draws the game's 1366x768 screen
+  stretched about 1.4x, so text is blurred: EXP digits 11 px tall instead of 7, and OCR read 7 as 2 on
+  some passes. The EXP table now picks, among a pass's readings, the one that fits the level (badge or
+  last accepted); then the learned digits for that size take over. A name bitmap is kept per screen
+  size, adopted when the EXP carries on from the character's last reading. Pickups at a stretched
+  size are not handled yet (message lines sit ~20 px apart instead of 14). Not verified: Edge,
+  level-ups and character switches on a live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
 - The `_headers` detach syntax (`! Content-Security-Policy`) on real Cloudflare Pages; the local
   preview implements it the same way.
 - A job advancement on the live client (job detection was verified on Beginner and Swordsman).

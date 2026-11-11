@@ -1,7 +1,7 @@
 // Small-field OCR of the located HUD. `engine.read(bytes, field)` returns {text, confidence};
 // the browser passes a tesseract.js worker, the Node fixture check passes its own.
 import {binarize, brackets, channel, crop, inkRows, labelEnd, magnification, orangeBox, otsu, panelLines, pgm} from './hud.js';
-import {parseExp, parseLevel} from './exp.js';
+import {consistency, parseExp, parseLevel} from './exp.js';
 import {lineKey, read as readGlyphs, segment, trimKey} from './glyphs.js';
 
 // The thin 1-pixel brackets confuse Tesseract ('[' reads as '1'), so they are located by colour and
@@ -70,11 +70,25 @@ async function readField(engine, frame, box, field, raw, smooth) {
   return texts;
 }
 
-// One EXP pair from one preprocessing pass, or a reason. Both magnifications must parse identically.
-async function readExp(engine, frame, boxes, raw, smooth) {
+// One EXP pair from one preprocessing pass, or a reason. Both magnifications must parse identically,
+// unless `fits` (the EXP table, for a known level) can pick: then the number and percentage reads that
+// fit it, in any pairing. Measured on a stretched 1920x1080 HUD: one pass read "7.358" twice but the
+// percentage as "30.15%" and "0.15%"; the next read "2.358" twice. Only 7,358 fits 30.15% at its level.
+async function readExp(engine, frame, boxes, raw, smooth, fits = null) {
   const numbers = await readField(engine, frame, boxes.number, 'number', raw, smooth);
   const percents = await readField(engine, frame, boxes.percent, 'percent', raw, smooth);
+  return pickExp(numbers, percents, fits);
+}
+
+// The EXP pair from one pass's OCR texts (number and percentage, one per magnification), or a reason.
+export function pickExp(numbers, percents, fits = null) {
   // Brackets were seen in pixels; digits come from OCR.
+  if (fits) {
+    const pairs = numbers.flatMap((number) => percents.map((percent) => parseExp(`${number}[${percent}]`))).filter(Boolean);
+    if (!pairs.length) return {reason: 'cannot_parse_exp'};
+    const fit = pairs.find((v) => fits(v.exp, v.bp));
+    return fit ? {value: fit} : {reason: 'exp_disagrees_with_table'};
+  }
   const values = numbers.map((number, i) => parseExp(`${number}[${percents[i]}]`));
   if (!values.some(Boolean)) return {reason: 'cannot_parse_exp'};
   if (values.some((v) => !v) || new Set(values.map((v) => `${v.exp}/${v.bp}`)).size > 1) return {reason: 'exp_variants_disagree'};
@@ -83,16 +97,17 @@ async function readExp(engine, frame, boxes, raw, smooth) {
 
 /**
  * Read EXP and level. Learned glyph templates first (exact pixels, no OCR); otherwise a crisp (native)
- * Tesseract pass, then a smooth pass for scaled HUDs. Within a pass, variants must agree; a disagreement
- * is never resolved by picking the higher score. The level badge is read by Tesseract; a missing level
- * stays null for the EXP table to judge. `segments` are returned so a confirmed reading can teach glyphs.
+ * Tesseract pass, then a smooth pass for scaled HUDs. Within a pass, variants must agree, unless the EXP
+ * table (`table`) can judge them against the level read from the badge or `previousLevel`: then only a
+ * reading that fits it is taken. A disagreement is never resolved by picking the higher score. A missing
+ * level stays null for the EXP table to judge. `segments` are returned so a confirmed reading can teach glyphs.
  */
-export async function readHud(engine, frame, regions, templates = null) {
+export async function readHud(engine, frame, regions, templates = null, {table = null, previousLevel = null} = {}) {
   const boxes = fieldBoxes(frame, regions), raw = {exp: [], level: []};
   const result = {status: 'ok', raw, boxes, exp: null, bp: null, level: null, source: null, segments: null};
   if (!boxes.exp) return {...result, status: 'no_hud', reason: 'exp_brackets_not_visible'};
   const segments = result.segments = {number: segment(frame, boxes.number), percent: segment(frame, boxes.percent)};
-  let read = null, smooth = false;
+  let read = null, smooth = false, early = null;
   const number = readGlyphs(segments.number, templates), percent = readGlyphs(segments.percent, templates);
   if (number !== null && percent !== null) {
     const value = parseExp(`${number}[${percent}]`);
@@ -100,8 +115,12 @@ export async function readHud(engine, frame, regions, templates = null) {
     if (value) { read = {value}; result.source = 'glyphs'; }
   }
   if (!read) {
+    // The badge first, so the EXP table can choose among the OCR readings.
+    early = table && boxes.level ? await readLevelBadge(engine, frame, boxes.level, templates, raw.level, false) : null;
+    const levels = [early?.level, previousLevel].filter((level) => level != null);
+    const fits = levels.length ? (exp, bp) => levels.some((level) => consistency(table, level, exp, bp) === 'consistent') : null;
     for (smooth of [false, true]) {
-      read = await readExp(engine, frame, boxes, raw.exp, smooth);
+      read = await readExp(engine, frame, boxes, raw.exp, smooth, fits);
       if (read.value) break;
     }
     result.source = 'ocr';
@@ -116,15 +135,20 @@ export async function readHud(engine, frame, regions, templates = null) {
   result.identity = boxes.name ? {nameKey: lineKey(frame, boxes.name), nameGlyphs: glyphKeys(boxes.name),
     jobKey: boxes.job ? lineKey(frame, boxes.job) : null, jobGlyphs: boxes.job ? glyphKeys(boxes.job) : null} : null;
   if (boxes.level) {
-    const levelSegments = result.levelSegments = segment(frame, boxes.level, 'min');
-    const known = parseLevel(readGlyphs(levelSegments, templates) ?? '');
-    if (known !== null) { result.level = known; result.levelSource = 'glyphs'; return result; }
-    const levels = new Set((await readField(engine, frame, boxes.level, 'level', raw.level, smooth)).map(parseLevel).filter((v) => v !== null));
-    if (levels.size > 1) return {...result, status: 'ambiguous', reason: 'conflicting_level_variants'};
-    result.level = levels.size ? [...levels][0] : null;
-    result.levelSource = 'ocr';
+    const badge = early?.level != null ? early : await readLevelBadge(engine, frame, boxes.level, templates, raw.level, smooth);
+    result.levelSegments = badge.segments;
+    if (badge.ambiguous) return {...result, status: 'ambiguous', reason: 'conflicting_level_variants'};
+    result.level = badge.level; result.levelSource = badge.source;
   }
   return result;
+}
+
+// The level badge: learned glyphs, else OCR at two magnifications that must agree ({ambiguous} if not).
+async function readLevelBadge(engine, frame, box, templates, raw, smooth) {
+  const segments = segment(frame, box, 'min'), known = parseLevel(readGlyphs(segments, templates) ?? '');
+  if (known !== null) return {level: known, source: 'glyphs', segments};
+  const levels = new Set((await readField(engine, frame, box, 'level', raw, smooth)).map(parseLevel).filter((v) => v !== null));
+  return {level: levels.size === 1 ? [...levels][0] : null, source: 'ocr', segments, ambiguous: levels.size > 1};
 }
 
 // OCR text of one panel line at several native magnifications: the text at least two agree on (and, when
