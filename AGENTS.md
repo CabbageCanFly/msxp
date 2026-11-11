@@ -8,7 +8,10 @@ until measurements establish a need for more infrastructure.
   acquisition or tracking assumptions; docs/legacy-readme.md keeps the detailed developer notes.
 - `msxp` (src/exp_tracker/msxp.py) is the user-facing entry point: keep its commands, the README
   command table and `msxp help` in step when a tool's options or defaults change.
-- Run `python -m pytest` after code changes. Report sample skips separately from passes.
+- Run `python -m pytest` after changes to Git-tracked code or code intended for commit
+  to this repository. Report sample skips separately from passes. Changes confined to
+  private, Git-ignored scripts do not require the full suite; run relevant self-checks
+  or focused tests instead. Documentation-only changes do not require the suite.
 - Reuse normal pytest temporary storage; do not accumulate a new permanent `--basetemp` per run.
   Remove disposable browser profiles after review. Preserve unique fixtures separately from generated output;
   see `docs/private-test-data.md` for verified recovery from the private test-data repository.
