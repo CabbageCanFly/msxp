@@ -1,7 +1,7 @@
 // Pickup message watcher, off the page's main thread. It receives the shared window's frames as a stream
 // (MediaStreamTrackProcessor), copies only the message corner, follows the message stack and posts each
 // message, with its line masks, once it has left the screen. Frames are closed at once.
-import {messageLines, stackTracker} from './pickups.js';
+import {GAME_HEIGHT, GAME_WIDTH, messageLines, stackTracker, unstretch} from './pickups.js';
 
 let reader = null;
 
@@ -10,7 +10,7 @@ onmessage = async ({data}) => {
   if (data.type !== 'start') return;
   reader = data.stream.getReader();
   const canvas = new OffscreenCanvas(1, 1), context = canvas.getContext('2d', {willReadFrequently: true});
-  const tracker = stackTracker();
+  const tracker = stackTracker(), cache = {};
   let frames = 0, busy = 0, since = performance.now();
   while (reader) {
     const {value: frame, done} = await reader.read().catch(() => ({done: true}));
@@ -23,7 +23,12 @@ onmessage = async ({data}) => {
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       context.drawImage(frame, x, y, w, h, 0, 0, w, h);
       frame.close();
-      for (const {at, samples} of tracker.update(messageLines(context.getImageData(0, 0, w, h), true), Date.now())) {
+      // A window wider than the game's screen shows it stretched: read the game's own pixels.
+      // shortcut: assumes the window shows only the game (fullscreen or borderless); a stretched window with
+      // a title bar shifts the rows. Measure the title bar if such windows turn up.
+      const image = context.getImageData(0, 0, w, h);
+      const corner = W / GAME_WIDTH > 1.03 ? unstretch(image, W / GAME_WIDTH, H / GAME_HEIGHT, x, y, cache) : image;
+      for (const {at, samples} of tracker.update(messageLines(corner, true), Date.now())) {
         postMessage({type: 'message', at, samples}, samples.map((sample) => sample.bits.buffer));
       }
     } catch (error) {

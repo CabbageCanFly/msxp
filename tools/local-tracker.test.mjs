@@ -240,6 +240,28 @@ test('EXP reading: the EXP table picks the reading that fits the level, else var
   assert.equal(R.pickExp([misread, misread], [percent, percent]).value.exp, Number(misread.replace(/,/g, '')));  // Without a level: agreement only.
 });
 
+test('pickups: a bilinear-stretched corner is unstretched back to the game pixels', async () => {
+  const P = await import(new URL('pickups.js', web));
+  // A 60x40 "game" image of 1-pixel strokes and dark shadows, as a 1366-wide screen shows it at (300, 200).
+  const gw = 60, gh = 40, game = new Uint8ClampedArray(gw * gh * 4).fill(120);
+  for (let y = 5; y < 35; y += 7) for (let x = 3; x < 57; x += 3) { const i = (y * gw + x) * 4; game.fill(240, i, i + 3); game.fill(20, ((y + 1) * gw + x + 1) * 4, ((y + 1) * gw + x + 1) * 4 + 3); }
+  // Stretched by 1920/1366 with the measured model, from the window's corner: the crop starts at screen
+  // (ox, oy), the game image at game pixel (300, 200).
+  const s = 1920 / P.GAME_WIDTH, ox = Math.ceil(300 * s), oy = Math.ceil(200 * s), sw = Math.floor(gw * s) - 2, sh = Math.floor(gh * s) - 2;
+  const at = (x, y, c) => game[((Math.min(gh - 1, Math.max(0, y - 200))) * gw + Math.min(gw - 1, Math.max(0, x - 300))) * 4 + c];
+  const screen = new Uint8ClampedArray(sw * sh * 4);
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    const px = (ox + x + .5) / s - .5, py = (oy + y + .5) / s - .5, x0 = Math.floor(px), y0 = Math.floor(py), ax = px - x0, ay = py - y0;
+    for (let c = 0; c < 3; c++) screen[(y * sw + x) * 4 + c] = (at(x0, y0, c) * (1 - ax) + at(x0 + 1, y0, c) * ax) * (1 - ay) + (at(x0, y0 + 1, c) * (1 - ax) + at(x0 + 1, y0 + 1, c) * ax) * ay;
+    screen[(y * sw + x) * 4 + 3] = 255;
+  }
+  const back = P.unstretch({width: sw, height: sh, data: screen}, s, s, ox, oy);
+  const fx = Math.ceil(ox / s) - 300, fy = Math.ceil(oy / s) - 200;
+  let worst = 0;
+  for (let y = 2; y < back.height - 2; y++) for (let x = 2; x < back.width - 2; x++) worst = Math.max(worst, Math.abs(back.data[(y * back.width + x) * 4] - game[((y + fy) * gw + x + fx) * 4]));
+  assert.ok(worst <= 8, `largest difference ${worst}`);  // The game's pixels within the screen's 8-bit rounding (edges aside).
+});
+
 test('overlay options use the live URL parameters; unknown values fall back', () => {
   const o = V.overlayOptions('?layout=chart&theme=blue&name=twitch&interval=1800&range=60&background=ABCDEF&bg=green&evil=1');
   assert.deepEqual([o.layout, o.theme, o.name, o.interval, o.range, o.background, o.bg], ['chart', 'blue', 'character', '1800', '1440', 'abcdef', 'green']);

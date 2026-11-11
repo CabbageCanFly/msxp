@@ -63,6 +63,68 @@ export function messageLines(frame, keep = false) {
   return lines.reverse();  // Newest (bottom) first.
 }
 
+// The game draws a 1366x768 screen; a larger window shows it stretched with bilinear filtering (measured on
+// a 1920x1080 window: strokes doubled, edge pixels half-blended, text 1.4x larger). Pickup reading undoes it.
+export const GAME_WIDTH = 1366, GAME_HEIGHT = 768;
+
+// One axis of a bilinear stretch by `s`: screen pixel j (counted from the window's edge) mixes the game's
+// pixels k and k+1 at p = (j + .5) / s - .5. `solve` returns the game pixels that best explain a line of
+// screen samples (least squares; tridiagonal, factored once per axis since every line shares it).
+function stretchAxis(count, offset, s) {
+  const from = Math.ceil(offset / s), n = Math.floor((offset + count) / s) - from;
+  const k = new Int32Array(count), a = new Float64Array(count), d = new Float64Array(n), e = new Float64Array(n);
+  for (let j = 0; j < count; j++) {
+    const p = Math.max(0, (offset + j + .5) / s - .5);
+    k[j] = Math.floor(p) - from; a[j] = p - Math.floor(p);
+    const i = k[j], w = a[j];
+    if (i >= 0 && i < n) d[i] += (1 - w) * (1 - w);
+    if (i + 1 >= 0 && i + 1 < n) d[i + 1] += w * w;
+    if (i >= 0 && i + 1 < n) e[i] += (1 - w) * w;
+  }
+  const c = new Float64Array(n), m = new Float64Array(n);
+  for (let i = 0; i < n; i++) { m[i] = d[i] - (i ? e[i - 1] * c[i - 1] : 0) || 1e-9; c[i] = e[i] / m[i]; }
+  const b = new Float64Array(n);
+  return {n, solve(values, out) {
+    b.fill(0);
+    for (let j = 0; j < count; j++) {
+      const i = k[j], w = a[j], v = values[j];
+      if (i >= 0 && i < n) b[i] += (1 - w) * v;
+      if (i + 1 >= 0 && i + 1 < n) b[i + 1] += w * v;
+    }
+    for (let i = 0; i < n; i++) out[i] = (b[i] - (i ? e[i - 1] * out[i - 1] : 0)) / m[i];
+    for (let i = n - 2; i >= 0; i--) out[i] -= c[i] * out[i + 1];
+    return out;
+  }};
+}
+
+/**
+ * Undoes a bilinear stretch (by sx across, sy down) of a crop whose top-left is (ox, oy) in the window: the game's own
+ * pixels, so the message detector and its measured constants apply unchanged. Measured on a 1920x1080
+ * recording: 48 message lines found in 15 frames instead of 38 (picking one screen pixel per game pixel),
+ * meso amounts read exactly instead of mostly rounded. The two factors differ slightly (1920/1366 and
+ * 1080/768) and must not be merged: a third of a pixel of drift over the corner ruined the reads.
+ * `cache` keeps the factored axes between frames.
+ */
+export function unstretch({width, height, data}, sx, sy, ox, oy, cache = {}) {
+  const key = `${width}x${height}@${sx},${sy},${ox},${oy}`;
+  if (cache.key !== key) Object.assign(cache, {key, x: stretchAxis(width, ox, sx), y: stretchAxis(height, oy, sy), line: new Float64Array(Math.max(width, height)), solved: new Float64Array(Math.max(width, height))});
+  const {x: ax, y: ay, line, solved} = cache, w = ax.n, h = ay.n, mid = new Float32Array(w * height), out = new Uint8ClampedArray(w * h * 4);
+  for (let ch = 0; ch < 3; ch++) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) line[x] = data[(y * width + x) * 4 + ch];
+      ax.solve(line, solved);
+      for (let x = 0; x < w; x++) mid[y * w + x] = solved[x];
+    }
+    for (let x = 0; x < w; x++) {
+      for (let y = 0; y < height; y++) line[y] = mid[y * w + x];
+      ay.solve(line, solved);
+      for (let y = 0; y < h; y++) out[(y * w + x) * 4 + ch] = solved[y];
+    }
+  }
+  for (let i = 3; i < out.length; i += 4) out[i] = 255;
+  return {width: w, height: h, data: out};
+}
+
 // How different two line masks are, aligned at their right edge and top, allowing the line box to sit a
 // pixel or two off (its top follows the text's dense rows). One-sided: the smaller of "pixels only in a"
 // and "pixels only in b", so noise added behind a line, or a line fading out, counts as the same line,

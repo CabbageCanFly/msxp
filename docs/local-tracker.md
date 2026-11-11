@@ -264,8 +264,11 @@ meso total:
   some passes. The EXP table now picks, among a pass's readings, the one that fits the level (badge or
   last accepted); then the learned digits for that size take over. A name bitmap is kept per screen
   size, adopted when the EXP carries on from the character's last reading. Pickups at a stretched
-  size are not handled yet (message lines sit ~20 px apart instead of 14). Not verified: Edge,
-  level-ups and character switches on a live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
+  size: the game's bilinear stretch is undone in the message corner (least squares per row and column,
+  factored once; ~12 ms a frame, only when the window is >3% wider than 1366), so the detector sees the
+  game's own pixels. Measured on a 2-minute 1920x1080 recording: 64 messages, 22 meso amounts read (1
+  rounded), EXP messages ~317 against +364 on the EXP bar. Assumes the window shows only the game (no
+  title bar). Not verified: Edge, level-ups and character switches on a live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
 - The `_headers` detach syntax (`! Content-Security-Policy`) on real Cloudflare Pages; the local
   preview implements it the same way.
 - A job advancement on the live client (job detection was verified on Beginner and Swordsman).
