@@ -35,7 +35,7 @@ const lockHeldElsewhere = async () => Boolean((await navigator.locks?.query?.())
 
 let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, valid only for one calibration (window size and boxes).
-let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5};
+let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, messageFont: null};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 300, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -495,9 +495,12 @@ async function confirmIdentity() {
 async function startPickupTracking() {
   const current = capture;
   if (!current || !engine || current.pickups || !settings.pickups) return;
-  const state = current.pickups = {since: Date.now(), session: null};
+  const state = current.pickups = {since: Date.now(), session: null, fontSaved: Date.now()};
+  // The learned message font is kept per game-window size: another size draws other pixels.
+  const {width, height} = current.track.getSettings(), size = `${width}x${height}`;
+  if (settings.messageFont?.size !== size) settings.messageFont = {size, glyphs: {}};
   try {
-    state.session = await startPickups({track: current.track, engine,
+    state.session = await startPickups({track: current.track, engine, font: settings.messageFont.glyphs,
       onMessage: (m) => savePickup(current, m).catch((error) => setStatus(`Couldn't save a pickup: ${error.message}`, 'warn')),
       onStats(s) { $('pickup-stats').textContent = `Reading pickups · ${s.fps.toFixed(1)} fps${s.queued ? ` · ${s.queued} waiting` : ''}`; },
       onError(message) { $('pickup-stats').textContent = `Pickup reading stopped: ${message}`; },
@@ -517,11 +520,16 @@ async function stopPickupTracking(current = capture) {
   current.pickups = null;
   $('pickup-stats').textContent = '';
   await state.session?.stop();
+  saveFont();
 }
+
+const saveFont = () => store.setSetting('messageFont', settings.messageFont).catch(() => {});
 
 // Mesos and items that resolve to a known item are kept; EXP comes from the EXP bar, exactly.
 async function savePickup(current, m) {
   if (debug) logPickup(m);
+  // Letters learned from this message are saved at most every 30 s (and when pickup reading stops).
+  if (current.pickups && Date.now() - current.pickups.fontSaved > 30e3) { current.pickups.fontSaved = Date.now(); saveFont(); }
   const p = m.parsed;
   if (capture !== current || !character || !p || p.kind === 'exp' || (p.kind === 'item' && !m.item)) return;
   const row = {characterId: character.id, sessionId: current.sessionId, at: m.at, kind: p.kind, approx: Boolean(p.approx),
@@ -794,7 +802,7 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'messageFont']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }

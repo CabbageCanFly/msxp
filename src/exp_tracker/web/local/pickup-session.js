@@ -171,13 +171,14 @@ async function readByOcr(engine, order, list, fontTexts) {
     confirmed: !count.approx && Boolean(item) && (tab.agreed || tab.value === null)};
 }
 
-export async function startPickups({track, engine, onMessage, onStats, onError}) {
+// `font` is the message font learned so far (saved by the page); reading adds to it in place.
+export async function startPickups({track, engine, font = {}, onMessage, onStats, onError}) {
   const list = await loadItems();
   if (!('MediaStreamTrackProcessor' in window)) throw new Error('This browser cannot stream frames to a worker (needs Chrome or Edge)');
   await track.applyConstraints({frameRate: {ideal: 15, max: 15}});
   const clone = track.clone(), processor = new MediaStreamTrackProcessor({track: clone});
   const worker = new Worker(new URL('./pickup-worker.js', import.meta.url), {type: 'module'});
-  const queue = [], font = {};  // The message font, learned during this test (memory only).
+  const queue = [];
   let draining = false, stopped = false;
   const drain = async () => {
     if (draining) return;

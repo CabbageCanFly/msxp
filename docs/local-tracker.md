@@ -210,8 +210,8 @@ keeps meso and item pickups in IndexedDB (`pickups` store, 24 hours like reading
 JSON export and deleted with the character). EXP messages are read but never kept: EXP comes only
 from the EXP bar. Items are kept only when the name matches the drop list; unread messages are
 dropped. The Pickups panel shows mesos per hour (see Live rate), mesos in the last 24 hours, and the items picked up with their icons. With `?debug`
-a log lists every message as read. Not yet in the OBS overlay; the learned message font is kept for
-one tracking session only.
+a log lists every message as read. Not yet in the OBS overlay; the learned message font is saved
+(setting `messageFont`) per game-window size, so reading starts from it next time; *Clear all* resets it.
 
 `local/pickups.js` follows the message stack in the bottom-right corner (pickup-worker.js, 15 fps).
 The text is light grey with a dark drop shadow one pixel right and down, so a text pixel is a light
