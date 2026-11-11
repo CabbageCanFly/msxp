@@ -43,8 +43,7 @@
 .pickup-items li { display:flex; align-items:center; gap:8px; padding:4px 10px 4px 4px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-raised); color:var(--text); font-size:13px; font-weight:700; }
 .pickup-items .icon { width:32px; height:32px; flex:none; background-repeat:no-repeat; image-rendering:pixelated; }
 .pickup-items .count { color:var(--gold); font-variant-numeric:tabular-nums; }
-.pickups-board .segment-note { margin:0 25px 16px; }
-@media (max-width:650px) { .pickup-items, .pickups-board .segment-note { margin-left:14px; margin-right:14px; } }
+@media (max-width:650px) { .pickup-items { margin-left:14px; margin-right:14px; } }
 .local-editor { width:min(640px,calc(100vw - 32px)); }
 .local-editor h3 { margin:14px 0 6px; color:var(--gold); font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; }
 .local-editor .character-form { margin:0; gap:12px 14px; }

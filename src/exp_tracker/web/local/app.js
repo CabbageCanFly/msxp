@@ -12,7 +12,7 @@ import {loadItems, startPickups} from './pickup-session.js';
 import {setScenery} from './scenery.js';
 
 const $ = (id) => document.getElementById(id);
-const INTERVALS = [5, 10, 20, 30];
+const INTERVALS = [1, 5, 10, 20, 30];
 const debug = new URLSearchParams(location.search).has('debug');
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel(CHANNEL) : null;
 // One capture session per browser profile: a second /local tab neither tracks nor closes the first's session.
