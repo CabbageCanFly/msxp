@@ -26,7 +26,7 @@
 .local-pair:has(> .board[hidden]) { grid-template-columns:minmax(0,1fr); }
 @media (max-width:900px) { .local-pair { grid-template-columns:minmax(0,1fr); } }
 .live-chart { margin:4px 25px 6px; }
-.live-chart canvas { display:block; width:100%; height:220px; --stroke:var(--green); --grid:#3a465d; --muted:var(--text-muted); --tip:var(--surface-raised); --text:var(--text); }
+.live-chart canvas { display:block; width:100%; height:220px; --stroke:var(--green); --grid:#3a465d; --muted:var(--text-muted); --tip:var(--surface-raised); --label:var(--text); }
 .live-board[data-kind="mesos"] .live-chart canvas { --stroke:var(--gold); }
 @media (max-width:650px) { .live-chart { margin-left:14px; margin-right:14px; } }
 .hud-body { padding:4px 0 16px; }
@@ -47,7 +47,8 @@
 .pickup-log { max-height:260px; overflow:auto; margin:8px 25px 0; padding-left:28px; color:var(--text-muted); font-size:13px; line-height:1.6; font-variant-numeric:tabular-nums; }
 .pickup-cards { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:16px; }
 .pickup-cards > div { min-height:0; }
-.pickup-items { display:flex; flex-wrap:wrap; gap:8px; margin:0 25px 12px; padding:0; list-style:none; }
+/* About four and a half rows of items, then a scrollbar: the half row shows there is more. */
+.pickup-items { display:flex; flex-wrap:wrap; align-content:flex-start; gap:8px; max-height:220px; overflow-y:auto; overscroll-behavior:contain; margin:0 25px 12px; padding:0 4px 0 0; list-style:none; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
 .pickup-items li { display:flex; align-items:center; gap:8px; padding:4px 10px 4px 4px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-raised); color:var(--text); font-size:13px; font-weight:700; }
 .pickup-items .icon { width:32px; height:32px; flex:none; background-repeat:no-repeat; image-rendering:pixelated; }
 .pickup-items .count { color:var(--gold); font-variant-numeric:tabular-nums; }

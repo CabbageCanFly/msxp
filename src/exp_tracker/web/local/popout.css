@@ -19,7 +19,7 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 .live-eta strong { display:block; color:var(--bar); font:600 21px/1 "Fredoka", sans-serif; }
 .live-panel span { display:block; margin-top:3px; color:var(--muted); font-size:11px; font-weight:700; }
 #live-progress { height:8px; border-radius:4px; }
-#live-chart { display:block; width:100%; flex:1; min-height:0; --stroke:var(--graph); --grid:var(--line); --tip:var(--badge); --text:var(--ink); }
+#live-chart { display:block; width:100%; flex:1; min-height:0; --stroke:var(--graph); --grid:var(--line); --tip:var(--badge); --label:var(--ink); }
 .live-stats { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); padding-top:7px; border-top:1px solid var(--line); }
 .live-stats > div + div { padding-left:10px; border-left:1px solid var(--line); }
 .live-stats strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font:600 18px/1.1 "Fredoka", sans-serif; }

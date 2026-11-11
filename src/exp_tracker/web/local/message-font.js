@@ -15,17 +15,18 @@ const baseFont = () => base ??= Object.fromEntries(Object.entries(BASE_FONT).map
   return {w: Number(w), h: Number(h), bits};
 })]));
 
-// Characters the player's font has not learned yet start from the shipped ones, at most three each so
-// learning keeps room for the player's own; a learned variant clearly closer to another character's
-// shipped one is dropped (measured: OCR misreads had taught a 6 as "8", and 6666 mesos read as 8888).
+// Every character starts with the shipped variants (at most three, so learning keeps room for the
+// player's own), then the player's learned ones; a learned variant clearly closer to another character's
+// shipped one is dropped (measured: OCR misreads had taught a 6 as "8", and 6666 mesos read as 8888; a
+// browser holding its own noisy 6 never got the checked one when shipped variants only filled gaps).
 // Changes `font` in place.
 export function seedFont(font) {
   const shipped = baseFont();
-  for (const [char, variants] of Object.entries(font)) {
-    if (!shipped[char]) continue;
-    font[char] = variants.filter((g) => !(nearest(shipped, g, (c) => c !== char) + 2 <= nearest(shipped, g, (c) => c === char)));
+  for (const [char, variants] of Object.entries(shipped)) {
+    const own = (font[char] ?? []).filter((g) => !variants.some((v) => distance(v, g) <= 1)
+      && !(nearest(shipped, g, (c) => c !== char) + 2 <= nearest(shipped, g, (c) => c === char)));
+    font[char] = [...variants.map((g) => ({...g})), ...own].slice(0, PER_CHAR);
   }
-  for (const [char, variants] of Object.entries(shipped)) if (!font[char]?.length) font[char] = variants.map((g) => ({...g}));
   return font;
 }
 

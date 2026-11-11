@@ -112,13 +112,16 @@ export function liveChart(canvas, source, {axes = true} = {}) {
     if (hover != null && hover >= left && hover <= right) {
       const at = now - window + (hover - left) / (right - left) * window;
       const p = shown.reduce((best, q) => (Math.abs(q.at - at) < Math.abs(best.at - at) ? q : best));
-      const px = x(p.at), py = y(p.perHour), label = `${new Date(p.at).toLocaleTimeString()} · ${short.format(p.perHour)} ${unit}`;
+      const px = x(p.at), py = y(p.perHour), label = `${short.format(p.perHour)} ${unit}`;
       c.strokeStyle = css('--grid'); c.beginPath(); c.moveTo(px, upper); c.lineTo(px, bottom); c.stroke();
       c.fillStyle = color; c.beginPath(); c.arc(px, py, 4, 0, Math.PI * 2); c.fill();
+      // The rate in a small box just above the point (below it near the top), inside the plot.
       c.font = `700 12px ${style.fontFamily}`;
       const w = c.measureText(label).width + 16, bx = Math.min(Math.max(px - w / 2, left), right - w);
-      c.fillStyle = css('--tip'); c.fillRect(bx, upper, w, 22);
-      c.fillStyle = css('--text'); c.textAlign = 'left'; c.fillText(label, bx + 8, upper + 15);
+      const by = py - 32 >= upper ? py - 32 : Math.min(py + 10, bottom - 22);
+      c.fillStyle = css('--tip'); c.beginPath(); c.roundRect(bx, by, w, 22, 6); c.fill();
+      // Not --text: a page setting --text: var(--text) on the canvas makes it invalid, so the label vanished.
+      c.fillStyle = css('--label') || '#fff'; c.textAlign = 'left'; c.fillText(label, bx + 8, by + 15);
     }
   }
   wake();
