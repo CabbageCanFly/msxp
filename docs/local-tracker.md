@@ -208,6 +208,10 @@ meso total:
 | 118 s, clouds, grass, dark rock; slow looting | 56 | 50 | 22 messages, +356 of +497 | 2 of 65 |
 | 127 s, scrolling camera, bursts of 3-4 per frame | 62 | 51 | 15 messages, +195 of +255 | 15 of 51 |
 
+- Live, 5.5 minutes of looting (144 messages, 14.8 fps, ~3.5 ms per frame, never behind): the EXP
+  messages added up to +1,160 while the EXP bar gained +981. Four lines had been read as +100 each
+  ("(+13)" with ")" read as a digit, rounded down); without them +760. Amounts with no bracket
+  around them are now refused and rounding follows the digit count most reads agree on.
 - The live test before these changes reported 367 messages in 2.5 minutes: while the camera
   scrolled, the old masks changed by 30-45 pixels a frame and every line looked new.
 - Not solved: faint single lines over bright cloud are sometimes missed (counts run ~10% low); a
