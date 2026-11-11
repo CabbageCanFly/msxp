@@ -21,6 +21,15 @@ export function messageLines(frame, keep = false) {
     const l = lum(i);
     if (l - lum((p + w + 1) * 4) > 100 || (text[p + w + 1] && l - lum((p - w - 1) * 4) > 50)) { text[p] = 1; rows[y]++; }
   }
+  // The centre of an "x" has stroke on every diagonal, so neither test sees a shadow or darker scenery:
+  // a light pixel with text on all four diagonals is text (measured live: "x1" split in two, so counts
+  // went unread and no item line could teach the font).
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 4; x++) {
+    const p = y * w + x, i = p * 4;
+    if (text[p] || !text[p - w - 1] || !text[p - w + 1] || !text[p + w - 1] || !text[p + w + 1]) continue;
+    const low = Math.min(d[i], d[i + 1], d[i + 2]);
+    if (low > 150 && Math.max(d[i], d[i + 1], d[i + 2]) - low < 80) { text[p] = 1; rows[y]++; }
+  }
   const lines = [];
   const emit = (top, bottom) => {
     // The line is the right-aligned run of text: it ends at the first gap wider than a word space, so the
@@ -255,12 +264,7 @@ export function lineWords({width, height, bits}) {
 // The digits of a line ending in "(+1,250)": the glyphs between "(+" and ")", as columns [x0, x1), or null.
 // Parentheses are the only glyphs reaching both the top of capitals and the bottom of descenders.
 export function amountSpan(mask) {
-  const glyphs = lineWords(mask).flatMap((word) => word.glyphs), {width, height, bits} = mask;
-  const extent = glyphs.map(({x0, x1}) => {
-    let top = height, bottom = -1;
-    for (let y = 0; y < height; y++) for (let x = x0; x < x1; x++) if (bits[y * width + x]) { top = Math.min(top, y); bottom = y; }
-    return [top, bottom];
-  });
+  const glyphs = lineWords(mask).flatMap((word) => word.glyphs), extent = extents(mask, glyphs);
   const top = Math.min(...extent.map((e) => e[0])), bottom = Math.max(...extent.map((e) => e[1]));
   const tall = (i) => extent[i][0] <= top + 1 && extent[i][1] >= bottom - 1;
   const last = glyphs.length - 1;
@@ -268,6 +272,36 @@ export function amountSpan(mask) {
   let open = last - 1;
   while (open >= 0 && !tall(open)) open--;
   return open >= 0 && last - open >= 3 ? [glyphs[open + 2].x0, glyphs[last - 1].x1] : null;
+}
+
+// [top, bottom] ink rows of each glyph.
+function extents({width, height, bits}, glyphs) {
+  return glyphs.map(({x0, x1}) => {
+    let top = height, bottom = -1;
+    for (let y = 0; y < height; y++) for (let x = x0; x < x1; x++) if (bits[y * width + x]) { top = Math.min(top, y); bottom = y; }
+    return [top, bottom];
+  });
+}
+
+/**
+ * The count and the name of an item line ("Leather x1 earned. (Etc)") as columns [x0, x1), or null. The
+ * count is the run of tall glyphs (digits reach the capitals' top) just before "earned.", after the short
+ * "x"; the name is everything before the "x". Word gaps alone do not tell (measured live: the space
+ * before "x1" is sometimes 3 px, and the "x" often splits in two).
+ */
+export function countSpan(mask) {
+  const words = lineWords(mask);
+  if (words.length < 3) return null;
+  const glyphs = words.slice(0, -2).flatMap((word) => word.glyphs), extent = extents(mask, glyphs);
+  const top = Math.min(...extents(mask, words.flatMap((word) => word.glyphs)).map((e) => e[0]));
+  let first = glyphs.length;
+  while (first > 0 && extent[first - 1][0] <= top + 1 && glyphs.length - first < 4) first--;
+  if (first === glyphs.length || first === 0) return null;
+  // The "x" (one glyph or two pieces) is the short ink within 7 columns before the digits.
+  let x = first;
+  while (x > 0 && extent[x - 1][0] > top + 1 && glyphs[x - 1].x0 >= glyphs[first].x0 - 8) x--;
+  if (x === first || x === 0) return null;
+  return {count: [glyphs[first].x0, glyphs.at(-1).x1], name: [glyphs[0].x0, glyphs[x - 1].x1]};
 }
 
 // Columns x0..x1 of a line mask, as a mask of its own.

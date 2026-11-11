@@ -3,7 +3,7 @@
 // middle of an EXP scan). Reports {at, text, parsed, item} per message.
 import {binarize, pgm} from './hud.js';
 import {learnLine, readLine} from './message-font.js';
-import {amountSpan, lineWords, resolveItem, span, tabOf} from './pickups.js';
+import {amountSpan, countSpan, lineWords, resolveItem, span, tabOf} from './pickups.js';
 
 let items = null;
 export const loadItems = () => items ??= fetch('/static/local/items/items.json').then((r) => r.json())
@@ -154,11 +154,12 @@ async function readByOcr(engine, order, list, fontTexts) {
   }
   if (kind !== 'item') return none;
   // "Arrows for Bows x3 earned. (Use)": the count is the third word from the end, after its "x".
-  const n = await digits('count', (mask, words) => { const g = words.at(-3)?.glyphs; return g?.length > 1 ? [g[1].x0, g.at(-1).x1] : null; });
+  const n = await digits('count', (mask) => countSpan(mask)?.count ?? null);
   const tab = await vote([...fromLines('tab'), ...order.map(({mask, words}) => async () => (words.length >= 4 ? tabOf(await ocr(engine, span(mask, words.at(-1).x0, words.at(-1).x1), 'message', 3)) : null))]);
   const name = (await vote([...fromLines('name'), ...order.map(({mask, words}) => async () => {
-    if (words.length < 4) return null;
-    const read = await ocr(engine, span(mask, words[0].x0, words.at(-4).x1), 'message', 3);
+    const at = countSpan(mask)?.name ?? (words.length >= 4 ? [words[0].x0, words.at(-4).x1] : null);
+    if (!at) return null;
+    const read = await ocr(engine, span(mask, ...at), 'message', 3);
     return read.replace(/[^A-Za-z0-9' .:-]/g, '').trim() || null;
   })])).value;
   if (!name) return none;

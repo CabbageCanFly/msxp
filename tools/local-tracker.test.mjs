@@ -385,7 +385,8 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
 test('pickup message font: learned glyphs read later lines, misaligned lines are refused', async () => {
   const F = await import(new URL('message-font.js', web));
   // Three made-up 3x7 glyphs drawn into a line mask, two empty columns apart (five for a space).
-  const shapes = {a: ['111', '101', '101', '101', '101', '101', '111'], b: ['100', '100', '111', '101', '101', '101', '111'], 1: ['010', '110', '010', '010', '010', '010', '111']};
+  // "a" is short like the real one; "b" and "1" reach the top row.
+  const shapes = {a: ['000', '000', '111', '101', '101', '101', '111'], b: ['100', '100', '111', '101', '101', '101', '111'], 1: ['010', '110', '010', '010', '010', '010', '111']};
   const line = (text) => {
     const cols = [];
     for (const char of text) {
@@ -398,11 +399,17 @@ test('pickup message font: learned glyphs read later lines, misaligned lines are
     return {width, height, bits};
   };
   const font = {};
-  assert.equal(F.learnLine(font, line('ab'), 'ab'), true);
+  assert.equal(F.learnLine(font, line('ab'), 'ab'), 2);
   assert.equal(F.readLine(font, line('ba')), 'ba');
   assert.equal(F.readLine(font, line('b1 a')), 'b? a');  // An unknown glyph is "?", never a guess.
-  assert.equal(F.learnLine(font, line('ab'), 'ba'), false);  // Glyphs that look like other characters.
-  assert.equal(F.learnLine(font, line('a1'), 'a'), false);  // Glyph and character counts differ.
+  assert.equal(F.learnLine(font, line('ab'), 'ba'), 0);  // Glyphs that look like other characters.
+  assert.equal(F.learnLine(font, line('ab1'), 'a'), 0);  // Glyph and character counts differ.
+  // Words pair up by the widest gaps; a word with one piece too many joins its narrowest close pair
+  // (an "x" whose centre was not seen comes in two 2-px pieces).
+  const g = (w, gap) => ({w, h: 3, gap, bits: new Uint8Array(w * 3).fill(1)});
+  const pairs = F.alignLine([g(5, 0), g(4, 1), g(2, 3), g(2, 1), g(3, 2), g(5, 5)], 'Le x1 e');
+  assert.deepEqual(pairs.map(([glyph, char]) => `${char}${glyph.w}`), ['L5', 'e4', 'x5', '13', 'e5']);
+  assert.deepEqual(F.alignLine([g(5, 0), g(4, 2), g(4, 2)], 'L e'), []);  // No gap clearly wider: no spaces to anchor on.
   const S = await import(new URL('pickup-session.js', web));
   assert.equal(S.rounded([23, 28]), 20);  // Unconfirmed reads round down to what they agree on.
   assert.equal(S.rounded([23]), 20);
