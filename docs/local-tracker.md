@@ -13,7 +13,7 @@ sent anywhere.
    character is created or chosen automatically (you can rename it; history stays with it).
 2. In the browser's sharing dialog choose **Window → MapleStory → Share**. The browser asks every
    time; the page cannot select a window itself. A window covered by other windows still captures.
-3. The first scan finds the status bar (about a second), then scans every 20 seconds
+3. The first scan finds the status bar (about a second), then scans every second by default
    (1, 5, 10, 20 or 30 s can be chosen; 1 s stores up to 86,400 readings, ~10 MB, a day). Changes are confirmed by a **burst**: an extra scan a second
    later (first reading, level-up, EXP loss, new job) or three (a different name).
 4. **Stop**, Chrome's **Stop sharing**, closing the tab or a reload end the session. Saved readings

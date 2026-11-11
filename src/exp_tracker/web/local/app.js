@@ -35,7 +35,7 @@ const lockHeldElsewhere = async () => Boolean((await navigator.locks?.query?.())
 
 let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, valid only for one calibration (window size and boxes).
-let settings = {interval: 20, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, messageFont: null};
+let settings = {interval: 1, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, messageFont: null};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 300, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -818,7 +818,7 @@ async function init() {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
-    if (!INTERVALS.includes(settings.interval)) settings.interval = 20;
+    if (!INTERVALS.includes(settings.interval)) settings.interval = 1;
     if (!WINDOWS.includes(settings.window)) settings.window = 15;
     pressed('[data-interval]', 'interval', settings.interval); pressed('[data-window]', 'window', settings.window);
     $('track-pickups').checked = Boolean(settings.pickups);
