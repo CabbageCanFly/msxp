@@ -39,7 +39,7 @@ let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, per window size ({'1368x800': templates}): another size
 // draws other pixels, and a size used before reads at once again. pickupFont: the same for pickup messages
 // (fonts saved as messageFont, learned before the word alignment, held misread shapes and are not loaded).
-let settings = {interval: 1, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, pickupFont: null};
+let settings = {interval: 1, window: 15, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, itemWindow: 1440, pickupFont: null};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 60, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -586,7 +586,7 @@ async function savePickup(current, m) {
 }
 
 function renderPickups(now) {
-  const view = summarizePickups(pickupsCache, now), window = settings.window * 60e3;
+  const view = summarizePickups(pickupsCache, now, settings.itemWindow), window = settings.window * 60e3;
   // Like the Live rate line: from the saved pickups (not only this session), an estimate from the third meso
   // pickup on; time without pickups counts as none, so it falls to 0 while not tracking.
   const mesos = pickupsCache.filter((r) => r.kind === 'mesos').map((r) => ({at: r.at, amount: r.amount})), since = mesos[0]?.at ?? null;
@@ -610,7 +610,8 @@ function renderPickups(now) {
     li.append(icon, item.name, Object.assign(document.createElement('span'), {className: 'count', textContent: `×${fmtExp(item.count)}`}));
     return li;
   }));
-  $('pickup-note').textContent = (view.items.length ? 'Items picked up in the last 24 hours. ' : 'No items picked up in the last 24 hours. ')
+  const span = settings.itemWindow === 1440 ? '24 hours' : `${settings.itemWindow} min`;
+  $('pickup-note').textContent = (view.items.length ? `Items picked up in the last ${span}. ` : `No items picked up in the last ${span}. `)
     + 'Pickups are read from the game\'s messages, so a few can be missed or misread.';
 }
 
@@ -808,6 +809,10 @@ async function init() {
   });
   $('current-level-only').addEventListener('change', (event) => { charts.levelOnly = event.target.checked; render(); });
   for (const button of document.querySelectorAll('[data-live-kind]')) button.addEventListener('click', () => { settings.liveKind = button.dataset.liveKind; store.setSetting('liveKind', settings.liveKind).catch(() => {}); showLive(); });
+  for (const button of document.querySelectorAll('[data-item-window]')) button.addEventListener('click', () => {
+    settings.itemWindow = Number(button.dataset.itemWindow); store.setSetting('itemWindow', settings.itemWindow).catch(() => {});
+    pressed('[data-item-window]', 'itemWindow', settings.itemWindow); render();
+  });
   for (const button of document.querySelectorAll('[data-live-window]')) button.addEventListener('click', () => { settings.liveWindow = Number(button.dataset.liveWindow); store.setSetting('liveWindow', settings.liveWindow).then(broadcast, () => {}); showLive(); });
   liveChart($('live-canvas'), liveSource);
   // Footer: the zone for times on this page, as on the live pages.
@@ -848,7 +853,7 @@ async function init() {
   for (const id of ['clear', 'editor-clear']) $(id).addEventListener('click', (event) => twoStep(event.currentTarget, 'Click again to delete everything', async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
-    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow};
+    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow, itemWindow: settings.itemWindow};
     character = null; readingsCache = []; pickupsCache = []; $('track-pickups').checked = false;
     await refreshCharacters(); broadcast(); setStatus('Local history cleared');
   }));
@@ -858,7 +863,7 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'pickupFont']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'itemWindow', 'pickupFont']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
@@ -910,6 +915,7 @@ function updateBuilder() {
     button.setAttribute('aria-pressed', String(builder[key] === button.dataset.value && (key !== 'theme' || !OVERLAY_COLORS.some((color) => builder[color]))));
   }
   for (const input of document.querySelectorAll('[data-color]')) input.value = '#' + (builder[input.dataset.color] ?? THEME_COLORS[builder.theme][input.dataset.color]);
+  for (const row of document.querySelectorAll('[data-for-layout]')) row.hidden = row.dataset.forLayout !== builder.layout;
   frame.width = width; frame.height = height; scalePreview();
   if (frame.dataset.loaded) frame.contentWindow?.applyOverlay?.({...builder}); else if (!frame.src) frame.src = url;
 }
@@ -949,6 +955,8 @@ function showScenery(on) {
 function showLive() {
   if (!['exp', 'mesos'].includes(settings.liveKind)) settings.liveKind = 'exp';
   if (!WINDOWS.includes(settings.liveWindow)) settings.liveWindow = 5;
+  if (![...WINDOWS, 60, 1440].includes(settings.itemWindow)) settings.itemWindow = 1440;
+  pressed('[data-item-window]', 'itemWindow', settings.itemWindow);
   pressed('[data-live-kind]', 'liveKind', settings.liveKind); pressed('[data-live-window]', 'liveWindow', settings.liveWindow);
   $('live-board').dataset.kind = settings.liveKind;
   live.key = null;

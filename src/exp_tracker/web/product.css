@@ -383,8 +383,8 @@ html:not([data-api]) :is(.local-link, .local-tab) { display:none; }
 .site-footer select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 
 /* Live content fades in once the first update arrives instead of jumping as it fills; shown anyway after 2s. */
-.product :is(.board,.about-tab,.site-footer,.history-overlay-link) { transition:opacity .2s ease-out; }
-.product[data-loading] :is(.board,.about-tab,.site-footer,.history-overlay-link) { opacity:0; animation:reveal 0s 2s forwards; }
+.product :is(.board,.about-tab,.scenery-tab,.local-tab,.site-footer,.history-overlay-link) { transition:opacity .2s ease-out; }
+.product[data-loading] :is(.board,.about-tab,.scenery-tab,.local-tab,.site-footer,.history-overlay-link) { opacity:0; animation:reveal 0s 2s forwards; }
 /* Switching lists keeps the current one (dimmed only if the other takes a moment) until the other can swap in whole. */
 .product #entries[aria-busy="true"] { opacity:.6; transition:opacity .2s .15s; }
 @keyframes reveal { to { opacity:1; } }

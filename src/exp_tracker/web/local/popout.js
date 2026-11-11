@@ -119,7 +119,8 @@ function renderLive(view, now) {
 // The Items layout: what was picked up in the last 24 hours, largest counts first, with the drop list's icons.
 function renderItems(now) {
   if (options.layout !== 'items') return;
-  const items = summarizePickups(pickups, now).items;
+  const minutes = Number(options.last), items = summarizePickups(pickups, now, minutes).items;
+  $('items-since').textContent = `Items · last ${minutes === 1440 ? '24 h' : minutes + ' min'}`;
   if (items.length && !icons) { icons = new Map(); loadItems().then((list) => { icons = new Map(list.map((i) => [i.id, i])); render(); }).catch(() => {}); }
   $('items-total').textContent = items.length ? `${items.reduce((sum, i) => sum + i.count, 0)} items` : '';
   $('items-grid').replaceChildren(...(items.length ? items.slice(0, 12) : [null]).map((item) => {

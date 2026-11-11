@@ -52,10 +52,11 @@ export function summarize(table, character, readings, now, window = 15, {session
 }
 
 /** Pickups for display, from stored rows: mesos and items (largest count first) of the last 24 hours. */
-export function summarizePickups(rows, now) {
-  const day = rows.filter((r) => r.at >= now - 86400e3);
+// Items picked up in the last `minutes` (24 hours by default), most first; mesos over the last 24 hours.
+export function summarizePickups(rows, now, minutes = 1440) {
+  const day = rows.filter((r) => r.at >= now - 86400e3), since = now - minutes * 60e3;
   const items = new Map();
-  for (const r of day) if (r.kind === 'item') {
+  for (const r of day) if (r.kind === 'item' && r.at >= since) {
     const item = items.get(r.name) ?? {name: r.name, itemId: r.itemId, count: 0};
     item.count += r.count; items.set(r.name, item);
   }
@@ -84,9 +85,10 @@ export function trackedBetween(readings, pickups, from, to, days = [], detailSin
 
 // Anything unknown falls back to the first choice. 'name' has no Twitch option here; 'bg' is the
 // opaque window colour around the card (OBS Window Capture cannot see transparency).
-// 'live', 'items' and 'focus' exist only here (the local pop-out): a live EXP or mesos line, and the items
-// picked up. title 'none' leaves the header to the name, as on the site's overlay.
+// 'live', 'items', 'focus' and 'last' exist only here (the local pop-out): a live EXP or mesos line, and the
+// items picked up over the last N minutes. title 'none' leaves the header to the name, as on the site's overlay.
 export const OVERLAY_CHOICES = {layout: ['card', 'bar', 'rates', 'chart', 'live', 'items'], title: ['site', 'tracker', 'none'], icon: ['off', 'on'], job: ['off', 'on'], focus: ['exp', 'mesos'],
+  last: ['1440', '5', '10', '15', '30', '60'],
   name: ['character', 'none'], theme: ['night', 'day', 'red', 'green', 'blue', 'purple'], bg: ['dark', 'green', 'magenta'],
   interval: ['60', '300', '1800'], range: ['60', '15', '30', '720', '1440']};
 export const OVERLAY_COLORS = ['background', 'header', 'graph', 'bar', 'text', 'level', 'badge', 'accent'];
