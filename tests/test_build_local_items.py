@@ -19,3 +19,17 @@ def test_item_pages_count_only_monster_drops():
     scroll = ('<meta property="og:image" content="https://og.example/og?title=Axe+Scroll&amp;eyebrow=Item+%C2%B7+Use+%C2%B7+Scroll'
               '&amp;hero=https%3A%2F%2Fexample%2Fapi%2Fassets%2Ficons%2F2043103"/><meta name="description" content="Success rate: 10%."/>')
     assert item_page(scroll) is None
+
+
+def test_fetch_waits_the_minimum_gap_and_stops_at_a_refusal(monkeypatch):
+    import pytest
+    from urllib.error import HTTPError
+    import tools.build_local_items as b
+    waits = []
+    monkeypatch.setattr(b.time, 'sleep', waits.append)
+    def refuse(request, timeout):
+        raise HTTPError(request.full_url, 403, 'Forbidden', {}, None)
+    monkeypatch.setattr(b, 'urlopen', refuse)
+    with pytest.raises(SystemExit):
+        b.fetch('https://example.invalid/item-db/1', 2)
+    assert waits == [b.MIN_GAP]

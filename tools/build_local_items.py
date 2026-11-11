@@ -1,11 +1,12 @@
 """Build the monster-drop item table and icon sheets for the /local pickup tracker.
 
-    python tools/build_local_items.py [--out src/exp_tracker/web/local/items] [--delay 3] [--item-pages]
+    python tools/build_local_items.py [--out src/exp_tracker/web/local/items] [--delay 10] [--item-pages]
 
 Source: NiaMeowDB's MapleStory Classic monster pages. Each drop lists the Classic item name (what
 pickup messages show) and an icon named by the game item ID; the ID's first digit is the inventory
-tab (1 Equip, 2 Use, 3 Setup, 4 Etc). Only items monsters drop are included. Pages are fetched one
-at a time with a pause between requests. Run by hand when the game adds content; players' browsers
+tab (1 Equip, 2 Use, 3 Setup, 4 Etc). Only items monsters drop are included. Requests go one at a
+time, at least MIN_GAP seconds apart (the site's tool rules, https://meowdb.com/reuse#tool-rules), and
+the run stops at the first refusal (403 or 429): the site blocked a run at 2 s that kept going. Run by hand when the game adds content; players' browsers
 load only the generated static files, never these sites.
 
 Measured 2026-11-11: the monster list page shows only part of the monsters, and a monster page can
@@ -37,10 +38,18 @@ CELL, PER_ROW, PER_SHEET = 32, 16, 256  # 32x32 icons on a 16x16 grid: 256 icons
 TABS = {'1': 'Equip', '2': 'Use', '3': 'Setup', '4': 'Etc'}
 
 
+MIN_GAP = 10  # Seconds between any two requests, icons included.
+
+
 def fetch(url, delay):
-    time.sleep(delay)
-    with urlopen(Request(url, headers={'User-Agent': AGENT}), timeout=60) as response:
-        return response.read()
+    time.sleep(max(delay, MIN_GAP))
+    try:
+        with urlopen(Request(url, headers={'User-Agent': AGENT}), timeout=60) as response:
+            return response.read()
+    except HTTPError as error:
+        if error.code in (403, 429):  # Refused: never retry; SystemExit passes every `except Exception`.
+            raise SystemExit(f'Stopped: {url} answered {error.code}. Ask the site before running again.') from error
+        raise
 
 
 def monster_ids(page):
@@ -146,8 +155,8 @@ def build(out, delay, icon_delay, pages=False, cache=None):
 def main(argv=None):
     cli = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     cli.add_argument('--out', type=Path, default=OUT)
-    cli.add_argument('--delay', type=float, default=3.0, help='Seconds between monster page requests')
-    cli.add_argument('--icon-delay', type=float, default=0.5, help='Seconds between icon requests')
+    cli.add_argument('--delay', type=float, default=MIN_GAP, help=f'Seconds between requests (at least {MIN_GAP})')
+    cli.add_argument('--icon-delay', type=float, default=MIN_GAP, help=f'Seconds between icon requests (at least {MIN_GAP})')
     cli.add_argument('--item-pages', action='store_true', help='Also read every item page (about 4,300) for monster drops')
     cli.add_argument('--cache', type=Path, default=Path(tempfile.gettempdir()) / 'msxp-item-pages.jsonl', help='Item pages already read (resumes a run)')
     args = cli.parse_args(argv)
