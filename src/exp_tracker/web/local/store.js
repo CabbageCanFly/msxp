@@ -149,8 +149,10 @@ export function removeTracked(characterId, from, to, {exp = false, mesos = false
     if (exp) {
       const readings = tx.objectStore('readings'), days = tx.objectStore('days');
       let removed = 0;
+      const whole = new Set(oldDays);
       for (const r of await result(readings.index('character_at').getAll(range))) {
-        if (r.gain == null) continue;
+        // A boundary reading inside an older day removed whole is in that day's gain already.
+        if (r.gain == null || whole.has(dayOf(r.at))) continue;
         readings.put({...r, gain: null, removed: true});
         const day = await result(days.get([characterId, dayOf(r.at)]));
         if (day) days.put({...day, gain: day.gain - r.gain});

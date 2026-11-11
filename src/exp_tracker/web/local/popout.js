@@ -10,7 +10,7 @@ import {eta} from './exp.js';
 import {loadItems} from './pickup-session.js';
 
 const $ = (id) => document.getElementById(id);
-let table = null, character = null, readings = [], pickups = [], liveWindow = 5, loading = null, icons = null, options = overlayOptions(location.search);
+let table = null, character = null, readings = [], pickups = [], liveWindow = 5, loading = null, again = false, wantFull = false, icons = null, options = overlayOptions(location.search);
 
 // Also called by the builder's same-origin preview as options change.
 function applyOverlay(o) {
@@ -26,18 +26,30 @@ function applyOverlay(o) {
 }
 window.applyOverlay = applyOverlay;
 
-async function load() {
-  const id = await store.getSetting('activeCharacterId');
-  character = id == null ? null : await store.getCharacter(id) ?? null;
-  readings = character ? await store.readings(character.id, Date.now() - 25 * 3600e3) : [];
-  pickups = character ? await store.pickups(character.id, Date.now() - 24 * 3600e3) : [];
+// With scans every second, every new reading triggers an update: reading 25 hours (up to ~90,000 rows)
+// each time would be heavy, so updates fetch only rows newer than those held. Edits (removals, another
+// character) ask for a full read, and so does the 30-second poll.
+async function load(full) {
+  const id = await store.getSetting('activeCharacterId'), next = id == null ? null : await store.getCharacter(id) ?? null;
+  const now = Date.now(), same = !full && character && next?.id === character.id;
+  character = next;
+  const newer = async (held, fetch, since) => {
+    if (!same || !held.length) return fetch(since);
+    const tail = new Set(held.slice(-100).map((r) => r.id));
+    return [...held, ...(await fetch(held.at(-1).at)).filter((r) => !tail.has(r.id))].filter((r) => r.at >= since);
+  };
+  readings = character ? await newer(readings, (since) => store.readings(character.id, since), now - 25 * 3600e3) : [];
+  pickups = character ? await newer(pickups, (since) => store.pickups(character.id, since), now - 24 * 3600e3) : [];
   liveWindow = (await store.getSetting('liveWindow')) ?? 5;
   render();
 }
 
-function refresh() {
-  // Coalesce bursts of messages into one database read.
-  loading ??= load().catch(() => {}).finally(() => { loading = null; });
+function refresh(full = false) {
+  // Coalesce bursts of messages into one database read at a time.
+  wantFull ||= full;
+  if (loading) { again = true; return; }
+  const asked = wantFull; wantFull = false;
+  loading = load(asked).catch(() => {}).finally(() => { loading = null; if (again) { again = false; refresh(); } });
 }
 
 function render() {
@@ -122,10 +134,10 @@ function renderItems(now) {
 async function init() {
   liveChart($('live-chart'), () => liveView, {axes: false});
   table = await (await fetch('/static/local/community-exp.json')).json();
-  if ('BroadcastChannel' in window) new BroadcastChannel(CHANNEL).onmessage = (event) => { if (event.data?.type === 'update') refresh(); };
+  if ('BroadcastChannel' in window) new BroadcastChannel(CHANNEL).onmessage = (event) => { if (event.data?.type === 'update') refresh(event.data.full !== false); };
   applyOverlay(options);
-  await load();
-  setInterval(refresh, 30e3);
+  await load(true);
+  setInterval(() => refresh(true), 30e3);
   setInterval(render, 5e3);
 }
 

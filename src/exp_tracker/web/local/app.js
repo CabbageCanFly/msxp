@@ -382,8 +382,11 @@ const ownsName = (c, key) => c.nameKey === key || Object.values(c.nameKeys ?? {}
 async function identify(current, outcome, at) {
   const id = outcome.identity;
   if (!id?.nameKey) return null;
+  const size = `${outcome.frameWidth}x${outcome.frameHeight}`;
   if (ownsName(character, id.nameKey)) {
     current.nameStreak = null;
+    // The size the character's own bitmap is drawn at; another size may adopt a bitmap (below).
+    if (character.nameKey === id.nameKey && character.nameSize !== size) character = await store.getCharacter(await store.saveCharacter({...character, nameSize: size}));
     // Remember the name's glyphs, so a later rename can teach its letters.
     if (!character.nameGlyphs && id.nameGlyphs) character = await store.getCharacter(await store.saveCharacter({...character, nameGlyphs: id.nameGlyphs}));
     // A name read by OCR (never one the player typed) is re-read once per session with the current
@@ -419,9 +422,9 @@ async function identify(current, outcome, at) {
   const fits = !character.last || (resolved.level !== null && !suspicious(character.last, reading));
   // At a screen size this character has no name bitmap for yet, the name is drawn with other pixels
   // (measured: a stretched 1920x1080 window). When the EXP carries on from its last reading, it is still
-  // this character, and the bitmap is remembered for this size.
-  const size = `${outcome.frameWidth}x${outcome.frameHeight}`;
-  if (character.nameKey && character.last && fits && !character.nameKeys?.[size]) {
+  // this character, and the bitmap is remembered for this size. Never at the size its own bitmap was seen
+  // at: there another bitmap is another name (an alt at a similar level would otherwise be adopted).
+  if (character.nameKey && character.last && fits && !character.nameKeys?.[size] && character.nameSize && character.nameSize !== size) {
     character = await store.getCharacter(await store.saveCharacter({...character, nameKeys: {...character.nameKeys, [size]: id.nameKey}}));
     return null;
   }
@@ -470,7 +473,7 @@ async function handle(current, outcome, at) {
     readingsCache.push(...accepted.map((r) => ({...r, characterId: character.id, sessionId: current.sessionId})));
     readingsCache = readingsCache.filter((r) => r.at >= Date.now() - store.DETAIL_MS);
     daysCache = await store.days(character.id);
-    broadcast();
+    broadcast(false);
   }
   if (['accepted', 'pending', 'identity_check', 'identity_pending'].includes(status)) current.readableAt = at;
   const stuck = at - (current.readableAt ?? current.startedAt ?? at) > 60e3;
@@ -551,7 +554,7 @@ async function savePickup(current, m) {
   const row = {characterId: character.id, sessionId: current.sessionId, at: m.at, kind: p.kind, approx: Boolean(p.approx),
     ...(p.kind === 'mesos' ? {amount: p.amount} : {itemId: m.item.id, name: m.item.name, count: p.count})};
   await store.addPickup(row);
-  broadcast();  // The pop-out's mesos/hour.
+  broadcast(false);  // The pop-out's mesos/hour.
   pickupsCache.push(row);
   pickupsCache = pickupsCache.filter((r) => r.at >= Date.now() - store.DETAIL_MS);
   render();
@@ -660,9 +663,10 @@ async function updateStorageNote(persisted) {
   $('storage-note').textContent = persisted ? 'This browser has agreed to keep it unless you clear site data.' : '';
 }
 
-function broadcast() {
-  // The overlay recomputes from IndexedDB; the message only says something changed and for whom.
-  channel?.postMessage({type: 'update', characterId: character?.id ?? null});
+// The overlay recomputes from IndexedDB; the message only says something changed and for whom. `full:
+// false` (a new reading or pickup) lets it fetch only the new rows; anything else rereads everything.
+function broadcast(full = true) {
+  channel?.postMessage({type: 'update', characterId: character?.id ?? null, full});
 }
 
 // ---------- HUD preview and manual calibration ----------
