@@ -1,16 +1,24 @@
 """Build the monster-drop item table and icon sheets for the /local pickup tracker.
 
-    python tools/build_local_items.py [--out src/exp_tracker/web/local/items] [--delay 3]
+    python tools/build_local_items.py [--out src/exp_tracker/web/local/items] [--delay 3] [--item-pages]
 
 Source: NiaMeowDB's MapleStory Classic monster pages. Each drop lists the Classic item name (what
 pickup messages show) and an icon named by the game item ID; the ID's first digit is the inventory
 tab (1 Equip, 2 Use, 3 Setup, 4 Etc). Only items monsters drop are included. Pages are fetched one
 at a time with a pause between requests. Run by hand when the game adds content; players' browsers
 load only the generated static files, never these sites.
+
+Measured 2026-11-11: the monster list page shows only part of the monsters, and a monster page can
+omit drops its items' pages name (Animal Fur Bundle is not on Fire Boar's page). --item-pages also
+visits every item page (about 4,300) and adds those marked as monster drops; each page read is kept
+in --cache, so an interrupted run resumes where it stopped.
 """
 
 import argparse
 import html
+import tempfile
+from urllib.error import HTTPError
+from urllib.parse import unquote_plus
 from io import BytesIO
 import json
 from pathlib import Path
@@ -48,7 +56,47 @@ def drops(page):
     return found
 
 
-def build(out, delay, icon_delay):
+def item_page(page):
+    """(game ID, name, monsters) when an item page marks the item as a monster drop, else None.
+
+    The page's share image names the item, its icon (game ID) and "Monster Drop"; the description lists
+    up to two monsters ("dropped by Fire Boar, Stirge and 2 other monsters")."""
+    image = re.search(r'<meta property="og:image" content="([^"]+)"', page)
+    if not image: return None
+    query = unquote_plus(html.unescape(image.group(1)))
+    gid, name = re.search(r'/icons/(\d+)', query), re.search(r'[?&]title=([^&]+)', query)
+    description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', page).group(1)) if 'name="description"' in page else ''
+    dropped = re.search(r'dropped by (.+?)(?: and \d+ other monsters?)?\.', description)
+    if not gid or not name or not ('Monster Drop' in query or dropped): return None
+    monsters = re.split(r', | and ', dropped.group(1)) if dropped else []
+    return int(gid.group(1)), name.group(1).strip(), monsters
+
+
+def item_pages(delay, cache, misses=100, limit=20000):
+    """Every item page in order until `misses` missing pages in a row; results are appended to `cache`."""
+    seen = {}
+    if cache.exists():
+        for line in cache.read_text(encoding='utf-8').splitlines():
+            n, found = json.loads(line); seen[n] = found
+    n, gap = 0, 0
+    with cache.open('a', encoding='utf-8') as log:
+        while gap < misses and n < limit:
+            n += 1
+            if n in seen: gap = 0 if seen[n] != 'missing' else gap + 1; continue
+            try:
+                found = item_page(fetch(f'{SITE}/item-db/{n}', delay).decode('utf-8')) or 'not a drop'
+            except HTTPError as error:
+                if error.code != 404: print(f'item page {n}: {error}'); continue
+                found = 'missing'
+            except Exception as error:
+                print(f'item page {n}: {error}'); continue  # Not cached: tried again on the next run.
+            seen[n] = found; gap = 0 if found != 'missing' else gap + 1
+            log.write(json.dumps([n, found]) + '\n'); log.flush()
+            if n % 100 == 0: print(f'item page {n}: {sum(isinstance(v, list) for v in seen.values())} monster drops so far')
+    return [v for v in seen.values() if isinstance(v, list)]
+
+
+def build(out, delay, icon_delay, pages=False, cache=None):
     monsters = monster_ids(fetch(f'{SITE}/monsters', 0).decode('utf-8'))
     items, sources = {}, {}
     for n, mob in enumerate(monsters, 1):
@@ -62,6 +110,11 @@ def build(out, delay, icon_delay):
                 items[gid] = name
                 sources.setdefault(gid, []).append(html.unescape(title.group(1)) if title else str(mob))
         print(f'{n}/{len(monsters)} monster {mob}: {len(items)} items so far')
+    if pages:
+        for gid, name, mobs in item_pages(delay, cache):
+            if str(gid)[0] in TABS:
+                items.setdefault(gid, name)
+                sources.setdefault(gid, []).extend(mobs)
     out.mkdir(parents=True, exist_ok=True)
     rows, sheet, index = [], None, 0
     for n, gid in enumerate(sorted(items)):
@@ -89,8 +142,10 @@ def main(argv=None):
     cli.add_argument('--out', type=Path, default=OUT)
     cli.add_argument('--delay', type=float, default=3.0, help='Seconds between monster page requests')
     cli.add_argument('--icon-delay', type=float, default=0.5, help='Seconds between icon requests')
+    cli.add_argument('--item-pages', action='store_true', help='Also read every item page (about 4,300) for monster drops')
+    cli.add_argument('--cache', type=Path, default=Path(tempfile.gettempdir()) / 'msxp-item-pages.jsonl', help='Item pages already read (resumes a run)')
     args = cli.parse_args(argv)
-    build(args.out, args.delay, args.icon_delay)
+    build(args.out, args.delay, args.icon_delay, args.item_pages, args.cache)
     return 0
 
 
