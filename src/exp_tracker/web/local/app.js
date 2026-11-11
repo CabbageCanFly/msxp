@@ -472,8 +472,12 @@ async function handle(current, outcome, at) {
     daysCache = await store.days(character.id);
     broadcast();
   }
+  if (['accepted', 'pending', 'identity_check', 'identity_pending'].includes(status)) current.readableAt = at;
+  const stuck = at - (current.readableAt ?? current.startedAt ?? at) > 60e3;
   if (status === 'accepted') setStatus('Tracking', 'ok');
   else if (status === 'identity_check') setStatus('Paused: this looks like a different character', 'warn');
+  // A minute without a usable reading: one steady explanation instead of a new reason every scan.
+  else if (stuck) setStatus(`Can't read the EXP bar in this ${current.full?.width}×${current.full?.height} window yet. Keep the HUD visible, try the game at 1366×768, or draw the HUD boxes below.`, 'warn');
   else setStatus(MESSAGES[reason] ?? MESSAGES[status] ?? reason, 'warn');
   render();
 }
