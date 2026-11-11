@@ -218,7 +218,7 @@ test('letters: learned from verified text only when counts match; renames are au
   assert.equal(letters.k2, 'a');
 });
 
-test('pickup messages: outlined text lines, line tracking and parsing', async () => {
+test('pickup messages: outlined text lines, stack counting and reading helpers', async () => {
   const P = await import(new URL('pickups.js', web));
   const width = 200, height = 60;
   const frame = (lines) => {
@@ -235,27 +235,35 @@ test('pickup messages: outlined text lines, line tracking and parsing', async ()
   };
   assert.equal(P.messageLines(frame([[48, 1]])).length, 1);
   assert.equal(P.messageLines(frame([])).length, 0);
-  // A line counts once it is seen on a second frame; following frames of the same line add nothing.
-  const tracker = P.lineTracker(), seen = (lines, at) => tracker.update(P.messageLines(frame(lines), true), at).length;
-  assert.equal(seen([[48, 1]], 0), 0);
-  assert.equal(seen([[48, 1]], 70), 1);
-  assert.equal(seen([[48, 1]], 140), 0);
-  // The same message again pushes the first up: two identical lines on screen are two messages.
-  seen([[34, 1], [48, 1]], 210);
-  assert.equal(seen([[34, 1], [48, 1]], 280), 1);
-  // Two new lines arriving together both count.
-  seen([[6, 1], [20, 1], [34, 2], [48, 3]], 350);
-  assert.equal(seen([[6, 1], [20, 1], [34, 2], [48, 3]], 420), 2);
-  assert.deepEqual(P.parseMessage('You received EXP (+19)'), {kind: 'exp', amount: 19});
-  assert.deepEqual(P.parseMessage('You have gained mesos (+10)'), {kind: 'mesos', amount: 10});
-  assert.deepEqual(P.parseMessage('You have gained mesos (+1,250)'), {kind: 'mesos', amount: 1250});
-  assert.deepEqual(P.parseMessage('Orange Mushro... x1 earned. (Etc)'), {kind: 'item', name: 'Orange Mushro', cut: true, count: 1, tab: 'Etc'});
-  assert.equal(P.parseMessage('Arrows for Bows x3 earned. (Use)').count, 3);
-  assert.equal(P.parseMessage('Hello world'), null);
-  const items = [{name: 'Orange Mushroom Cap', tab: 'Etc'}, {name: 'Green Mushroom Cap', tab: 'Etc'}, {name: 'Blue Mushroom Cap', tab: 'Etc'}, {name: 'Blue Mushroom Hat', tab: 'Equip'}];
+  // Each new message enters at the bottom and pushes the stack up one 14-pixel slot. Messages are
+  // reported once their lines have left the screen, each exactly once.
+  const tracker = P.stackTracker(), done = [];
+  const feed = (lines, at) => done.push(...tracker.update(P.messageLines(frame(lines), true), at));
+  feed([[48, 1]], 0); feed([[48, 1]], 70);  // One message, seen on two frames.
+  feed([[34, 1], [48, 2]], 140); feed([[34, 1], [48, 2]], 210);  // A second one pushes it up.
+  feed([[6, 1], [20, 2], [34, 3], [48, 1]], 280);  // Two more in one frame; the last repeats the first.
+  feed([], 280); feed([[6, 1], [20, 2], [34, 3], [48, 1]], 350);  // A missed frame counts nothing again.
+  assert.equal(done.length, 0);
+  feed([], 5000);  // The stack has faded out.
+  assert.deepEqual(done.map((m) => m.at), [0, 140, 280, 280]);
+  assert.ok(done.every((m) => m.samples.length && m.samples[0].bits.length === m.samples[0].width * m.samples[0].height));
+
+  // A line mask: "(+" then the digits "13" (a narrow 1 followed by a 4-column gap) and ")".
+  const mask = {width: 24, height: 12, bits: new Uint8Array(24 * 12)};
+  const ink = (x0, x1, y0, y1) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) mask.bits[y * 24 + x] = 1; };
+  ink(0, 0, 0, 11); ink(2, 4, 5, 5); ink(3, 3, 3, 7); ink(7, 7, 2, 8); ink(12, 15, 2, 8); ink(18, 18, 0, 11);
+  assert.deepEqual(P.lineWords(mask).map((w) => w.glyphs.length), [3, 2]);  // The narrow 1 splits the word...
+  assert.deepEqual(P.amountSpan(mask), [7, 16]);  // ...but the digits sit between "(+" and ")".
+  assert.equal(P.tabOf('(Etc)'), 'Etc');
+  assert.equal(P.tabOf('(Eqp)'), 'Equip');
+  assert.equal(P.tabOf('(Usel'), 'Use');
+  assert.equal(P.tabOf('earned.'), null);
+  const items = [{name: 'Orange Mushroom Cap', tab: 'Etc'}, {name: 'Green Mushroom Cap', tab: 'Etc'}, {name: 'Blue Mushroom Cap', tab: 'Etc'}, {name: 'Blue Mushroom Hat', tab: 'Equip'}, {name: "Pig's Ribbon", tab: 'Etc'}];
   assert.equal(P.resolveItem(items, {name: 'Orange Mushro', cut: true, tab: 'Etc'}).name, 'Orange Mushroom Cap');
   assert.equal(P.resolveItem(items, {name: 'Blue Mushroom', cut: true, tab: 'Etc'}).name, 'Blue Mushroom Cap');  // The tab separates the cap from the hat.
   assert.equal(P.resolveItem(items, {name: 'Blue Mushroom', cut: true, tab: null}), null);  // Ambiguous without the tab: no guess.
+  assert.equal(P.resolveItem(items, {name: "Fig's Ribhon", cut: false, tab: 'Etc'}).name, "Pig's Ribbon");  // OCR slips are tolerated.
+  assert.equal(P.resolveItem(items, {name: 'Squishy Liquid', cut: false, tab: 'Etc'}), null);  // Not in the list.
 });
 
 test('the digit row ignores a panel border caught by a box that is too tall', () => {

@@ -1,112 +1,235 @@
 // Pickup messages in the bottom-right corner ("You have gained mesos (+10)", "Leather x1 earned. (Etc)").
 // Pure functions shared by the browser and the Node tests. A frame is {width, height, data} (RGBA).
 
-// Message text is light neutral grey with a near-black neutral outline (pure black in a window capture,
-// dark grey in the game's own screenshots). Scenery rarely puts neutral dark right beside neutral light,
-// which separates text from clouds, fences and the quick-slot panel.
+// Message text is light grey (~240) with a dark outline, both slightly see-through: over grass the fill
+// tints green (~200,240,180) and the outline turns dark green. So a text pixel is a light, nearly neutral
+// pixel next to one much darker (by more than 100). Clouds shade smoothly and grass is saturated, so
+// neither passes often. Measured limit: light scenery right outside the outline can pass too.
 // With `keep`, each line also carries `bits`, its text mask (1 = text), for reading the line.
 export function messageLines(frame, keep = false) {
   const {width: w, height: h, data: d} = frame, text = new Uint8Array(w * h), rows = new Int32Array(h);
-  const spread = (i) => Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]);
-  const dark = (i) => Math.max(d[i], d[i + 1], d[i + 2]) < 60 && spread(i) < 30;
-  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
-    const i = (y * w + x) * 4;
-    if (Math.min(d[i], d[i + 1], d[i + 2]) > 170 && spread(i) < 40 && (dark(i - 4) || dark(i + 4) || dark(i - 4 * w) || dark(i + 4 * w))) { text[y * w + x] = 1; rows[y]++; }
+  const lum = (i) => (d[i] + d[i + 1] + d[i + 2]) / 3;
+  // Not the last columns: the window's own edge is a light column there (messages end ~8 px before it).
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 3; x++) {
+    const p = y * w + x, i = p * 4, low = Math.min(d[i], d[i + 1], d[i + 2]);
+    if (low <= 150 || Math.max(d[i], d[i + 1], d[i + 2]) - low >= 80) continue;
+    // Any of the 8 neighbours: the outline is thin and some strokes only touch it diagonally. Over grass
+    // the outline blends to dark green, so there is no colour test for it.
+    const l = lum(i);
+    for (const q of [p - 1, p + 1, p - w, p + w, p - w - 1, p - w + 1, p + w - 1, p + w + 1]) if (l - lum(q * 4) > 100) { text[p] = 1; rows[y]++; break; }
   }
   const lines = [];
+  const emit = (top, bottom) => {
+    // The line is the right-aligned run of text: it ends at the first gap wider than a word space, so the
+    // quick-slot panel or other UI further left in the same rows is not part of it.
+    const cols = new Int32Array(w);
+    for (let yy = top; yy < bottom; yy++) for (let x = 0; x < w; x++) cols[x] += text[yy * w + x];
+    let x1 = w - 1;
+    while (x1 >= 0 && !cols[x1]) x1--;
+    let x0 = x1, n = 0;
+    for (let x = x1; x >= 0 && x0 - x <= 16; x--) if (cols[x]) { x0 = x; n += cols[x]; }
+    // Messages are right-aligned at the window edge and at least a few words long.
+    // An open inventory window's meso row spans the box from the left; messages never do.
+    if (n <= 40 || x1 <= w - 30 || x1 - x0 <= 80 || x0 <= w * .2) return;
+    const line = {y0: top, y1: bottom, x0, x1, n};
+    if (keep) {
+      line.bits = new Uint8Array((x1 - x0 + 1) * (bottom - top));
+      for (let yy = top; yy < bottom; yy++) line.bits.set(text.subarray(yy * w + x0, yy * w + x1 + 1), (yy - top) * (x1 - x0 + 1));
+    }
+    lines.push(line);
+  };
   let start = -1;
   for (let y = 0; y <= h; y++) {
     const on = y < h && rows[y] >= 4;
     if (on && start < 0) start = y;
     if (on || start < 0) continue;
-    if (y - start >= 4 && y - start <= 14) {
-      let x0 = w, x1 = -1, n = 0;
-      for (let yy = start; yy < y; yy++) for (let x = 0; x < w; x++) if (text[yy * w + x]) { n++; if (x < x0) x0 = x; if (x > x1) x1 = x; }
-      // Messages are right-aligned at the window edge and at least a few words long.
-      // An open inventory window's meso row spans the box from the left; messages never do.
-      if (n > 40 && x1 > w - 30 && x1 - x0 > 80 && x0 > w * .2) {
-        let key = 0;
-        for (let yy = start; yy < y; yy++) for (let x = x0; x <= x1; x++) key = (key * 31 + text[yy * w + x]) | 0;
-        const line = {y0: start, y1: y, x0, x1, n, key: `${x1 - x0}:${key}`};
-        if (keep) {
-          line.bits = new Uint8Array((x1 - x0 + 1) * (y - start));
-          for (let yy = start; yy < y; yy++) line.bits.set(text.subarray(yy * w + x0, yy * w + x1 + 1), (yy - start) * (x1 - x0 + 1));
-        }
-        lines.push(line);
-      }
+    // Stacked messages sit about 14 px apart and descenders touch the next line, so a block can hold
+    // several lines. Each line has a dense core (its lowercase height, ~7 rows); capitals and descenders
+    // are sparse. Find the cores, then pad each by a fixed margin so a line's box is the same every frame.
+    const sorted = [...rows.subarray(start, y)].sort((a, b) => a - b), dense = Math.max(sorted[Math.floor(sorted.length * .75)] * .4, sorted[sorted.length - 1] * .3);
+    let from = -1;
+    for (let yy = start; yy <= y; yy++) {
+      const core = yy < y && rows[yy] >= dense;
+      if (core && from < 0) from = yy;
+      if (core || from < 0) continue;
+      if (yy - from >= 4 && yy - from <= 10) emit(Math.max(0, from - 2), Math.min(h, yy + 3));
+      from = -1;
     }
     start = -1;
   }
   return lines.reverse();  // Newest (bottom) first.
 }
 
-// Overlap of two line masks aligned at their right edge and top (messages are right-aligned): 0..1.
-export function similarity(a, b) {
-  const wa = a.x1 - a.x0 + 1, wb = b.x1 - b.x0 + 1, h = Math.min(a.y1 - a.y0, b.y1 - b.y0), w = Math.min(wa, wb);
-  let both = 0, either = 0;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const pa = a.bits[y * wa + wa - w + x], pb = b.bits[y * wb + wb - w + x];
-    if (pa && pb) both++;
-    if (pa || pb) either++;
+// How different two line masks are, aligned at their right edge and top, allowing the line box to sit a
+// pixel or two off (its top follows the text's dense rows). One-sided: the smaller of "pixels only in a"
+// and "pixels only in b", so noise added behind a line, or a line fading out, counts as the same line,
+// while a changed digit leaves pixels on both sides. Capped: past `cap` they are just different.
+function difference(a, b, cap = 30) {
+  const wa = a.x1 - a.x0 + 1, wb = b.x1 - b.x0 + 1, ha = a.y1 - a.y0, hb = b.y1 - b.y0, w = Math.max(wa, wb) + 1;
+  const at = (bits, wd, ht, x, y) => (y >= 0 && y < ht && x >= 0 && x < wd ? bits[y * wd + x] : 0);
+  let best = cap;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -1; dx <= 1; dx++) {
+    let onlyA = 0, onlyB = 0;
+    for (let y = -2; y < Math.max(ha, hb) + 2 && Math.min(onlyA, onlyB) < best; y++) for (let x = 1 - w; x <= 1; x++) {
+      const pa = at(a.bits, wa, ha, wa - 1 + x, y), pb = at(b.bits, wb, hb, wb - 1 + x + dx, y + dy);
+      if (pa && !pb) onlyA++; else if (pb && !pa) onlyB++;
+    }
+    best = Math.min(best, onlyA, onlyB);
   }
-  return either ? both / either : 0;
+  return best;
 }
 
+const PITCH = 14, MAX_SLOTS = 7;  // Measured: messages stack 14 px apart, at most 6 on screen.
+// Costs of explaining a frame (tuned on the recording against counted messages): the first new message
+// costs NEW_COST and each further one in the same frame EXTRA_COST (bursts bring several per frame); a
+// remembered line costs PIXEL_COST per differing pixel, at most MATCH_CAP, since the same line over other
+// scenery can differ by 15 pixels; a line that nothing explains costs UNEXPLAINED_COST.
+const NEW_COST = 40, EXTRA_COST = 20, PIXEL_COST = 2, MATCH_CAP = 30, UNEXPLAINED_COST = 60;
+
 /**
- * Counts pickup messages by following each line across frames (measured on a live recording: lines fade
- * in and out, several can appear at once, and they drift up as new ones arrive). A line that matches no
- * current track by position and shape starts a new one; it counts once it is seen on a second frame.
- * Two identical messages on screen at once are two tracks, so repeats ("+10", "+10") still count.
- * `update(lines, at)` takes lines with `bits` and returns the newly confirmed lines.
+ * Counts pickup messages as a stack (measured on a live recording): each new message appears at the
+ * bottom slot and pushes every line up one slot (14 px); messages can arrive on consecutive frames, and
+ * the whole stack fades out together. Each frame picks the shift (0 = nothing new) that best explains the
+ * lines: a line should match the one remembered one slot lower per new message, and every new message
+ * has a small cost so an unchanged stack stays unchanged. Slots are remembered for `forgetMs`, so a line
+ * that is missed for a few frames is not counted again.
+ * Limit: a full stack of identical lines ("+13", "+13", ...) looks the same before and after one more.
+ * `update(lines, at)` takes lines with `bits` and returns the messages whose lines have left the screen:
+ * {at, samples}, `samples` being the line's masks seen at different slots, for reading.
  */
-export function lineTracker({forgetMs = 400} = {}) {
-  let tracks = [];
+export function stackTracker({forgetMs = 1500} = {}) {
+  let bottom = null, slots = [];  // slots[k]: {msg, line, at} for the line k slots above the bottom.
+  const votes = new Map();
+  let arrived = 0;
+  const retire = (entry, done) => { if (entry?.msg) done.push(entry.msg); };
   return {
     update(lines, at) {
-      const used = new Set(), confirmed = [];
-      // Oldest (top) lines first: each old line claims its own track before new lines are considered.
-      for (const line of [...lines].sort((a, b) => a.y0 - b.y0)) {
-        let best = null, score = .3;
-        for (const t of tracks) {
-          const dy = t.line.y0 - line.y0;  // Lines only move up, by about one line per new message.
-          if (used.has(t) || dy < -2 || dy > 30 || Math.abs(t.line.x1 - line.x1) > 2 || Math.abs((t.line.x1 - t.line.x0) - (line.x1 - line.x0)) > 8) continue;
-          const s = similarity(t.line, line) - Math.abs(dy) * .01;
-          if (s > score) { score = s; best = t; }
-        }
-        if (!best) { best = {seen: 0, counted: false}; tracks.push(best); }
-        used.add(best);
-        Object.assign(best, {line, lastAt: at, seen: best.seen + 1});
-        if (best.seen === 2 && !best.counted) { best.counted = true; confirmed.push(line); }
+      const done = [];
+      slots = slots.map((entry) => (entry && at - entry.at > forgetMs ? (retire(entry, done), undefined) : entry));
+      // The bottom slot is where the lowest line sits most often; a stray line further down is outvoted.
+      const lowest = lines.reduce((y, line) => Math.max(y, line.y0), -1);
+      if (lowest >= 0) votes.set(lowest, (votes.get(lowest) ?? 0) + 1);
+      const voted = [...votes].reduce((top, [y, n]) => (n > (votes.get(top) ?? 0) ? y : top), bottom ?? lowest);
+      if (bottom === null) bottom = voted;
+      else if (Math.abs(voted - bottom) > 3) {
+        const move = Math.round((voted - bottom) / PITCH);
+        bottom += move * PITCH;
+        if (move > 0) slots = [...Array(move), ...slots];
+        else for (const entry of slots.splice(0, -move)) retire(entry, done);
       }
-      tracks = tracks.filter((t) => at - t.lastAt < forgetMs);
-      return confirmed;
+      const placed = [];
+      for (const line of lines) {
+        const k = Math.round((bottom - line.y0) / PITCH);
+        if (k >= 0 && k < MAX_SLOTS && Math.abs(bottom - k * PITCH - line.y0) <= 3) placed.push({k, line});
+      }
+      let shift = 0, best = Infinity;
+      for (let s = 0; s < MAX_SLOTS; s++) {
+        let cost = s ? NEW_COST + (s - 1) * EXTRA_COST : 0;
+        for (const {k, line} of placed) {
+          if (k < s) continue;
+          const entry = slots[k - s];
+          cost += !entry ? UNEXPLAINED_COST : entry.line ? Math.min(MATCH_CAP, PIXEL_COST * difference(entry.line, line)) : 0;
+        }
+        if (cost < best) { best = cost; shift = s; }
+      }
+      // The lowest new slot is the newest message.
+      const fresh = Array.from({length: shift}, (_, j) => ({msg: {at, samples: [], order: arrived + shift - j}, at}));
+      arrived += shift;
+      slots = [...fresh, ...slots];
+      for (const entry of slots.splice(MAX_SLOTS)) retire(entry, done);
+      for (const {k, line} of placed) {
+        // An unexplained line (there before tracking began, or noise) is followed but never counted.
+        const entry = slots[k] ??= {msg: null};
+        Object.assign(entry, {line, at});
+        if (entry.msg && entry.slot !== k && entry.msg.samples.length < 4) {
+          entry.slot = k;
+          entry.msg.samples.push({width: line.x1 - line.x0 + 1, height: line.y1 - line.y0, bits: line.bits});
+        }
+      }
+      return done.sort((a, b) => a.order - b.order).map(({at, samples}) => ({at, samples}));  // Oldest first.
     },
   };
 }
 
-const amount = (s) => Number(s.replace(/[,.]/g, ''));
-
-// One message line of text, or null. Item names may be cut off with "...".
-export function parseMessage(text) {
-  const t = text.replace(/\s+/g, ' ').trim();
-  let m = /gained mesos \(\+?([\d,.]+)\)/i.exec(t);
-  if (m) return {kind: 'mesos', amount: amount(m[1])};
-  m = /(?:gained|received) (?:experience|exp)\w* \(\+?([\d,.]+)\)/i.exec(t);
-  if (m) return {kind: 'exp', amount: amount(m[1])};
-  m = /^(.+?)\s*x\s?(\d+) earned\.? \((Eqp|Equip|Use|Setup|Etc|Cash)\)$/i.exec(t);
-  if (m) {
-    const name = m[1].trim(), cut = /(\.\.\.|…)$/.test(name);
-    return {kind: 'item', name: name.replace(/(\.\.\.|…)$/, '').trim(), cut, count: Number(m[2]), tab: m[3] === 'Eqp' ? 'Equip' : m[3]};
+// Words of a line mask ({width, height, bits}): glyphs are runs of inked columns, and a gap of 4 or more
+// empty columns is a space (measured: words 4-7 apart, letters 1-2). Each word lists its glyphs' columns.
+// The font is proportional: a narrow "1" is also followed by 4, so "(+13)" can split; see amountSpan.
+export function lineWords({width, height, bits}) {
+  const words = [];
+  let glyph = null, gap = 99;
+  for (let x = 0; x <= width; x++) {
+    let ink = false;
+    if (x < width) for (let y = 0; y < height && !ink; y++) ink = bits[y * width + x] === 1;
+    if (ink) {
+      if (!glyph) {
+        if (gap >= 4) words.push({x0: x, x1: x, glyphs: []});
+        glyph = {x0: x};
+      }
+      gap = 0;
+      continue;
+    }
+    if (glyph) { glyph.x1 = x; words.at(-1).glyphs.push(glyph); words.at(-1).x1 = x; glyph = null; }
+    gap++;
   }
-  return null;
+  return words;
 }
 
+// The digits of a line ending in "(+1,250)": the glyphs between "(+" and ")", as columns [x0, x1), or null.
+// Parentheses are the only glyphs reaching both the top of capitals and the bottom of descenders.
+export function amountSpan(mask) {
+  const glyphs = lineWords(mask).flatMap((word) => word.glyphs), {width, height, bits} = mask;
+  const extent = glyphs.map(({x0, x1}) => {
+    let top = height, bottom = -1;
+    for (let y = 0; y < height; y++) for (let x = x0; x < x1; x++) if (bits[y * width + x]) { top = Math.min(top, y); bottom = y; }
+    return [top, bottom];
+  });
+  const top = Math.min(...extent.map((e) => e[0])), bottom = Math.max(...extent.map((e) => e[1]));
+  const tall = (i) => extent[i][0] <= top + 1 && extent[i][1] >= bottom - 1;
+  const last = glyphs.length - 1;
+  if (last < 3 || !tall(last)) return null;
+  let open = last - 1;
+  while (open >= 0 && !tall(open)) open--;
+  return open >= 0 && last - open >= 3 ? [glyphs[open + 2].x0, glyphs[last - 1].x1] : null;
+}
+
+// Columns x0..x1 of a line mask, as a mask of its own.
+export function span({width, height, bits}, x0, x1) {
+  const out = new Uint8Array((x1 - x0) * height);
+  for (let y = 0; y < height; y++) out.set(bits.subarray(y * width + x0, y * width + x1), y * (x1 - x0));
+  return {width: x1 - x0, height, bits: out};
+}
+
+function editDistance(a, b) {
+  let row = Array.from({length: b.length + 1}, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    row = next;
+  }
+  return row[b.length];
+}
+
+const TABS = ['Equip', 'Use', 'Setup', 'Etc', 'Cash'];
+// The inventory tab a "(Etc)"-style word names, from imperfect OCR ("(Eqp)" is the game's spelling).
+export const tabOf = (text) => {
+  const t = text.replace(/[^a-z]/gi, '').toLowerCase().replace(/^eqp$/, 'equip');
+  const scored = TABS.map((tab) => [tab, editDistance(t, tab.toLowerCase())]).sort((a, b) => a[1] - b[1]);
+  return scored[0][1] <= 1 && scored[0][1] < scored[1][1] ? scored[0][0] : null;
+};
+
 /**
- * The item a message names. Full names match exactly (case-insensitive); a cut-off name matches the one
- * item in that tab starting with it. Two candidates means no guess: the shown text is kept instead.
+ * The item an OCR'd name refers to: the closest name in the tab, allowing about one wrong letter in four.
+ * A cut-off name ("Orange Mushro...") is compared with the same length of each name. A tie means no
+ * guess, so the shown text is kept instead.
  */
 export function resolveItem(items, {name, cut, tab}) {
-  const lower = name.toLowerCase(), inTab = items.filter((item) => !tab || item.tab === tab);
-  const found = cut ? inTab.filter((item) => item.name.toLowerCase().startsWith(lower)) : inTab.filter((item) => item.name.toLowerCase() === lower);
-  return found.length === 1 ? found[0] : null;
+  const norm = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, ''), want = norm(name);
+  if (!want) return null;
+  let best = null, score = Infinity, tie = false;
+  for (const item of items) {
+    if (tab && item.tab !== tab) continue;
+    const full = norm(item.name), d = editDistance(want, cut ? full.slice(0, want.length) : full);
+    if (d < score) { best = item; score = d; tie = false; } else if (d === score) tie = true;
+  }
+  return best && !tie && score <= Math.max(1, Math.floor(want.length / 4)) ? best : null;
 }
