@@ -182,30 +182,37 @@ located (overlays, third-party trackers, scaled layouts); manual calibration is 
 
 ## Pickup messages (`?debug` test panel, in progress)
 
-`local/pickups.js` follows the message stack in the bottom-right corner (pickup-worker.js, 15 fps):
-each new message enters at the bottom slot and pushes every line up 14 px, several can arrive in
-one frame, and the whole stack fades out together. Each frame picks the shift that best explains
-the lines; a message is reported once its line leaves the screen, with up to four masks of it.
+`local/pickups.js` follows the message stack in the bottom-right corner (pickup-worker.js, 15 fps).
+The text is light grey with a dark drop shadow one pixel right and down, so a text pixel is a light
+pixel whose down-right neighbour is much darker; over white clouds the fill itself is invisible and
+only that rule keeps the letters solid (any darker neighbour drew them hollow there). Each new
+message enters at the bottom slot and pushes every line up 14 px, three or four can arrive in one
+frame, and the whole stack fades out together. Each frame picks the shift that best explains the
+lines; lines on screen when tracking starts are followed but not counted. A message is reported once
+its line leaves the screen, with up to four masks of it (a mask unlike its first is another line
+and is dropped).
 Reading (pickup-session.js) first tries the message font learned during the session
 (message-font.js): every confirmed reading teaches it each glyph of its lines, and a line it reads
-completely needs no OCR. Otherwise OCR gives the kind from the whole line, then reads only the
-digits of "(+N)" or "xN", voting across the masks, and item names are matched to the item list
-allowing OCR slips. Meso amounts are approximate by design: an unconfirmed amount is rounded down
-to the digits the reads agree on ("23" and "28" count as 20).
+completely needs no OCR. Otherwise every mask is read whole by OCR (strokes thickened to 2x2 first),
+and the amount, "xN" count, tab and name are taken from those reads, from the font's partial reads
+(known digits) and, when they disagree, from OCR of just those parts, voting across the masks. Item
+names are matched to the item list allowing OCR slips; an unread tab is the named item's own. Meso
+amounts are approximate by design: an unconfirmed amount is rounded down to the digits the reads
+agree on ("23" and "28" count as 20).
 
-Measured offline on one private 118 s recording (1,461 frames over clouds, grass, a bush and dark
-rock; ground truth from the inventory: 30 meso messages totalling +497, 21 item messages):
+Measured offline on two private recordings, against hand-counted arrival windows and the inventory's
+meso total:
 
-- Counting: about 73-76 messages reported against roughly 76 on screen. Of 56 hand-counted
-  arrivals in five windows, the shift choice was off by 6 (dense bursts over bright sky were
-  nearly exact; a frame bringing three messages at once is still missed).
-- Reading: 21 meso messages read, totalling +340; clean lines over clouds read exactly
-  (+10 to +18, Arrows for Bows x2-x5), lines over grass often stay unread.
-- Learned font: lines over clouds read exactly once their digits have been seen (digits are learned
-  one by one as they occur). Over grass the masks stay too noisy for the font and for OCR.
-- Not solved: a full stack of identical lines ("+13" six times) looks the same after one more,
-  and the text mask of the same line changes by up to ~15 pixels over different scenery, which
-  limits both counting and reading over grass.
+| Recording | Arrivals in windows | Counted | Mesos read | Unread |
+|---|---|---|---|---|
+| 118 s, clouds, grass, dark rock; slow looting | 56 | 50 | 22 messages, +356 of +497 | 2 of 65 |
+| 127 s, scrolling camera, bursts of 3-4 per frame | 62 | 51 | 15 messages, +195 of +255 | 15 of 51 |
+
+- The live test before these changes reported 367 messages in 2.5 minutes: while the camera
+  scrolled, the old masks changed by 30-45 pixels a frame and every line looked new.
+- Not solved: faint single lines over bright cloud are sometimes missed (counts run ~10% low); a
+  full stack of identical lines ("+13" six times) looks the same after one more; letters whose
+  strokes touch merge into one glyph, so the font learns few lines; "x1" often reads as "A".
 
 ## Not yet verified
 

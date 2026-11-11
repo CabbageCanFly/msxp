@@ -237,8 +237,11 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   assert.equal(P.messageLines(frame([])).length, 0);
   // Each new message enters at the bottom and pushes the stack up one 14-pixel slot. Messages are
   // reported once their lines have left the screen, each exactly once.
+  const early = P.stackTracker();  // Lines already on screen when tracking starts are not counted.
+  assert.deepEqual([...early.update(P.messageLines(frame([[48, 1]]), true), 0), ...early.update([], 5000)], []);
   const tracker = P.stackTracker(), done = [];
   const feed = (lines, at) => done.push(...tracker.update(P.messageLines(frame(lines), true), at));
+  feed([], -70);
   feed([[48, 1]], 0); feed([[48, 1]], 70);  // One message, seen on two frames.
   feed([[34, 1], [48, 2]], 140); feed([[34, 1], [48, 2]], 210);  // A second one pushes it up.
   feed([[6, 1], [20, 2], [34, 3], [48, 1]], 280);  // Two more in one frame; the last repeats the first.

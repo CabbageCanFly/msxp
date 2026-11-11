@@ -1,22 +1,25 @@
 // Pickup messages in the bottom-right corner ("You have gained mesos (+10)", "Leather x1 earned. (Etc)").
 // Pure functions shared by the browser and the Node tests. A frame is {width, height, data} (RGBA).
 
-// Message text is light grey (~240) with a dark outline, both slightly see-through: over grass the fill
-// tints green (~200,240,180) and the outline turns dark green. So a text pixel is a light, nearly neutral
-// pixel next to one much darker (by more than 100). Clouds shade smoothly and grass is saturated, so
-// neither passes often. Measured limit: light scenery right outside the outline can pass too.
+// Message text is light grey (~240) with a dark drop shadow one pixel right and down, both slightly
+// see-through: over grass the fill tints green (~200,240,180) and the shadow turns dark green. So a text
+// pixel is a light, nearly neutral pixel whose down-right neighbour is much darker (by more than 100).
+// Only that neighbour: over white clouds the fill vanishes into the cloud, and the cloud just past the
+// shadow is light next to dark too (measured: any-neighbour masks drew every letter hollow there).
 // With `keep`, each line also carries `bits`, its text mask (1 = text), for reading the line.
 export function messageLines(frame, keep = false) {
   const {width: w, height: h, data: d} = frame, text = new Uint8Array(w * h), rows = new Int32Array(h);
   const lum = (i) => (d[i] + d[i + 1] + d[i + 2]) / 3;
   // Not the last columns: the window's own edge is a light column there (messages end ~8 px before it).
-  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 3; x++) {
+  // Bottom-up, so the down-right neighbour is decided first.
+  for (let y = h - 2; y >= 1; y--) for (let x = w - 4; x >= 1; x--) {
     const p = y * w + x, i = p * 4, low = Math.min(d[i], d[i + 1], d[i + 2]);
     if (low <= 150 || Math.max(d[i], d[i + 1], d[i + 2]) - low >= 80) continue;
-    // Any of the 8 neighbours: the outline is thin and some strokes only touch it diagonally. Over grass
-    // the outline blends to dark green, so there is no colour test for it.
+    // Over grass the shadow blends to dark green, so there is no colour test for it. A stroke pixel whose
+    // down-right neighbour is more stroke (the corner of a "+") casts no shadow: it counts when scenery
+    // up-left of it is darker, which over white clouds it never is.
     const l = lum(i);
-    for (const q of [p - 1, p + 1, p - w, p + w, p - w - 1, p - w + 1, p + w - 1, p + w + 1]) if (l - lum(q * 4) > 100) { text[p] = 1; rows[y]++; break; }
+    if (l - lum((p + w + 1) * 4) > 100 || (text[p + w + 1] && l - lum((p - w - 1) * 4) > 50)) { text[p] = 1; rows[y]++; }
   }
   const lines = [];
   const emit = (top, bottom) => {
@@ -80,11 +83,12 @@ function difference(a, b, cap = 30) {
 }
 
 const PITCH = 14, MAX_SLOTS = 7;  // Measured: messages stack 14 px apart, at most 6 on screen.
-// Costs of explaining a frame (tuned on the recording against counted messages): the first new message
-// costs NEW_COST and each further one in the same frame EXTRA_COST (bursts bring several per frame); a
-// remembered line costs PIXEL_COST per differing pixel, at most MATCH_CAP, since the same line over other
-// scenery can differ by 15 pixels; a line that nothing explains costs UNEXPLAINED_COST.
-const NEW_COST = 40, EXTRA_COST = 20, PIXEL_COST = 2, MATCH_CAP = 30, UNEXPLAINED_COST = 60;
+// Costs of explaining a frame (tuned on two recordings against counted messages; a wide plateau of
+// settings scored the same): each new message costs NEW_COST, further ones in the same frame EXTRA_COST
+// (bursts bring 3-4 per frame); a remembered line costs PIXEL_COST per differing pixel, at most MATCH_CAP,
+// since the same line over scrolling scenery differs by up to ~10 pixels and another line by 100+; a line
+// nothing explains costs UNEXPLAINED_COST.
+const NEW_COST = 30, EXTRA_COST = 30, PIXEL_COST = 3, MATCH_CAP = 30, UNEXPLAINED_COST = 100;
 
 /**
  * Counts pickup messages as a stack (measured on a live recording): each new message appears at the
@@ -100,7 +104,7 @@ const NEW_COST = 40, EXTRA_COST = 20, PIXEL_COST = 2, MATCH_CAP = 30, UNEXPLAINE
 export function stackTracker({forgetMs = 1500} = {}) {
   let bottom = null, slots = [];  // slots[k]: {msg, line, at} for the line k slots above the bottom.
   const votes = new Map();
-  let arrived = 0;
+  let arrived = 0, started = false;
   const retire = (entry, done) => { if (entry?.msg) done.push(entry.msg); };
   return {
     update(lines, at) {
@@ -110,7 +114,7 @@ export function stackTracker({forgetMs = 1500} = {}) {
       const lowest = lines.reduce((y, line) => Math.max(y, line.y0), -1);
       if (lowest >= 0) votes.set(lowest, (votes.get(lowest) ?? 0) + 1);
       const voted = [...votes].reduce((top, [y, n]) => (n > (votes.get(top) ?? 0) ? y : top), bottom ?? lowest);
-      if (bottom === null) bottom = voted;
+      if (bottom === null) bottom = lowest >= 0 ? voted : null;  // Unknown until a line is seen.
       else if (Math.abs(voted - bottom) > 3) {
         const move = Math.round((voted - bottom) / PITCH);
         bottom += move * PITCH;
@@ -122,8 +126,9 @@ export function stackTracker({forgetMs = 1500} = {}) {
         const k = Math.round((bottom - line.y0) / PITCH);
         if (k >= 0 && k < MAX_SLOTS && Math.abs(bottom - k * PITCH - line.y0) <= 3) placed.push({k, line});
       }
+      // Lines already on screen when tracking starts are followed, not counted.
       let shift = 0, best = Infinity;
-      for (let s = 0; s < MAX_SLOTS; s++) {
+      for (let s = 0; s < (started ? MAX_SLOTS : 1); s++) {
         let cost = s ? NEW_COST + (s - 1) * EXTRA_COST : 0;
         for (const {k, line} of placed) {
           if (k < s) continue;
@@ -132,6 +137,7 @@ export function stackTracker({forgetMs = 1500} = {}) {
         }
         if (cost < best) { best = cost; shift = s; }
       }
+      started = true;
       // The lowest new slot is the newest message.
       const fresh = Array.from({length: shift}, (_, j) => ({msg: {at, samples: [], order: arrived + shift - j}, at}));
       arrived += shift;
@@ -141,8 +147,11 @@ export function stackTracker({forgetMs = 1500} = {}) {
         // An unexplained line (there before tracking began, or noise) is followed but never counted.
         const entry = slots[k] ??= {msg: null};
         Object.assign(entry, {line, at});
-        if (entry.msg && entry.slot !== k && entry.msg.samples.length < 4) {
+        // A sample unlike the message's first is another line, after a misjudged jump of several slots
+        // (measured: ~15% of messages in bursts); other lines differ by 100+ pixels.
+        if (entry.msg && entry.slot !== k && entry.msg.samples.length < 4 && (!entry.msg.first || difference(entry.msg.first, line, 61) <= 60)) {
           entry.slot = k;
+          entry.msg.first ??= line;
           entry.msg.samples.push({width: line.x1 - line.x0 + 1, height: line.y1 - line.y0, bits: line.bits});
         }
       }

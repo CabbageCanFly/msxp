@@ -16,7 +16,12 @@ export const REGION = {x0: .75, y0: .45, y1: .89};  // Same box the tracker was 
 // OCR of a mask, padded and magnified. Waits while an EXP scan holds the engine.
 async function ocr(engine, mask, field, scale) {
   const pad = 4, width = mask.width + pad * 2, height = mask.height + pad * 2, gray = new Uint8Array(width * height);
-  for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) gray[(y + pad) * width + x + pad] = mask.bits[y * mask.width + x] ? 255 : 0;
+  // Masks have 1-px strokes; Tesseract reads them far better thickened to 2x2 (measured: digits went from
+  // garbled to right on most lines).
+  const on = (x, y) => x >= 0 && y >= 0 && mask.bits[y * mask.width + x];
+  for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) {
+    gray[(y + pad) * width + x + pad] = on(x, y) || on(x - 1, y) || on(x, y - 1) || on(x - 1, y - 1) ? 255 : 0;
+  }
   for (;;) {
     const result = await engine.exclusive(() => engine.read(pgm(binarize(gray, width, height, 127, scale)), field));
     if (result) return result.text.replace(/\s+/g, ' ').trim();
@@ -48,7 +53,8 @@ export function rounded(values) {
   return prefix ? Number(prefix.padEnd(length, '0')) : null;
 }
 
-const kindOf = (text) => (/earn/i.test(text) ? 'item' : /mes[oa]s|gained/i.test(text) ? 'mesos' : /EXP|rece/i.test(text) ? 'exp' : null);
+// Thin strokes often turn "earned" into "eamed" or "seamed".
+const kindOf = (text) => (/earn|eam|amed\./i.test(text) ? 'item' : /mes[oa]s|gained/i.test(text) ? 'mesos' : /EXP|rece/i.test(text) ? 'exp' : null);
 
 // A number read from the learned font; unknown trailing digits ("2?") round down, as above.
 const fontNumber = (digits) => {
@@ -91,10 +97,12 @@ export async function readMessage(engine, samples, list, font = null) {
   let result = null, confirmed = false;
   if (font) for (const {mask} of order) {
     result = parseFont(readLine(font, mask), list) ?? result;
-    if (result && !result.parsed.approx) { confirmed = true; break; }
+    // An item name confirms only when it names a known item ("Snaii Sheii" may be a font mix-up).
+    if (result && !result.parsed.approx && (result.parsed.kind !== 'item' || result.item)) { confirmed = true; break; }
   }
   if (!confirmed) {
-    const read = await readByOcr(engine, order, list);
+    // Partial font reads ("?ree ?ra??h x1 ...") still carry the glyphs the font knows, digits above all.
+    const read = await readByOcr(engine, order, list, font ? order.map(({mask}) => readLine(font, mask)) : []);
     confirmed = read.confirmed;
     if (!result || read.result.parsed) result = read.result;
   }
@@ -103,39 +111,56 @@ export async function readMessage(engine, samples, list, font = null) {
   return result;
 }
 
-async function readByOcr(engine, order, list) {
+// The parts a whole-line read shows, or nulls: "... (+1 6)" gives amount 16; "Tree Branch x1 seamed. (Etc)"
+// gives name, count and tab. A font read leaves "?" for glyphs it does not know: "?ree ?ra??h ?1 ..."
+// still gives the count, but never a name.
+function lineParts(text) {
+  // The "(" is often lost ("+17)"), so either it or the "+" marks the amount.
+  const amount = /(?:\(\s*\+?|\+)\s*(\d[\d,. ]*)\)?\s*$/.exec(text)?.[1].replace(/\D/g, '');
+  const item = /^(.*?)\s+[x×?]\s?(\d+)\s/.exec(text), tab = /\(\s*([A-Za-z]{2,5})\W*$/.exec(text)?.[1];
+  const name = item?.[1].includes('?') ? null : item?.[1].replace(/[^A-Za-z0-9' .:-]/g, '').trim();
+  return {amount: amount ? Number(amount) : null, name: name || null, count: item ? Number(item[2]) : null, tab: item && tab ? tabOf(tab) : null};
+}
+
+async function readByOcr(engine, order, list, fontTexts) {
+  // Every sample is read whole first: with clean masks those reads carry the digits too (measured), and
+  // the separate reads of just the digits, the tab or the name only add votes when they disagree.
   const texts = [];
-  const kind = (await vote(order.map(({mask}) => async () => { const text = await ocr(engine, mask, 'message', 3); texts.push(text); return kindOf(text); }))).value;
+  for (const {mask} of order) texts.push(await ocr(engine, mask, 'message', 3));
+  const kind = (await vote([...fontTexts, ...texts].map((t) => async () => kindOf(t)))).value;
   const text = texts.find((t) => kindOf(t) === kind) ?? texts[0] ?? '';
+  const parts = [...fontTexts, ...texts].filter((t) => kindOf(t) === kind).map(lineParts);
+  const fromLines = (field) => parts.map((p) => async () => p[field]);
   // Digit reads of a span of each sample (columns [x0, x1) or null), at two magnifications.
-  const digits = async (spanOf) => {
-    const votes = await vote(order.flatMap(({mask, words}) => {
+  const digits = async (field, spanOf) => {
+    const votes = await vote([...fromLines(field), ...order.flatMap(({mask, words}) => {
       const at = spanOf(mask, words);
       return at ? [3, 5].map((scale) => async () => {
         const read = (await ocr(engine, span(mask, ...at), 'number', scale)).replace(/[,.]/g, '');
         return /^\d+$/.test(read) ? Number(read) : null;
       }) : [];
-    }));
+    })]);
     return votes.agreed ? {amount: votes.value, approx: false} : votes.values.length ? {amount: rounded(votes.values), approx: true} : null;
   };
   const none = {result: {text, parsed: null, item: null}, confirmed: false};
   if (kind === 'mesos' || kind === 'exp') {
-    const n = await digits(amountSpan);
+    const n = await digits('amount', amountSpan);
     return n?.amount ? {result: {text, parsed: {kind, ...n}, item: null}, confirmed: !n.approx} : none;
   }
   if (kind !== 'item') return none;
   // "Arrows for Bows x3 earned. (Use)": the count is the third word from the end, after its "x".
-  const n = await digits((mask, words) => { const g = words.at(-3)?.glyphs; return g?.length > 1 ? [g[1].x0, g.at(-1).x1] : null; });
-  const tab = await vote(order.map(({mask, words}) => async () => (words.length >= 4 ? tabOf(await ocr(engine, span(mask, words.at(-1).x0, words.at(-1).x1), 'message', 3)) : null)));
-  const name = (await vote(order.map(({mask, words}) => async () => {
+  const n = await digits('count', (mask, words) => { const g = words.at(-3)?.glyphs; return g?.length > 1 ? [g[1].x0, g.at(-1).x1] : null; });
+  const tab = await vote([...fromLines('tab'), ...order.map(({mask, words}) => async () => (words.length >= 4 ? tabOf(await ocr(engine, span(mask, words.at(-1).x0, words.at(-1).x1), 'message', 3)) : null))]);
+  const name = (await vote([...fromLines('name'), ...order.map(({mask, words}) => async () => {
     if (words.length < 4) return null;
     const read = await ocr(engine, span(mask, words[0].x0, words.at(-4).x1), 'message', 3);
     return read.replace(/[^A-Za-z0-9' .:-]/g, '').trim() || null;
-  }))).value;
+  })])).value;
   if (!n?.amount || !name) return none;
   const cut = /\.\s*\.$/.test(name), named = name.replace(/[\s.]+$/, ''), item = resolveItem(list, {name: named, cut, tab: tab.value});
-  return {result: {text, parsed: {kind, name: named, cut, count: n.amount, approx: n.approx, tab: tab.value}, item},
-    confirmed: !n.approx && tab.agreed && Boolean(item)};
+  // An unread tab ("(Etc)" often comes out "Ex)") is the named item's own; a misread one never confirms.
+  return {result: {text, parsed: {kind, name: named, cut, count: n.amount, approx: n.approx, tab: tab.value ?? item?.tab ?? null}, item},
+    confirmed: !n.approx && Boolean(item) && (tab.agreed || tab.value === null)};
 }
 
 export async function startPickups({track, engine, onMessage, onStats, onError}) {
