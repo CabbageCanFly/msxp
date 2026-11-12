@@ -39,7 +39,7 @@ let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, per window size ({'1368x800': templates}): another size
 // draws other pixels, and a size used before reads at once again. pickupFont: the same for pickup messages
 // (fonts saved as messageFont, learned before the word alignment, held misread shapes and are not loaded).
-let settings = {interval: 1, window: 5, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: true, liveKind: 'exp', liveWindow: 5, mesoWindow: 5, itemWindow: 1440, itemKind: 'all', pickupFont: null};
+let settings = {interval: 1, window: 5, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: true, scenery: true, liveKind: 'exp', liveWindow: 5, mesoWindow: 5, itemWindow: 1440, itemKind: 'all', pickupFont: null};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 60, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -947,8 +947,8 @@ async function init() {
     text: 'Every character, reading and pickup in this browser is deleted, along with what the reader has learned. This can\'t be undone.', yes: 'Clear everything'}, async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
-    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: false, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow, mesoWindow: settings.mesoWindow, itemWindow: settings.itemWindow, itemKind: settings.itemKind};
-    character = null; readingsCache = []; pickupsCache = []; $('track-pickups').checked = false;
+    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: true, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow, mesoWindow: settings.mesoWindow, itemWindow: settings.itemWindow, itemKind: settings.itemKind};
+    character = null; readingsCache = []; pickupsCache = []; $('track-pickups').checked = true;
     await refreshCharacters(); broadcast(); setStatus('Local history cleared');
   }));
   setupDrawing();
