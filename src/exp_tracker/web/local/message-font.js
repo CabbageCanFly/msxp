@@ -144,9 +144,9 @@ export function learnLine(font, mask, text) {
 /**
  * The text of a line from the learned font, "?" for a glyph that is unknown or too close to two
  * characters. Spaces come from gaps; a narrow "1" leaves a space-sized gap, so spaces between digits
- * and brackets are dropped.
+ * and brackets are dropped. `used.shade` counts glyphs read from the line's brightness.
  */
-export function readLine(font, mask) {
+export function readLine(font, mask, used = null) {
   const seen = cache(font);
   const guess = (glyph) => {
     const key = `${glyph.w},${glyph.h},${glyph.bits.join('')}`;
@@ -182,7 +182,8 @@ export function readLine(font, mask) {
     // piece reads as nothing alone: "r" and "n" side by side also join into an "m".
     const glyph = glyphs[i], alone = guess(glyph), next = glyphs[i + 1];
     const joined = next?.gap <= 1 && (!alone || !guess(next)) ? guess(join(glyph, next)) : null;
-    const char = joined ?? alone ?? split(glyph) ?? (mask.gray ? shade(font, mask, glyph) : null);
+    let char = joined ?? alone ?? split(glyph);
+    if (!char && mask.gray && (char = shade(font, mask, glyph)) && used) used.shade = (used.shade ?? 0) + 1;
     if (joined) i++;
     text += (glyph.gap >= 4 && text ? ' ' : '') + (char ?? '?');
   }

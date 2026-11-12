@@ -1106,7 +1106,7 @@ function logPickup(m) {
   window.msxpPickups.messages.push(m);
   const p = m.parsed, row = document.createElement('li');
   const what = !p ? 'unread' : p.kind === 'item' ? `${m.item?.name ?? p.name + (p.cut ? '…' : '') + ' (?)'} ×${p.count}` : `${p.kind} +${fmtExp(p.amount)}${p.approx ? '~' : ''}`;
-  row.textContent = `${new Date(m.at).toLocaleTimeString()} · ${what} · “${m.text}”`;
+  row.textContent = `${new Date(m.at).toLocaleTimeString()} · ${what} · “${m.text}”${m.via ? ` · ${m.via}` : ''}`;
   $('pickup-log').prepend(row);
 }
 

@@ -101,8 +101,10 @@ export async function readMessage(engine, samples, list, font = null) {
   // The first sample is the bottom slot, where scenery is busiest: read it last.
   const order = [...samples.slice(1), ...samples.slice(0, 1)].map((mask) => ({mask, words: lineWords(mask)}));
   let result = null, confirmed = false;
+  // Which reader settled it, for the ?debug log: the font (some glyphs from brightness), item-name shapes or OCR.
   if (font) for (const {mask} of order) {
-    result = parseFont(readLine(font, mask), list) ?? result;
+    const used = {}, read = parseFont(readLine(font, mask, used), list);
+    if (read) result = {...read, via: used.shade ? `font, ${used.shade} by brightness` : 'font'};
     // An item name confirms only when it names a known item ("Snaii Sheii" may be a font mix-up).
     if (result && !result.parsed.approx && (result.parsed.kind !== 'item' || result.item)) { confirmed = true; break; }
   }
@@ -110,7 +112,7 @@ export async function readMessage(engine, samples, list, font = null) {
     // Partial font reads ("?ree ?ra??h x1 ...") still carry the glyphs the font knows, digits above all.
     const read = await readByOcr(engine, order, list, font ? order.map(({mask}) => readLine(font, mask)) : [], font);
     confirmed = read.confirmed;
-    if (!result || read.result.parsed) result = read.result;
+    if (!result || read.result.parsed) result = {via: 'OCR', ...read.result};
   }
   const text = confirmed && font ? shown(result) : null;
   if (text) for (const {mask} of order) learnLine(font, mask, text);
@@ -166,7 +168,7 @@ async function readByOcr(engine, order, list, fontTexts, font = null) {
   const shaped = font && spans.length ? matchName(font, spans, tab.value ? list.filter((i) => i.tab === tab.value) : list) : null;
   if (shaped && shaped.cost <= SHAPE_COST && shaped.next - shaped.cost >= SHAPE_LEAD) {
     const item = shaped.item, count = n?.amount ? n : {amount: 1, approx: true};
-    return {result: {text, parsed: {kind, name: item.name, cut: shaped.cut, count: count.amount, approx: count.approx, tab: tab.value ?? item.tab}, item},
+    return {result: {text, parsed: {kind, name: item.name, cut: shaped.cut, count: count.amount, approx: count.approx, tab: tab.value ?? item.tab}, item, via: 'name shapes'},
       confirmed: !count.approx && (tab.agreed || tab.value === null)};
   }
   const name = (await vote([...fromLines('name'), ...order.map(({mask, words}) => async () => {
