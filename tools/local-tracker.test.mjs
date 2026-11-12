@@ -454,6 +454,20 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   const line = P.messageLines({width, height, data: fog}, true)[0], lw = line.x1 - line.x0 + 1;
   const got = Array.from({length: 9}, (_, y) => Array.from({length: 5}, (_, x) => line.bits[(40 + y - line.y0) * lw + 60 + x - line.x0] ? '#' : '.').join(''));
   assert.deepEqual(got, Array.from({length: 9}, (_, y) => Array.from({length: 5}, (_, x) => eight.bits[y * 5 + x] ? '#' : '.').join('')));
+  // A glyph the mask lost strokes of reads from the line's brightness: strokes light, their shadows dark.
+  const font8 = F.seedFont({}), W = eight.w, H = eight.h, lost = Uint8Array.from(eight.bits), gray = new Uint8Array((W + 1) * (H + 1)).fill(200);
+  for (const [x, y] of [[1, 4], [2, 4], [3, 4], [4, 1], [4, 2]]) lost[y * W + x] = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (eight.bits[y * W + x]) {
+    gray[y * (W + 1) + x] = 245;
+    if (!(x + 1 < W && y + 1 < H && eight.bits[(y + 1) * W + x + 1])) gray[(y + 1) * (W + 1) + x + 1] = 10;
+  }
+  assert.equal(F.readLine(font8, {width: W, height: H, bits: lost}), '?');
+  assert.equal(F.readLine(font8, {width: W, height: H, bits: lost, gray}), '8');
+  // Reads are remembered per glyph shape, and forgotten when the font learns: the lost "8" reads once taught.
+  const taught = {width: W, height: H, bits: lost};
+  assert.equal(F.readLine(font8, taught), '?');
+  assert.equal(F.learnLine(font8, taught, '8'), 1);
+  assert.equal(F.readLine(font8, taught), '8');
 });
 
 test('pickup message font: learned glyphs read later lines, misaligned lines are refused', async () => {

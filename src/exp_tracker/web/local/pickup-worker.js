@@ -33,7 +33,7 @@ onmessage = async ({data}) => {
       const image = context.getImageData(0, 0, w, h);
       const corner = W / GAME_WIDTH > 1.03 ? unstretch(image, W / GAME_WIDTH, H / GAME_HEIGHT, x, y, cache, stretch) : image;
       for (const {at, samples} of tracker.update(messageLines(corner, true), Date.now())) {
-        postMessage({type: 'message', at, samples}, samples.map((sample) => sample.bits.buffer));
+        postMessage({type: 'message', at, samples}, samples.flatMap((sample) => (sample.gray ? [sample.bits.buffer, sample.gray.buffer] : [sample.bits.buffer])));
       }
     } catch (error) {
       frame.close?.();

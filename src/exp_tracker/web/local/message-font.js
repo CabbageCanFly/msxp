@@ -7,6 +7,10 @@ import {lineWords} from './pickups.js';
 
 const PER_CHAR = 6;  // Variants kept per character.
 
+// Reads of exact glyph shapes per font (the same words repeat on every line); emptied when the font changes.
+const caches = new WeakMap();
+const cache = (font) => { if (!caches.has(font)) caches.set(font, new Map()); const seen = caches.get(font); if (seen.size > 20000) seen.clear(); return seen; };
+
 // The shipped font (message-font-base.js), unpacked once.
 let base = null;
 const baseFont = () => base ??= Object.fromEntries(Object.entries(BASE_FONT).map(([char, packed]) => [char, packed.map((v) => {
@@ -27,6 +31,7 @@ export function seedFont(font) {
       && !(nearest(shipped, g, (c) => c !== char) + 2 <= nearest(shipped, g, (c) => c === char)));
     font[char] = [...variants.map((g) => ({...g})), ...own].slice(0, PER_CHAR);
   }
+  caches.delete(font);
   return font;
 }
 
@@ -37,7 +42,7 @@ export function glyphsOf(mask) {
   for (const word of lineWords(mask)) for (const {x0, x1} of word.glyphs) {
     const w = x1 - x0, bits = new Uint8Array(w * mask.height);
     for (let y = 0; y < mask.height; y++) bits.set(mask.bits.subarray(y * mask.width + x0, y * mask.width + x1), y * w);
-    out.push({w, h: mask.height, bits, gap: end === null ? 0 : x0 - end});
+    out.push({w, h: mask.height, bits, gap: end === null ? 0 : x0 - end, x0});
     end = x1;
   }
   return out;
@@ -52,13 +57,15 @@ function rows(g) {
   return [top, bottom];
 }
 
-// Differing pixels at the best offset (line boxes can sit a row or two apart).
-function distance(a, b) {
+// Differing pixels at the best offset (line boxes can sit a row or two apart). With `cap`, counting stops
+// there: a reader only needs to know a glyph is at least that far.
+function distance(a, b, cap = Infinity) {
   if (Math.abs(a.w - b.w) > 1) return Infinity;
-  let best = Infinity;
+  let best = cap;
+  const H = Math.max(a.h, b.h) + 2, W = Math.max(a.w, b.w) + 1;
   for (let dy = -2; dy <= 2; dy++) for (let dx = -1; dx <= 1; dx++) {
     let n = 0;
-    for (let y = -2; y < Math.max(a.h, b.h) + 2; y++) for (let x = -1; x < Math.max(a.w, b.w) + 1; x++) {
+    for (let y = -2; y < H && n < best; y++) for (let x = -1; x < W; x++) {
       const pa = y >= 0 && y < a.h && x >= 0 && x < a.w ? a.bits[y * a.w + x] : 0;
       const yb = y + dy, xb = x + dx, pb = yb >= 0 && yb < b.h && xb >= 0 && xb < b.w ? b.bits[yb * b.w + xb] : 0;
       if (pa !== pb) n++;
@@ -68,13 +75,13 @@ function distance(a, b) {
   return best;
 }
 
-const nearest = (font, glyph, test) => Math.min(Infinity, ...Object.entries(font).filter(([char]) => test(char)).flatMap(([, known]) => known.map((g) => distance(g, glyph))));
+const nearest = (font, glyph, test, cap = Infinity) => Math.min(cap, ...Object.entries(font).filter(([char]) => test(char)).flatMap(([, known]) => known.map((g) => distance(g, glyph, cap))));
 
 // Two neighbouring glyphs as one, with the empty columns between them.
 export function join(a, b) {
   const w = a.w + b.gap + b.w, bits = new Uint8Array(w * a.h);
   for (let y = 0; y < a.h; y++) { bits.set(a.bits.subarray(y * a.w, (y + 1) * a.w), y * w); bits.set(b.bits.subarray(y * b.w, (y + 1) * b.w), y * w + a.w + b.gap); }
-  return {w, h: a.h, bits, gap: a.gap};
+  return {w, h: a.h, bits, gap: a.gap, x0: a.x0};
 }
 
 /**
@@ -129,7 +136,7 @@ export function learnLine(font, mask, text) {
   const pairs = aligned.filter(([, , word]) => !wrong.has(word));
   for (const [glyph, char] of pairs) {
     const known = font[char] ??= [];
-    if (known.length < PER_CHAR && !known.some((g) => distance(g, glyph) <= 1)) known.push({w: glyph.w, h: glyph.h, bits: glyph.bits});
+    if (known.length < PER_CHAR && !known.some((g) => distance(g, glyph) <= 1)) { known.push({w: glyph.w, h: glyph.h, bits: glyph.bits}); caches.delete(font); }
   }
   return pairs.length;
 }
@@ -140,10 +147,20 @@ export function learnLine(font, mask, text) {
  * and brackets are dropped.
  */
 export function readLine(font, mask) {
+  const seen = cache(font);
   const guess = (glyph) => {
+    const key = `${glyph.w},${glyph.h},${glyph.bits.join('')}`;
+    if (seen.has(key)) return seen.get(key);
+    seen.set(key, nearestChar(glyph));
+    return seen.get(key);
+  };
+  const nearestChar = (glyph) => {
+    // Distances past the limit plus 2 cannot change the answer (the best must be within the limit and 2
+    // ahead of the next), so counting stops there.
     let best = '?', d1 = Infinity, d2 = Infinity;
+    const cap = Math.floor(Math.max(1, ink(glyph) * .15)) + 3;
     for (const [char, known] of Object.entries(font)) {
-      const d = Math.min(...known.map((g) => distance(g, glyph)));
+      const d = Math.min(...known.map((g) => distance(g, glyph, cap)));
       if (d < d1) { if (char !== best) d2 = d1; best = char; d1 = d; } else if (d < d2 && char !== best) d2 = d;
     }
     return d1 <= Math.max(1, ink(glyph) * .15) && d2 - d1 >= 2 ? best : null;
@@ -165,11 +182,46 @@ export function readLine(font, mask) {
     // piece reads as nothing alone: "r" and "n" side by side also join into an "m".
     const glyph = glyphs[i], alone = guess(glyph), next = glyphs[i + 1];
     const joined = next?.gap <= 1 && (!alone || !guess(next)) ? guess(join(glyph, next)) : null;
-    const char = joined ?? alone ?? split(glyph);
+    const char = joined ?? alone ?? split(glyph) ?? (mask.gray ? shade(font, mask, glyph) : null);
     if (joined) i++;
     text += (glyph.gap >= 4 && text ? ' ' : '') + (char ?? '?');
   }
   return text.replace(/(?<=[\d(+?])\s+(?=[\d)?,])/g, '');
+}
+
+// A glyph the mask lost strokes of, read from the line's brightness (`mask.gray`, one column and row wider):
+// each learned shape predicts its strokes light and, where a stroke has no stroke down-right of it, that
+// pixel dark (the drop shadow, which stays dark over white fog where the mask test fails); a text pixel of
+// the mask the shape leaves unexplained costs too. Measured: see docs/local-tracker.md.
+const STROKE = 60, LONE = 180;  // A stroke over its shadow: brighter by STROKE; a stroke over a stroke: LONE.
+function shade(font, mask, glyph) {
+  const gw = mask.width + 1, gh = mask.height + 1, at = (x, y) => (x >= 0 && y >= 0 && x < gw && y < gh ? mask.gray[y * gw + x] : -1);
+  const bit = (x, y) => x >= 0 && y >= 0 && x < mask.width && y < mask.height && mask.bits[y * mask.width + x];
+  let best = null, d1 = Infinity, d2 = Infinity;
+  const cap = Math.floor(Math.max(1, ink(glyph) * .15)) + 3;  // As in readLine's guess.
+  for (const [char, known] of Object.entries(font)) {
+    let d = cap;
+    for (const t of known) {
+      if (Math.abs(t.w - glyph.w) > 1) continue;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const ox = glyph.x0 + dx;
+        let cost = 0;
+        for (let y = 0; y < t.h && cost < d; y++) for (let x = 0; x < t.w; x++) {
+          const X = ox + x, Y = dy + y;
+          if (!t.bits[y * t.w + x]) { cost += bit(X, Y) ? 1 : 0; continue; }
+          const v = at(X, Y), covered = x + 1 < t.w && y + 1 < t.h && t.bits[(y + 1) * t.w + x + 1];
+          cost += v < 0 || (covered ? v < LONE : v - at(X + 1, Y + 1) < STROKE) ? 1 : 0;
+        }
+        // Text pixels of the glyph outside the shape's box.
+        for (let y = 0; y < mask.height; y++) for (let x = glyph.x0; x < glyph.x0 + glyph.w; x++) {
+          if ((x < ox || x >= ox + t.w || y < dy || y >= dy + t.h) && bit(x, y)) cost++;
+        }
+        d = Math.min(d, cost);
+      }
+    }
+    if (d < d1) { if (char !== best) d2 = d1; best = char; d1 = d; } else if (d < d2 && char !== best) d2 = d;
+  }
+  return best && d1 <= Math.max(1, ink(glyph) * .15) && d2 - d1 >= 2 ? best : null;
 }
 
 // Costs for comparing a name's shapes with an item's letters (pixels that differ; see matchName).
@@ -195,7 +247,7 @@ export function matchName(font, masks, items) {
     const G = glyphs.length;
     if (G < 3) continue;
     used++;
-    const cost = (glyph) => Object.fromEntries(chars.map((c) => [c, font[c]?.length ? Math.min(NAME.cap, nearest(font, glyph, (x) => x === c)) : NAME.unknown]));
+    const cost = (glyph) => Object.fromEntries(chars.map((c) => [c, font[c]?.length ? nearest(font, glyph, (x) => x === c, NAME.cap) : NAME.unknown]));
     const single = glyphs.map(cost), pair = glyphs.slice(1).map((g, i) => (g.gap <= 1 ? cost(join(glyphs[i], g)) : null));
     for (const item of items) {
       const letters = [...item.name.replace(/\s+/g, '')], C = letters.length;

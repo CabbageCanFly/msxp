@@ -52,6 +52,11 @@ export function messageLines(frame, keep = false) {
     if (keep) {
       line.bits = new Uint8Array((x1 - x0 + 1) * (bottom - top));
       for (let yy = top; yy < bottom; yy++) line.bits.set(text.subarray(yy * w + x0, yy * w + x1 + 1), (yy - top) * (x1 - x0 + 1));
+      // The line's brightness, one column and row wider for the last strokes' shadows (message-font.js reads
+      // glyphs the mask lost from it).
+      const gw = x1 - x0 + 2, gh = bottom - top + 1;
+      line.gray = new Uint8Array(gw * gh);
+      for (let yy = 0; yy < gh && top + yy < h; yy++) for (let xx = 0; xx < gw && x0 + xx < w; xx++) line.gray[yy * gw + xx] = lum(((top + yy) * w + x0 + xx) * 4);
     }
     lines.push(line);
   };
@@ -297,7 +302,7 @@ export function stackTracker({forgetMs = 1500} = {}) {
         if (entry.msg && entry.slot !== k && entry.msg.samples.length < 4 && (!entry.msg.first || difference(entry.msg.first, line, 61) <= 60)) {
           entry.slot = k;
           entry.msg.first ??= line;
-          entry.msg.samples.push({width: line.x1 - line.x0 + 1, height: line.y1 - line.y0, bits: line.bits});
+          entry.msg.samples.push({width: line.x1 - line.x0 + 1, height: line.y1 - line.y0, bits: line.bits, gray: line.gray});
         }
       }
       return done.sort((a, b) => a.order - b.order).map(({at, samples}) => ({at, samples}));  // Oldest first.
