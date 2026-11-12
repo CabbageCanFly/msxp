@@ -24,8 +24,16 @@ const span = (hours) => {
   if (minutes < 48 * 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
   return `${Math.floor(minutes / 1440)}d ${Math.floor(minutes % 1440 / 60)}h`;
 };
-// The day a goal is reached when `daily` hours are played each day from today: "Today", "Tomorrow", a weekday
-// within the week, else the date. Playing all day (24) gives the clock time.
+// Playing `daily` hours a day from now: the moment `hours` of play are done (the last day's share is played
+// from the same time of day), and the hours of play before a moment `ms` away.
+export const finish = (hours, daily, now) => {
+  if (daily >= 24) return now + hours * 36e5;
+  const days = Math.floor(hours / daily - 1e-9);
+  return now + days * 864e5 + (hours - days * daily) * 36e5;
+};
+export const playable = (ms, daily) => { const days = Math.floor(ms / 864e5); return days * daily + Math.min((ms - days * 864e5) / 36e5, daily); };
+// When a level is reached: the clock time when playing all day, else "Today", "Tomorrow", a weekday within the
+// week or the date (with the year when it is not this year's).
 const date = (at, now) => at.toLocaleDateString(undefined, {month: 'short', day: 'numeric', ...(at.getFullYear() !== new Date(now).getFullYear() && {year: 'numeric'})});
 export const when = (hours, daily, now) => {
   if (daily >= 24) {
@@ -33,19 +41,23 @@ export const when = (hours, daily, now) => {
     if (at.toDateString() === new Date(now).toDateString()) return time;
     return (at - now) / 864e5 < 6 ? `${at.toLocaleDateString(undefined, {weekday: 'short'})} ${time}` : date(at, now);
   }
-  const days = Math.floor(hours / daily - 1e-9), at = new Date(now + days * 864e5);
+  // The calendar day of the moment `finish` gives, so the list and the "By" date agree.
+  const at = new Date(finish(hours, daily, now)), days = Math.round((new Date(at).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 864e5);
   return days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days < 6 ? at.toLocaleDateString(undefined, {weekday: 'short'}) : date(at, now);
 };
 // Whole EXP: commas group thousands, a "." starts decimals (rounded).
 export const whole = (text) => Math.round(Number(text.replace(/[,\s]/g, ''))) || 0;
+// A moment as a datetime-local value (local time, to the minute).
+const local = (at) => new Date(at - new Date(at).getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
 const node = (tag, props = {}, ...children) => { const n = Object.assign(document.createElement(tag), props); n.append(...children); return n; };
 
-let goal = null, by = '', daily = null;  // Kept while the page is open.
+let goal = null, daily = null;  // Kept while the page is open.
 
 /**
  * Fills `root` (the planner popover's body) for `state` {level, exp, bp, rate, pph, tracked}: EXP may be given
  * as bp (hundredths of a percent) and the rate as % per hour, as the live page has them; `tracked` (seconds
- * tracked in the last 24 hours) suggests the hours played a day, else 4.
+ * tracked in the last 24 hours) suggests the hours played a day, else 4. EXP / hour, hours a day and the goal
+ * set the "By" date; changing the date sets the EXP / hour that date needs.
  */
 export function openPlanner(root, table, state) {
   const level = state.level, now = Date.now();
@@ -63,17 +75,19 @@ export function openPlanner(root, table, state) {
   const target = node('input', {type: 'number', inputMode: 'numeric', min: level + 1, max: top, step: 1, value: goal});
   const capped = node('span', {className: 'planner-cap', textContent: '24 max', hidden: true});
   const topped = node('span', {className: 'planner-cap', textContent: `${top} max`, hidden: true});
-  const deadline = node('input', {type: 'datetime-local', value: by});
-  const steps = node('ol', {className: 'planner-steps'}), answer = node('p', {className: 'planner-answer'});
+  const deadline = node('input', {type: 'datetime-local', min: local(now)});
+  const steps = node('ol', {className: 'planner-steps'});
+  const head = node('div', {className: 'planner-head'}, node('span', {textContent: 'Lvl'}), node('span', {textContent: 'Play time'}), node('span', {textContent: 'Reached'}));
+  head.setAttribute('aria-hidden', 'true');
   root.append(
     node('p', {className: 'planner-now', textContent: `Lv. ${level} · ${((exp / need(table, level)) * 100).toFixed(2)}%`}),
     node('div', {className: 'planner-inputs'},
       node('label', {}, node('span', {textContent: 'EXP / hour'}), rate),
       node('label', {}, node('span', {}, 'Hours / day', capped), hours),
       node('label', {}, node('span', {}, 'Goal Lvl', topped), target)),
-    steps,
+    // The column names stay at the top and the goal's row at the bottom while the list scrolls.
+    node('div', {className: 'planner-table'}, head, steps),
     node('label', {className: 'planner-by'}, node('span', {textContent: 'By'}), deadline),
-    answer,
   );
 
   let hideCap = null;
@@ -83,27 +97,22 @@ export function openPlanner(root, table, state) {
     input.value = max; note.hidden = false;
     clearTimeout(hideCap); hideCap = setTimeout(() => { note.hidden = true; }, 2000);
   };
-  const update = () => {
-    by = deadline.value;
-    // At least six rows: levels past the goal fill the list, faded, so the popup keeps its size.
-    const perHour = whole(rate.value), path = climb(table, level, exp, Math.min(top, Math.max(goal, level + 6)));
-    const total = path.find((s) => s.level === goal)?.exp ?? path.at(-1)?.exp ?? 0;
-    steps.replaceChildren(...path.map((s) => node('li', {className: s.level > goal ? 'beyond' : s.level === goal ? 'goal' : ''},
+  // At least six rows: levels past the goal fill the list, faded, so the popup keeps its size.
+  const path = () => climb(table, level, exp, Math.min(top, Math.max(goal, level + 6)));
+  const toGoal = () => path().find((s) => s.level === goal)?.exp ?? 0;
+  const draw = () => {
+    const perHour = whole(rate.value);
+    steps.replaceChildren(...path().map((s) => node('li', {className: s.level > goal ? 'beyond' : s.level === goal ? 'goal' : ''},
       node('b', {textContent: `Lv. ${s.level}`}),
       node('span', {textContent: perHour ? span(s.exp / perHour) : '—'}),
       node('time', {textContent: perHour && daily ? when(s.exp / perHour, daily, now) : ''}),
     )));
-    // Hours left before the deadline, of which `daily` a day are played.
-    const left = (Date.parse(deadline.value) - Date.now()) / 36e5, played = left / 24 * (daily || 24);
-    // The answer keeps its space while empty, so the popup never changes size.
-    answer.replaceChildren();
-    if (!deadline.value) return;
-    if (!(left > 0)) { answer.textContent = 'Pick a time ahead.'; return; }
-    answer.replaceChildren(node('strong', {textContent: numbers.format(Math.ceil(total / played))}), ` EXP / hour at ${daily || 24}h a day`);
-    if (perHour) {
-      const needed = total / perHour / (left / 24);
-      if (needed <= 24) answer.append(node('small', {textContent: ` · or ${span(needed)} a day at ${numbers.format(perHour)}`}));
-    }
+  };
+  // From the three fields: the date the goal is reached.
+  const update = () => {
+    const perHour = whole(rate.value);
+    deadline.value = perHour && daily ? local(finish(toGoal() / perHour, daily, now)) : '';
+    draw();
   };
   rate.addEventListener('input', update);
   hours.addEventListener('input', () => {
@@ -114,6 +123,12 @@ export function openPlanner(root, table, state) {
   // Typed or picked; a decimal rounds and the level stays within the table.
   target.addEventListener('input', () => { cap(target, topped, top); const value = Math.round(Number(target.value)); if (value > level) { goal = value; update(); } });
   target.addEventListener('change', () => { goal = Math.min(top, Math.max(level + 1, Math.round(Number(target.value)) || goal)); target.value = goal; update(); });
-  deadline.addEventListener('input', update);
+  // From the date: the EXP / hour that reaches the goal by then, at the hours a day above.
+  deadline.addEventListener('input', () => {
+    const played = playable(Date.parse(deadline.value) - now, daily || 24);
+    if (!(played > 0)) return;
+    rate.value = numbers.format(Math.ceil(toGoal() / played));
+    draw();
+  });
   update();
 }

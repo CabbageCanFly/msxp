@@ -545,3 +545,13 @@ test('level planner: hours a day spread play over days; EXP typed with commas or
   assert.equal(whole('123.4'), 123);
   assert.equal(whole('abc'), 0);
 });
+
+test('level planner: the finish moment and the hours of play before a date, at hours a day', async () => {
+  const {finish, playable} = await import(new URL('level-plan.js', web));
+  const now = 0, h = 36e5, d = 864e5;
+  assert.equal(finish(3, 4, now), 3 * h);           // Done today.
+  assert.equal(finish(6, 4, now), d + 2 * h);       // A day's 4 h, then 2 h tomorrow.
+  assert.equal(finish(30, 24, now), 30 * h);        // All day: straight through.
+  assert.equal(playable(d + 2 * h, 4), 6);          // The same moment back: 6 h of play.
+  assert.equal(playable(d + 10 * h, 4), 8);         // A second day plays its 4 h at most.
+});

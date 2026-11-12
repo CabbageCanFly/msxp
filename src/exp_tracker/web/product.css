@@ -584,17 +584,20 @@ html, body.product { overflow-x:clip; }
 .planner input, .planner select { min-height:36px; box-sizing:border-box; padding:0 10px; border:1px solid var(--line-strong); border-radius:var(--radius-sm);
   background:var(--surface-sunken); color:var(--text); font-family:inherit; font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; color-scheme:dark; }
 .planner input:focus-visible, .planner select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
-.planner-steps { height:220px; overflow-y:auto; margin:0; padding:0; list-style:none; border-top:1px solid var(--line); }
-.planner-steps li { display:grid; grid-template-columns:64px 1fr auto; gap:10px; padding:6px 2px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
-.planner-steps li.goal { color:var(--text); }
+.planner-table { height:240px; overflow-y:auto; border-top:1px solid var(--line); }
+.planner-head, .planner-steps li { display:grid; grid-template-columns:64px 1fr auto; gap:10px; padding:6px 2px; }
+.planner-head { position:sticky; top:0; z-index:1; padding-block:5px; border-bottom:1px solid var(--line); background:var(--surface);
+  color:var(--text-muted); font-size:11px; font-weight:700; letter-spacing:.3px; }
+.planner-head span:last-child { text-align:right; }
+.planner-steps { margin:0; padding:0; list-style:none; }
+.planner-steps li { border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+/* The goal's row stays in view at the bottom while levels before it scroll. */
+.planner-steps li.goal { position:sticky; bottom:0; border-top:1px solid var(--line); background:var(--surface); color:var(--text); }
 .planner-steps li.goal b { color:var(--gold); }
 .planner-steps li.beyond { opacity:.4; }
 .planner-steps b { color:var(--text); font-weight:800; }
 .planner-steps time { color:var(--text-muted); font-size:13px; }
 .planner-by { margin-top:12px; grid-template-columns:auto 1fr; align-items:center; }
-.planner-answer { min-height:44px; margin-top:8px; }
-.planner-answer strong { color:var(--green); font-family:var(--font-display); font-size:20px; font-weight:600; }
-.planner-answer small { color:var(--text-muted); font-size:12px; }
 .planner-empty { color:var(--text-muted); }
 /* Daily history: days that reached a new level. */
 .history-chart circle.sample.level-up { fill:var(--gold); }
