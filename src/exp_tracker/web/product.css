@@ -573,19 +573,26 @@ html, body.product { overflow-x:clip; }
 .planner-now { color:var(--text-muted); font-size:13px; font-weight:700; }
 .planner-inputs { display:grid; grid-template-columns:minmax(0,1fr) 92px 92px; gap:10px; margin:10px 0 12px; }
 .planner-inputs input { width:100%; }
-.planner-cap { margin-left:6px; color:var(--text-muted); text-transform:none; letter-spacing:0; font-weight:700; }
+.planner label { position:relative; }
+.planner label > span { white-space:nowrap; }
+/* "24 max": a small bubble under the box, over the list, so nothing moves. */
+.planner-cap { position:absolute; top:100%; left:0; z-index:1; margin-top:4px; padding:2px 8px; border:1px solid var(--line-strong); border-radius:999px;
+  background:var(--surface-raised); color:var(--text-soft); font-size:11px; font-weight:700; text-transform:none; letter-spacing:0; }
+.planner-cap[hidden] { display:none; }
 .planner label { display:grid; gap:4px; }
 .planner label > span { color:var(--gold); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; }
 .planner input, .planner select { min-height:36px; box-sizing:border-box; padding:0 10px; border:1px solid var(--line-strong); border-radius:var(--radius-sm);
   background:var(--surface-sunken); color:var(--text); font-family:inherit; font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; color-scheme:dark; }
 .planner input:focus-visible, .planner select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
-.planner-steps { max-height:220px; overflow-y:auto; margin:0; padding:0; list-style:none; border-top:1px solid var(--line); }
+.planner-steps { height:220px; overflow-y:auto; margin:0; padding:0; list-style:none; border-top:1px solid var(--line); }
 .planner-steps li { display:grid; grid-template-columns:64px 1fr auto; gap:10px; padding:6px 2px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
-.planner-steps li:last-child { color:var(--text); }
+.planner-steps li.goal { color:var(--text); }
+.planner-steps li.goal b { color:var(--gold); }
+.planner-steps li.beyond { opacity:.4; }
 .planner-steps b { color:var(--text); font-weight:800; }
 .planner-steps time { color:var(--text-muted); font-size:13px; }
 .planner-by { margin-top:12px; grid-template-columns:auto 1fr; align-items:center; }
-.planner-answer { margin-top:8px; }
+.planner-answer { min-height:44px; margin-top:8px; }
 .planner-answer strong { color:var(--green); font-family:var(--font-display); font-size:20px; font-weight:600; }
 .planner-answer small { color:var(--text-muted); font-size:12px; }
 .planner-empty { color:var(--text-muted); }

@@ -60,11 +60,9 @@ export function openPlanner(root, table, state) {
 
   const rate = node('input', {type: 'text', inputMode: 'numeric', autocomplete: 'off', value: current ? numbers.format(Math.round(current)) : '', placeholder: '50,000'});
   const hours = node('input', {type: 'number', inputMode: 'decimal', min: .5, max: 24, step: .5, value: daily});
-  const levels = node('datalist', {id: 'planner-levels'});
-  for (let l = level + 1; l <= top; l++) levels.append(node('option', {value: l}));
   const target = node('input', {type: 'number', inputMode: 'numeric', min: level + 1, max: top, step: 1, value: goal});
-  target.setAttribute('list', 'planner-levels');
   const capped = node('span', {className: 'planner-cap', textContent: '24 max', hidden: true});
+  const topped = node('span', {className: 'planner-cap', textContent: `${top} max`, hidden: true});
   const deadline = node('input', {type: 'datetime-local', value: by});
   const steps = node('ol', {className: 'planner-steps'}), answer = node('p', {className: 'planner-answer'});
   root.append(
@@ -72,41 +70,49 @@ export function openPlanner(root, table, state) {
     node('div', {className: 'planner-inputs'},
       node('label', {}, node('span', {textContent: 'EXP / hour'}), rate),
       node('label', {}, node('span', {}, 'Hours / day', capped), hours),
-      node('label', {}, node('span', {textContent: 'Goal Lv.'}), target, levels)),
+      node('label', {}, node('span', {}, 'Goal Lvl', topped), target)),
     steps,
     node('label', {className: 'planner-by'}, node('span', {textContent: 'By'}), deadline),
     answer,
   );
 
   let hideCap = null;
+  // A value past the cap is set back to it, with a short note beside the label.
+  const cap = (input, note, max) => {
+    if (Number(input.value) <= max) return;
+    input.value = max; note.hidden = false;
+    clearTimeout(hideCap); hideCap = setTimeout(() => { note.hidden = true; }, 2000);
+  };
   const update = () => {
     by = deadline.value;
-    const perHour = whole(rate.value), path = climb(table, level, exp, goal), total = path.at(-1)?.exp ?? 0;
-    steps.replaceChildren(...path.map((s) => node('li', {},
+    // At least six rows: levels past the goal fill the list, faded, so the popup keeps its size.
+    const perHour = whole(rate.value), path = climb(table, level, exp, Math.min(top, Math.max(goal, level + 6)));
+    const total = path.find((s) => s.level === goal)?.exp ?? path.at(-1)?.exp ?? 0;
+    steps.replaceChildren(...path.map((s) => node('li', {className: s.level > goal ? 'beyond' : s.level === goal ? 'goal' : ''},
       node('b', {textContent: `Lv. ${s.level}`}),
       node('span', {textContent: perHour ? span(s.exp / perHour) : '—'}),
       node('time', {textContent: perHour && daily ? when(s.exp / perHour, daily, now) : ''}),
     )));
     // Hours left before the deadline, of which `daily` a day are played.
     const left = (Date.parse(deadline.value) - Date.now()) / 36e5, played = left / 24 * (daily || 24);
-    answer.hidden = !deadline.value;
+    // The answer keeps its space while empty, so the popup never changes size.
+    answer.replaceChildren();
     if (!deadline.value) return;
     if (!(left > 0)) { answer.textContent = 'Pick a time ahead.'; return; }
     answer.replaceChildren(node('strong', {textContent: numbers.format(Math.ceil(total / played))}), ` EXP / hour at ${daily || 24}h a day`);
     if (perHour) {
       const needed = total / perHour / (left / 24);
-      answer.append(node('small', {textContent: needed > 24 ? ` · more than 24h a day at ${numbers.format(perHour)}` : ` · or ${span(needed)} a day at ${numbers.format(perHour)}`}));
+      if (needed <= 24) answer.append(node('small', {textContent: ` · or ${span(needed)} a day at ${numbers.format(perHour)}`}));
     }
   };
   rate.addEventListener('input', update);
   hours.addEventListener('input', () => {
-    const value = Number(hours.value);
-    if (value > 24) { hours.value = 24; capped.hidden = false; clearTimeout(hideCap); hideCap = setTimeout(() => { capped.hidden = true; }, 2000); }
-    daily = Math.min(24, value) > 0 ? Math.min(24, value) : null;
+    cap(hours, capped, 24);
+    daily = Number(hours.value) > 0 ? Number(hours.value) : null;
     update();
   });
   // Typed or picked; a decimal rounds and the level stays within the table.
-  target.addEventListener('input', () => { const value = Math.round(Number(target.value)); if (value > level && value <= top) { goal = value; update(); } });
+  target.addEventListener('input', () => { cap(target, topped, top); const value = Math.round(Number(target.value)); if (value > level) { goal = value; update(); } });
   target.addEventListener('change', () => { goal = Math.min(top, Math.max(level + 1, Math.round(Number(target.value)) || goal)); target.value = goal; update(); });
   deadline.addEventListener('input', update);
   update();
