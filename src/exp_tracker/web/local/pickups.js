@@ -230,8 +230,10 @@ export function stackTracker({forgetMs = 1500} = {}) {
   // readers try last).
   const retire = (entry, done) => {
     if (!entry?.msg) return;
-    const sum = fused(entry.msg.acc);
-    if (sum) entry.msg.samples.splice(1, 0, sum);
+    // Kept only when it is the message's own line: like its first sample (measured: a tally built from a
+    // neighbour's frames read a meso message as "Squishy Liquid"; other lines differ by 100+ pixels).
+    const sum = fused(entry.msg.acc), first = entry.msg.first;
+    if (sum && first && difference(first, {x0: 0, x1: sum.width - 1, y0: 0, y1: sum.height, bits: sum.bits}, 41) <= 40) entry.msg.samples.splice(1, 0, sum);
     done.push(entry.msg);
   };
   return {
@@ -280,11 +282,13 @@ export function stackTracker({forgetMs = 1500} = {}) {
       for (const entry of slots.splice(MAX_SLOTS)) retire(entry, done);
       for (const {k, line} of placed) {
         // An unexplained line (there before tracking began, or noise) is followed but never counted.
-        const entry = slots[k] ??= {msg: null};
+        const entry = slots[k] ??= {msg: null}, previous = entry.line;
         Object.assign(entry, {line, at});
         // A sample unlike the message's first is another line, after a misjudged jump of several slots
         // (measured: ~15% of messages in bursts); other lines differ by 100+ pixels.
-        if (entry.msg && (!entry.msg.first || difference(entry.msg.first, line, 61) <= 60)) fuseAdd(entry.msg, line, bottom - k * PITCH);
+        // Added up only on calm frames: none arrived this frame, and the line is the one this slot showed a frame
+        // ago (measured: in a burst of nine, frames mid-shift put a neighbour's pixels into a Red Potion line).
+        if (entry.msg && !shift && previous && difference(previous, line, 21) <= 20) fuseAdd(entry.msg, line, bottom - k * PITCH);
         if (entry.msg && entry.slot !== k && entry.msg.samples.length < 4 && (!entry.msg.first || difference(entry.msg.first, line, 61) <= 60)) {
           entry.slot = k;
           entry.msg.first ??= line;
