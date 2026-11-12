@@ -10,8 +10,8 @@
 /* The controls row: a little more air above and below, so it, the EXP bar and the time pills sit evenly. */
 .player-board .local-controls { margin:16px 25px 0; }
 /* Not the toggle pills, which keep the live pages' look (.windows, .chart-modes). */
-.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
-.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab):hover:not(:disabled) { border-color:var(--gold); }
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close):hover:not(:disabled) { border-color:var(--gold); }
 .local-page button:disabled { opacity:.45; cursor:default; }
 /* The one main action: gold like the site's selected buttons (by id, over the general button rule, which had
    made it a plain grey pill). */
@@ -83,6 +83,16 @@
 /* Placed like the Live rate panel's pills (the toolbar's own padding, no extra margin), so both panels line up. */
 .pickup-toolbar { margin:0; }
 .pickup-toolbar:not(.meso-toolbar) { padding-top:0; }
+/* The category pills sit in a row below the item time pills, with "All items" (the popup) at its end. */
+.local-page #items-expand { display:inline-flex; align-items:center; gap:6px; height:32px; min-height:0; margin-left:auto; padding:0 12px; border-radius:999px; color:var(--text-soft); font-size:12px; }
+.item-kinds { padding-bottom:10px; }
+/* All items: the About card's look, wider, with the same pills and a search box; the grid scrolls inside. */
+.items-popup { width:min(760px,calc(100vw - 32px)); }
+.items-popup-tools { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin:4px 0 14px; }
+.items-popup-tools input { flex:1; min-width:160px; min-height:32px; padding:0 12px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; }
+/* A fixed height, so the popup keeps its size while filtering and searching; not the About card's list indent. */
+.items-popup-list.pickup-items { height:min(60vh,520px); max-height:none; margin:0; padding:0 4px 0 0; }
+.items-popup-note { margin:10px 0 0; color:var(--text-muted); font-size:12px; }
 .hud-help { margin:0 25px 16px; }
 .hud-help .hud-body { margin:8px 0 0; }
 .hud-help .hud-actions { margin:10px 0 4px; }
