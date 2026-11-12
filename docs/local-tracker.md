@@ -245,7 +245,12 @@ Reading (pickup-session.js) first tries the message font learned during the sess
 completely needs no OCR. Otherwise every mask is read whole by OCR (strokes thickened to 2x2 first),
 and the amount, "xN" count, tab and name are taken from those reads, from the font's partial reads
 (known digits) and, when they disagree, from OCR of just those parts, voting across the masks. Item
-names are matched to the item list allowing OCR slips; an unread tab is the named item's own. Meso
+names are matched to the item list allowing OCR slips; an unread tab is the named item's own. Each line is
+also added up over every frame it is on screen (a pixel is text when it is text in 45% of them, so scenery
+drops out), and item names are compared shape by shape with every item name before OCR is asked
+(`matchName`). Measured 2026-11-12 on the three recordings with the shipped font: unread lines 14 to 10 and
+2 to 1, three garbled names resolved ("Biift Feather" to Stiff Feather), no wrong items; on 63 saved item
+lines the shape match agreed with all 42 earlier matches and found 20 more. Meso
 amounts are approximate by design: an unconfirmed amount is rounded down to the digits the reads
 agree on ("23" and "28" count as 20).
 
