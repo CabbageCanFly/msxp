@@ -68,10 +68,11 @@ const fontNumber = (digits) => {
 
 // A whole line read with the learned font, or null. Fixed words must read exactly.
 function parseFont(text, list) {
-  let m = /^You have gained mesos \(\+([\d,?]+)\)$/.exec(text) ?? /^You received EXP \(\+([\d,?]+)\)$/.exec(text);
+  // Messages are right-aligned: anything left of "You" (a monster's name tag in the same rows) is not part of it.
+  let m = /(?:^|[ ?])You have gained mesos \(\+([\d,?]+)\)$/.exec(text) ?? /(?:^|[ ?])You received EXP \(\+([\d,?]+)\)$/.exec(text);
   if (m) {
     const n = fontNumber(m[1]);
-    return n && {text, parsed: {kind: text.startsWith('You have') ? 'mesos' : 'exp', ...n}, item: null};
+    return n && {text: text.slice(text.indexOf('You ', m.index)), parsed: {kind: m[0].includes('mesos') ? 'mesos' : 'exp', ...n}, item: null};
   }
   m = /^(.+) x([\d?]+) earned\. \((\w+)\)$/.exec(text);
   const n = m && fontNumber(m[2]), tab = m && tabOf(m[3]);
