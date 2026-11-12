@@ -533,3 +533,15 @@ test('level planner: EXP to each later level adds the rest of this one and whole
   assert.deepEqual(climb(table, 22, 9000, 25), [{level: 23, exp: 20000}, {level: 24, exp: 53000}, {level: 25, exp: 90000}]);
   assert.deepEqual(climb(table, 24, 0, 30), [{level: 25, exp: 37000}]);  // Stops where the table ends.
 });
+
+test('level planner: hours a day spread play over days; EXP typed with commas or decimals is whole', async () => {
+  const {when, whole} = await import(new URL('level-plan.js', web));
+  const now = new Date(2026, 10, 12, 9, 0).getTime();  // A Thursday morning.
+  assert.equal(when(3, 4, now), 'Today');
+  assert.equal(when(4, 4, now), 'Today');  // Exactly a day's play.
+  assert.equal(when(6, 4, now), 'Tomorrow');
+  assert.equal(when(9, 4, now), new Date(2026, 10, 14).toLocaleDateString(undefined, {weekday: 'short'}));
+  assert.equal(whole('52,300'), 52300);
+  assert.equal(whole('123.4'), 123);
+  assert.equal(whole('abc'), 0);
+});

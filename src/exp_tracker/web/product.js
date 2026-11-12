@@ -638,7 +638,8 @@ function renderPlayer() {
   el('pp-rate').title='Estimated level % per hour.';
   const savedETA=publicETA(p),eta=p.recent_windows?savedETA?.estimate:m?.eta;
   // What the level planner starts from (static/local/level-plan.js): the shown reading and the rate.
-  plannerState={level:displayLevel(p)?.value ?? null,exp:shown?.exp!=null && shown.exp!==''?Number(shown.exp):null,bp:shownBp,rate:m?.exp_per_hour?.value.approximate ?? null,pph:m?.percentage_per_hour?.value.approximate ?? null};
+  plannerState={level:displayLevel(p)?.value ?? null,exp:shown?.exp!=null && shown.exp!==''?Number(shown.exp):null,bp:shownBp,rate:m?.exp_per_hour?.value.approximate ?? null,pph:m?.percentage_per_hour?.value.approximate ?? null,
+    tracked:rollingData && rollingData.character_id===p.character?.id?rollingData.coverage_seconds?.approximate ?? null:null};
   amount('eta',etaText(eta),etaText(eta,true));el('eta').title=eta?`${etaText(eta)} to the next level at ${savedETA?`the ${savedETA.window_minutes} min pace${Date.parse(savedETA.estimated_at)?`, estimated ${localTime(savedETA.estimated_at)}`:''}`:'the recent pace'}. Not a live countdown.`:'Needs recent EXP gains';
   if(view==='overlay')el('eta').textContent=etaText(eta);
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';

@@ -199,7 +199,7 @@ async function start() {
   try { await getEngine(); } catch (error) { stop('ocr_failed'); return setStatus(`Text reader failed to load: ${error.message}`, 'warn'); }
   store.prune().catch(() => {});
   capture.pruneTimer = setInterval(() => store.prune().catch(() => {}), 3600e3);
-  navigator.storage?.persist?.().then(updateStorageNote).catch(() => {});
+  navigator.storage?.persist?.().catch(() => {});
   scan();
   startPickupTracking();
 }
@@ -685,7 +685,7 @@ function render() {
   $('movement').textContent = view.recent == null ? '—' : fmtExp(view.recent);
   $('tracked-exp').textContent = view.dayGain == null ? '—' : expText(view.dayGain);
   $('tracked-note').textContent = view.dayGain == null ? `${expText(view.totalGain)} EXP tracked on this device` : `${duration(view.dayCovered)} observed · ${expText(view.totalGain)} all time`;
-  plannerState = {level: view.last?.level ?? null, exp: view.last?.exp ?? null, rate: view.perHour};
+  plannerState = {level: view.last?.level ?? null, exp: view.last?.exp ?? null, rate: view.perHour, tracked: view.dayCovered};
   $('eta').textContent = view.eta == null ? '—' : duration(view.eta);
   $('eta-note').textContent = view.eta == null ? (view.last && !view.total ? 'No EXP table for this level' : 'Needs an EXP / hour') : `${fmtExp(view.total - view.last.exp)} EXP to go`;
   renderPickups(now);
@@ -727,11 +727,6 @@ function renderScanStats() {
   const settingsNow = capture.track.getSettings();
   $('scan-stats').textContent = `Scan ${Math.round(ms)} ms` + (every ? ` · every ${every.toFixed(1)} s` : '')
     + (settingsNow.width ? ` · ${settingsNow.width}×${settingsNow.height}` : '') + (settingsNow.frameRate ? ` @ ${Math.round(settingsNow.frameRate)} fps` : '');
-}
-
-async function updateStorageNote(persisted) {
-  if (persisted === undefined) persisted = await navigator.storage?.persisted?.();
-  $('storage-note').textContent = persisted ? 'This browser has agreed to keep it unless you clear site data.' : '';
 }
 
 // The overlay recomputes from IndexedDB; the message only says something changed and for whom. `full:
@@ -981,7 +976,6 @@ async function init() {
     await refreshCharacters();
     updateBuilder();
     store.prune().catch(() => {});
-    updateStorageNote();
   } catch (error) {
     setStatus(`Local storage is unavailable: ${error.message}`, 'warn');
     $('start').disabled = true;
