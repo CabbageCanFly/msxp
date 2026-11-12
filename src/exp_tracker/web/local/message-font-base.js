@@ -1,11 +1,11 @@
-// The pickup-message font every browser starts from: up to three variants of each letter, learned from
-// confirmed lines of recorded play (768p and 1080p read in game pixels), and one checked variant of each
-// digit (learning had filed a 6 under 8 and a 2 under 0, from OCR misreads). Each variant is
-// 'width,height,bits' with bits packed 8 to a byte, row by row (base64). A player's own learning adds to these.
+// The pickup-message font every browser starts from: up to three variants of each letter, learned from confirmed
+// lines of recorded play (768p and 1080p, read in game pixels) and checked by eye, noisy shapes left out; and one
+// checked variant of each digit (learning had filed a 6 under 8 and a 2 under 0, from OCR misreads). Each variant
+// is 'width,height,bits', bits packed 8 to a byte, row by row (base64). A player's own learning adds to these.
 export const BASE_FONT = {
   "(": ["3,12,lJIkEgE=", "3,12,lJIkAgA=", "3,12,kJIEEgE="],
-  ")": ["3,12,kUiSUgA=", "3,12,EUiSEgA=", "3,12,EEiyEwA="],
-  "+": ["5,12,ABDyCQEAAAA=", "5,12,ABDQCQEAAAA=", "5,12,AhDwCQFBBAE="],
+  ")": ["3,12,kUiSUgA=", "3,12,EUiSEgA="],
+  "+": ["5,12,ABDyCQEAAAA=", "5,12,ABDQCQEAAAA="],
   ".": ["1,12,AAE="],
   "0": ["5,12,LsYYY4wOAAA="],
   "1": ["3,12,dEmSBAA="],
@@ -24,18 +24,19 @@ export const BASE_FONT = {
   "E": ["6,12,fxAEfxAEPwAA", "6,12,fxAUfxAUPwAA", "6,12,fxAQfxAAPwAA"],
   "F": ["5,12,P4TwQggBAAA="],
   "G": ["7,12,DEEwEA8CQRwAAAA="],
+  "H": ["7,12,wWAw+A8Gg0EAAAA="],
   "J": ["5,12,EEIIYYwOAAA="],
   "L": ["6,12,QRAEQRAEPwAA", "6,12,QRAEQRAQPwAA"],
   "M": ["7,12,QXG4Wq1Wk0kAAAA="],
   "O": ["7,12,DEEwGAwCQRwAAAA="],
   "P": ["6,12,XxiGXxAEAQAA", "6,12,TxiCXxAEAQAA", "6,12,TxiHXxAEAQAA"],
   "R": ["7,12,v2AweAuEQkEAAAA=", "7,12,v2AYeAuEAkEAAAA=", "7,12,n2AYeAvEQkEAAAA="],
-  "S": ["6,12,XhgWHhiHHgAA", "6,12,DxACBhCGHgAA", "6,12,XhgGHhiGHgAA"],
+  "S": ["6,12,XhgWHhiHHgAA", "6,12,XhgGHhiGHgAA"],
   "T": ["7,12,fwQCgUAgEAgAAAA="],
   "U": ["7,12,wWAwGAwCQRwAAAA=", "7,12,gGAwGAwCQRwAAAA="],
   "W": ["11,12,IYxilKSkKEUpiiAEAQAAAAA="],
   "X": ["7,12,QREIAiCIREEAAAA=", "7,12,QBEIAiCIBEEAAAA="],
-  "Y": ["7,12,QREIgkAgEAgAAAA=", "6,12,YAAhBAEAAAAA", "7,14,AEDQBIJkVAgEAgAAAA=="],
+  "Y": ["7,12,QREIgkAgEAgAAAA="],
   "a": ["5,12,ALgIfcwWAAA=", "6,12,AMCIcCvCLAAA", "5,12,AJgIbcQWAAA="],
   "b": ["5,12,IbQZI4wNAAA=", "6,12,gpCZoxyuGgAA", "6,12,goCZohyuGgAA"],
   "c": ["4,12,AJYRkQYA", "5,12,ADAphoIMAAA=", "4,12,AJIRgQYA"],
@@ -52,12 +53,12 @@ export const BASE_FONT = {
   "o": ["5,12,ALgYY4wOAAA=", "6,12,AMCJsjiqHAAA", "5,14,AABgYo6ROgAA"],
   "p": ["5,12,ALQZI4wtBAA="],
   "q": ["6,12,AFCK8yjKLAgC", "6,12,AFCK87jKLAgA", "6,12,AECOs6jKLAgA"],
-  "r": ["3,12,QJckAQA=", "2,12,wFUB", "1,10,GAA="],
+  "r": ["3,12,QJckAQA=", "2,12,wFUB"],
   "s": ["5,12,ALgYHIwOAAA=", "5,12,AJgQHIQOAAA=", "5,12,AJgIHIwOAAA="],
   "t": ["3,12,0iVJBgA="],
   "u": ["5,12,AMQYY4weAAA=", "6,12,ACCK4jiqPAAA", "6,12,ACCK4iiiPAAA"],
   "v": ["5,12,AMSolCIEAAA=", "5,12,AES4lCIEAAA=", "5,12,AESoFCIEAAA="],
   "w": ["9,12,AABEjKhqlSoiRAAAAAA=", "9,12,AABEjKhOlSoiRAAAAAA="],
-  "x": ["5,12,AESFgFIRAAA=", "5,12,AESFwFMRAAA=", "5,12,AACFgFIRAAA="],
+  "x": ["5,12,AESFgFIRAAA=", "5,12,AACFgFIRAAA="],
   "y": ["5,12,AMToliKEAAA=", "5,12,AESolCKECAA="],
 };
