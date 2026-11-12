@@ -202,6 +202,8 @@ export async function startPickups({track, engine, font = {}, onMessage, onStats
   };
   worker.postMessage({type: 'start', stream: processor.readable, region: REGION}, [processor.readable]);
   return {
+    // How a stretched window is undone (the EXP reader finds out which way the game stretches; see app.js scan).
+    setStretch(mode) { worker.postMessage({type: 'stretch', mode}); },
     async stop() {
       stopped = true;
       worker.postMessage({type: 'stop'}); worker.terminate(); clone.stop();

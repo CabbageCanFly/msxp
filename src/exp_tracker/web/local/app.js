@@ -347,6 +347,10 @@ async function scan() {
     // undone the same way, so a stretched scan whose digits didn't match tries the other way next (measured live:
     // the filtered screen read 20,679 [84.74%] exactly undone as 'area', the percentage not at all as bilinear).
     if (frame.stretched && outcome.source !== 'glyphs') current.stretchMode = current.stretchMode === 'area' ? 'bilinear' : 'area';
+    // Pickup reading undoes the stretch the same way once the HUD digits have settled it.
+    else if (frame.stretched && current.pickups?.session && current.pickups.stretch !== (current.stretchMode ?? 'bilinear')) {
+      current.pickups.stretch = current.stretchMode ?? 'bilinear'; current.pickups.session.setStretch(current.pickups.stretch);
+    }
     lastScan = {...outcome, frame, at, ms: performance.now() - started};
     await handle(current, outcome, at);
     if (!$('hud-view').hidden) drawPreview();

@@ -3,10 +3,11 @@
 // message, with its line masks, once it has left the screen. Frames are closed at once.
 import {GAME_HEIGHT, GAME_WIDTH, messageLines, stackTracker, unstretch} from './pickups.js';
 
-let reader = null;
+let reader = null, stretch = 'bilinear';  // The game's default stretch; the page passes its sharper filter's.
 
 onmessage = async ({data}) => {
   if (data.type === 'stop') { reader?.cancel().catch(() => {}); reader = null; return; }
+  if (data.type === 'stretch') { stretch = data.mode; return; }
   if (data.type !== 'start') return;
   reader = data.stream.getReader();
   const canvas = new OffscreenCanvas(1, 1), context = canvas.getContext('2d', {willReadFrequently: true});
@@ -30,7 +31,7 @@ onmessage = async ({data}) => {
       // shortcut: assumes the window shows only the game (fullscreen or borderless); a stretched window with
       // a title bar shifts the rows. Measure the title bar if such windows turn up.
       const image = context.getImageData(0, 0, w, h);
-      const corner = W / GAME_WIDTH > 1.03 ? unstretch(image, W / GAME_WIDTH, H / GAME_HEIGHT, x, y, cache) : image;
+      const corner = W / GAME_WIDTH > 1.03 ? unstretch(image, W / GAME_WIDTH, H / GAME_HEIGHT, x, y, cache, stretch) : image;
       for (const {at, samples} of tracker.update(messageLines(corner, true), Date.now())) {
         postMessage({type: 'message', at, samples}, samples.map((sample) => sample.bits.buffer));
       }
