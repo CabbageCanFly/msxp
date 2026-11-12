@@ -596,7 +596,7 @@ function renderPickups(now) {
   const rate = since == null ? null : rateSeries(mesos, {from: now - 1000, to: now, window, since}).at(-1)?.perHour ?? null;
   $('pickups-board').hidden = !settings.pickups && !pickupsCache.length;
   if ($('pickups-board').hidden) return;
-  $('meso-rate-label').textContent = `Mesos / hour · ${settings.mesoWindow} min`;
+  $('meso-window').value = String(settings.mesoWindow); $('item-window').value = String(settings.itemWindow);
   $('meso-rate').textContent = rate == null ? '—' : fmtExp(rate);
   $('meso-rate-note').textContent = rate == null ? 'After a few meso pickups with Track pickups on' : !capture?.pickups ? 'Not reading pickups right now'
     : now - since < window ? `So far · ${duration((now - since) / 1000)} tracked` : 'Approximate';
@@ -834,9 +834,13 @@ async function init() {
   });
   $('items-search').addEventListener('input', () => render());
   $('items-popup').addEventListener('toggle', (event) => { if (event.newState === 'open') render(); });
-  for (const button of document.querySelectorAll('[data-meso-window]')) button.addEventListener('click', () => {
-    settings.mesoWindow = Number(button.dataset.mesoWindow); store.setSetting('mesoWindow', settings.mesoWindow).catch(() => {});
-    pressed('[data-meso-window]', 'mesoWindow', settings.mesoWindow); render();
+  $('meso-window').addEventListener('change', (event) => {
+    settings.mesoWindow = Number(event.target.value); store.setSetting('mesoWindow', settings.mesoWindow).catch(() => {}); render();
+  });
+  // The item time: the panel's dropdown and the popup's pills are the same setting.
+  $('item-window').addEventListener('change', (event) => {
+    settings.itemWindow = Number(event.target.value); store.setSetting('itemWindow', settings.itemWindow).catch(() => {});
+    pressed('[data-item-window]', 'itemWindow', settings.itemWindow); render();
   });
   for (const button of document.querySelectorAll('[data-item-window]')) button.addEventListener('click', () => {
     settings.itemWindow = Number(button.dataset.itemWindow); store.setSetting('itemWindow', settings.itemWindow).catch(() => {});
@@ -989,7 +993,6 @@ function showLive() {
   if (!WINDOWS.includes(settings.mesoWindow)) settings.mesoWindow = 5;
   if (!['all', 'equip', 'use', 'etc'].includes(settings.itemKind)) settings.itemKind = 'all';
   pressed('[data-item-kind]', 'itemKind', settings.itemKind);
-  pressed('[data-meso-window]', 'mesoWindow', settings.mesoWindow);
   pressed('[data-item-window]', 'itemWindow', settings.itemWindow);
   pressed('[data-live-kind]', 'liveKind', settings.liveKind); pressed('[data-live-window]', 'liveWindow', settings.liveWindow);
   $('live-board').dataset.kind = settings.liveKind;

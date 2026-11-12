@@ -10,8 +10,8 @@
 /* The controls row: a little more air above and below, so it, the EXP bar and the time pills sit evenly. */
 .player-board .local-controls { margin:16px 25px 0; }
 /* Not the toggle pills, which keep the live pages' look (.windows, .chart-modes). */
-.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
-.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close):hover:not(:disabled) { border-color:var(--gold); }
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab):hover:not(:disabled) { border-color:var(--gold); }
 .local-page button:disabled { opacity:.45; cursor:default; }
 /* The one main action: gold like the site's selected buttons (by id, over the general button rule, which had
    made it a plain grey pill). */
@@ -59,7 +59,7 @@
 }
 .pickup-totals { margin:8px 25px; color:var(--text); font-weight:700; }
 .pickup-log { max-height:260px; overflow:auto; margin:8px 25px 0; padding-left:28px; color:var(--text-muted); font-size:13px; line-height:1.6; font-variant-numeric:tabular-nums; }
-.pickup-cards { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:8px; }
+.pickup-cards { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:18px; }
 .pickup-cards > div { min-height:0; }
 /* About two and a half rows of items, then a scrollbar: the half row shows there is more. */
 .pickup-items { display:flex; flex-wrap:wrap; align-content:flex-start; gap:8px; max-height:126px; overflow-y:auto; overscroll-behavior:contain; margin:0 25px 12px; padding:0 4px 0 0; list-style:none; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
@@ -82,10 +82,20 @@
 .option-row[hidden] { display:none; }  /* Options for one layout only (Live shows, Items from). */
 /* Placed like the Live rate panel's pills (the toolbar's own padding, no extra margin), so both panels line up. */
 .pickup-toolbar { margin:0; }
-.pickup-toolbar:not(.meso-toolbar) { padding-top:0; }
-/* The category pills sit in a row below the item time pills, with "All items" (the popup) at its end. */
+
+/* Fewer pills: a dropdown for each time choice (mesos in its card's label, items in the item row), the item
+   categories as plain text tabs (underlined when chosen), and "All items" (the popup) at the row's end. */
+.items-row { align-items:center; gap:14px; padding-top:4px; }
+.inline-label { color:var(--text-muted); font-size:12px; font-weight:700; }
+.inline-select { min-height:26px; margin-left:4px; padding:0 6px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-raised);
+  color:var(--text); font:inherit; font-size:12px; font-weight:800; text-transform:none; letter-spacing:0; color-scheme:dark; cursor:pointer; }
+.card-label .inline-select { min-height:22px; margin-left:2px; color:var(--gold); }
+.text-tabs { display:flex; gap:14px; }
+.text-tab { min-height:0; padding:4px 0; border:0; border-bottom:2px solid transparent; border-radius:0; background:none; color:var(--text-muted);
+  font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+.text-tab:hover { color:var(--text); }
+.text-tab[aria-pressed="true"] { border-bottom-color:var(--gold); color:var(--text); }
 .local-page #items-expand { display:inline-flex; align-items:center; gap:6px; height:32px; min-height:0; margin-left:auto; padding:0 12px; border-radius:999px; color:var(--text-soft); font-size:12px; }
-.item-kinds { padding-bottom:10px; }
 /* All items: the About card's look, wider, with the same pills and a search box; the grid scrolls inside. */
 .items-popup { width:min(760px,calc(100vw - 32px)); }
 .items-popup-tools { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin:4px 0 14px; }
