@@ -271,6 +271,13 @@ meso total:
 - Not solved: faint single lines over bright cloud are sometimes missed (counts run ~10% low); a
   full stack of identical lines ("+13" six times) looks the same after one more; letters whose
   strokes touch merge into one glyph, so the font learns few lines; "x1" often reads as "A".
+- Three more recordings, 2026-11-12, no hand count (only unread lines and visible misreads were checked):
+  1920x1080 with the sharp filter (4.1 min, 136 messages, 2 unread); 1368x800 bright clouds (4.6 min,
+  122 messages, 2 unread); 1368x800 Perion with fog drifting over the corner (5.7 min, 119 messages,
+  18 unread, 10 of 31 meso amounts rounded). In the fog, white text over white cloud loses strokes:
+  "+39" counted as ~30, and one "+12" was read as +173 (a wrong amount, not a rounded one). Fog also
+  made a few ghost lines where no message was shown; they stay unread and add nothing.
+  The recorder (`?debug`, "Record pickups") saves ~10 frames a second; at 1080p it managed only ~2.6.
 
 ## Not yet verified
 
