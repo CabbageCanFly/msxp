@@ -205,19 +205,25 @@ export function locate(found, frame) {
       const dx = exp.x0 - lv.x0;
       return dx > 1.5 * span && dx < 4.5 * span && Math.abs(lv.y0 - exp.y0) < 2.5 * h;
     });
-    candidates.push({exp, h, span, level: level.length === 1 ? level[0] : null});
+    candidates.push({exp, h, span, step, level: level.length === 1 ? level[0] : null});
   }
   if (!candidates.length) return {reason: exps.length ? 'hud_geometry_unclear' : 'exp_label_not_found'};
   if (candidates.length > 1) return {reason: 'multiple_huds'};
-  const {exp, h, span, level} = candidates[0];
+  const {exp, h, span, step, level} = candidates[0];
   // The EXP digits are the words after the label on the same row; their height sets the text band.
   const digits = found.filter((t) => /\d/.test(t.text) && t.x0 >= exp.x0 + .5 * (exp.x1 - exp.x0) && t.x0 < exp.x0 + span
     && Math.abs((t.y0 + t.y1) / 2 - (exp.y0 + exp.y1) / 2) < .6 * h);
-  if (!digits.length) return {reason: 'exp_digits_not_found'};
-  const top = Math.min(...digits.map((t) => t.y0)), bottom = Math.max(...digits.map((t) => t.y1)), th = bottom - top;
+  // No digits read but the HP/MP spacing places the bar: the label's own rows set the band (measured live: the
+  // sparse pass often reads nothing after "EXP" for a short number like "217 [12.65%]").
+  if (!digits.length && step === null) return {reason: 'exp_digits_not_found'};
+  const band = digits.length ? digits : [exp];
+  const top = Math.min(...band.map((t) => t.y0)), bottom = Math.max(...band.map((t) => t.y1)), th = bottom - top;
   // The box keeps the EXP label: OCR word boxes vary, so each scan trims the label in pixels (labelEnd).
-  // Room to the right for longer numbers; each scan cuts at the green closing bracket.
-  const expBox = {x0: exp.x0 - .2 * h, y0: top - .3 * th, x1: Math.min(frame.width, exp.x0 + 1.15 * span, Math.max(...digits.map((t) => t.x1)) + 3 * th), y1: bottom + .3 * th};
+  // Room to the right for longer numbers; each scan cuts at the green closing bracket. With the HP/MP spacing
+  // known, the bar's whole width: the sparse pass may catch only the first digits (measured live: "z17" of
+  // "217 [12.65%]" made a box that ended before the percentage, and every scan failed).
+  const lastDigit = Math.max(...band.map((t) => t.x1));
+  const expBox = {x0: exp.x0 - .2 * h, y0: top - .3 * th, x1: Math.min(frame.width, exp.x0 + 1.15 * span, step === null ? lastDigit + 3 * th : Infinity), y1: bottom + .3 * th};
   // The orange tiles are found in pixels each scan; LV. only narrows the search when it was recognised.
   const lh = level ? level.y1 - level.y0 : h;
   const levelBox = level ? {x0: level.x1, y0: level.y0 - .6 * lh, x1: level.x1 + 4 * lh, y1: level.y1 + .6 * lh}

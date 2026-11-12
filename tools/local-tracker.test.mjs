@@ -122,6 +122,13 @@ test('HUD geometry: labels bind to one status bar; brackets are found by colour'
     w('5.477127.09%1', 750, 771, 824, 778), w('LV.', 297, 775, 315, 788)];
   const found = H.locate(words, frame);
   assert.equal(Math.round(found.exp.x0), 723);  // The label stays in the box; each scan trims it in pixels.
+  // Only the first digits read ("z17" of "217 [12.65%]"): the box still spans the bar, past the percentage.
+  const short = H.locate([...words.filter((t) => t.text[0] !== '5'), w('z17', 750, 771, 767, 778)], frame);
+  assert.ok(short.exp.x1 >= 840, `box ends at ${short.exp.x1}`);
+  // No digits read at all: HP and MP still place the bar; without them, no guess.
+  const bare = words.filter((t) => t.text[0] !== '5');
+  assert.ok(H.locate(bare, frame).exp.x1 >= 840);
+  assert.equal(H.locate(bare.filter((t) => !t.text.startsWith('MP')), frame).reason, 'exp_digits_not_found');
   assert.ok(found.level.x0 >= 315);
   assert.ok(H.locate(words.filter((t) => t.text !== 'LV.'), frame).level.x1 < 504);  // Orange-tile search left of HP.
   assert.ok(found.level.x0 >= 315);
