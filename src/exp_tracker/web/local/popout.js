@@ -10,6 +10,7 @@ import {eta, requirement} from './exp.js';
 import {loadItems} from './pickup-session.js';
 
 const $ = (id) => document.getElementById(id);
+let shownCounts = null;  // Item counts last drawn by the Items layout, to light up the ones that just went up.
 let table = null, character = null, readings = [], pickups = [], liveWindow = 5, loading = null, again = false, wantFull = false, icons = null, options = overlayOptions(location.search);
 
 // Also called by the builder's same-origin preview as options change.
@@ -126,9 +127,13 @@ function renderItems(now) {
   if (items.length && !icons) { icons = new Map(); loadItems().then((list) => { icons = new Map(list.map((i) => [i.id, i])); render(); }).catch(() => {}); }
   $('items-total').textContent = items.length ? `${items.reduce((sum, i) => sum + i.count, 0)} items` : 'None yet';
   // Always 12 slots: the ones without an item are faint, so the overlay never changes size.
+  const before = shownCounts;
+  shownCounts = new Map(items.map((item) => [item.itemId, item.count]));
   $('items-grid').replaceChildren(...Array.from({length: 12}, (_, k) => items[k] ?? null).map((item) => {
     const li = document.createElement('li');
     if (!item) { li.className = 'items-slot'; li.setAttribute('aria-hidden', 'true'); return li; }
+    // Just picked up (not on the first draw): a short glow.
+    if (before && item.count > (before.get(item.itemId) ?? 0)) li.className = 'bumped';
     const icon = document.createElement('span'), known = icons?.get(item.itemId);
     icon.className = 'icon'; li.title = item.name;
     if (known) icon.style.cssText = `background-image:url(/static/local/items/icons-${known.sheet}.png);background-position:-${known.cell % 16 * 32}px -${Math.floor(known.cell / 16) * 32}px`;

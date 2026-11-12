@@ -33,6 +33,16 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 [data-layout="items"] #card { width:360px; height:193px; }  /* Fits the 370 x 203 window with every slot shown. */
 [data-layout="items"] :is(.reading, .general-stats, .rate-stats, .hour-chart) { display:none; }
 [data-layout="items"] .items-panel { display:flex; flex-direction:column; gap:6px; flex:1; min-height:0; padding:8px 12px 12px; }
+/* A faint shine crosses the panel every 9 s, so the overlay reads as live between pickups. */
+[data-layout="items"] .items-panel { position:relative; overflow:hidden; }
+[data-layout="items"] .items-panel::after { content:""; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(105deg, transparent 40%, rgb(255 255 255 / 7%) 50%, transparent 60%) no-repeat; background-size:250% 100%;
+  animation:items-sweep 9s ease-in-out infinite; }
+@keyframes items-sweep { 0% { background-position:150% 0; } 18%, 100% { background-position:-50% 0; } }
+/* An item whose count just went up glows in the theme's accent for a moment. */
+.items-grid li.bumped { animation:item-bump 1.2s ease-out; }
+@keyframes item-bump { 0% { transform:scale(1.12); box-shadow:0 0 0 2px var(--accent), 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent); } 100% { transform:none; box-shadow:0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { [data-layout="items"] .items-panel::after { animation:none; opacity:0; } .items-grid li.bumped { animation-duration:.01s; } }
 .items-caption { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; font-weight:700; }
 .items-caption strong { color:var(--text); }
 .items-grid { display:flex; flex-wrap:wrap; align-content:flex-start; gap:6px; flex:1; min-height:0; margin:0; padding:0; overflow:hidden; list-style:none; }
