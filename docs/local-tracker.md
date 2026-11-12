@@ -271,13 +271,26 @@ meso total:
 - Not solved: faint single lines over bright cloud are sometimes missed (counts run ~10% low); a
   full stack of identical lines ("+13" six times) looks the same after one more; letters whose
   strokes touch merge into one glyph, so the font learns few lines; "x1" often reads as "A".
-- Three more recordings, 2026-11-12, no hand count (only unread lines and visible misreads were checked):
-  1920x1080 with the sharp filter (4.1 min, 136 messages, 2 unread); 1368x800 bright clouds (4.6 min,
-  122 messages, 2 unread); 1368x800 Perion with fog drifting over the corner (5.7 min, 119 messages,
-  18 unread, 10 of 31 meso amounts rounded). In the fog, white text over white cloud loses strokes:
-  "+39" counted as ~30, and one "+12" was read as +173 (a wrong amount, not a rounded one). Fog also
-  made a few ghost lines where no message was shown; they stay unread and add nothing.
-  The recorder (`?debug`, "Record pickups") saves ~10 frames a second; at 1080p it managed only ~2.6.
+- Four more recordings, 2026-11-12: 1920x1080 with the sharp filter (4.1 min); 1368x800 bright clouds
+  (4.6 min); two in Perion with fog drifting over the corner (5.7 and 4.3 min). The last has a meso total
+  from the inventory (+965). Two mask fixes, measured on all of them:
+  - The pixel inside a letter next to the stroke's own shadow (the top of an "8") is no longer text, and a
+    stroke continued down-right must be about as bright as the stroke (within 20): dim fog beside a ")"
+    was text, so "(+10)" read as +100.
+  - An unknown glyph that splits into two known characters ("0)" touching) reads as both.
+  | Recording | Before | After |
+  |---|---|---|
+  | 118 s, slow looting (truth +497, 56 arrivals) | +357, 50 counted, 2 unread | +438, 54 counted, 1 unread, every item right |
+  | Fog, 4.3 min (truth +965) | +720, 9 unread | +960, 4 unread |
+  | Fog, 5.7 min (no total) | 18 unread, 10 of 31 amounts rounded | 12 unread, 6 of 40 rounded |
+  | 1080p sharp filter (no total) | 39 meso lines, 2 unread | 44 meso lines, 2 unread |
+  Glyphs the shipped font cannot name fell from 13% to 6.5% (slow looting) and from 30% to 19-20% (fog).
+  The mask costs ~0.9 ms a frame instead of ~0.7 (worker, 15 fps). A "+12" read as +173 in the first fog
+  recording no longer happens. Still missed: a whole stack replaced between two frames (the recorder dropped
+  to ~7 fps there) counts only the lines that look new; meso lines that differ only in their last digit
+  can trade samples, and the amount is then rounded. Raising the mismatch cost, or comparing only the
+  amount's columns, tripled the count (fog moves a line's right edge from frame to frame).
+  The recorder (`?debug`, "Record pickups") saves up to ~10 frames a second: ~7 at 1368x800, ~2.6 at 1080p.
 
 ## Not yet verified
 
