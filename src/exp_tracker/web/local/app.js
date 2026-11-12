@@ -9,7 +9,7 @@ import {GAME_HEIGHT, GAME_WIDTH, unstretch} from './pickups.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, setTimeZone, timeZone} from './charts.js';
-import {loadItems, startPickups} from './pickup-session.js';
+import {REGION, loadItems, startPickups} from './pickup-session.js';
 import {seedFont} from './message-font.js';
 import {setScenery} from './scenery.js';
 import {liveChart, rateSeries, smooth} from './live-chart.js';
@@ -219,6 +219,7 @@ async function stop(reason = 'stopped') {
   capture = null;
   clearTimeout(current.timer); clearInterval(current.pruneTimer);
   await stopPickupTracking(current);
+  await current.recording?.stop();
   current.stream.getTracks().forEach((t) => t.stop());
   if (current.video) current.video.srcObject = null;
   window.removeEventListener('beforeunload', guardUnload);
@@ -1104,6 +1105,56 @@ function logPickup(m) {
 }
 
 // ?debug: save the bottom of the last frame to a local file for diagnosing OCR. Never automatic.
+// Test recordings of the pickup corner (?debug only), in the format the offline benches read: frames.bin
+// (the corner's lossless PNGs, back to back) and index.json {region, frame, frames: [{at, offset, size}]}.
+function recordButton() {
+  const button = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Record pickups (debug)'});
+  button.addEventListener('click', async () => {
+    if (capture?.recording) return capture.recording.stop();
+    const current = capture;
+    if (!current || !('MediaStreamTrackProcessor' in window)) return setStatus('Start tracking in Chrome or Edge first.', 'warn');
+    const folder = await (await showDirectoryPicker({mode: 'readwrite'}).catch(() => null))
+      ?.getDirectoryHandle(`pickup-recording-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}`, {create: true});
+    if (!folder || capture !== current || current.recording) return;
+    await current.track.applyConstraints({frameRate: {ideal: 15, max: 15}});
+    const clone = current.track.clone(), reader = new MediaStreamTrackProcessor({track: clone}).readable.getReader();
+    const out = await (await folder.getFileHandle('frames.bin', {create: true})).createWritable();
+    const index = {region: null, frame: '', frames: []}, started = performance.now();
+    let offset = 0, last = -1e9, stopped = false;
+    const done = (async () => {
+      for (;;) {
+        const {value: frame, done: ended} = await reader.read().catch(() => ({done: true}));
+        if (ended) break;
+        const at = Math.round(performance.now() - started), W = frame.displayWidth, H = frame.displayHeight;
+        // One region per recording: a resized window ends it.
+        if (index.frame && index.frame !== `${W}x${H}`) { frame.close(); break; }
+        if (stopped || at - last < 90) { frame.close(); if (stopped) break; continue; }  // ~10 fps is plenty.
+        last = at;
+        const x = Math.floor(W * REGION.x0), y = Math.floor(H * REGION.y0), w = W - x, h = Math.floor(H * REGION.y1) - y;
+        if (!index.frame) Object.assign(index, {region: {x, y, w, h}, frame: `${W}x${H}`});
+        const canvas = new OffscreenCanvas(w, h);
+        canvas.getContext('2d').drawImage(frame, x, y, w, h, 0, 0, w, h);
+        frame.close();
+        const png = await canvas.convertToBlob();
+        await out.write(png);
+        index.frames.push({at, offset, size: png.size});
+        offset += png.size;
+        button.textContent = `Stop recording (${index.frames.length} frames · ${Math.round(offset / 1e6)} MB)`;
+      }
+      clone.stop();
+      await out.close();
+      const file = await (await folder.getFileHandle('index.json', {create: true})).createWritable();
+      await file.write(JSON.stringify(index)); await file.close();
+      if (current.recording === recording) current.recording = null;
+      if (!current.pickups) await current.track.applyConstraints({frameRate: {ideal: 5, max: 5}}).catch(() => {});
+      button.textContent = 'Record pickups (debug)';
+      setStatus(`Saved ${index.frames.length} frames to ${folder.name}.`, 'ok');
+    })();
+    const recording = current.recording = {stop() { stopped = true; reader.cancel().catch(() => {}); return done; }};
+  });
+  return button;
+}
+
 function setupDebug() {
   const button = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Save HUD strip (debug)'});
   button.addEventListener('click', async () => {
@@ -1113,7 +1164,7 @@ function setupDebug() {
     const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(await canvas.convertToBlob()), download: `msxp-hud-${frame.width}x${frame.height}-${Date.now()}.png`});
     link.click();
   });
-  document.querySelector('.hud-actions').append(button);
+  document.querySelector('.hud-actions').append(button, recordButton());
   setupPickupLog();
   // Diagnostics for the pickup-message milestone: raise or restore the share's frame rate (?debug only).
   // Measured 2026-11-10: asked 5/15/30 fps, Chrome delivered 4.7/14.8/29.0 on the same share, no new prompt.
