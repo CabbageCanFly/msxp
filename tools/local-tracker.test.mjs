@@ -396,6 +396,14 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   feed([], 5000);  // The stack has faded out.
   assert.deepEqual(done.map((m) => m.at), [0, 140, 280, 280]);
   assert.ok(done.every((m) => m.samples.length && m.samples[0].bits.length === m.samples[0].width * m.samples[0].height));
+  // Every frame of a line is added up: a stroke seen in a single frame (scenery) is not in the combined sample.
+  const fuse = P.stackTracker(), fusedDone = [];
+  fuse.update([], -70);
+  for (let i = 0; i < 10; i++) fusedDone.push(...fuse.update(P.messageLines(frame(i === 4 ? [[48, 1], [48, 2]] : [[48, 1]]), true), i * 70));
+  fusedDone.push(...fuse.update([], 9000));
+  const clean = P.messageLines(frame([[48, 1]]), true)[0], combined = fusedDone[0].samples.find((m) => m.width === clean.x1 - clean.x0 + 1);
+  assert.ok(combined, 'a combined sample the width of the line');
+  assert.equal(combined.bits.reduce((n, b) => n + b, 0), clean.bits.reduce((n, b) => n + b, 0));
   // A stray first line sets the bottom 6 px off the real stack: the vote moves it onto the real rows.
   const off = P.stackTracker(), late = [];
   off.update(P.messageLines(frame([[42, 1]]), true), 0);
@@ -456,6 +464,12 @@ test('pickup message font: learned glyphs read later lines, misaligned lines are
   assert.equal(F.readLine(font, line('b1 a')), 'b? a');  // An unknown glyph is "?", never a guess.
   assert.equal(F.learnLine(font, line('ab'), 'ba'), 0);  // Glyphs that look like other characters.
   assert.equal(F.learnLine(font, line('ab1'), 'a'), 0);  // Glyph and character counts differ.
+  // Whole names compared shape by shape: the closest name wins; a letter the font lacks costs the same for all.
+  const names = [{name: 'abba', tab: 'Etc'}, {name: 'baab', tab: 'Etc'}, {name: 'abab', tab: 'Etc'}];
+  const matched = F.matchName(font, [line('abba')], names);
+  assert.equal(matched.item.name, 'abba');
+  assert.equal(matched.cost, 0);
+  assert.ok(matched.next >= 1);
   // The shipped font fills characters not learned yet (at most three variants each), keeps learned
   // variants, and drops one clearly closer to another character: a 6 learned as "8".
   const shipped = F.seedFont({});

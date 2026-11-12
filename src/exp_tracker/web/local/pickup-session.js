@@ -2,7 +2,7 @@
 // frames, and reads each finished message with the shared OCR engine (queued so it never runs in the
 // middle of an EXP scan). Reports {at, text, parsed, item} per message.
 import {binarize, pgm} from './hud.js';
-import {learnLine, readLine} from './message-font.js';
+import {learnLine, matchName, readLine} from './message-font.js';
 import {amountSpan, countSpan, lineWords, resolveItem, span, tabOf} from './pickups.js';
 
 let items = null;
@@ -10,6 +10,7 @@ export const loadItems = () => items ??= fetch('/static/local/items/items.json')
   .then((d) => d.items.map(([name, tab, id, monsters, sheet, cell]) => ({name, tab, id, monsters, sheet, cell})));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const SHAPE_COST = 1.5, SHAPE_LEAD = .5;
 // The right part of the window above the status bar, past the quick-slot panel.
 export const REGION = {x0: .75, y0: .45, y1: .89};  // Same box the tracker was tuned on (live recording).
 
@@ -106,7 +107,7 @@ export async function readMessage(engine, samples, list, font = null) {
   }
   if (!confirmed) {
     // Partial font reads ("?ree ?ra??h x1 ...") still carry the glyphs the font knows, digits above all.
-    const read = await readByOcr(engine, order, list, font ? order.map(({mask}) => readLine(font, mask)) : []);
+    const read = await readByOcr(engine, order, list, font ? order.map(({mask}) => readLine(font, mask)) : [], font);
     confirmed = read.confirmed;
     if (!result || read.result.parsed) result = read.result;
   }
@@ -127,7 +128,7 @@ export function lineParts(text) {
   return {amount: amount ? Number(amount) : null, name: name || null, count: item ? Number(item[2]) : null, tab: item && tab ? tabOf(tab) : null};
 }
 
-async function readByOcr(engine, order, list, fontTexts) {
+async function readByOcr(engine, order, list, fontTexts, font = null) {
   // Every sample is read whole first: with clean masks those reads carry the digits too (measured), and
   // the separate reads of just the digits, the tab or the name only add votes when they disagree.
   const texts = [];
@@ -157,6 +158,16 @@ async function readByOcr(engine, order, list, fontTexts) {
   // "Arrows for Bows x3 earned. (Use)": the count is the third word from the end, after its "x".
   const n = await digits('count', (mask) => countSpan(mask)?.count ?? null);
   const tab = await vote([...fromLines('tab'), ...order.map(({mask, words}) => async () => (words.length >= 4 ? tabOf(await ocr(engine, span(mask, words.at(-1).x0, words.at(-1).x1), 'message', 3)) : null))]);
+  // The name compared shape by shape with every item name (matchName), when it is clearly one item: close
+  // (SHAPE_COST pixels per letter) and ahead of the runner-up (SHAPE_LEAD). Measured on 63 saved item lines:
+  // the 42 OCR had matched all agreed, and 20 it could not match were found ("Biff Feather": Stiff, not Soft).
+  const spans = order.map(({mask}) => { const at = countSpan(mask)?.name; return at ? span(mask, at[0], at[1] + 1) : null; }).filter(Boolean);
+  const shaped = font && spans.length ? matchName(font, spans, tab.value ? list.filter((i) => i.tab === tab.value) : list) : null;
+  if (shaped && shaped.cost <= SHAPE_COST && shaped.next - shaped.cost >= SHAPE_LEAD) {
+    const item = shaped.item, count = n?.amount ? n : {amount: 1, approx: true};
+    return {result: {text, parsed: {kind, name: item.name, cut: shaped.cut, count: count.amount, approx: count.approx, tab: tab.value ?? item.tab}, item},
+      confirmed: !count.approx && (tab.agreed || tab.value === null)};
+  }
   const name = (await vote([...fromLines('name'), ...order.map(({mask, words}) => async () => {
     const at = countSpan(mask)?.name ?? (words.length >= 4 ? [words[0].x0, words.at(-4).x1] : null);
     if (!at) return null;

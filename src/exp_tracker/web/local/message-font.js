@@ -161,3 +161,53 @@ export function readLine(font, mask) {
   }
   return text.replace(/(?<=[\d(+?])\s+(?=[\d)?,])/g, '');
 }
+
+// Costs for comparing a name's shapes with an item's letters (pixels that differ; see matchName).
+const NAME = {cap: 12, unknown: 5, split: 1, stray: 7, missed: 7, touching: 6};
+
+/**
+ * The item a line's name shows, compared shape by shape with every item name (the way a reader knows the
+ * word, not each letter): `masks` are the name parts of a message's samples. Each glyph is held against
+ * each letter's learned variants; a letter in two pieces may be joined, a stray mark or a missed letter
+ * costs NAME.stray / NAME.missed, a letter the font has not learned NAME.unknown. A name cut short ("...")
+ * may end anywhere. Returns {item, cost, next, cut} (cost per letter of the best and the runner-up) or null.
+ */
+export function matchName(font, masks, items) {
+  const chars = [...new Set(items.flatMap((item) => [...item.name.replace(/\s+/g, '')]))];
+  const totals = new Map(), counts = new Map();
+  let used = 0, anyCut = false;
+  for (const mask of masks) {
+    let glyphs = glyphsOf(mask);
+    // Trailing dots of a cut name: narrow glyphs of a few pixels at the bottom.
+    let cut = false;
+    while (glyphs.length && glyphs.at(-1).w <= 2 && ink(glyphs.at(-1)) <= 4) { glyphs = glyphs.slice(0, -1); cut = true; }
+    anyCut ||= cut;
+    const G = glyphs.length;
+    if (G < 3) continue;
+    used++;
+    const cost = (glyph) => Object.fromEntries(chars.map((c) => [c, font[c]?.length ? Math.min(NAME.cap, nearest(font, glyph, (x) => x === c)) : NAME.unknown]));
+    const single = glyphs.map(cost), pair = glyphs.slice(1).map((g, i) => (g.gap <= 1 ? cost(join(glyphs[i], g)) : null));
+    for (const item of items) {
+      const letters = [...item.name.replace(/\s+/g, '')], C = letters.length;
+      if (cut ? C < G - 3 : Math.abs(C - G) > Math.max(3, G * .3)) continue;
+      const dp = Array.from({length: G + 1}, () => new Float64Array(C + 1).fill(Infinity));
+      dp[0][0] = 0;
+      for (let i = 0; i <= G; i++) for (let j = 0; j <= C; j++) {
+        const here = dp[i][j];
+        if (here === Infinity) continue;
+        if (i < G && j < C) dp[i + 1][j + 1] = Math.min(dp[i + 1][j + 1], here + single[i][letters[j]]);
+        if (i + 1 < G && j < C && pair[i]) dp[i + 2][j + 1] = Math.min(dp[i + 2][j + 1], here + pair[i][letters[j]] + NAME.split);
+        if (i < G && j + 1 < C) dp[i + 1][j + 2] = Math.min(dp[i + 1][j + 2], here + NAME.touching);
+        if (i < G) dp[i + 1][j] = Math.min(dp[i + 1][j], here + NAME.stray);
+        if (j < C) dp[i][j + 1] = Math.min(dp[i][j + 1], here + NAME.missed);
+      }
+      // A cut name is a prefix: it may end at any letter after most of the glyphs.
+      let best = dp[G][C] / C;
+      if (cut) for (let j = Math.max(1, G - 3); j <= C; j++) best = Math.min(best, dp[G][j] / j);
+      totals.set(item, (totals.get(item) ?? 0) + best); counts.set(item, (counts.get(item) ?? 0) + 1);
+    }
+  }
+  // Only names compared in every sample, by their mean cost per letter.
+  const ranked = [...totals].filter(([item]) => counts.get(item) === used).map(([item, total]) => [item, total / used]).sort((a, b) => a[1] - b[1]);
+  return ranked.length ? {item: ranked[0][0], cost: ranked[0][1], next: ranked[1]?.[1] ?? Infinity, cut: anyCut} : null;
+}

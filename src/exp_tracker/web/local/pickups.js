@@ -179,11 +179,61 @@ const NEW_COST = 30, EXTRA_COST = 30, PIXEL_COST = 3, MATCH_CAP = 30, UNEXPLAINE
  * `update(lines, at)` takes lines with `bits` and returns the messages whose lines have left the screen:
  * {at, samples}, `samples` being the line's masks seen at different slots, for reading.
  */
+// A message's line added up over every frame it is on screen: the text stays put while scenery and the
+// character move behind it, so a pixel that is text in most frames is text, and one-frame noise drops out.
+// Each frame is lined up with the tally so far (the line box can sit a pixel off). Right-aligned like the
+// messages; FUSE_H leaves room for the box to sit a few rows higher or lower.
+const FUSE_W = 420, FUSE_H = 24, FUSE_SHARE = .45;
+// `base` is the row of the slot the line sits in: lines move up a slot as messages arrive.
+function fuseAdd(msg, line, base) {
+  const w = line.x1 - line.x0 + 1, h = line.y1 - line.y0, acc = msg.acc ??= {sum: new Uint16Array(FUSE_W * FUSE_H), n: 0};
+  let best = null, score = -1;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if (!acc.n && (dx || dy)) continue;
+    let hits = 0;
+    for (let yy = 0; yy < h; yy++) {
+      const row = 4 + yy + dy + (line.y0 - base);
+      if (row < 0 || row >= FUSE_H) continue;
+      for (let xx = 0; xx < w; xx++) if (line.bits[yy * w + xx]) {
+        const col = FUSE_W - w + xx + dx;
+        if (col >= 0 && acc.sum[row * FUSE_W + col] * 2 > acc.n) hits++;
+      }
+    }
+    if (hits > score) { score = hits; best = [dx, dy]; }
+  }
+  const [dx, dy] = best;
+  for (let yy = 0; yy < h; yy++) {
+    const row = 4 + yy + dy + (line.y0 - base);
+    if (row < 0 || row >= FUSE_H) continue;
+    for (let xx = 0; xx < w; xx++) if (line.bits[yy * w + xx]) { const col = FUSE_W - w + xx + dx; if (col >= 0) acc.sum[row * FUSE_W + col]++; }
+  }
+  acc.n++;
+}
+
+// The added-up line as a mask like the others (text rows plus a margin), or null after too few frames.
+function fused(acc) {
+  if (!acc || acc.n < 3) return null;
+  const on = (i) => acc.sum[i] >= Math.max(2, FUSE_SHARE * acc.n);
+  let x0 = FUSE_W, x1 = -1, y0 = FUSE_H, y1 = -1;
+  for (let y = 0; y < FUSE_H; y++) for (let x = 0; x < FUSE_W; x++) if (on(y * FUSE_W + x)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  if (x1 < 0) return null;
+  const top = Math.max(0, y0 - 2), bottom = Math.min(FUSE_H, y1 + 3), width = x1 - x0 + 1, height = bottom - top, bits = new Uint8Array(width * height);
+  for (let y = top; y < bottom; y++) for (let x = x0; x <= x1; x++) bits[(y - top) * width + x - x0] = on(y * FUSE_W + x) ? 1 : 0;
+  return {width, height, bits};
+}
+
 export function stackTracker({forgetMs = 1500} = {}) {
   let bottom = null, slots = [];  // slots[k]: {msg, line, at} for the line k slots above the bottom.
   const votes = new Map(), recent = [];
   let arrived = 0, started = false;
-  const retire = (entry, done) => { if (entry?.msg) done.push(entry.msg); };
+  // A leaving message carries its added-up line as the sample read first (after the bottom-slot one, which
+  // readers try last).
+  const retire = (entry, done) => {
+    if (!entry?.msg) return;
+    const sum = fused(entry.msg.acc);
+    if (sum) entry.msg.samples.splice(1, 0, sum);
+    done.push(entry.msg);
+  };
   return {
     update(lines, at) {
       const done = [];
@@ -234,6 +284,7 @@ export function stackTracker({forgetMs = 1500} = {}) {
         Object.assign(entry, {line, at});
         // A sample unlike the message's first is another line, after a misjudged jump of several slots
         // (measured: ~15% of messages in bursts); other lines differ by 100+ pixels.
+        if (entry.msg && (!entry.msg.first || difference(entry.msg.first, line, 61) <= 60)) fuseAdd(entry.msg, line, bottom - k * PITCH);
         if (entry.msg && entry.slot !== k && entry.msg.samples.length < 4 && (!entry.msg.first || difference(entry.msg.first, line, 61) <= 60)) {
           entry.slot = k;
           entry.msg.first ??= line;
