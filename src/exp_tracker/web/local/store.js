@@ -208,6 +208,45 @@ export function exportAll() {
   }));
 }
 
+// A backup file (Export JSON) checked before anything is replaced: its format, its size, and the fields that
+// keys, indexes and the page rely on. Throws an Error a player can act on; returns the lists to restore.
+export function checkBackup(data) {
+  if (!data || typeof data !== 'object' || !/^msxp-local-v[1-3]$/.test(data.format)) throw new Error("This isn't an msxp /local backup (Export JSON) file.");
+  const list = (name) => {
+    const rows = data[name] ?? [];
+    if (!Array.isArray(rows)) throw new Error(`The backup's ${name} aren't a list.`);
+    return rows;
+  };
+  const backup = {exportedAt: typeof data.exportedAt === 'string' ? data.exportedAt : null,
+    characters: list('characters'), sessions: list('sessions'), readings: list('readings'), days: list('days'), pickups: list('pickups')};
+  if (backup.characters.length + backup.sessions.length + backup.readings.length + backup.days.length + backup.pickups.length > 5e6) throw new Error('The backup is too large.');
+  const id = (v) => Number.isSafeInteger(v) && v > 0, time = (v) => Number.isFinite(v) && v > 0, text = (v, max) => typeof v === 'string' && v.length <= max;
+  const object = (row) => row !== null && typeof row === 'object' && !Array.isArray(row);
+  const check = (rows, what, ok) => { for (const row of rows) if (!object(row) || !ok(row)) throw new Error(`The backup has ${what} that can't be read; nothing was changed.`); };
+  const owners = new Set();
+  check(backup.characters, 'a character', (c) => id(c.id) && text(c.name, 64) && !owners.has(c.id) && owners.add(c.id));
+  const owned = (row) => owners.has(row.characterId);
+  check(backup.sessions, 'a session', (s) => owned(s) && id(s.id));
+  check(backup.readings, 'a reading', (r) => owned(r) && id(r.id) && time(r.at) && Number.isSafeInteger(r.exp) && Number.isSafeInteger(r.bp) && Number.isSafeInteger(r.level)
+    && (r.gain == null || Number.isFinite(r.gain)));
+  check(backup.days, 'a daily summary', (d) => owned(d) && /^\d{4}-\d{2}-\d{2}$/.test(d.day) && time(d.at) && Number.isFinite(d.gain ?? 0));
+  check(backup.pickups, 'a pickup', (p) => owned(p) && id(p.id) && time(p.at)
+    && (p.kind === 'mesos' ? Number.isFinite(p.amount) : p.kind === 'item' && id(p.itemId) && text(p.name, 80) && Number.isFinite(p.count)));
+  return backup;
+}
+
+// Replaces everything tracked (not the settings or learned glyphs) with a checked backup, in one transaction:
+// if any write fails, nothing changes.
+export function restoreAll(backup) {
+  return run(['characters', 'sessions', 'readings', 'days', 'pickups'], 'readwrite', (tx) => {
+    for (const name of ['characters', 'sessions', 'readings', 'days', 'pickups']) {
+      const rows = tx.objectStore(name);
+      rows.clear();
+      for (const row of backup[name]) rows.put(row);
+    }
+  });
+}
+
 export function deleteCharacter(id) {
   return run(['characters', 'sessions', 'readings', 'days', 'pickups'], 'readwrite', async (tx) => {
     tx.objectStore('characters').delete(id);

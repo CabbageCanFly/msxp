@@ -883,6 +883,33 @@ async function init() {
     const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(blob), download: `msxp-local-${new Date().toISOString().slice(0, 10)}.json`});
     link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   });
+  // Restore: a backup file replaces everything tracked here, once it has been checked and confirmed.
+  $('restore').addEventListener('click', () => $('restore-file').click());
+  $('restore-file').addEventListener('change', async (event) => {
+    const file = event.target.files[0], note = $('restore-note');
+    event.target.value = '';
+    if (!file) return;
+    let backup;
+    try {
+      if (file.size > 200e6) throw new Error('This file is too large to be a backup.');
+      backup = store.checkBackup(JSON.parse(await file.text()));
+    } catch (error) {
+      note.textContent = `Can't restore: ${error instanceof SyntaxError ? "the file isn't valid JSON." : error.message}`;
+      return;
+    }
+    note.textContent = '';
+    const when = backup.exportedAt && !Number.isNaN(Date.parse(backup.exportedAt)) ? ` from ${new Date(backup.exportedAt).toLocaleString()}` : '';
+    const count = (n, word) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
+    confirmFirst($('restore'), {title: 'Restore this backup?',
+      text: `Everything tracked in this browser is replaced by the backup${when}: ${count(backup.characters.length, 'character')}, ${count(backup.readings.length, 'reading')} and ${count(backup.pickups.length, 'pickup')}. This can't be undone.`,
+      yes: 'Restore'}, async () => {
+      if (capture) await stop('restored');
+      try { await store.restoreAll(backup); } catch (error) { note.textContent = `Can't restore: ${error.message}`; return; }
+      character = null; readingsCache = []; pickupsCache = [];
+      await refreshCharacters(); broadcast();
+      note.textContent = `Backup restored: ${count(backup.characters.length, 'character')}.`;
+    });
+  });
   for (const id of ['clear', 'editor-clear']) $(id).addEventListener('click', (event) => confirmFirst(event.currentTarget, {title: 'Clear all local history?',
     text: 'Every character, reading and pickup in this browser is deleted, along with what the reader has learned. This can\'t be undone.', yes: 'Clear everything'}, async () => {
     if (capture) await stop('cleared');

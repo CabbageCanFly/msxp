@@ -154,6 +154,23 @@ test('glyph templates: learned only from aligned confirmed text; conflicts are p
   assert.deepEqual(G.displayed(1234567, 905), {number: '1,234,567', percent: '9.05%'});
 });
 
+test('a backup is checked before it can replace anything', async () => {
+  const S = await import(new URL('store.js', web));
+  const good = {format: 'msxp-local-v3', exportedAt: '2026-11-11T20:00:00.000Z',
+    characters: [{id: 1, name: 'CharA', totalGain: 10}], sessions: [{id: 1, characterId: 1, startedAt: 5}],
+    readings: [{id: 1, characterId: 1, sessionId: 1, at: 10, level: 21, exp: 100, bp: 50, gain: null}],
+    days: [{characterId: 1, day: '2026-11-11', gain: 0, at: 10, level: 21, exp: 100, bp: 50}],
+    pickups: [{id: 1, characterId: 1, at: 11, kind: 'item', itemId: 4000019, name: 'Snail Shell', count: 1}]};
+  const backup = S.checkBackup(good);
+  assert.equal(backup.characters.length, 1);
+  assert.equal(S.checkBackup({format: 'msxp-local-v2', characters: []}).pickups.length, 0);  // Older backups have no pickups.
+  assert.throws(() => S.checkBackup({format: 'something else'}), /isn't an msxp/);
+  assert.throws(() => S.checkBackup({...good, readings: {}}), /aren't a list/);
+  assert.throws(() => S.checkBackup({...good, readings: [{...good.readings[0], characterId: 2}]}), /a reading/);  // Another character's.
+  assert.throws(() => S.checkBackup({...good, characters: [...good.characters, {id: 1, name: 'Twin'}]}), /a character/);  // Same id twice.
+  assert.throws(() => S.checkBackup({...good, pickups: [{...good.pickups[0], name: 'x'.repeat(500)}]}), /a pickup/);
+});
+
 test('daily summaries keep the last reading of each local day and add up its gains', async () => {
   const S = await import(new URL('store.js', web));
   const morning = new Date(2026, 10, 10, 8).getTime(), evening = new Date(2026, 10, 10, 21).getTime();
