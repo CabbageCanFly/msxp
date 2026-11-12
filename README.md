@@ -269,9 +269,13 @@ Restart only the services affected by the change. The [docs index](docs/README.m
 ## Next improvements
 
 - [ ] Improve admin dashboard view ui
-- [ ] Add an adjustable ETA to next level based on user input EXP rate
+- [x] Add an adjustable ETA to next level based on user input EXP rate (level planner on the Next level card)
 - [ ] Display EXP % per hour somewhere without cluttering the leaderboard page / profile page too much
 - [ ] Add site-wide player stats: average level, class/job counts, EXP and daily rates by class and level range; explore Twitch streamer stats
+- [ ] `/local`: session recap (time, EXP, levels, mesos, top drops, deaths), built from saved readings so a closed tab still has one
+- [ ] `/local` bonus: item sell prices for "mesos/hour including drops" (maplestory.io rebuild or our own client extraction)
+- [ ] `/local` bonus: potions used per hour from the quick-slot count (low priority; error-prone)
+- [ ] `/local` pickups: combine brightness over calm frames for fog; confirm an amount only when samples agree
 - [ ] Revisit deferred OCR work: [obscured LV labels and localization timeouts](docs/stationary-level-up.md#todo-deferred-obscured-lv-labels-and-localization-timeouts)
 
 ## How it works
