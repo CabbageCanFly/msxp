@@ -601,8 +601,7 @@ function renderPickups(now) {
   // pickup on; time without pickups counts as none, so it falls to 0 while not tracking.
   const mesos = pickupsCache.filter((r) => r.kind === 'mesos').map((r) => ({at: r.at, amount: r.amount})), since = mesos[0]?.at ?? null;
   const rate = since == null ? null : rateSeries(mesos, {from: now - 1000, to: now, window, since}).at(-1)?.perHour ?? null;
-  $('pickups-board').hidden = !settings.pickups && !pickupsCache.length;
-  if ($('pickups-board').hidden) return;
+  // Always shown, so the Live rate panel keeps its half of the row; empty notes say how to start.
   $('meso-window').value = String(settings.mesoWindow); $('item-window').value = String(settings.itemWindow);
   $('meso-rate').textContent = rate == null ? '—' : fmtExp(rate);
   $('meso-rate-note').textContent = rate == null ? 'After a few meso pickups with Track pickups on' : !capture?.pickups ? 'Not reading pickups right now'
