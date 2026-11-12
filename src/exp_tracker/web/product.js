@@ -278,7 +278,7 @@ function observedWindow(p) {
   if(p.tracked_status)return windows?.[String(windowMinutes)]?.observed?.available?windows[String(windowMinutes)].observed:null;
   const o=recentWindow(p)?.observed ?? selectedWindow(p)?.observed;return o?.available?o:null;
 }
-function spanText(seconds) { const s=Math.floor(seconds);return s<60?`${s}s`:`${Math.floor(s/60)}m ${s%60}s`; }
+function spanText(seconds) { const s=Math.floor(seconds);return s<60?`${s}s`:s<3600?`${Math.floor(s/60)}m ${s%60}s`:`${Math.floor(s/3600)}h ${Math.floor(s%3600/60)}m`; }
 function windowNote(p) {
   if(p.tracked_status && p.tracked_status!=='ready' || recentWindow(p)?.status==='history_limit')return 'History unavailable';
   const limitation={level_transition_requirement_unavailable:'Can\'t total EXP across the level-up',

@@ -2202,3 +2202,10 @@ test('job filter menu: ticking several adds them, unticking or an icon removes o
   assert.equal(all.checked,true);assert.equal(box('job:Bandit').checked,false);
   all.checked=false;panel.listeners.change({target:all});assert.equal(all.checked,true);  // With nothing picked it cannot be unticked.
 });
+
+test('tracked spans read as hours and minutes from an hour up',()=>{
+  const p=page('player');
+  assert.equal(p.run('spanText(45)'),'45s');
+  assert.equal(p.run('spanText(208)'),'3m 28s');
+  assert.equal(p.run('spanText(70140)'),'19h 29m');
+});
