@@ -194,6 +194,15 @@ export function drawDailyChart(svg, days, {now, range}) {
     if (previous) shape('line', {x1: x(previous.time), y1: y(previous.value), x2: x(r.time), y2: y(r.value), class: 'trend'});
     shape('circle', {cx: x(r.time), cy: y(r.value), r: 4, class: 'sample'});
   });
+  // A day that reached a new level: its dot in gold with the level above (a label too close to the last is left out).
+  let marked = -Infinity;
+  points.forEach((r, i) => {
+    if (!i || r.level <= points[i - 1].level) return;
+    shape('circle', {cx: x(r.time), cy: y(r.value), r: 5, class: 'sample level-up'});
+    if (x(r.time) - marked < 40) return;
+    marked = x(r.time);
+    shape('text', {x: Math.min(right - 16, x(r.time)), y: Math.max(14, y(r.value) - 10), 'text-anchor': 'middle', class: 'level-mark'}).textContent = `Lv. ${r.level}`;
+  });
   const dates = new Intl.DateTimeFormat(undefined, {month: '2-digit', day: '2-digit', timeZone}), shown = new Set();
   for (let i = 0; i < ticks; i++) {
     const stamp = first + (last - first) * i / (ticks - 1), label = dates.format(new Date(stamp));

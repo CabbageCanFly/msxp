@@ -96,9 +96,12 @@ def test_product_js_contacts_only_the_configured_api_origin():
     # All three request paths use the configured origin; daily history is separate from live polling.
     assert re.findall(r'fetch\(([^,]*),', source) == [
         '`${apiOrigin}/api/players/${encodeURIComponent(channel)}/daily-history?character=${id}&days=365`',
-        "String(query)?`${endpoint}?${query}`:endpoint", '`${apiOrigin}/api/players/${encodeURIComponent(channel)}/history`']
+        "String(query)?`${endpoint}?${query}`:endpoint", '`${apiOrigin}/api/players/${encodeURIComponent(channel)}/history`',
+        "'/static/local/community-exp.json'"]
+    # The level planner is the one module loaded on demand, from this site.
+    assert re.findall(r'import\(([^)]*)\)', source) == ["'/static/local/level-plan.js'"]
     assert re.search(r"const endpoint=channel\?`\$\{apiOrigin\}/api/players/\$\{encodeURIComponent\(channel\)\}`:`\$\{apiOrigin\}/api/players`;", source)
-    for channel in ('XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'import(', 'importScripts', 'new Image'):
+    for channel in ('XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'importScripts', 'new Image'):
         assert channel not in source, channel
     # Loaded URLs besides the API: the overlay preview, mob sprites, decoded town layers and job icons, all same-origin.
     assert set(re.findall(r'\.src=([^;]*);', source)) == {'url', "sprite(slug,'move')", "sprite(slug,'hit')", "sprite(slug,'die')", "sprite(pick(BOSSES),'stand')", '`/static/${file}`',

@@ -526,3 +526,10 @@ test('the digit row ignores a panel border caught by a box that is too tall', ()
   for (let y = 5; y < 12; y++) for (const x of [3, 4, 9, 15]) data.set([255, 255, 255, 255], (y * width + x) * 4);  // Digits.
   assert.deepEqual(H.inkRows({width, height, data}, {x0: 0, y0: 0, x1: width, y1: height}), {top: 5, bottom: 11});
 });
+
+test('level planner: EXP to each later level adds the rest of this one and whole later ones', async () => {
+  const {climb} = await import(new URL('level-plan.js', web));
+  const table = {to_next: {'22': 29000, '23': 33000, '24': 37000}};
+  assert.deepEqual(climb(table, 22, 9000, 25), [{level: 23, exp: 20000}, {level: 24, exp: 53000}, {level: 25, exp: 90000}]);
+  assert.deepEqual(climb(table, 24, 0, 30), [{level: 25, exp: 37000}]);  // Stops where the table ends.
+});

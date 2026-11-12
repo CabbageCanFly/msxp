@@ -118,6 +118,7 @@ const boardParam=()=>new URLSearchParams(location.search).get('mode')==='charact
 let boardMode=boardParam(),shownMode=boardMode;  // shownMode: the list on screen, which switches only once its data has arrived.
 const inactiveView=()=>view!=='board' && data?.view?.current===false;
 const el=id=>document.getElementById(id);
+let plannerState={},expTable=null;
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
 // Each job's skill icon is web/jobs/<slug of the job name>.png.
 const jobSrc=job=>`/static/jobs/${job.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}.png`;
@@ -636,6 +637,8 @@ function renderPlayer() {
   el('pp-rate').textContent=m?.percentage_per_hour?`${m.percentage_per_hour.value.approximate.toFixed(2)}`:'—';
   el('pp-rate').title='Estimated level % per hour.';
   const savedETA=publicETA(p),eta=p.recent_windows?savedETA?.estimate:m?.eta;
+  // What the level planner starts from (static/local/level-plan.js): the shown reading and the rate.
+  plannerState={level:displayLevel(p)?.value ?? null,exp:shown?.exp!=null && shown.exp!==''?Number(shown.exp):null,bp:shownBp,rate:m?.exp_per_hour?.value.approximate ?? null,pph:m?.percentage_per_hour?.value.approximate ?? null};
   amount('eta',etaText(eta),etaText(eta,true));el('eta').title=eta?`${etaText(eta)} to the next level at ${savedETA?`the ${savedETA.window_minutes} min pace${Date.parse(savedETA.estimated_at)?`, estimated ${localTime(savedETA.estimated_at)}`:''}`:'the recent pace'}. Not a live countdown.`:'Needs recent EXP gains';
   if(view==='overlay')el('eta').textContent=etaText(eta);
   if(view==='overlay') for(const id of ['exp','movement','rate','pp-rate','eta']) el(id).dataset.size=el(id).textContent.length>(id==='exp'?16:8)?'long':'normal';
@@ -876,6 +879,15 @@ function drawDailyHistory() {
     const previous=points[i-1];
     if(previous)shape('line',{x1:x(previous.time),y1:y(previous.value),x2:x(r.time),y2:y(r.value),class:'trend'});
     shape('circle',{cx:x(r.time),cy:y(r.value),r:4,class:'sample'});
+  });
+  // A day that reached a new level: its dot in gold with the level above (a label too close to the last is left out).
+  let marked=-Infinity;
+  points.forEach((r,i)=>{
+    if(!i || r.level<=points[i-1].level)return;
+    shape('circle',{cx:x(r.time),cy:y(r.value),r:5,class:'sample level-up'});
+    if(x(r.time)-marked<40)return;
+    marked=x(r.time);
+    shape('text',{x:Math.min(right-16,x(r.time)),y:Math.max(14,y(r.value)-10),'text-anchor':'middle',class:'level-mark'}).textContent=`Lv. ${r.level}`;
   });
   const dates=new Intl.DateTimeFormat(undefined,{month:'2-digit',day:'2-digit',timeZone}),shownDates=new Set();
   for(let i=0;i<ticks;i++) {
@@ -1299,6 +1311,13 @@ if(view==='player') {
     e.preventDefault();links[next].focus();links[next].scrollIntoView({block:'nearest',inline:'nearest'});
   });
   el('roster-search').addEventListener('input',filterRoster);
+  el('planner')?.addEventListener('toggle',async e=>{
+    if(e.newState!=='open')return;
+    expTable??=fetch('/static/local/community-exp.json',{credentials:'omit'}).then(r=>r.ok?r.json():null).catch(()=>null).then(t=>t ?? (expTable=null));
+    // Starts from the EXP / hour the card shows (the chosen window's), else the pace estimate.
+    const shownRate=el('rate-label').textContent.startsWith('EXP')?Number((el('rate').dataset.fullNumber ?? '').replace(/\D/g,''))||null:null;
+    (await import('/static/local/level-plan.js')).openPlanner(el('planner-body'),await expTable,{...plannerState,rate:shownRate ?? plannerState.rate});
+  });
   all.addEventListener('toggle',()=>{if(all.open){el('roster-search').value='';filterRoster();el('roster-search').focus();}});
   all.addEventListener('keydown',e=>{if(e.key==='Escape' && all.open){e.stopPropagation();all.open=false;all.querySelector('summary').focus();}});
   document.addEventListener('pointerdown',e=>{if(all.open && !all.contains(e.target))all.open=false;});

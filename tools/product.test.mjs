@@ -1484,7 +1484,10 @@ test('History pill loads once per character, with local ranges, no live refresh 
   for(let i=0;i<20;i++)p.run('render()');assert.equal(requests.length,1);assert.equal(p.elements['history-chart'].children,shapes);
   p.run("chartMode='exp';drawHistory();chartMode='daily';syncDailyHistory();drawHistory();dailyDays=90;drawHistory()");await settle();
   assert.equal(requests.length,1);
-  assert.equal(shapes.filter(n=>n.tag==='circle').length,3);
+  assert.equal(shapes.filter(n=>n.tag==='circle' && n.attributes.class==='sample').length,3);
+  // The day that reached Lv. 41 is marked: a gold dot and its level above.
+  assert.equal(shapes.filter(n=>n.attributes.class==='sample level-up').length,1);
+  assert.equal(shapes.find(n=>n.attributes.class==='level-mark').textContent,'Lv. 41');
   assert.equal(shapes.filter(n=>n.attributes.class==='trend').length,2);
   assert.equal(shapes.filter(n=>n.attributes.class==='line-grid' && n.attributes.y1===n.attributes.y2).length,4);
   assert.equal(shapes.filter(n=>n.attributes.class==='chart-axis').length,2);

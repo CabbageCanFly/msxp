@@ -47,6 +47,7 @@ const builder = overlayOptions('');
 // Capture session state; only exists while the user is sharing a window.
 let capture = null;  // {stream, track, grabber, video, sessionId, tracker, timer, lastFrame, ...}
 let lastScan = null, identitySuspect = null;
+let plannerState = {};  // Level, EXP and EXP / hour last shown, for the level planner (level-plan.js).
 
 async function loadTable() {
   const response = await fetch('/static/local/community-exp.json');
@@ -684,6 +685,7 @@ function render() {
   $('movement').textContent = view.recent == null ? '—' : fmtExp(view.recent);
   $('tracked-exp').textContent = view.dayGain == null ? '—' : expText(view.dayGain);
   $('tracked-note').textContent = view.dayGain == null ? `${expText(view.totalGain)} EXP tracked on this device` : `${duration(view.dayCovered)} observed · ${expText(view.totalGain)} all time`;
+  plannerState = {level: view.last?.level ?? null, exp: view.last?.exp ?? null, rate: view.perHour};
   $('eta').textContent = view.eta == null ? '—' : duration(view.eta);
   $('eta-note').textContent = view.eta == null ? (view.last && !view.total ? 'No EXP table for this level' : 'Needs an EXP / hour') : `${fmtExp(view.total - view.last.exp)} EXP to go`;
   renderPickups(now);
@@ -828,6 +830,7 @@ async function init() {
   $('character-edit').addEventListener('click', () => openCharacterForm(!character));
   // Closing the popup any way (Cancel, ×, Escape, a click outside) leaves the selected character as it was.
   $('editor').addEventListener('toggle', (event) => { if (event.newState === 'closed') $('character-select').value = character ? String(character.id) : 'new'; });
+  $('planner').addEventListener('toggle', async (event) => { if (event.newState === 'open') (await import('./level-plan.js')).openPlanner($('planner-body'), table, plannerState); });
   for (const id of ['remove-from', 'remove-to', 'remove-exp', 'remove-mesos', 'remove-items']) $(id).addEventListener('input', renderRemoval);
   $('remove-apply').addEventListener('click', (event) => confirmFirst(event.currentTarget, {title: 'Remove the selected data?',
     text: 'The checked EXP, mesos and items in this time range are removed from this browser. This can\'t be undone.', yes: 'Remove'}, applyRemoval));
