@@ -1,6 +1,6 @@
 // Pickup tracking for a running capture: raises the share to 15 fps, runs pickup-worker.js on the
-// frames, and reads each finished message with the shared OCR engine (queued so it never runs in the
-// middle of an EXP scan). Reports {at, text, parsed, item} per message.
+// frames, and reads each finished message with its own OCR engine (app.js), one read at a time.
+// Reports {at, text, parsed, item} per message.
 import {binarize, pgm} from './hud.js';
 import {learnLine, matchName, readLine} from './message-font.js';
 import {amountSpan, countSpan, lineWords, resolveItem, span, tabOf} from './pickups.js';

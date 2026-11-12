@@ -59,6 +59,12 @@ function getEngine() {
     .catch((error) => { enginePromise = null; throw error; });
 }
 
+// Pickup reading has its own OCR worker, made when first needed: EXP scans then never wait for a pickup
+// read, nor pickup reads for scans.
+let pickupEnginePromise = null;
+const getPickupEngine = () => pickupEnginePromise ??= import('./ocr.js').then((m) => m.createEngine())
+  .catch((error) => { pickupEnginePromise = null; throw error; });
+
 // ---------- characters ----------
 
 async function refreshCharacters() {
@@ -567,7 +573,7 @@ async function startPickupTracking() {
   const font = (settings.pickupFont ??= {})[size] ??= {};
   if (size === 'game') seedFont(font);
   try {
-    state.session = await startPickups({track: current.track, engine, font,
+    state.session = await startPickups({track: current.track, engine: await getPickupEngine(), font,
       onMessage: (m) => savePickup(current, m).catch((error) => setStatus(`Couldn't save a pickup: ${error.message}`, 'warn')),
       onStats(s) { $('pickup-stats').textContent = `Reading pickups · ${s.fps.toFixed(1)} fps${s.queued ? ` · ${s.queued} waiting` : ''}`; },
       onError(message) { $('pickup-stats').textContent = `Pickup reading stopped: ${message}`; },
