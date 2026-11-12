@@ -825,6 +825,8 @@ async function init() {
   $('character-edit').addEventListener('click', () => openCharacterForm(!character));
   // Closing the popup any way (Cancel, ×, Escape, a click outside) leaves the selected character as it was.
   $('editor').addEventListener('toggle', (event) => { if (event.newState === 'closed') $('character-select').value = character ? String(character.id) : 'new'; });
+  // The whole Next level card opens the planner; its pencil stays the keyboard's way in.
+  document.querySelector('.next-card').addEventListener('click', (event) => { if (!event.target.closest('button')) $('planner').showPopover(); });
   $('planner').addEventListener('toggle', async (event) => { if (event.newState === 'open') (await import('./level-plan.js')).openPlanner($('planner-body'), table, plannerState); });
   for (const id of ['remove-from', 'remove-to', 'remove-exp', 'remove-mesos', 'remove-items']) $(id).addEventListener('input', renderRemoval);
   $('remove-apply').addEventListener('click', (event) => confirmFirst(event.currentTarget, {title: 'Remove the selected data?',

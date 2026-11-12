@@ -101,12 +101,12 @@ export function openPlanner(root, table, state) {
     node('label', {className: 'planner-by'}, node('span', {textContent: 'By'}), deadline),
   );
 
-  let hideCap = null;
-  // A value past the cap is set back to it, with a short note beside the label.
+  // A value past the cap is set back to it, with a short note under the box (each note its own timer: a shared
+  // one left "24 max" up when the goal was capped right after).
   const cap = (input, note, max) => {
     if (Number(input.value) <= max) return;
     input.value = max; note.hidden = false;
-    clearTimeout(hideCap); hideCap = setTimeout(() => { note.hidden = true; }, 2000);
+    clearTimeout(note.timer); note.timer = setTimeout(() => { note.hidden = true; }, 2000);
   };
   // At least six rows: levels past the goal fill the list, faded, so the popup keeps its size.
   const path = () => climb(table, level, exp, Math.min(top, Math.max(goal, level + 6)));

@@ -1312,6 +1312,8 @@ if(view==='player') {
     e.preventDefault();links[next].focus();links[next].scrollIntoView({block:'nearest',inline:'nearest'});
   });
   el('roster-search').addEventListener('input',filterRoster);
+  // The whole Next level card opens the planner; its pencil stays the keyboard's way in.
+  el('eta-stat')?.addEventListener('click',e=>{if(el('planner') && !e.target.closest('button'))el('planner').showPopover();});
   el('planner')?.addEventListener('toggle',async e=>{
     if(e.newState!=='open')return;
     expTable??=fetch('/static/local/community-exp.json',{credentials:'omit'}).then(r=>r.ok?r.json():null).catch(()=>null).then(t=>t ?? (expTable=null));

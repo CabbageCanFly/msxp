@@ -566,6 +566,9 @@ html, body.product { overflow-x:clip; }
 }
 /* Level planner: the pencil on the "Next level" card opens it (static/local/level-plan.js). */
 .companion-cards .next-card { position:relative; }
+.companion-cards .next-card:has(.eta-plan) { cursor:pointer; transition:border-color .15s, background-color .15s, transform .15s; }
+.companion-cards .next-card:has(.eta-plan):hover { border-color:var(--gold-deep); background:color-mix(in srgb, var(--surface-raised) 85%, var(--gold) 6%); transform:translateY(-1px); }
+.companion-cards .next-card:has(.eta-plan):hover .eta-plan { color:var(--gold); }
 .companion-cards .eta-plan { position:absolute; top:10px; right:10px; display:grid; place-items:center; width:28px; height:28px; min-height:0; padding:0;
   border-color:var(--line); background:transparent; color:var(--text-muted); }
 .companion-cards .eta-plan:hover:not(:disabled) { color:var(--gold); background:var(--surface); }
