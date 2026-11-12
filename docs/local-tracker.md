@@ -222,7 +222,9 @@ located (overlays, third-party trackers, scaled layouts); manual calibration is 
 **Track pickups** (off by default, remembered) reads the game's pickup messages while tracking and
 keeps meso and item pickups in IndexedDB (`pickups` store, 24 hours like readings; included in the
 JSON export and deleted with the character). EXP messages are read but never kept: EXP comes only
-from the EXP bar. Items are kept only when the name matches the drop list; unread messages are
+from the EXP bar. Items are kept only when the name matches the item list (`local/items/`, built by `tools/build_local_items.py`
+from maplestory.io's copy of the Classic World client data: 1,978 non-cash Equip, Use and Etc items, one per name;
+the client data has no drop tables; the NiaDB monster-drop build is kept as a backup source); unread messages are
 dropped. The Pickups panel shows mesos per hour (see Live rate), mesos in the last 24 hours, and the items picked up with their icons. With `?debug`
 a log lists every message as read. Not yet in the OBS overlay; the learned message font is saved
 (setting `pickupFont`; the older `messageFont` held shapes misread before word alignment and is ignored), one

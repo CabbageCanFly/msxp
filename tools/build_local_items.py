@@ -1,8 +1,15 @@
-"""Build the monster-drop item table and icon sheets for the /local pickup tracker.
+"""Build the item table and icon sheets for the /local pickup tracker.
 
-    python tools/build_local_items.py [--out src/exp_tracker/web/local/items] [--delay 10] [--item-pages]
+    python tools/build_local_items.py --source maplestory-io [--delay 2.7]
+    python tools/build_local_items.py --source niadb [--delay 10] [--item-pages]
 
-Source: NiaMeowDB's MapleStory Classic monster pages. Each drop lists the Classic item name (what
+maplestory-io (used): maplestory.io's copy of the MapleStory Classic World client data (region MCW, version
+1): every item's Classic name, category and icon, from one item list and one icon request per item. It
+matched all 924 items of the NiaDB build by game ID and name (checked 2026-11-11). The client data has no
+drop tables, so the table holds every non-cash Equip, Use and Etc item. Icons are kept in --icon-cache, so
+an interrupted run resumes. maplestory.io states no request limits; MSIO_GAP paces a full run near 1.5 h.
+
+niadb (kept as a backup): NiaMeowDB's MapleStory Classic monster pages. Each drop lists the Classic item name (what
 pickup messages show) and an icon named by the game item ID; the ID's first digit is the inventory
 tab (1 Equip, 2 Use, 3 Setup, 4 Etc). Only items monsters drop are included. Requests go one at a
 time, at least MIN_GAP seconds apart (the site's tool rules, https://meowdb.com/reuse#tool-rules), and
@@ -39,11 +46,13 @@ CELL, PER_ROW, PER_SHEET = 32, 16, 256  # 32x32 icons on a 16x16 grid: 256 icons
 TABS = {'1': 'Equip', '2': 'Use', '3': 'Setup', '4': 'Etc'}
 
 
-MIN_GAP = 10  # Seconds between any two requests, icons included.
+MIN_GAP = 10  # Seconds between any two NiaDB requests, icons included.
+MSIO = 'https://maplestory.io/api/MCW/1'
+MSIO_GAP = 2.5  # Seconds between maplestory.io requests (no stated limit; ~2,000 icons in about 1.5 h at 2.7).
 
 
-def fetch(url, delay):
-    time.sleep(max(delay, MIN_GAP))
+def fetch(url, delay, floor=MIN_GAP):
+    time.sleep(max(delay, floor))
     try:
         # Compressed: an item page is ~280 KB as HTML (measured), several times smaller gzipped.
         with urlopen(Request(url, headers={'User-Agent': AGENT, 'Accept-Encoding': 'gzip'}), timeout=60) as response:
@@ -155,15 +164,63 @@ def build(out, delay, icon_delay, pages=False, cache=None):
     print(f'{len(rows)} items from {len(monsters)} monsters, {index + 1} icon sheets in {out}')
 
 
+def msio_items(listing):
+    """The items players can pick up: non-cash Equip, Use and Etc, not hair, faces or skins. Ordered Etc,
+    Use, Equip (then by ID), so common drops share the first icon sheets and a browser loads few sheets."""
+    order = {'Etc': 0, 'Use': 1, 'Equip': 2}
+    keep = [x for x in listing if not x.get('isCash') and x['typeInfo']['overallCategory'] in order
+            and x['typeInfo'].get('subCategory') not in ('Hair', 'Face', 'Skin') and str(x['id'])[0] in TABS and x.get('name', '').strip()]
+    # One entry per name and tab: messages show only the name, and two equal names (Blue Potion 2000003 and
+    # 2000008) made the matcher refuse both. The lowest ID is the regular item.
+    unique = {}
+    for x in sorted(keep, key=lambda x: x['id']): unique.setdefault((x['name'].strip().lower(), str(x['id'])[0]), x)
+    return sorted(unique.values(), key=lambda x: (order[x['typeInfo']['overallCategory']], x['id']))
+
+
+def build_msio(out, delay, icon_cache):
+    listing = json.loads(fetch(f'{MSIO}/item?startPosition=0&count=100000', 0, MSIO_GAP))
+    items = msio_items(listing)
+    icon_cache.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
+    rows, sheet, index, fetched = [], None, 0, 0
+    for n, x in enumerate(items):
+        if n % PER_SHEET == 0:
+            if sheet: sheet.save(out / f'icons-{index}.png', optimize=True); index += 1
+            sheet = Image.new('RGBA', (CELL * PER_ROW, CELL * PER_ROW), (0, 0, 0, 0))
+        gid, cell = x['id'], n % PER_SHEET
+        row, cached = [x['name'].strip(), TABS[str(gid)[0]], gid, []], icon_cache / f'{gid}.png'
+        try:
+            if not cached.exists():
+                cached.write_bytes(fetch(f'{MSIO}/item/{gid}/icon', delay, MSIO_GAP)); fetched += 1
+            icon = Image.open(cached).convert('RGBA')
+            icon.thumbnail((CELL, CELL))
+            sheet.paste(icon, ((cell % PER_ROW) * CELL + (CELL - icon.width) // 2, (cell // PER_ROW) * CELL + (CELL - icon.height) // 2))
+            row += [index, cell]
+        except Exception as error:  # A missing icon only means a text-only entry; a refusal stops the run (SystemExit).
+            print(f'no icon for {gid} {x["name"]}: {error}')
+        rows.append(row)
+        if (n + 1) % 100 == 0: print(f'{n + 1}/{len(items)} items, {fetched} icons fetched this run', flush=True)
+    if sheet: sheet.save(out / f'icons-{index}.png', optimize=True)
+    for old in out.glob('icons-*.png'):  # Sheets left over from a larger earlier build.
+        if int(old.stem.split('-')[1]) > index: old.unlink()
+    data = {'source': 'maplestory.io MapleStory Classic World client data (MCW 1)', 'cell': CELL, 'perRow': PER_ROW,
+            'items': sorted(rows, key=lambda r: r[0].lower())}  # [name, tab, game ID, [monsters], sheet?, cell?]
+    (out / 'items.json').write_text(json.dumps(data, separators=(',', ':'), ensure_ascii=False), encoding='utf-8')
+    print(f'{len(rows)} items, {index + 1} icon sheets in {out}')
+
+
 def main(argv=None):
     cli = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    cli.add_argument('--source', choices=['maplestory-io', 'niadb'], default='maplestory-io')
     cli.add_argument('--out', type=Path, default=OUT)
-    cli.add_argument('--delay', type=float, default=MIN_GAP, help=f'Seconds between requests (at least {MIN_GAP})')
+    cli.add_argument('--delay', type=float, default=None, help=f'Seconds between requests (at least {MSIO_GAP} for maplestory-io, {MIN_GAP} for niadb)')
     cli.add_argument('--icon-delay', type=float, default=MIN_GAP, help=f'Seconds between icon requests (at least {MIN_GAP})')
     cli.add_argument('--item-pages', action='store_true', help='Also read every item page (about 4,300) for monster drops')
-    cli.add_argument('--cache', type=Path, default=Path(tempfile.gettempdir()) / 'msxp-item-pages.jsonl', help='Item pages already read (resumes a run)')
+    cli.add_argument('--cache', type=Path, default=Path(tempfile.gettempdir()) / 'msxp-item-pages.jsonl', help='NiaDB item pages already read (resumes a run)')
+    cli.add_argument('--icon-cache', type=Path, default=Path(tempfile.gettempdir()) / 'msxp-msio-icons', help='maplestory.io icons already fetched (resumes a run)')
     args = cli.parse_args(argv)
-    build(args.out, args.delay, args.icon_delay, args.item_pages, args.cache)
+    if args.source == 'maplestory-io': build_msio(args.out, args.delay if args.delay is not None else 2.7, args.icon_cache)
+    else: build(args.out, args.delay if args.delay is not None else MIN_GAP, args.icon_delay, args.item_pages, args.cache)
     return 0
 
 

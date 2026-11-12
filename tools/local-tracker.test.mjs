@@ -398,6 +398,10 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   assert.equal(P.resolveItem(more, {name: 'Sliver Ora', cut: false, tab: null}).name, 'Silver Ore');
   assert.equal(P.resolveItem(more, {name: 'Si', cut: false, tab: null}), null);
   assert.equal(P.resolveItem([...more, {name: 'Silver Ora', tab: 'Etc'}], {name: 'Sliver Orb', cut: false, tab: null}), null);  // Two close: no guess.
+  // A cut name that also starts Use items: the one Etc item (a drop) wins the tie; two Etc items still don't.
+  const caps = [{name: 'Orange Mushroom Cap', tab: 'Etc'}, {name: 'Orange Mushroom Daydream', tab: 'Use'}, {name: 'Orange Mushroom Package', tab: 'Use'}];
+  assert.equal(P.resolveItem(caps, {name: 'Orange Mushro', cut: true, tab: null}).name, 'Orange Mushroom Cap');
+  assert.equal(P.resolveItem([...caps, {name: 'Orange Mushroom Doll', tab: 'Etc'}], {name: 'Orange Mushro', cut: true, tab: null}), null);
   const S = await import(new URL('pickup-session.js', web));
   assert.deepEqual(S.lineParts('Leather:1 eamed. (Etc)'), {amount: null, name: 'Leather', count: 1, tab: 'Etc'});  // "x1" read as ":1".
   assert.deepEqual(S.lineParts('Tree Branch x2 earned. (Etc)'), {amount: null, name: 'Tree Branch', count: 2, tab: 'Etc'});

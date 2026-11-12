@@ -48,3 +48,12 @@ def test_fetch_asks_for_gzip_and_unpacks_it(monkeypatch):
     monkeypatch.setattr(b, 'urlopen', lambda request, timeout: (asked.append(request.get_header('Accept-encoding')), Response())[1])
     assert b.fetch('https://example.invalid/item-db/1', 0) == b'<html>page</html>'
     assert asked == ['gzip']
+
+
+def test_msio_items_keep_pickups_in_sheet_order():
+    import tools.build_local_items as b
+    row = lambda gid, top, sub, cash=False, name='X': {'id': gid, 'name': name, 'isCash': cash, 'typeInfo': {'overallCategory': top, 'subCategory': sub}}
+    listing = [row(1302000, 'Equip', 'One-Handed Sword'), row(30000, 'Equip', 'Hair'), row(2000000, 'Use', 'Potion'),
+               row(4000019, 'Etc', 'Monster Drop'), row(5000000, 'Cash', 'Pet', cash=True), row(1002186, 'Equip', 'Hat', cash=True),
+               row(3010000, 'Setup', 'Chair'), row(4000020, 'Etc', 'Monster Drop', name=' '), row(2000008, 'Use', 'Potion')]  # Same name as 2000000.
+    assert [x['id'] for x in b.msio_items(listing)] == [4000019, 2000000, 1302000]  # Etc, Use, Equip; no hair, cash, setup or nameless.

@@ -337,15 +337,23 @@ export const tabOf = (text) => {
 export function resolveItem(items, {name, cut, tab}) {
   const norm = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, ''), want = norm(name);
   if (!want) return null;
-  let best = null, score = Infinity, second = Infinity;
+  let best = null, score = Infinity, second = Infinity, tied = [];
   for (const item of items) {
     if (tab && item.tab !== tab) continue;
     const full = norm(item.name), d = editDistance(want, cut ? full.slice(0, want.length) : full);
-    if (d < score) { best = item; second = score; score = d; } else if (d < second) second = d;
+    if (d < score) { best = item; second = score; score = d; tied = [item]; } else if (d === score) { second = d; tied.push(item); } else if (d < second) second = d;
+  }
+  if (!best) return null;
+  // A tie between exactly one Etc item (monster drops, ores) and Use items only goes to the Etc item, the far
+  // likelier pickup (measured: a name cut to "Orange Mushro..." also starts transformation and package Use
+  // items). Any other tie, Equip included ("Blue Mushroom" Cap or Hat), is no guess.
+  if (second === score) {
+    const etc = tied.filter((item) => item.tab === 'Etc');
+    if (etc.length !== 1 || tied.some((item) => item.tab !== 'Etc' && item.tab !== 'Use')) return null;
+    best = etc[0];
   }
   // Up to a quarter of the letters may be misread; up to a third ("Syulshy Liguld") only when no other
   // item comes within two edits of it (measured live: thin strokes garble several letters of a name).
-  if (!best || second === score) return null;
   if (want.length < 4) return score === 0 ? best : null;  // "Si" is not "Sai".
   return score <= Math.max(1, Math.floor(want.length / 4)) || (score <= Math.floor(want.length / 3) && second - score >= 2) ? best : null;
 }
