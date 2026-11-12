@@ -4,8 +4,8 @@
 import {bracketColour, channel, crop, otsu} from './hud.js';
 
 // The HUD's digits in the game's own pixels (a native window, or a stretched one read unstretched), as
-// learned from confirmed readings: the EXP number and percentage, and level-badge 1s and 2s. The first
-// scan reads with these; other badge digits fall back to OCR until learned.
+// learned from confirmed readings and checked by eye: the EXP number and percentage, and the level badge's
+// digits 0-9. The first scan reads with these, at any level.
 export const HUD_GLYPHS = {
   '01110/10001/10001/10001/10001/10001/01110': '0', '01/11/01/01/01/01/01': '1', '01110/10001/00001/00010/00100/01000/11111': '2',
   '01110/10001/00001/00110/00001/10001/01110': '3', '00010/00110/01010/10010/11111/00010/00010': '4', '11111/10000/10000/01110/00001/10001/01110': '5',
@@ -14,6 +14,14 @@ export const HUD_GLYPHS = {
   '011/111/011/011/011/011/000': '1', '011/111/011/011/011/011/011': '1', '11/11/11/11/11/11/11': '1',
   '0111110/1100011/0000011/0011110/0110000/1100000/1111110': '2', '0111110/1100011/0000011/0011110/0110000/1100000/1111111': '2',
   '0111110/0100011/0000011/0011110/0110000/1100000/1111110': '2',
+  // The rest of the badge digits, learned on levels 3 to 10 and checked by eye.
+  '0111110/1100011/1100011/1100011/1100011/1100011/0111110': '0', '0111110/1100011/0000011/0001110/0000011/0100011/0011110': '3',
+  '0001110/0011110/0110110/1100110/1111111/0000110/0000110': '4', '1111100/1100000/1100000/0111110/0000011/0100011/0011110': '5',
+  '0111110/1100010/1100000/1111110/1100011/1100011/0111110': '6', '111111/000011/000110/001100/001100/011000/011000': '7',
+  '0111110/1100011/1100011/0111110/1100011/1100011/0111110': '8', '0111110/1100011/1100011/0111111/0000011/0100011/0011110': '9',
+  // EXP digits in a box one row taller (an empty bottom row).
+  '01/11/01/01/01/01/01/00': '1', '01110/10001/10001/01110/10001/10001/01110/00000': '8', '00/00/00/00/00/01/10/00': ',',
+  '11111/10000/10000/01110/00001/10001/01110/00000': '5',
 };
 
 // Split a field into glyphs: runs of inked columns inside the field's ink band. Keys are exact bitmaps.
