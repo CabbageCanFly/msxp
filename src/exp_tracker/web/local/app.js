@@ -516,8 +516,11 @@ async function teach(outcome) {
   const text = displayed(outcome.exp, outcome.bp), templates = {...known}, last = capture?.tracker.last;
   let added = 0;
   if (outcome.source === 'ocr' && outcome.segments) added += (learn(templates, outcome.segments.number, text.number) ?? 0) + (learn(templates, outcome.segments.percent, text.percent) ?? 0);
-  // Level digits too, once the accepted level is the one the badge showed.
-  if (outcome.levelSource === 'ocr' && outcome.levelSegments && last?.level === outcome.level) added += learn(templates, outcome.levelSegments, String(outcome.level)) ?? 0;
+  // Level digits too, from the accepted level: when the badge OCR read that level, or read nothing (a lone
+  // digit, which OCR misses) and the EXP table settled it. Never when OCR read another level.
+  if (outcome.levelSource === 'ocr' && outcome.levelSegments && last?.level != null && (outcome.level === null || outcome.level === last.level)) {
+    added += learn(templates, outcome.levelSegments, String(last.level)) ?? 0;
+  }
   if (added || JSON.stringify(templates) !== JSON.stringify(known)) await saveGlyphs(frameSize, templates);
 }
 

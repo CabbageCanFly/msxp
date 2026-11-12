@@ -34,12 +34,15 @@ test('EXP table consistency accepts either rounding and rejects disagreement', (
   assert.equal(E.consistency(table, 150, 1, 0), 'unknown');  // No published requirement: never extrapolated.
 });
 
-test('level resolution needs OCR and table to agree, or continuity with the previous level', () => {
+test('level resolution needs OCR and table to agree, or continuity with the previous level (or the next)', () => {
   const {exp, bp} = pair(20, 5000);
   assert.deepEqual(E.resolveLevel(table, 20, exp, bp, null), {level: 20, evidence: 'ocr_and_table'});
   assert.equal(E.resolveLevel(table, 26, exp, bp, null).level, null);  // Misread badge, no history.
   assert.deepEqual(E.resolveLevel(table, null, exp, bp, 20), {level: 20, evidence: 'table_continuity'});
   assert.equal(E.resolveLevel(table, null, exp, bp, null).reason, 'level_unreadable');
+  // An unread badge after a level-up: the next level when the pair fits it exactly; never two levels on.
+  assert.deepEqual(E.resolveLevel(table, null, exp, bp, 19), {level: 20, evidence: 'table_levelup'});
+  assert.equal(E.resolveLevel(table, null, exp, bp, 18).level, null);
   assert.equal(E.resolveLevel(table, 150, 123, 0, null).evidence, 'ocr_only');
 });
 

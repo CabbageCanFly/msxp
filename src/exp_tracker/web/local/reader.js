@@ -10,6 +10,8 @@ export const PARAMS = {
   number: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789,.'},
   percent: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789.%'},
   level: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789'},
+  // A lone badge digit: line mode reads nothing, single-word mode reads it (measured live: "4" at 4 of 5 scales).
+  levelWord: {tessedit_pageseg_mode: '8', tessedit_char_whitelist: '0123456789'},
   name: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'},
   job: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz (),'},
   // Pickup messages: "You have gained mesos (+10)", "Orange Mushro... x1 earned. (Etc)".
@@ -20,7 +22,7 @@ export const PARAMS = {
 export function variants(frame, box, field, smooth = false) {
   const part = crop(frame, box);
   if (part.width < 4 || part.height < 4) return [];
-  const level = field === 'level';
+  const level = field.startsWith('level');
   const gray = channel(part, level ? 'min' : 'max');
   const scale = magnification(part.height * (level ? .7 : .8)), threshold = Math.max(otsu(gray), level ? 120 : 110);
   return [scale, scale + 1].map((s) => ({threshold, scale: s, image: binarize(gray, part.width, part.height, threshold, s, 8, smooth)}));
@@ -143,11 +145,13 @@ export async function readHud(engine, frame, regions, templates = null, {table =
   return result;
 }
 
-// The level badge: learned glyphs, else OCR at two magnifications that must agree ({ambiguous} if not).
+// The level badge: learned glyphs, else OCR at two magnifications that must agree ({ambiguous} if not); line
+// mode first, single-word mode when it reads nothing (a lone digit).
 async function readLevelBadge(engine, frame, box, templates, raw, smooth) {
   const segments = segment(frame, box, 'min'), known = parseLevel(readGlyphs(segments, templates) ?? '');
   if (known !== null) return {level: known, source: 'glyphs', segments};
-  const levels = new Set((await readField(engine, frame, box, 'level', raw, smooth)).map(parseLevel).filter((v) => v !== null));
+  let levels = new Set((await readField(engine, frame, box, 'level', raw, smooth)).map(parseLevel).filter((v) => v !== null));
+  if (!levels.size) levels = new Set((await readField(engine, frame, box, 'levelWord', raw, smooth)).map(parseLevel).filter((v) => v !== null));
   return {level: levels.size === 1 ? [...levels][0] : null, source: 'ocr', segments, ambiguous: levels.size > 1};
 }
 

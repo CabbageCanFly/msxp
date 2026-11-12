@@ -44,7 +44,8 @@ export function compatibleLevels(table, exp, bp) {
 
 /**
  * Choose the level for an EXP/percentage pair. OCR level and arithmetic must agree; when the
- * badge is unreadable, the previous accepted level may continue only if the pair is consistent with it.
+ * badge is unreadable, the previous accepted level may continue, or the next one follow, only if the pair is
+ * consistent with it.
  */
 export function resolveLevel(table, ocrLevel, exp, bp, previousLevel) {
   if (ocrLevel !== null) {
@@ -53,6 +54,9 @@ export function resolveLevel(table, ocrLevel, exp, bp, previousLevel) {
     if (verdict === 'unknown') return {level: ocrLevel, evidence: 'ocr_only'};
   }
   if (previousLevel != null && consistency(table, previousLevel, exp, bp) === 'consistent') return {level: previousLevel, evidence: 'table_continuity'};
+  // A level-up the badge didn't show (measured live: OCR reads nothing for a lone "4"): the next level, when
+  // the EXP and percentage fit it exactly (8 EXP at 8.70% is level 4 alone among levels 1-10).
+  if (previousLevel != null && consistency(table, previousLevel + 1, exp, bp) === 'consistent') return {level: previousLevel + 1, evidence: 'table_levelup'};
   return {level: null, reason: ocrLevel === null ? 'level_unreadable' : 'level_disagrees_with_exp'};
 }
 
