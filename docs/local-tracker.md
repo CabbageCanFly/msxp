@@ -291,6 +291,14 @@ meso total:
   can trade samples, and the amount is then rounded. Raising the mismatch cost, or comparing only the
   amount's columns, tripled the count (fog moves a line's right edge from frame to frame).
   The recorder (`?debug`, "Record pickups") saves up to ~10 frames a second: ~7 at 1368x800, ~2.6 at 1080p.
+- Glyphs the mask lost are read from the line's brightness (each line keeps it beside its mask): a learned
+  shape predicts its strokes light and their drop shadows dark, which stay dark over white fog. Only for
+  glyphs the mask read cannot name. Fully font-read lines: 42 to 72 (fog, 4.3 min) and 54 to 85 (fog,
+  5.7 min); 9 reads changed across six recordings, each from unsure to a value checked on the frames
+  (fog 4.3 min: +960 to +965 of +965). Font reads also stop counting at the acceptance limit and remember
+  exact glyph shapes per font (emptied when it learns): page time per message ~52-65 ms to ~3.5-6 ms, the
+  same text on all 1,498 samples; OCR time per recording about halved. Pickup reading has its own OCR
+  worker (~50 MB, measured in Node), so EXP scans never wait for it. Not verified live yet.
 
 ## Not yet verified
 
