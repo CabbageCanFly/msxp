@@ -576,7 +576,7 @@ html, body.product { overflow-x:clip; }
 .planner label { position:relative; }
 .planner label > span { white-space:nowrap; }
 /* "24 max": a small bubble under the box, over the list, so nothing moves. */
-.planner-cap { position:absolute; top:100%; left:0; z-index:1; margin-top:4px; padding:2px 8px; border:1px solid var(--line-strong); border-radius:999px;
+.planner-cap { position:absolute; top:100%; left:0; z-index:3; margin-top:4px; padding:2px 8px; border:1px solid var(--line-strong); border-radius:999px;
   background:var(--surface-raised); color:var(--text-soft); font-size:11px; font-weight:700; text-transform:none; letter-spacing:0; }
 .planner-cap[hidden] { display:none; }
 .planner label { display:grid; gap:4px; }
@@ -586,14 +586,25 @@ html, body.product { overflow-x:clip; }
 .planner input:focus-visible, .planner select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 .planner-table { height:240px; overflow-y:auto; border-top:1px solid var(--line); }
 .planner-head, .planner-steps li { display:grid; grid-template-columns:64px 1fr auto; gap:10px; padding:6px 2px; }
-.planner-head { position:sticky; top:0; z-index:1; padding-block:5px; border-bottom:1px solid var(--line); background:var(--surface);
+.planner-head { position:sticky; top:0; z-index:1; padding-block:5px; border-bottom:2px solid var(--line-strong); background:var(--surface);
   color:var(--text-muted); font-size:11px; font-weight:700; letter-spacing:.3px; }
 .planner-head span:last-child { text-align:right; }
 .planner-steps { margin:0; padding:0; list-style:none; }
-.planner-steps li { border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+.planner-steps li { border-bottom:1px solid color-mix(in srgb, var(--line) 45%, transparent); font-variant-numeric:tabular-nums; cursor:pointer; }
+.planner-steps li:hover { background:color-mix(in srgb, var(--surface-raised) 60%, transparent); }
+.planner-steps li:focus-visible { outline:2px solid var(--gold); outline-offset:-2px; }
+/* A tapped row shows its EXP on a line of its own. */
+.planner-exp { display:none; grid-column:1 / -1; margin-top:-2px; color:var(--text-muted); font-size:12px; font-weight:600; }
+.planner-steps li.open .planner-exp { display:block; }
 /* The goal's row stays in view at the bottom while levels before it scroll. */
-.planner-steps li.goal { position:sticky; bottom:0; border-top:1px solid var(--line); background:var(--surface); color:var(--text); }
-.planner-steps li.goal b { color:var(--gold); }
+.planner-steps li.goal { position:sticky; bottom:0; border-top:2px solid var(--line-strong); border-bottom:0; background:var(--surface); color:var(--text); }
+.planner-steps li.goal:hover { background:var(--surface); }
+.planner-head, .planner-steps li.goal { transition:box-shadow .15s; }
+.planner-table[data-up="true"] .planner-head { box-shadow:0 8px 10px -6px #000a; }
+.planner-table[data-down="true"] li.goal { box-shadow:0 -8px 10px -6px #000a; }
+.planner-steps li.goal { font-weight:700; }
+.planner-steps li.goal b { color:var(--gold); font-weight:900; }
+.planner-steps li.goal time { color:var(--text-soft); font-weight:700; }
 .planner-steps li.beyond { opacity:.4; }
 .planner-steps b { color:var(--text); font-weight:800; }
 .planner-steps time { color:var(--text-muted); font-size:13px; }

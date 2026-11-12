@@ -52,6 +52,7 @@ const local = (at) => new Date(at - new Date(at).getTimezoneOffset() * 6e4).toIS
 const node = (tag, props = {}, ...children) => { const n = Object.assign(document.createElement(tag), props); n.append(...children); return n; };
 
 let goal = null, daily = null;  // Kept while the page is open.
+const opened = new Set();  // Levels whose EXP is shown (a tap on the row).
 
 /**
  * Fills `root` (the planner popover's body) for `state` {level, exp, bp, rate, pph, tracked}: EXP may be given
@@ -77,8 +78,18 @@ export function openPlanner(root, table, state) {
   const topped = node('span', {className: 'planner-cap', textContent: `${top} max`, hidden: true});
   const deadline = node('input', {type: 'datetime-local', min: local(now)});
   const steps = node('ol', {className: 'planner-steps'});
+  const box = node('div', {className: 'planner-table'});
+  // Phones show no scrollbar: a shadow under the column names once scrolled, and above the goal's row while
+  // rows hide behind it, says there is more.
+  const edges = () => {
+    const goalRow = steps.querySelector('li.goal'), before = goalRow?.previousElementSibling;
+    box.dataset.up = String(box.scrollTop > 2);
+    box.dataset.down = String(Boolean(before && before.getBoundingClientRect().bottom > goalRow.getBoundingClientRect().top + 1));
+  };
+  box.addEventListener('scroll', edges, {passive: true});
   const head = node('div', {className: 'planner-head'}, node('span', {textContent: 'Lvl'}), node('span', {textContent: 'Play time'}), node('span', {textContent: 'Reached'}));
   head.setAttribute('aria-hidden', 'true');
+  box.append(head, steps);
   root.append(
     node('p', {className: 'planner-now', textContent: `Lv. ${level} · ${((exp / need(table, level)) * 100).toFixed(2)}%`}),
     node('div', {className: 'planner-inputs'},
@@ -86,7 +97,7 @@ export function openPlanner(root, table, state) {
       node('label', {}, node('span', {}, 'Hours / day', capped), hours),
       node('label', {}, node('span', {}, 'Goal Lvl', topped), target)),
     // The column names stay at the top and the goal's row at the bottom while the list scrolls.
-    node('div', {className: 'planner-table'}, head, steps),
+    box,
     node('label', {className: 'planner-by'}, node('span', {textContent: 'By'}), deadline),
   );
 
@@ -102,11 +113,23 @@ export function openPlanner(root, table, state) {
   const toGoal = () => path().find((s) => s.level === goal)?.exp ?? 0;
   const draw = () => {
     const perHour = whole(rate.value);
-    steps.replaceChildren(...path().map((s) => node('li', {className: s.level > goal ? 'beyond' : s.level === goal ? 'goal' : ''},
-      node('b', {textContent: `Lv. ${s.level}`}),
-      node('span', {textContent: perHour ? span(s.exp / perHour) : '—'}),
-      node('time', {textContent: perHour && daily ? when(s.exp / perHour, daily, now) : ''}),
-    )));
+    steps.replaceChildren(...path().map((s) => {
+      const row = node('li', {className: `${s.level > goal ? 'beyond' : s.level === goal ? 'goal' : ''}${opened.has(s.level) ? ' open' : ''}`, tabIndex: 0},
+        node('b', {textContent: `Lv. ${s.level}`}),
+        node('span', {textContent: perHour ? span(s.exp / perHour) : '—'}),
+        node('time', {textContent: perHour && daily ? when(s.exp / perHour, daily, now) : ''}),
+        // The level's own EXP (Lv. N-1 to N) and the total from now.
+        node('small', {className: 'planner-exp', textContent: `${numbers.format(need(table, s.level - 1))} EXP for this level · ${numbers.format(Math.ceil(s.exp))} from now`}));
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-expanded', String(opened.has(s.level)));
+      // Redrawn on each toggle; a keyboard toggle keeps the focus on its row.
+      const toggle = (keyboard) => { if (!opened.delete(s.level)) opened.add(s.level); draw(); if (keyboard) steps.querySelector(`[data-level="${s.level}"]`)?.focus(); };
+      row.dataset.level = s.level;
+      row.addEventListener('click', () => toggle(false));
+      row.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(true); } });
+      return row;
+    }));
+    requestAnimationFrame(edges);
   };
   // From the three fields: the date the goal is reached.
   const update = () => {
