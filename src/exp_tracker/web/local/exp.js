@@ -48,6 +48,9 @@ export function compatibleLevels(table, exp, bp) {
  * consistent with it.
  */
 export function resolveLevel(table, ocrLevel, exp, bp, previousLevel) {
+  // A badge outside 1..MAX_LEVEL, or below it with no published requirement, is a misread (measured live: "21"
+  // read as "121" with a stray 1); the EXP table and the previous level then decide, as for an unread badge.
+  if (ocrLevel !== null && (ocrLevel < 1 || ocrLevel > MAX_LEVEL || (ocrLevel < MAX_LEVEL && !requirement(table, ocrLevel)))) ocrLevel = null;
   if (ocrLevel !== null) {
     const verdict = consistency(table, ocrLevel, exp, bp);
     if (verdict === 'consistent') return {level: ocrLevel, evidence: 'ocr_and_table'};
@@ -61,6 +64,11 @@ export function resolveLevel(table, ocrLevel, exp, bp, previousLevel) {
 }
 
 export const DEFAULTS = Object.freeze({maxGapSeconds: 120, deathDropBp: 1500, jumpBp: 2000});
+// MapleStory Classic's level cap (November 2026); raise it when the game does.
+export const MAX_LEVEL = 100;
+// Agreeing scans before a jump that looks like another character (a level drop, several levels, a big loss)
+// pauses tracking to ask; fewer are skipped silently as misreads.
+export const SUSPECT_SCANS = 5;
 
 export const maxGapFor = (intervalSeconds) => Math.max(DEFAULTS.maxGapSeconds, 4 * intervalSeconds + 10);
 
@@ -103,7 +111,9 @@ export function step(table, state, r, {maxGapSeconds = DEFAULTS.maxGapSeconds, t
     }
     const reference = last ?? state.reference;
     if (!trustedIdentity && reference && first.kind === 'baseline' && suspicious(reference, pending)) {
-      return {state: {...state, pending: r}, accept: [], status: 'identity_check', reason: 'different_character_suspected', suspect: pending};
+      const agree = (state.agree ?? 1) + 1;
+      if (agree < SUSPECT_SCANS) return {state: {...state, pending: r, agree}, accept: [], status: 'pending', reason: 'large_jump_pending'};
+      return {state: {...state, pending: r, agree}, accept: [], status: 'identity_check', reason: 'different_character_suspected', suspect: pending};
     }
     return {state: {last: r, pending: null}, accept: [first, {...r, gain: r.exp - pending.exp, kind: 'gain'}], status: 'accepted',
       reason: first.kind === 'baseline' ? (last ? 'new_baseline' : 'first_baseline') : first.kind};
@@ -111,7 +121,7 @@ export function step(table, state, r, {maxGapSeconds = DEFAULTS.maxGapSeconds, t
   const reason = !last ? 'awaiting_confirmation' : r.level !== last.level ? 'level_change_pending'
     : (r.at - last.at) / 1000 > maxGapSeconds ? 'gap_requires_new_baseline'
       : r.exp < last.exp || r.bp < last.bp ? 'exp_decrease_pending' : 'large_jump_pending';
-  return {state: {...state, pending: r}, accept: [], status: 'pending', reason};
+  return {state: {...state, pending: r, agree: 1}, accept: [], status: 'pending', reason};
 }
 
 // Level drops, multi-level jumps or losses beyond a death penalty look like another character.

@@ -374,6 +374,7 @@ async function scan() {
 }
 
 const MESSAGES = {
+  ignored_by_user: 'Skipping readings that looked like another character (you chose to ignore them).',
   no_hud: 'Looking for the EXP bar… Keep the game window visible, or draw the HUD boxes below.',
   unreadable: 'Couldn\'t read the EXP numbers this time.',
   ambiguous: 'The EXP numbers were unclear, so this reading was skipped.',
@@ -495,7 +496,10 @@ async function handle(current, outcome, at) {
       const result = step(table, current.tracker, {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp}, {maxGapSeconds: maxGapFor(settings.interval), trustedIdentity});
       current.tracker = result.state; accepted = result.accept; status = result.status; reason = result.reason;
       if (status === 'pending') current.burst = Math.max(current.burst || 0, 1);  // Confirm a second later.
+      // Within a minute of "Ignore these readings", such readings are dropped without asking again.
+      if (status === 'identity_check' && Date.now() < (current.ignoreUntil ?? 0)) { current.tracker = {...current.tracker, pending: null, agree: 1}; status = 'rejected'; reason = 'ignored_by_user'; }
       if (status === 'identity_check') identitySuspect = result.suspect;
+      else if (status === 'accepted') identitySuspect = null;  // Back on track: the question no longer applies.
     }
   }
   // Table-rejected readings count too: a box that clips digits reads 'cleanly' but never matches.
@@ -832,6 +836,13 @@ async function init() {
   }));
   $('identity-same').addEventListener('click', confirmIdentity);
   $('identity-switch').addEventListener('click', () => { identitySuspect = null; render(); $('character-select').focus(); });
+  // The readings were wrong (a misread badge, say): drop them, keep the character's last good state, and don't
+  // ask again for a minute.
+  $('identity-ignore').addEventListener('click', () => {
+    identitySuspect = null;
+    if (capture) { capture.tracker = {...capture.tracker, pending: null, agree: 1}; capture.ignoreUntil = Date.now() + 60e3; }
+    setStatus('Ignored those readings', 'ok'); render();
+  });
   for (const button of document.querySelectorAll('[data-interval]')) button.addEventListener('click', async () => {
     settings.interval = Number(button.dataset.interval); pressed('[data-interval]', 'interval', settings.interval);
     await store.setSetting('interval', settings.interval);

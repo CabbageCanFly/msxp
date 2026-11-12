@@ -43,7 +43,9 @@ test('level resolution needs OCR and table to agree, or continuity with the prev
   // An unread badge after a level-up: the next level when the pair fits it exactly; never two levels on.
   assert.deepEqual(E.resolveLevel(table, null, exp, bp, 19), {level: 20, evidence: 'table_levelup'});
   assert.equal(E.resolveLevel(table, null, exp, bp, 18).level, null);
-  assert.equal(E.resolveLevel(table, 150, 123, 0, null).evidence, 'ocr_only');
+  assert.equal(E.resolveLevel(table, 100, 123, 0, null).evidence, 'ocr_only');  // The cap has no requirement.
+  assert.equal(E.resolveLevel(table, 150, 123, 0, null).reason, 'level_unreadable');  // Above the cap: a misread.
+  assert.deepEqual(E.resolveLevel(table, 120, exp, bp, 20), {level: 20, evidence: 'table_continuity'});  // "20" read as "120".
 });
 
 function run(readings, state = {last: null, pending: null}) {
@@ -86,13 +88,14 @@ test('a confirmed +1 level-up counts the EXP across the boundary', () => {
 test('long gaps and level jumps start baselines; different characters pause for the user', () => {
   const gap = run([r(0, 20, 5000), r(20, 20, 5100), r(500, 20, 6000), r(520, 20, 6050)]);
   assert.deepEqual(gap.accepted.map((a) => a.gain), [null, 100, null, 50]);
-  const other = run([r(0, 20, 5000), r(20, 20, 5100), r(40, 35, 100), r(60, 35, 200)]);
-  assert.equal(other.out[3].status, 'identity_check');
+  // Another character's readings must agree on SUSPECT_SCANS scans before tracking pauses; fewer are skipped.
+  const other = run([r(0, 20, 5000), r(20, 20, 5100), r(40, 35, 100), r(60, 35, 200), r(80, 35, 300), r(100, 35, 400), r(120, 35, 500)]);
+  assert.deepEqual(other.out.slice(2).map((o) => o.status), ['pending', 'pending', 'pending', 'pending', 'identity_check']);
   assert.equal(other.state.last.level, 20);  // The accepted state is preserved.
   // A new session keeps the previous reading only as a reference for this check.
-  const fresh = run([r(1000, 35, 100), r(1020, 35, 200)], {last: null, pending: null, reference: r(0, 20, 5000)});
-  assert.equal(fresh.out[1].status, 'identity_check');
-  assert.deepEqual(E.acceptBaseline(fresh.out[1].suspect).accept[0].kind, 'baseline');
+  const fresh = run([1000, 1020, 1040, 1060, 1080].map((t, i) => r(t, 35, 100 + i * 100)), {last: null, pending: null, reference: r(0, 20, 5000)});
+  assert.equal(fresh.out.at(-1).status, 'identity_check');
+  assert.deepEqual(E.acceptBaseline(fresh.out.at(-1).suspect).accept[0].kind, 'baseline');
 });
 
 test('rates use observed time only and need coverage; gaps are not zeros', async () => {
