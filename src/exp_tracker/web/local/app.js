@@ -67,7 +67,6 @@ async function refreshCharacters() {
   select.replaceChildren(...list.map((c) => new Option(c.name, c.id)), new Option('+ New character…', 'new'));
   character = list.find((c) => c.id === settings.activeCharacterId) ?? list[0] ?? null;
   select.value = character ? String(character.id) : 'new';
-  if (!character) openCharacterForm(true);
   readingsCache = character ? await store.readings(character.id, Date.now() - store.DETAIL_MS) : [];
   daysCache = character ? await store.days(character.id) : [];
   pickupsCache = character ? await store.pickups(character.id, Date.now() - store.DETAIL_MS) : [];
@@ -155,7 +154,12 @@ async function applyRemoval() {
 
 async function start() {
   if (capture) return;
-  if (!character) { openCharacterForm(true); return setStatus('Name your character first', 'warn'); }
+  // No character yet: an unnamed one, named from the screen by its first readings (identify adopts the first
+  // name bitmap and reads the name and job). Typing a name stays possible under Edit.
+  if (!character) {
+    settings.activeCharacterId = await store.saveCharacter({name: 'New character', nameSource: 'placeholder', job: 'Beginner'});
+    await store.setSetting('activeCharacterId', settings.activeCharacterId); await refreshCharacters();
+  }
   if (!navigator.mediaDevices?.getDisplayMedia) return setStatus('This browser cannot share a window. Use Chrome or Edge on a computer.', 'warn');
   if (!await acquireLock()) return setStatus('Tracking is already running in another msxp tab or window.', 'warn');
   setStatus('Choose the MapleStory window in the sharing dialog…');
