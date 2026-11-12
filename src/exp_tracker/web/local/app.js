@@ -201,7 +201,9 @@ async function start() {
   capture.pruneTimer = setInterval(() => store.prune().catch(() => {}), 3600e3);
   navigator.storage?.persist?.().catch(() => {});
   scan();
-  startPickupTracking();
+  // Pickup reading (its own text reader, 15 fps) starts after the first accepted EXP reading, so loading it does
+  // not slow finding the HUD; after 30 s it starts anyway (reported live: started at once, the first level took ~30 s).
+  setTimeout(startPickupTracking, 30e3);
 }
 
 async function beginSession() {
@@ -515,6 +517,7 @@ async function handle(current, outcome, at) {
   await store.record(character.id, current.sessionId, accepted, current.tracker, status);
   if (status === 'accepted') await teach(outcome);
   if (accepted.length) {
+    startPickupTracking();
     character = await store.getCharacter(character.id);
     readingsCache.push(...accepted.map((r) => ({...r, characterId: character.id, sessionId: current.sessionId})));
     readingsCache = readingsCache.filter((r) => r.at >= Date.now() - store.DETAIL_MS);

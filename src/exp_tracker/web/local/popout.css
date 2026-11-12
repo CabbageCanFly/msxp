@@ -7,7 +7,7 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 /* The footer only has something to say about old readings; otherwise the card ends at its content (a fixed
    height left an empty strip at the bottom). Live and Last hour keep theirs: their charts fill the space. */
 .local-overlay footer:has(#status[hidden]) { display:none; }
-.local-overlay:not([data-layout="live"], [data-layout="chart"]) #card { height:auto; }
+.local-overlay:not([data-layout="live"], [data-layout="chart"], [data-layout="items"]) #card { height:auto; }
 .local-overlay:is([data-layout="card"], [data-layout="bar"], [data-layout="rates"]) #card { padding-bottom:8px; }
 .local-overlay[data-layout="chart"] .hour-chart { padding-bottom:12px; }
 
@@ -30,7 +30,7 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 
 /* Items layout (local only): icons and counts of the items picked up in the last 24 hours. */
 .items-panel { display:none; }
-[data-layout="items"] #card { width:360px; height:215px; }
+[data-layout="items"] #card { width:360px; height:193px; }  /* Fits the 370 x 203 window with every slot shown. */
 [data-layout="items"] :is(.reading, .general-stats, .rate-stats, .hour-chart) { display:none; }
 [data-layout="items"] .items-panel { display:flex; flex-direction:column; gap:6px; flex:1; min-height:0; padding:8px 12px 12px; }
 .items-caption { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; font-weight:700; }
@@ -39,4 +39,5 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 .items-grid li { display:flex; align-items:center; gap:2px; padding:2px 7px 2px 2px; border-radius:8px; background:var(--badge); }
 .items-grid .icon { width:32px; height:32px; flex:none; background-repeat:no-repeat; image-rendering:pixelated; }
 .items-grid strong { color:var(--text); font:600 13px/1 "Fredoka", sans-serif; font-variant-numeric:tabular-nums; }
-.items-grid .items-empty { padding:0; background:none; color:var(--muted); font-size:12px; font-weight:700; }
+/* An empty slot: a faint pill the size of one item, so the overlay keeps its size with few items. */
+.items-grid .items-slot { width:62px; height:32px; padding:2px; background:var(--badge); opacity:.3; }

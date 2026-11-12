@@ -124,10 +124,11 @@ function renderItems(now) {
   const items = summarizePickups(pickups, now, minutes).items.filter((item) => !tab || Math.floor(item.itemId / 1e6) === tab);
   $('items-since').textContent = `${tab ? options.kind[0].toUpperCase() + options.kind.slice(1) : 'Items'} · last ${minutes === 1440 ? '24 h' : minutes + ' min'}`;
   if (items.length && !icons) { icons = new Map(); loadItems().then((list) => { icons = new Map(list.map((i) => [i.id, i])); render(); }).catch(() => {}); }
-  $('items-total').textContent = items.length ? `${items.reduce((sum, i) => sum + i.count, 0)} items` : '';
-  $('items-grid').replaceChildren(...(items.length ? items.slice(0, 12) : [null]).map((item) => {
+  $('items-total').textContent = items.length ? `${items.reduce((sum, i) => sum + i.count, 0)} items` : 'None yet';
+  // Always 12 slots: the ones without an item are faint, so the overlay never changes size.
+  $('items-grid').replaceChildren(...Array.from({length: 12}, (_, k) => items[k] ?? null).map((item) => {
     const li = document.createElement('li');
-    if (!item) { li.className = 'items-empty'; li.textContent = 'No items picked up yet'; return li; }
+    if (!item) { li.className = 'items-slot'; li.setAttribute('aria-hidden', 'true'); return li; }
     const icon = document.createElement('span'), known = icons?.get(item.itemId);
     icon.className = 'icon'; li.title = item.name;
     if (known) icon.style.cssText = `background-image:url(/static/local/items/icons-${known.sheet}.png);background-position:-${known.cell % 16 * 32}px -${Math.floor(known.cell / 16) * 32}px`;
