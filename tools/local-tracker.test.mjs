@@ -293,6 +293,23 @@ test('pickups: a bilinear-stretched corner is unstretched back to the game pixel
   assert.ok(worst <= 8, `largest difference ${worst}`);  // The game's pixels within the screen's 8-bit rounding (edges aside).
 });
 
+test("the game's sharper 1080p stretch ('area') is undone with its own model", async () => {
+  const P = await import(new URL('pickups.js', web));
+  // A row of game pixels: dark with 1-pixel white strokes, stretched by 1920/1366 with each screen pixel the
+  // average of the game pixels it covers.
+  const s = 1920 / P.GAME_WIDTH, gw = 60, game = Array.from({length: gw}, (_, i) => (i % 5 === 2 ? 250 : 40));
+  const sw = Math.floor(gw * s), screen = new Uint8ClampedArray(sw * 4);
+  for (let j = 0; j < sw; j++) {
+    const a = j / s, b = (j + 1) / s, i = Math.floor(a), split = Math.min(b, i + 1);
+    const v = (game[i] * (split - a) + (game[Math.min(gw - 1, i + 1)] ?? game[i]) * (b - split)) * s;
+    screen.set([v, v, v, 255], j * 4);
+  }
+  const back = (mode) => P.unstretch({width: sw, height: 1, data: screen}, s, 1, 0, 0, {}, mode);
+  const worst = (img) => Math.max(...Array.from({length: img.width - 4}, (_, i) => Math.abs(img.data[(i + 2) * 4] - game[i + 2])));
+  assert.ok(worst(back('area')) <= 3, `area model off by ${worst(back('area'))}`);
+  assert.ok(worst(back('bilinear')) > worst(back('area')) + 10);  // The default model gets it wrong.
+});
+
 test('overlay options use the live URL parameters; unknown values fall back', () => {
   const o = V.overlayOptions('?layout=chart&theme=blue&name=twitch&interval=1800&range=60&background=ABCDEF&bg=green&evil=1');
   assert.deepEqual([o.layout, o.theme, o.name, o.interval, o.range, o.background, o.bg], ['chart', 'blue', 'character', '1800', '1440', 'abcdef', 'green']);

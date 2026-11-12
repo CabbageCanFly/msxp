@@ -266,8 +266,9 @@ async function grab(band = null) {
   source.close?.();
   const frame = context.getImageData(0, 0, w, rows);
   if (sx === 1) return {width: w, height: rows, data: frame.data, top, full: {width: w, height: h}};
-  const game = unstretch(frame, sx, sy, 0, top, capture.unstretch ??= {});
-  return {width: game.width, height: game.height, data: game.data, top: Math.ceil(top / sy), full: {width: Math.round(w / sx), height: Math.round(h / sy)}};
+  // Undone the way the game stretched it: its default (bilinear) or its sharper 1080p filter ('area'); see scan.
+  const game = unstretch(frame, sx, sy, 0, top, capture.unstretch ??= {}, capture.stretchMode ?? 'bilinear');
+  return {width: game.width, height: game.height, data: game.data, top: Math.ceil(top / sy), full: {width: Math.round(w / sx), height: Math.round(h / sy)}, stretched: true};
 }
 
 const isFull = (frame) => frame && frame.top === 0 && frame.height === frame.full.height;
@@ -342,6 +343,10 @@ async function scan() {
     if (!outcome) return;  // A previous scan is still running; never queue another.
     if (capture !== current) return;
     outcome.frameWidth = frame.full.width; outcome.frameHeight = frame.full.height;
+    // The game can stretch 1080p two ways (its filter setting). The exact HUD digits match only when the frame is
+    // undone the same way, so a stretched scan whose digits didn't match tries the other way next (measured live:
+    // the filtered screen read 20,679 [84.74%] exactly undone as 'area', the percentage not at all as bilinear).
+    if (frame.stretched && outcome.source !== 'glyphs') current.stretchMode = current.stretchMode === 'area' ? 'bilinear' : 'area';
     lastScan = {...outcome, frame, at, ms: performance.now() - started};
     await handle(current, outcome, at);
     if (!$('hud-view').hidden) drawPreview();

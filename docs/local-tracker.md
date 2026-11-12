@@ -284,7 +284,10 @@ meso total:
   Measured live 2026-11-11 (1080p, 768p, 1080p): 212 of 212 scans read from learned digits, each switch
   2 s. Before, stretched digits looked different at every position (53 learned shapes) and the first
   minutes skipped scans. The EXP table picks, among a pass's OCR readings, the one that fits the level
-  (badge or last accepted). A name bitmap is kept per screen
+  (badge or last accepted). The game's 1080p filter setting stretches sharply instead (each screen pixel the
+  area-weighted mix of the game pixels it covers; measured 2026-11-12): the HUD is then undone with that model,
+  chosen by whichever one makes the exact digits match (20,679 [84.74%] read exactly; bilinear lost the
+  percentage). Pickup reading keeps the bilinear model; it read the filtered screen fine. A name bitmap is kept per screen
   size, adopted when the EXP carries on from the character's last reading. Pickups at a stretched
   size: the game's bilinear stretch is undone in the message corner (least squares per row and column,
   factored once; ~12 ms a frame, only when the window is >3% wider than 1366), so the detector sees the

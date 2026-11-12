@@ -76,15 +76,22 @@ export function messageLines(frame, keep = false) {
 // a 1920x1080 window: strokes doubled, edge pixels half-blended, text 1.4x larger). Pickup reading undoes it.
 export const GAME_WIDTH = 1366, GAME_HEIGHT = 768;
 
-// One axis of a bilinear stretch by `s`: screen pixel j (counted from the window's edge) mixes the game's
-// pixels k and k+1 at p = (j + .5) / s - .5. `solve` returns the game pixels that best explain a line of
-// screen samples (least squares; tridiagonal, factored once per axis since every line shares it).
-function stretchAxis(count, offset, s) {
+// One axis of a stretch by `s`: screen pixel j (counted from the window's edge) mixes the game's pixels k and
+// k+1, the second weighted a. 'bilinear' (the game's default): sampled at p = (j + .5) / s - .5. 'area' (the
+// game's sharper 1080p filter, measured live: strokes pure white, one blended pixel at each edge): each game
+// pixel in proportion to how much of the screen pixel it covers. `solve` returns the game pixels that best
+// explain a line of screen samples (least squares; tridiagonal, factored once per axis as lines share it).
+function stretchAxis(count, offset, s, mode = 'bilinear') {
   const from = Math.ceil(offset / s), n = Math.floor((offset + count) / s) - from;
   const k = new Int32Array(count), a = new Float64Array(count), d = new Float64Array(n), e = new Float64Array(n);
   for (let j = 0; j < count; j++) {
-    const p = Math.max(0, (offset + j + .5) / s - .5);
-    k[j] = Math.floor(p) - from; a[j] = p - Math.floor(p);
+    if (mode === 'area') {
+      const start = (offset + j) / s, first = Math.floor(start);
+      k[j] = first - from; a[j] = Math.max(0, (offset + j + 1) / s - (first + 1)) * s;
+    } else {
+      const p = Math.max(0, (offset + j + .5) / s - .5);
+      k[j] = Math.floor(p) - from; a[j] = p - Math.floor(p);
+    }
     const i = k[j], w = a[j];
     if (i >= 0 && i < n) d[i] += (1 - w) * (1 - w);
     if (i + 1 >= 0 && i + 1 < n) d[i + 1] += w * w;
@@ -93,7 +100,7 @@ function stretchAxis(count, offset, s) {
   const c = new Float64Array(n), m = new Float64Array(n);
   for (let i = 0; i < n; i++) { m[i] = d[i] - (i ? e[i - 1] * c[i - 1] : 0) || 1e-9; c[i] = e[i] / m[i]; }
   const b = new Float64Array(n);
-  return {n, solve(values, out) {
+  return {n, k, a, solve(values, out) {
     b.fill(0);
     for (let j = 0; j < count; j++) {
       const i = k[j], w = a[j], v = values[j];
@@ -114,9 +121,9 @@ function stretchAxis(count, offset, s) {
  * 1080/768) and must not be merged: a third of a pixel of drift over the corner ruined the reads.
  * `cache` keeps the factored axes between frames.
  */
-export function unstretch({width, height, data}, sx, sy, ox, oy, cache = {}) {
-  const key = `${width}x${height}@${sx},${sy},${ox},${oy}`;
-  if (cache.key !== key) Object.assign(cache, {key, x: stretchAxis(width, ox, sx), y: stretchAxis(height, oy, sy), line: new Float64Array(Math.max(width, height)), solved: new Float64Array(Math.max(width, height))});
+export function unstretch({width, height, data}, sx, sy, ox, oy, cache = {}, mode = 'bilinear') {
+  const key = `${width}x${height}@${sx},${sy},${ox},${oy},${mode}`;
+  if (cache.key !== key) Object.assign(cache, {key, x: stretchAxis(width, ox, sx, mode), y: stretchAxis(height, oy, sy, mode), line: new Float64Array(Math.max(width, height)), solved: new Float64Array(Math.max(width, height))});
   const {x: ax, y: ay, line, solved} = cache, w = ax.n, h = ay.n, mid = new Float32Array(w * height), out = new Uint8ClampedArray(w * h * 4);
   for (let ch = 0; ch < 3; ch++) {
     for (let y = 0; y < height; y++) {
