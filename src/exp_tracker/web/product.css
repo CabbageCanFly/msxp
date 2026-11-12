@@ -585,7 +585,7 @@ html, body.product { overflow-x:clip; }
   background:var(--surface-sunken); color:var(--text); font-family:inherit; font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; color-scheme:dark; }
 .planner input:focus-visible, .planner select:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 .planner-table { height:240px; overflow-y:auto; border-top:1px solid var(--line); }
-.planner-head, .planner-steps li { display:grid; grid-template-columns:64px 1fr auto; gap:10px; padding:6px 2px; }
+.planner-head, .planner-steps li { display:grid; grid-template-columns:64px 1fr auto; gap:10px; padding:6px 10px 6px 2px; }
 .planner-head { position:sticky; top:0; z-index:1; padding-block:5px; border-bottom:2px solid var(--line-strong); background:var(--surface);
   color:var(--text-muted); font-size:11px; font-weight:700; letter-spacing:.3px; }
 .planner-head span:last-child { text-align:right; }
