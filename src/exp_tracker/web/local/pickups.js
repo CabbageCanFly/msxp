@@ -12,14 +12,19 @@ export function messageLines(frame, keep = false) {
   const lum = (i) => (d[i] + d[i + 1] + d[i + 2]) / 3;
   // Not the last columns: the window's own edge is a light column there (messages end ~8 px before it).
   // Bottom-up, so the down-right neighbour is decided first.
-  for (let y = h - 2; y >= 1; y--) for (let x = w - 4; x >= 1; x--) {
-    const p = y * w + x, i = p * 4, low = Math.min(d[i], d[i + 1], d[i + 2]);
-    if (low <= 150 || Math.max(d[i], d[i + 1], d[i + 2]) - low >= 80) continue;
-    // Over grass the shadow blends to dark green, so there is no colour test for it. A stroke pixel whose
-    // down-right neighbour is more stroke (the corner of a "+") casts no shadow: it counts when scenery
-    // up-left of it is darker, which over white clouds it never is.
-    const l = lum(i);
-    if (l - lum((p + w + 1) * 4) > 100 || (text[p + w + 1] && l - lum((p - w - 1) * 4) > 50)) { text[p] = 1; rows[y]++; }
+  const light = (i) => { const low = Math.min(d[i], d[i + 1], d[i + 2]); return low > 150 && Math.max(d[i], d[i + 1], d[i + 2]) - low < 80; };
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 4; x++) {
+    const p = y * w + x, i = p * 4;
+    if (light(i) && lum(i) - lum((p + w + 1) * 4) > 100) { text[p] = 1; rows[y]++; }
+  }
+  // Over grass the shadow blends to dark green, so there is no colour test for it. A stroke pixel whose
+  // down-right neighbour is more stroke (the corner of a "+") casts no shadow: it counts when scenery
+  // up-left of it is darker, which over white clouds it never is. Not when that darker pixel is a stroke's own
+  // shadow: then it is the inside of a letter (measured: the top of an "8" filled in and read as "6").
+  for (let y = h - 2; y >= 1; y--) for (let x = w - 4; x >= 2; x--) {
+    const p = y * w + x, i = p * 4;
+    if (text[p] || !text[p + w + 1] || !light(i) || (y >= 2 && text[p - 2 * w - 2])) continue;
+    if (lum(i) - lum((p - w - 1) * 4) > 50 && lum(i) >= lum((p + w + 1) * 4) - 20) { text[p] = 1; rows[y]++; }
   }
   // The centre of an "x" has stroke on every diagonal, so neither test sees a shadow or darker scenery:
   // a light pixel with text on all four diagonals is text (measured live: "x1" split in two, so counts

@@ -148,6 +148,16 @@ export function readLine(font, mask) {
     }
     return d1 <= Math.max(1, ink(glyph) * .15) && d2 - d1 >= 2 ? best : null;
   };
+  // Two characters drawn touching ("0)" in "(+10)", measured in fog) are one unknown glyph: the column
+  // where both halves read as known characters splits it. Otherwise OCR guessed ")" as another digit.
+  const split = (glyph) => {
+    for (let c = 2; c <= glyph.w - 2; c++) {
+      const part = (x0, x1) => { const w = x1 - x0, bits = new Uint8Array(w * glyph.h); for (let y = 0; y < glyph.h; y++) bits.set(glyph.bits.subarray(y * glyph.w + x0, y * glyph.w + x1), y * w); return {w, h: glyph.h, bits}; };
+      const a = guess(part(0, c)), b = a && guess(part(c, glyph.w));
+      if (b) return a + b;
+    }
+    return null;
+  };
   let text = '';
   const glyphs = glyphsOf(mask);
   for (let i = 0; i < glyphs.length; i++) {
@@ -155,7 +165,7 @@ export function readLine(font, mask) {
     // piece reads as nothing alone: "r" and "n" side by side also join into an "m".
     const glyph = glyphs[i], alone = guess(glyph), next = glyphs[i + 1];
     const joined = next?.gap <= 1 && (!alone || !guess(next)) ? guess(join(glyph, next)) : null;
-    const char = joined ?? alone;
+    const char = joined ?? alone ?? split(glyph);
     if (joined) i++;
     text += (glyph.gap >= 4 && text ? ' ' : '') + (char ?? '?');
   }

@@ -443,6 +443,17 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   const S = await import(new URL('pickup-session.js', web));
   assert.deepEqual(S.lineParts('Leather:1 eamed. (Etc)'), {amount: null, name: 'Leather', count: 1, tab: 'Etc'});  // "x1" read as ":1".
   assert.deepEqual(S.lineParts('Tree Branch x2 earned. (Etc)'), {amount: null, name: 'Tree Branch', count: 2, tab: 'Etc'});
+  // Over light fog the inside of an "8" sits next to the strokes' own shadows: it stays background.
+  const F = await import(new URL('message-font.js', web)), eight = F.seedFont({})['8'][0], fog = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) fog.set([180, 180, 180, 255], i * 4);
+  for (let gx = 60; gx < 190; gx += 7) for (let y = 0; y < eight.h; y++) for (let x = 0; x < eight.w; x++) if (eight.bits[y * eight.w + x]) {
+    const p = (40 + y) * width + gx + x;
+    fog.set([245, 245, 245, 255], p * 4);
+    if (x + 1 >= eight.w || !eight.bits[(y + 1) * eight.w + x + 1]) fog.set([6, 6, 6, 255], (p + width + 1) * 4);
+  }
+  const line = P.messageLines({width, height, data: fog}, true)[0], lw = line.x1 - line.x0 + 1;
+  const got = Array.from({length: 9}, (_, y) => Array.from({length: 5}, (_, x) => line.bits[(40 + y - line.y0) * lw + 60 + x - line.x0] ? '#' : '.').join(''));
+  assert.deepEqual(got, Array.from({length: 9}, (_, y) => Array.from({length: 5}, (_, x) => eight.bits[y * 5 + x] ? '#' : '.').join('')));
 });
 
 test('pickup message font: learned glyphs read later lines, misaligned lines are refused', async () => {
