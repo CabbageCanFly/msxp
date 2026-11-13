@@ -177,7 +177,10 @@ const PITCH = 14, MAX_SLOTS = 7, VOTE_FRAMES = 150;  // About 10 s at 15 frames 
 // since the same line over scrolling scenery differs by up to ~10 pixels and another line by 100+; a line
 // nothing explains costs UNEXPLAINED_COST.
 const NEW_COST = 30, EXTRA_COST = 30, PIXEL_COST = 3, MATCH_CAP = 30, UNEXPLAINED_COST = 100;
-const TEXT_COST = 100, CLOSE = 3;  // A remembered line whose number reads otherwise; pixels this close need no reading.
+// A remembered line whose number reads otherwise: a strong hint, not proof (one misread digit in fog would add a
+// message; measured: at 100 a better font counted 36 mesos too many on a recording with a known total). Pixels this
+// close need no reading.
+const TEXT_COST = 50, CLOSE = 3;
 
 /**
  * Counts pickup messages as a stack (measured on a live recording): each new message appears at the

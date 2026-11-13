@@ -19,7 +19,7 @@ const baseFont = () => base ??= Object.fromEntries(Object.entries(BASE_FONT).map
   return {w: Number(w), h: Number(h), bits};
 })]));
 
-// Every character starts with the shipped variants (at most three, so learning keeps room for the
+// Every character starts with the shipped variants (at most four, so learning keeps room for the
 // player's own), then the player's learned ones; a learned variant clearly closer to another character's
 // shipped one is dropped (measured: OCR misreads had taught a 6 as "8", and 6666 mesos read as 8888; a
 // browser holding its own noisy 6 never got the checked one when shipped variants only filled gaps).

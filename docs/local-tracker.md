@@ -314,6 +314,16 @@ meso total:
   the same six and two "~10" more), as nearly every number there reads incomplete. Cost: the tracker
   takes ~0.3 ms more a frame in clear maps and ~0.8-1.0 ms in fog (worker, 15 fps). A stack swapped whole
   between frames is still undercounted when the reads are incomplete (fog).
+- Shipped font, 2026-11-13: every checked variant kept, up to one more per character picked from ~32,000
+  labelled glyphs (six recordings and a player's learned font; complete shapes only, digits checked by eye),
+  then tested on three recordings it was not picked from. Glyphs there: 90.5% right / 1.78% wrong / 7.7% unknown
+  before, 95.6% / 0.35% / 4.1% after. Lines the font reads alone (same counting): 108 to 134 of 209 (Perion fog,
+  7.5 min); OCR falls back less. A first pick that dropped the shipped "g" with its full hook read "gained" as
+  "qained" and lost line reads: the checked shapes are now always kept. With the better font a disagreeing number
+  at full weight (100) counted 36 mesos too many on the 4.3-minute recording, so it now weighs 50. Totals: +438
+  (of +497), +953 (of +965), +1,133 (of +1,466; the fog burst at 257 s now counts its three "+11" exactly),
+  +129 (of +244). One phantom "+11" remains in the 5.7-minute fog recording (76 s, a fog shape taken for a line in
+  an empty slot); weighing such lines less removed it but lost up to 9% of real messages, so it stays.
 
 ## Not yet verified
 

@@ -498,12 +498,12 @@ test('pickup message font: learned glyphs read later lines, misaligned lines are
   assert.equal(matched.item.name, 'abba');
   assert.equal(matched.cost, 0);
   assert.ok(matched.next >= 1);
-  // The shipped font fills characters not learned yet (at most three variants each), keeps learned
+  // The shipped font fills characters not learned yet (at most four variants each), keeps learned
   // variants, and drops one clearly closer to another character: a 6 learned as "8".
   const shipped = F.seedFont({});
-  assert.ok(Object.keys(shipped).length > 40 && Object.values(shipped).every((v) => v.length <= 3 && v.every((g) => g.bits.length === g.w * g.h)));
+  assert.ok(Object.keys(shipped).length > 40 && Object.values(shipped).every((v) => v.length <= 4 && v.every((g) => g.bits.length === g.w * g.h)));
   const kept = F.seedFont({8: [{...shipped[8][0]}]}), healed = F.seedFont({8: [{...shipped[6][0]}]});
-  assert.equal(kept[8].length, 1);
+  assert.equal(kept[8].length, shipped[8].length);  // A learned copy of a shipped 8 adds nothing.
   assert.ok(healed[8].every((g) => g.bits.join('') !== shipped[6][0].bits.join('')));
   // Words pair up by the widest gaps; a word with one piece too many joins its narrowest close pair
   // (an "x" whose centre was not seen comes in two 2-px pieces).
