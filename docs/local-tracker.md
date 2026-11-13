@@ -98,7 +98,8 @@ and later scans read EXP from templates alone.
   bitmap yet and the reading fits its history; or creates a character named by OCR (a glyph
   identical to a digit learned from the EXP bar is that digit,
   and any other OCR `0` is the letter O). Names are read at four magnifications with votes pooled
-  per identical glyph (one misread letter is outvoted). **Letters are learned like digits**, from
+  per identical glyph (one misread letter is outvoted). When touching letters prevent alignment,
+  two agreeing whole-line reads of the smoothed crop can label the bitmap. **Letters are learned like digits**, from
   verified text only: every job line that matches the job list, and every rename you type
   (authoritative); a name whose glyphs are all known is read without OCR. Only scans whose level
   matches the EXP table count toward a change, so logout fades and loading screens cannot.

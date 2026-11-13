@@ -371,6 +371,20 @@ test('panel lines beside the level badge give stable per-line keys', async () =>
   assert.equal(G.trimKey('000/010/000'), '010');
 });
 
+test('a name with joined glyphs needs two matching whole-line OCR reads', async () => {
+  const R = await import(new URL('reader.js', web));
+  const frame = {width: 16, height: 12, data: new Uint8ClampedArray(16 * 12 * 4)};
+  for (let y = 3; y < 9; y++) for (const x of [2, 6, 7, 8, 9]) frame.data.fill(255, (y * 16 + x) * 4, (y * 16 + x) * 4 + 4);
+  const boxes = {name: {x0: 0, y0: 0, x1: 16, y1: 12}};
+  const nameFrom = async (fallback) => {
+    const texts = ['Cara', 'Gara', 'Caia', 'Cora', ...fallback];
+    const engine = {read: async () => ({text: texts.shift()})};
+    return (await R.readIdentity(engine, frame, boxes, null, [])).name;
+  };
+  assert.equal(await nameFrom(['CharA', 'CharB', 'CharA']), 'CharA');
+  assert.equal(await nameFrom(['CharA', 'CharB', 'CharC']), null);
+});
+
 test('badge glyph matching ignores a cursor at the lower tile edge', async () => {
   const R = await import(new URL('reader.js', web));
   const G = await import(new URL('glyphs.js', web));
