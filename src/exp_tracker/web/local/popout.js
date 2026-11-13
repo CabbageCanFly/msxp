@@ -142,17 +142,18 @@ function renderItems(now) {
   }));
 }
 
-// The pop-out window (opened by the tracker page as 'msxp-local-overlay') is sized from the outside, and the
-// browser's own frame may take some of it: resize so the page area is exactly the layout's size.
+// The pop-out window (opened by the tracker page as 'msxp-local-overlay-<layout>') is sized from the outside, and
+// the browser's own frame may take some of it: resize so the page area is exactly the layout's size.
 function fitWindow() {
   const [width, height] = OVERLAY_SIZES[options.layout] ?? [];
-  if (window.name !== 'msxp-local-overlay' || !width) return;
+  if (!window.name.startsWith('msxp-local-overlay') || !width) return;
   const dw = width - window.innerWidth, dh = height - window.innerHeight;
   if (dw || dh) window.resizeBy(dw, dh);
 }
 
 async function init() {
-  fitWindow();
+  // Again once the browser has finished its frame (measured: right at start the page area read 56 px short).
+  fitWindow(); setTimeout(fitWindow, 500); setTimeout(fitWindow, 1500);
   liveChart($('live-chart'), () => liveView, {axes: false});
   table = await (await fetch('/static/local/community-exp.json')).json();
   if ('BroadcastChannel' in window) new BroadcastChannel(CHANNEL).onmessage = (event) => { if (event.data?.type === 'update') refresh(event.data.full !== false); };

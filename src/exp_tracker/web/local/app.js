@@ -1037,9 +1037,10 @@ function setupBuilder() {
   $('overlay-randomize').addEventListener('click', () => { for (const key of OVERLAY_COLORS) delete builder[key]; Object.assign(builder, {theme: 'night'}, randomOverlayColors()); saveBuilder(); updateBuilder(); });
   $('overlay-reset').addEventListener('click', () => { for (const key of OVERLAY_COLORS) delete builder[key]; saveBuilder(); updateBuilder(); });
   $('popout').addEventListener('click', () => {
-    // A separate window of this browser profile shares IndexedDB and BroadcastChannel with this tab.
+    // A separate window of this browser profile shares IndexedDB and BroadcastChannel with this tab. One window
+    // per layout, so several can be open at once (Last hour, Live and Items in one scene).
     const [width, height] = OVERLAY_SIZES[builder.layout];
-    window.open(overlayURL(), 'msxp-local-overlay', `popup,width=${width},height=${height}`);
+    window.open(overlayURL(), `msxp-local-overlay-${builder.layout}`, `popup,width=${width},height=${height}`);
   });
   window.addEventListener('resize', scalePreview);
 }
