@@ -142,6 +142,11 @@ test('HUD geometry: labels bind to one status bar; brackets are found by colour'
   for (let i = 0; i < width * height; i++) data.set([90, 90, 90, 255], i * 4);
   for (const x of [12, 30]) for (let y = 2; y < 9; y++) data.set([160, 185, 130, 255], (y * width + x) * 4);
   assert.deepEqual(H.brackets({width, height, data}, {x0: 0, y0: 0, x1: width, y1: height}), [{x0: 12, x1: 13}, {x0: 30, x1: 31}]);
+  // A high EXP gauge underneath adds green rows across the box; they are not brackets.
+  const tall = {width, height: height + 3, data: new Uint8ClampedArray(width * (height + 3) * 4)};
+  tall.data.set(data);
+  for (const y of [10, 11, 12]) for (let x = 0; x < 34; x++) tall.data.set([190, 250, 60, 255], (y * width + x) * 4);
+  assert.deepEqual(H.brackets(tall, {x0: 0, y0: 0, x1: width, y1: height + 3}), [{x0: 12, x1: 13}, {x0: 30, x1: 31}]);
   for (let y = 2; y < 9; y++) data.set([90, 90, 90, 255], (y * width + 30) * 4);
   assert.equal(H.brackets({width, height, data}, {x0: 0, y0: 0, x1: width, y1: height}), null);  // Clipped field.
 });

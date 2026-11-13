@@ -128,14 +128,21 @@ export const bracketColour = (r, g, b) => g > r + 12 && g > b + 20 && g > 70 && 
 // The olive-green [ and ] around the percentage, found in pixels (fill and outline; the yellow
 // EXP gauge has red above 200). Exactly two bracket column runs, or null: never guessed.
 export function brackets(frame, box) {
-  const part = crop(frame, box), d = part.data, runs = [];
-  let run = null;
-  for (let x = 0; x < part.width; x++) {
-    let count = 0;
-    for (let y = 0; y < part.height; y++) {
-      const i = (y * part.width + x) * 4, r = d[i], g = d[i + 1], b = d[i + 2];
-      if (bracketColour(r, g, b)) count++;
+  const part = crop(frame, box), d = part.data, w = part.width, runs = [];
+  // A filled EXP gauge has darker green rows too: drop horizontal runs wider than a bracket.
+  const hit = new Uint8Array(w * part.height), wide = Math.max(6, Math.round(part.height / 3));
+  for (let y = 0; y < part.height; y++) {
+    for (let x = 0, start = 0; x <= w; x++) {
+      const i = (y * w + x) * 4;
+      if (x < w && bracketColour(d[i], d[i + 1], d[i + 2])) continue;
+      if (x - start <= wide) hit.fill(1, y * w + start, y * w + x);
+      start = x + 1;
     }
+  }
+  let run = null;
+  for (let x = 0; x < w; x++) {
+    let count = 0;
+    for (let y = 0; y < part.height; y++) count += hit[y * w + x];
     if (count >= 3) { if (run && x - run.x1 <= 1) run.x1 = x + 1; else runs.push(run = {x0: x, x1: x + 1}); }
   }
   if (runs.length !== 2 || runs[1].x0 - runs[0].x1 < 4) return null;
