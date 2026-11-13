@@ -177,6 +177,7 @@ const PITCH = 14, MAX_SLOTS = 7, VOTE_FRAMES = 150;  // About 10 s at 15 frames 
 // since the same line over scrolling scenery differs by up to ~10 pixels and another line by 100+; a line
 // nothing explains costs UNEXPLAINED_COST.
 const NEW_COST = 30, EXTRA_COST = 30, PIXEL_COST = 3, MATCH_CAP = 30, UNEXPLAINED_COST = 100;
+const TEXT_COST = 100, CLOSE = 3;  // A remembered line whose number reads otherwise; pixels this close need no reading.
 
 /**
  * Counts pickup messages as a stack (measured on a live recording): each new message appears at the
@@ -232,7 +233,55 @@ function fused(acc) {
   return {width, height, bits};
 }
 
-export function stackTracker({forgetMs = 1500} = {}) {
+// The number a line ends with, read in full, with its kind: "amount:35" for "(+35)", "count:2" for "x2 earned.
+// (Etc)"; else null. Only the number counts: the font reads the same line's words differently from frame to frame
+// ("gained", "qained"; measured: comparing whole lines added messages that were never there).
+const number = (text) => {
+  const m = text && (/\(\+([\d,]+)\)$/.exec(text) ?? /x(\d+) earned\. \(\w+\)$/.exec(text));
+  return m ? `${m[0].startsWith('(') ? 'amount' : 'count'}:${m[1].replace(/,/g, '')}` : null;
+};
+// Two lines whose numbers both read in full: 'differ' ("+35" and "+38", a few pixels apart as fog moves the same
+// line's) or, for meso and EXP amounts, 'same' (likely one message; two pickups of the same amount then count
+// once, never twice), and for items whose names read alike. Else null: pixels decide.
+// An item line's name, letters only ("Red Snaii Sheii x1 earned. (Etc)" gives "RedSnaiiSheii"); "?" stays.
+const itemName = (text) => /^(.*?)\s*x[\d?]+\s*earned/.exec(text ?? '')?.[1].replace(/[^A-Za-z?]/g, '') ?? '';
+// Edit distance where "?" (a glyph the font could not name) matches any letter.
+function looseDistance(a, b) {
+  let row = Array.from({length: b.length + 1}, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] || a[i - 1] === '?' || b[j - 1] === '?' ? 0 : 1));
+    row = next;
+  }
+  return row[b.length];
+}
+// The last TAIL columns of a line hold its number ("(+35)", "x1 earned. (Etc)"): read first, as reading a whole
+// line on every unclear frame cost ~1.5 ms a frame (measured).
+const TAIL = 100;
+const tailOf = (line) => {
+  const width = line.x1 - line.x0 + 1, height = line.y1 - line.y0, from = Math.max(0, width - TAIL), w = width - from, bits = new Uint8Array(w * height);
+  for (let y = 0; y < height; y++) bits.set(line.bits.subarray(y * width + from, (y + 1) * width), y * w);
+  return {width: w, height, bits};
+};
+const texts = (a, b, read) => {
+  if (!read || !a || !b) return null;
+  a.tail ??= read(tailOf(a)); b.tail ??= read(tailOf(b));
+  const x = number(a.tail), y = number(b.tail);
+  if (!x || !y) return null;
+  if (x !== y) return 'differ';
+  if (x.startsWith('amount')) return 'same';
+  // Items: nearly always "x1", so the names decide (allowing a letter in five to read otherwise).
+  a.text ??= read({width: a.x1 - a.x0 + 1, height: a.y1 - a.y0, bits: a.bits}); b.text ??= read({width: b.x1 - b.x0 + 1, height: b.y1 - b.y0, bits: b.bits});
+  const p = itemName(a.text), q = itemName(b.text);
+  return p.length >= 4 && q.length >= 4 && looseDistance(p, q) <= Math.max(1, Math.floor(Math.min(p.length, q.length) / 5)) ? 'same' : null;
+};
+
+/**
+ * `read(mask)`, when given, reads a line mask's text ({width, height, bits}; "?" where unsure): lines whose
+ * numbers read differently are never the same message, so a stack swapped whole between frames counts every new
+ * line, and lines whose amounts read alike are not counted twice.
+ */
+export function stackTracker({forgetMs = 1500, read = null} = {}) {
   let bottom = null, slots = [];  // slots[k]: {msg, line, at} for the line k slots above the bottom.
   const votes = new Map(), recent = [];
   let arrived = 0, started = false;
@@ -274,15 +323,24 @@ export function stackTracker({forgetMs = 1500} = {}) {
         if (k >= 0 && k < MAX_SLOTS && Math.abs(bottom - k * PITCH - line.y0) <= 3) placed.push({k, line});
       }
       // Lines already on screen when tracking starts are followed, not counted.
-      let shift = 0, best = Infinity;
-      for (let s = 0; s < (started ? MAX_SLOTS : 1); s++) {
+      // A calm frame (each line like its own slot's, together cheaper than one new message) is settled by pixels
+      // alone; others also read the lines' numbers (lazily, cached), where pixels are not close.
+      const costOf = (s, reading) => {
         let cost = s ? NEW_COST + (s - 1) * EXTRA_COST : 0;
         for (const {k, line} of placed) {
           if (k < s) continue;
           const entry = slots[k - s];
-          cost += !entry ? UNEXPLAINED_COST : entry.line ? Math.min(MATCH_CAP, PIXEL_COST * difference(entry.line, line)) : 0;
+          if (!entry) { cost += UNEXPLAINED_COST; continue; }
+          if (!entry.line) continue;
+          const pixels = difference(entry.line, line), said = reading && pixels > CLOSE ? texts(entry.line, line, read) : null;
+          cost += said === 'differ' ? TEXT_COST : said === 'same' ? 0 : Math.min(MATCH_CAP, PIXEL_COST * pixels);
         }
-        if (cost < best) { best = cost; shift = s; }
+        return cost;
+      };
+      let shift = 0, best = costOf(0, false);
+      if (started && best >= NEW_COST) {
+        best = Infinity;
+        for (let s = 0; s < MAX_SLOTS; s++) { const cost = costOf(s, true); if (cost < best) { best = cost; shift = s; } }
       }
       started = true;
       // The lowest new slot is the newest message.
@@ -299,7 +357,7 @@ export function stackTracker({forgetMs = 1500} = {}) {
         // Added up only on calm frames: none arrived this frame, and the line is the one this slot showed a frame
         // ago (measured: in a burst of nine, frames mid-shift put a neighbour's pixels into a Red Potion line).
         if (entry.msg && !shift && previous && difference(previous, line, 21) <= 20) fuseAdd(entry.msg, line, bottom - k * PITCH);
-        if (entry.msg && entry.slot !== k && entry.msg.samples.length < 4 && (!entry.msg.first || difference(entry.msg.first, line, 61) <= 60)) {
+        if (entry.msg && entry.slot !== k && entry.msg.samples.length < 4 && (!entry.msg.first || difference(entry.msg.first, line, 61) <= 60 && texts(entry.msg.first, line, read) !== 'differ')) {
           entry.slot = k;
           entry.msg.first ??= line;
           entry.msg.samples.push({width: line.x1 - line.x0 + 1, height: line.y1 - line.y0, bits: line.bits, gray: line.gray});

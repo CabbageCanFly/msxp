@@ -299,6 +299,20 @@ meso total:
   exact glyph shapes per font (emptied when it learns): page time per message ~52-65 ms to ~3.5-6 ms, the
   same text on all 1,498 samples; OCR time per recording about halved. Pickup reading has its own OCR
   worker (~50 MB, measured in Node), so EXP scans never wait for it. Not verified live yet.
+- Counting bursts (2026-11-12): while following the stack, the worker reads the end of each unclear line with
+  the shipped font. Two lines whose numbers read in full and differ ("+35", "+38") are different messages; equal
+  meso/EXP amounts, or item lines whose names read alike, count as one. Only the number is compared: whole-line
+  text ("gained" read as "qained" between frames) added messages that were never there. Calm frames (cheaper
+  than one new message by pixels) read nothing. Never over a known total on six recordings:
+  | Recording (true mesos) | Before | After |
+  |---|---|---|
+  | Slow looting (+497) | +438 | +438, items unchanged |
+  | Perion fog, 4.3 min (+965) | +965 (duplicates hiding misses) | +955; three lines of a 16-line burst found |
+  | Perion fog, 7.5 min (+1,466; shells +12) | +1,269, shells 14 | +1,193, shells 12 |
+  | Burst, 13.5 s (+244) | +88 | +129 |
+  Before, a fog burst at 257 s of the 7.5-minute run counted six "+11" for two; now four. Cost: the tracker
+  takes ~0.3 ms more a frame in clear maps and ~0.8-1.0 ms in fog (worker, 15 fps). A stack swapped whole
+  between frames is still undercounted when the reads are incomplete (fog).
 
 ## Not yet verified
 

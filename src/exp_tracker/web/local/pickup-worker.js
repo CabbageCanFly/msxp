@@ -2,6 +2,10 @@
 // (MediaStreamTrackProcessor), copies only the message corner, follows the message stack and posts each
 // message, with its line masks, once it has left the screen. Frames are closed at once.
 import {GAME_HEIGHT, GAME_WIDTH, messageLines, stackTracker, unstretch} from './pickups.js';
+import {readLine, seedFont} from './message-font.js';
+
+// The shipped font reads each line's number while the stack is followed (see stackTracker's `read`).
+const font = seedFont({}), read = (mask) => readLine(font, mask);
 
 let reader = null, stretch = 'bilinear';  // The game's default stretch; the page passes its sharper filter's.
 
@@ -11,7 +15,7 @@ onmessage = async ({data}) => {
   if (data.type !== 'start') return;
   reader = data.stream.getReader();
   const canvas = new OffscreenCanvas(1, 1), context = canvas.getContext('2d', {willReadFrequently: true});
-  let tracker = stackTracker(), cache = {}, size = '';
+  let tracker = stackTracker({read}), cache = {}, size = '';
   let frames = 0, busy = 0, since = performance.now();
   while (reader) {
     const {value: frame, done} = await reader.read().catch(() => ({done: true}));
@@ -21,7 +25,7 @@ onmessage = async ({data}) => {
       const W = frame.displayWidth, H = frame.displayHeight;
       // A resized window (e.g. to fullscreen) moves every line: count afresh, or the slots voted for the
       // old size keep winning and every line lands in the wrong one (measured live).
-      if (`${W}x${H}` !== size) { size = `${W}x${H}`; tracker = stackTracker(); cache = {}; }
+      if (`${W}x${H}` !== size) { size = `${W}x${H}`; tracker = stackTracker({read}); cache = {}; }
       // Right of the quick-slot panel, above the status bar: where pickup messages stack up.
       const x = Math.floor(W * data.region.x0), y = Math.floor(H * data.region.y0), w = W - x, h = Math.floor(H * data.region.y1) - y;
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }

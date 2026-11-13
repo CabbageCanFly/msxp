@@ -555,3 +555,24 @@ test('level planner: the finish moment and the hours of play before a date, at h
   assert.equal(playable(d + 2 * h, 4), 6);          // The same moment back: 6 h of play.
   assert.equal(playable(d + 10 * h, 4), 8);         // A second day plays its 4 h at most.
 });
+
+test('pickup stack: lines whose numbers read differently are new messages, even swapped whole in one frame', async () => {
+  const P = await import(new URL('pickups.js', web));
+  const width = 200, height = 60;
+  // Each message its own stroke pattern; a fixed "number" per pattern stands in for the font's read.
+  const frame = (lines) => {
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let i = 0; i < width * height; i++) data.set([120, 170, 220, 255], i * 4);
+    for (const [y, seed] of lines) for (let x = 60; x < 196; x += 3) if ((x * seed) % 7 < 3) for (let yy = y; yy < y + 7; yy++) {
+      data.set([0, 0, 0, 255], (yy * width + x - 1) * 4); data.set([235, 235, 235, 255], (yy * width + x) * 4); data.set([0, 0, 0, 255], (yy * width + x + 1) * 4);
+    }
+    return {width, height, data};
+  };
+  const read = (mask) => `You have gained mesos (+${mask.bits.reduce((sum, bit, i) => sum + bit * (i % mask.width) * (i % 13), 0) % 997})`;
+  const t = P.stackTracker({read}), done = [];
+  for (let i = 0; i < 5; i++) done.push(...t.update(P.messageLines(frame([[48, 2], [34, 3], [20, 4]]), true), i * 70));
+  assert.equal(done.length, 0);  // On screen when tracking began: followed, not counted.
+  for (let i = 5; i < 10; i++) done.push(...t.update(P.messageLines(frame([[48, 5], [34, 6], [20, 8]]), true), i * 70));
+  done.push(...t.update([], 9000));
+  assert.equal(done.length, 3);  // All three new lines, once each.
+});
