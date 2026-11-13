@@ -95,6 +95,9 @@ def handler(root, source_origin=None):
 class PreviewServer(ThreadingHTTPServer):
     # On Windows SO_REUSEADDR lets a second server share a busy port (e.g. an SSH tunnel); fail instead.
     allow_reuse_address = False
+    # A proxy in front (e.g. Tailscale serve) opens many connections at once; the default queue of 5 refused the
+    # rest on Windows, which the proxy reported as 502 for some scripts of a page.
+    request_queue_size = 64
 
 
 def with_api(database, out, port=0, *, live=False):
