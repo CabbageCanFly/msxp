@@ -11,6 +11,9 @@ import {loadItems} from './pickup-session.js';
 
 const $ = (id) => document.getElementById(id);
 let shownCounts = null;  // Item counts last drawn by the Items layout, to light up the ones that just went up.
+// When each item's count last went up: the grid is redrawn on every update (about once a second), so a glow
+// carries on from where it was instead of restarting or being cut short (measured live: it looked random).
+const bumps = new Map(), GLOW_MS = 1200;
 let table = null, character = null, readings = [], pickups = [], liveWindow = 5, loading = null, again = false, wantFull = false, icons = null, options = overlayOptions(location.search);
 
 // Also called by the builder's same-origin preview as options change.
@@ -129,11 +132,13 @@ function renderItems(now) {
   // Always 12 slots: the ones without an item are faint, so the overlay never changes size.
   const before = shownCounts;
   shownCounts = new Map(items.map((item) => [item.itemId, item.count]));
+  for (const item of items) if (before && item.count > (before.get(item.itemId) ?? 0)) bumps.set(item.itemId, now);
+  for (const [id, at] of bumps) if (now - at >= GLOW_MS) bumps.delete(id);
   $('items-grid').replaceChildren(...Array.from({length: 12}, (_, k) => items[k] ?? null).map((item) => {
     const li = document.createElement('li');
     if (!item) { li.className = 'items-slot'; li.setAttribute('aria-hidden', 'true'); return li; }
-    // Just picked up (not on the first draw): a short glow.
-    if (before && item.count > (before.get(item.itemId) ?? 0)) li.className = 'bumped';
+    // Just picked up (not on the first draw): a short glow, resumed at its elapsed time on a redraw.
+    if (bumps.has(item.itemId)) { li.className = 'bumped'; li.style.animationDelay = `-${now - bumps.get(item.itemId)}ms`; }
     const icon = document.createElement('span'), known = icons?.get(item.itemId);
     icon.className = 'icon'; li.title = item.name;
     if (known) icon.style.cssText = `background-image:url(/static/local/items/icons-${known.sheet}.png);background-position:-${known.cell % 16 * 32}px -${Math.floor(known.cell / 16) * 32}px`;

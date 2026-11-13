@@ -32,7 +32,7 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 [data-layout="items"] :is(.reading, .general-stats, .rate-stats, .hour-chart) { display:none; }
 [data-layout="items"] .items-panel { display:flex; flex-direction:column; gap:6px; flex:1; min-height:0; padding:8px 12px 12px; }
 /* An item whose count just went up glows in the theme's accent for a moment. */
-.items-grid li.bumped { animation:item-bump 1.2s ease-out; }
+.items-grid li.bumped { animation:item-bump 1.2s ease-out both; }
 @keyframes item-bump { 0% { transform:scale(1.12); box-shadow:0 0 0 2px var(--accent), 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent); } 100% { transform:none; box-shadow:0 0 0 0 transparent; } }
 @media (prefers-reduced-motion: reduce) { .items-grid li.bumped { animation-duration:.01s; } }
 .items-caption { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; font-weight:700; }
