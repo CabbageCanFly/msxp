@@ -3,7 +3,7 @@
 // arrive over BroadcastChannel; IndexedDB is the source of truth (initial state, missed messages and a
 // slow poll while the tracker tab is in the background).
 import * as store from './store.js';
-import {CHANNEL, OVERLAY_COLORS, THEME_COLORS, duration, exp, headerInk, historyLabel, overlayOptions, overlaySize, percent, summarize, summarizePickups} from './view.js';
+import {CHANNEL, OVERLAY_COLORS, THEME_COLORS, duration, exp, headerInk, compactHeader, historyLabel, overlayOptions, overlaySize, percent, summarize, summarizePickups} from './view.js';
 import {drawHourChart, expText} from './charts.js';
 import {liveChart, rateSeries, smooth} from './live-chart.js';
 import {eta, requirement} from './exp.js';
@@ -25,6 +25,7 @@ function applyOverlay(o) {
   document.title = `${LAYOUT_NAMES[o.layout] ?? 'Overlay'} - msxp overlay · On this device`;
   Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, title: o.title, focus: o.focus, bg: o.bg, interval: o.interval, range: o.range});
   document.body.dataset.headerInk = headerInk(o.header ?? THEME_COLORS[o.theme].header);
+  document.body.dataset.compact = String(compactHeader(o));
   document.body.dataset.panelInk = o.background ? headerInk(o.background) : '';
   $('general-history-caption').textContent = historyLabel(o);
   $('hour-caption').textContent = `EXP per ${Number(o.interval) / 60} min · ${historyLabel(o).split(' · ')[1]}`;

@@ -89,7 +89,7 @@ export function trackedBetween(readings, pickups, from, to, days = [], detailSin
 // the items picked up over the last N minutes, of one category or all. title 'none' leaves the header to the name, as on the site's overlay.
 export const OVERLAY_CHOICES = {layout: ['card', 'bar', 'rates', 'chart', 'live', 'items'], title: ['site', 'tracker', 'none'], icon: ['off', 'on'], job: ['off', 'on'], focus: ['exp', 'mesos'],
   last: ['1440', '5', '10', '15', '30', '60'], kind: ['all', 'equip', 'use', 'etc'],
-  name: ['character', 'none'], theme: ['night', 'day', 'red', 'green', 'blue', 'purple'], bg: ['dark', 'green', 'magenta', 'none'],
+  name: ['none', 'character'], theme: ['night', 'day', 'red', 'green', 'blue', 'purple'], bg: ['dark', 'green', 'magenta', 'none'],
   interval: ['60', '300', '1800'], range: ['60', '15', '30', '720', '1440']};
 export const OVERLAY_COLORS = ['background', 'header', 'graph', 'bar', 'text', 'level', 'badge', 'accent'];
 export const THEME_COLORS = {night: {background: '232c3e', header: '995c2c', graph: 'ffc56b', bar: 'a6ef2e', text: 'ffc56b', level: 'ffc56b', badge: '2b354a'},
@@ -102,7 +102,12 @@ export const THEME_COLORS = {night: {background: '232c3e', header: '995c2c', gra
 export const OVERLAY_SIZES = {card: [500, 135], bar: [500, 135], rates: [500, 96], chart: [500, 180], live: [370, 300], items: [370, 203]};
 // The pop-out window for options `o`: without a background (bg=none) the card fills it, so it loses the card's
 // 5 px margin all round.
-export const overlaySize = (o) => { const [w, h] = OVERLAY_SIZES[o.layout] ?? OVERLAY_SIZES.card; return o.bg === 'none' ? [w - 10, h - 10] : [w, h]; };
+// An empty header (no title, no name) is half height: 14 px less (popout.css).
+export const compactHeader = (o) => o.title === 'none' && o.name === 'none';
+export const overlaySize = (o) => {
+  const [w, h] = OVERLAY_SIZES[o.layout] ?? OVERLAY_SIZES.card, short = compactHeader(o) ? 14 : 0;
+  return o.bg === 'none' ? [w - 10, h - 10 - short] : [w, h - short];
+};
 
 export function overlayOptions(search) {
   const q = new URLSearchParams(search), options = {};

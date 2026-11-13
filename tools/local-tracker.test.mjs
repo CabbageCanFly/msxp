@@ -315,7 +315,12 @@ test("the game's sharper 1080p stretch ('area') is undone with its own model", a
 
 test('overlay options use the live URL parameters; unknown values fall back', () => {
   const o = V.overlayOptions('?layout=chart&theme=blue&name=twitch&interval=1800&range=60&background=ABCDEF&bg=green&evil=1');
-  assert.deepEqual([o.layout, o.theme, o.name, o.interval, o.range, o.background, o.bg], ['chart', 'blue', 'character', '1800', '1440', 'abcdef', 'green']);
+  assert.deepEqual([o.layout, o.theme, o.name, o.interval, o.range, o.background, o.bg], ['chart', 'blue', 'none', '1800', '1440', 'abcdef', 'green']);
+  // Window sizes: an empty header (no title, no name) is 14 px shorter; no background loses the 5 px margin.
+  assert.deepEqual(V.overlaySize(V.overlayOptions('?layout=items')), [370, 203]);
+  assert.deepEqual(V.overlaySize(V.overlayOptions('?layout=items&title=none')), [370, 189]);
+  assert.deepEqual(V.overlaySize(V.overlayOptions('?layout=items&title=none&bg=none')), [360, 179]);
+  assert.deepEqual(V.overlaySize(V.overlayOptions('?layout=card&name=character&title=none')), [500, 135]);
   assert.equal(V.overlayQuery(o), 'layout=chart&theme=blue&bg=green&interval=1800&range=1440&background=abcdef');
   assert.equal(V.overlayQuery(V.overlayOptions('')), '');
   assert.equal(V.headerInk('ffffff'), 'dark');
