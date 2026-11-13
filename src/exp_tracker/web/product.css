@@ -77,13 +77,13 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 [data-site=public] .dev-link { display:none; }
 /* /local exists only in the Pages export (which sets data-api); the Python server does not serve it. */
 .reading-info .local-link { margin-left:10px; font-weight:800; }
-/* Wide screens: the link is a gold bookmark tab beside About (an action, like the selected buttons); phones keep the
+/* Wide screens: muted honey draws attention beside the quieter About tab; phones keep the
    text link, as the tabs are hidden there. Only on the deployed site, like the link. */
 @media(min-width:651px) { .reading-info .local-link { display:none; } }
 .local-tab { display:block; padding:5px 14px 7px; border:1px solid var(--line); border-bottom:0; border-radius:var(--radius) var(--radius) 0 0;
-  background:linear-gradient(var(--gold),var(--gold-deep)); box-shadow:inset 0 2px #ffe0a8; color:var(--on-gold); font:500 14px/18px var(--font-display); text-decoration:none; }
+  background:linear-gradient(#d5a15c,#bb8445); box-shadow:inset 0 1px #e2b879; color:var(--on-gold); font:500 14px/18px var(--font-display); text-decoration:none; }
 .reading-info .local-tab { color:var(--on-gold); }  /* Over the intro line's muted link colour. */
-.local-tab:hover { background:linear-gradient(#ffd38a,var(--gold)); }
+.local-tab:hover { background:linear-gradient(#e3b370,#ce9853); }
 html:not([data-api]) :is(.local-link, .local-tab) { display:none; }
 .welcome { padding:18px 4px 30px; }
 .eyebrow { color:var(--gold); letter-spacing:2px; font-size:12px; font-weight:800; margin:0; }
@@ -252,8 +252,8 @@ html:not([data-api]) :is(.local-link, .local-tab) { display:none; }
 /* "About" opens a popover card; click outside or Esc closes it. Wide screens: a bookmark tab standing on the first panel's
    top edge (absolute, so the panel never moves). Phones: the intro line is full, so an icon chip in the masthead instead. */
 .about-tab { position:absolute; right:20px; bottom:-15px; min-height:0; padding:5px 16px 7px; border:1px solid var(--line); border-bottom:0; border-radius:var(--radius) var(--radius) 0 0;
-  background:linear-gradient(#94602f,#83522a); box-shadow:inset 0 2px var(--gold-deep); color:#fff3dc; font:500 14px/18px var(--font-display); }
-.reading-info .about-tab:hover:not(:disabled) { border-color:var(--line); background:linear-gradient(#a56d38,#94602f); color:#fff; }
+  background:linear-gradient(#303b50,#273145); box-shadow:inset 0 1px #46526a; color:#fff3dc; font:500 14px/18px var(--font-display); }
+.reading-info .about-tab:hover:not(:disabled) { border-color:var(--line); background:linear-gradient(#3a475f,#303b50); color:#fff; }
 .masthead .about-icon { display:none; place-items:center; margin-left:auto; width:40px; height:40px; min-height:0; padding:0; border-color:#56637d66; border-radius:var(--radius); background:#232c3e90; color:var(--text-soft); }
 @media(max-width:650px) { .about-tab { display:none; } .masthead .about-icon { display:grid; } }
 /* Bookmark tabs on the first panel's top edge, as the live pages' About. The scenery toggle is a small,
