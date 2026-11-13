@@ -3,7 +3,7 @@
 // arrive over BroadcastChannel; IndexedDB is the source of truth (initial state, missed messages and a
 // slow poll while the tracker tab is in the background).
 import * as store from './store.js';
-import {CHANNEL, OVERLAY_COLORS, THEME_COLORS, duration, exp, headerInk, historyLabel, overlayOptions, percent, summarize, summarizePickups} from './view.js';
+import {CHANNEL, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, duration, exp, headerInk, historyLabel, overlayOptions, percent, summarize, summarizePickups} from './view.js';
 import {drawHourChart, expText} from './charts.js';
 import {liveChart, rateSeries, smooth} from './live-chart.js';
 import {eta, requirement} from './exp.js';
@@ -14,8 +14,12 @@ let shownCounts = null;  // Item counts last drawn by the Items layout, to light
 let table = null, character = null, readings = [], pickups = [], liveWindow = 5, loading = null, again = false, wantFull = false, icons = null, options = overlayOptions(location.search);
 
 // Also called by the builder's same-origin preview as options change.
+// The window title names the layout, so OBS's window list tells pop-outs apart.
+const LAYOUT_NAMES = {card: 'General', bar: 'EXP bar', rates: 'EXP rates', chart: 'Last hour', live: 'Live', items: 'Items'};
+
 function applyOverlay(o) {
   options = o;
+  document.title = `${LAYOUT_NAMES[o.layout] ?? 'Overlay'} - msxp overlay · On this device`;
   Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, title: o.title, focus: o.focus, bg: o.bg, interval: o.interval, range: o.range});
   document.body.dataset.headerInk = headerInk(o.header ?? THEME_COLORS[o.theme].header);
   document.body.dataset.panelInk = o.background ? headerInk(o.background) : '';
@@ -78,11 +82,6 @@ function render() {
   $('hour-total').textContent = total == null ? '—' : `${expText(total)} EXP`;
   renderLive(view, now);
   renderItems(now);
-  // Old readings are shown as such, never as live progress.
-  const stale = view.age == null || view.age > 120;
-  $('status').hidden = !stale;
-  $('status').textContent = view.last ? 'Not tracking right now' : 'Waiting for EXP';
-  $('age').textContent = view.last && stale ? `Updated ${duration(view.age)} ago` : '';
 }
 
 // The Live layout mirrors the tracker page's Live rate panel: the big number is the line's latest value,
@@ -143,7 +142,17 @@ function renderItems(now) {
   }));
 }
 
+// The pop-out window (opened by the tracker page as 'msxp-local-overlay') is sized from the outside, and the
+// browser's own frame may take some of it: resize so the page area is exactly the layout's size.
+function fitWindow() {
+  const [width, height] = OVERLAY_SIZES[options.layout] ?? [];
+  if (window.name !== 'msxp-local-overlay' || !width) return;
+  const dw = width - window.innerWidth, dh = height - window.innerHeight;
+  if (dw || dh) window.resizeBy(dw, dh);
+}
+
 async function init() {
+  fitWindow();
   liveChart($('live-chart'), () => liveView, {axes: false});
   table = await (await fetch('/static/local/community-exp.json')).json();
   if ('BroadcastChannel' in window) new BroadcastChannel(CHANNEL).onmessage = (event) => { if (event.data?.type === 'update') refresh(event.data.full !== false); };

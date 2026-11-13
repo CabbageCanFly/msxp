@@ -4,9 +4,7 @@ html:has(.local-overlay), .local-overlay { background:#14181f; }
 html:has(.local-overlay[data-bg="green"]), .local-overlay[data-bg="green"] { background:#00ff00; }
 html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] { background:#ff00ff; }
 .local-overlay { overflow:hidden; }
-/* The footer only has something to say about old readings; otherwise the card ends at its content (a fixed
-   height left an empty strip at the bottom). Live and Last hour keep theirs: their charts fill the space. */
-.local-overlay footer:has(#status[hidden]) { display:none; }
+
 .local-overlay:not([data-layout="live"], [data-layout="chart"], [data-layout="items"]) #card { height:auto; }
 .local-overlay:is([data-layout="card"], [data-layout="bar"], [data-layout="rates"]) #card { padding-bottom:8px; }
 .local-overlay[data-layout="chart"] .hour-chart { padding-bottom:12px; }
