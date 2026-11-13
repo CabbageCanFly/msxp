@@ -996,6 +996,9 @@ async function init() {
   } catch (error) {
     setStatus(`Local storage is unavailable: ${error.message}`, 'warn');
     $('start').disabled = true;
+  } finally {
+    // Paint the hidden state first, even when local data loads before the first frame.
+    requestAnimationFrame(() => requestAnimationFrame(() => { delete document.body.dataset.loading; }));
   }
   setInterval(render, 5000);
 }
