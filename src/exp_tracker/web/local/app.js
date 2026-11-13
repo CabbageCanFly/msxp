@@ -163,31 +163,40 @@ async function applyRemoval() {
 
 // ---------- capture ----------
 
+let starting = false;
 async function start() {
-  if (capture) return;
-  // No character yet: an unnamed one, named from the screen by its first readings (identify adopts the first
-  // name bitmap and reads the name and job). Typing a name stays possible under Edit.
-  if (!character) {
-    settings.activeCharacterId = await store.saveCharacter({name: 'New character', nameSource: 'placeholder', job: 'Beginner'});
-    await store.setSetting('activeCharacterId', settings.activeCharacterId); await refreshCharacters();
-  }
+  if (capture || starting) return;
   if (!navigator.mediaDevices?.getDisplayMedia) return setStatus('This browser cannot share a window. Use Chrome or Edge on a computer.', 'warn');
   // Firefox lists the game window but captures it black (hardware-drawn windows; reported 2026-11-13), and has no
   // MediaStreamTrackProcessor for pickups: say so rather than track nothing.
   if (/firefox/i.test(navigator.userAgent)) return setStatus(`Firefox shows the game window as black, so it can't be read. Try a different browser.`, 'warn');
-  if (!await acquireLock()) return setStatus('Tracking is already running in another msxp tab or window.', 'warn');
+  // Safari allows the sharing dialog only straight from the click: ask before any await (reported 2026-11-13).
+  const sharing = navigator.mediaDevices.getDisplayMedia({
+    // A low frame rate is only a request; scans sample the latest frame on their own schedule.
+    video: {displaySurface: 'window', frameRate: {ideal: 5, max: 5}, cursor: 'never'},
+    audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'include', preferCurrentTab: false,
+  });
+  starting = true;
   setStatus('Choose the MapleStory window in the sharing dialog…');
   let stream;
   try {
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      // A low frame rate is only a request; scans sample the latest frame on their own schedule.
-      video: {displaySurface: 'window', frameRate: {ideal: 5, max: 5}, cursor: 'never'},
-      audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'include', preferCurrentTab: false,
-    });
-  } catch (error) {
-    releaseLock?.(); releaseLock = null;
-    return setStatus(error.name === 'NotAllowedError' ? 'Sharing was cancelled' : `Could not share: ${error.message}`, 'warn');
-  }
+    if (!await acquireLock()) {
+      sharing.then((s) => s.getTracks().forEach((t) => t.stop()), () => {});
+      return setStatus('Tracking is already running in another msxp tab or window.', 'warn');
+    }
+    try {
+      stream = await sharing;
+    } catch (error) {
+      releaseLock?.(); releaseLock = null;
+      return setStatus(error.name === 'NotAllowedError' ? 'Sharing was cancelled' : `Could not share: ${error.message}`, 'warn');
+    }
+    // No character yet: an unnamed one, named from the screen by its first readings (identify adopts the first
+    // name bitmap and reads the name and job). Typing a name stays possible under Edit.
+    if (!character) {
+      settings.activeCharacterId = await store.saveCharacter({name: 'New character', nameSource: 'placeholder', job: 'Beginner'});
+      await store.setSetting('activeCharacterId', settings.activeCharacterId); await refreshCharacters();
+    }
+  } finally { starting = false; }
   const [track] = stream.getVideoTracks();
   capture = {stream, track, tracker: null, sessionId: null, timer: null, scans: [], failures: 0, lastDetect: 0};
   track.addEventListener('ended', () => stop('sharing_stopped'));
