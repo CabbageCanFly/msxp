@@ -7,7 +7,8 @@ html, body { margin: 0; background: transparent; }
 [hidden] { display: none !important; }
 
 /* Independent colours; accent remains a fallback for older overlay URLs. */
-.live-overlay { --header: #705035; --bar: #a6ef2e; --accent: #ffc56b; --graph: var(--accent); --level: var(--accent); --text: var(--accent);
+/* Night's header matches the site's page headers (their gradient, under the header's own light-to-dark shading). */
+.live-overlay { --header: #995c2c; --bar: #a6ef2e; --accent: #ffc56b; --graph: var(--accent); --level: var(--accent); --text: var(--accent);
   --panel: #232c3e; --panel-edge: #4b3423; --ink: #f4ebdc; --muted: #aab3c4; --line: #3a465d; --track: #19212f; --badge: #2b354a; --bar-text: #fff; --bar-shadow: 0 1px 0 #10180a, 1px 0 0 #10180a, -1px 0 0 #10180a, 0 -1px 0 #10180a, 0 2px 3px #000b; }
 .live-overlay[data-theme="day"] { --header: #8a6440; --bar: #7fcc12; --accent: #a8520a; --level: #ffb534;
   --panel: #fff9e9; --panel-edge: #725b43; --ink: #493b30; --text: var(--accent); --muted: #7a6855; --line: #d9ccb7; --track: #e8deca; --badge: #6e5139; --bar-text: #263310; --bar-shadow: 0 1px #f5ffc280; }

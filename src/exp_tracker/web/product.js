@@ -60,7 +60,7 @@ const dailyCache=new Map();
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
 const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker','none'],icon:['off','on'],job:['off','on'],name:['both','character','twitch','none'],theme:['night','day','red','green','blue','purple'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
 const OVERLAY_COLORS=['background','header','graph','bar','text','level','badge','accent'];
-const THEME_COLORS={night:{background:'232c3e',header:'705035',graph:'ffc56b',bar:'a6ef2e',text:'ffc56b',level:'ffc56b',badge:'2b354a'},day:{background:'fff9e9',header:'8a6440',graph:'a8520a',bar:'7fcc12',text:'a8520a',level:'ffb534',badge:'6e5139'},
+const THEME_COLORS={night:{background:'232c3e',header:'995c2c',graph:'ffc56b',bar:'a6ef2e',text:'ffc56b',level:'ffc56b',badge:'2b354a'},day:{background:'fff9e9',header:'8a6440',graph:'a8520a',bar:'7fcc12',text:'a8520a',level:'ffb534',badge:'6e5139'},
   red:{background:'301f26',header:'8c3547',graph:'ff9b9b',bar:'ef6575',text:'ffb4b4',level:'ffd5bd',badge:'542b38'},
   green:{background:'1c3029',header:'32684e',graph:'8fe0b2',bar:'70ce82',text:'b1ebc6',level:'e4f3b0',badge:'294b3b'},
   blue:{background:'1d2b40',header:'335e91',graph:'8fc9ff',bar:'66b5ef',text:'b4d9ff',level:'d4e9ff',badge:'2b4566'},

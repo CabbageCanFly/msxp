@@ -92,7 +92,7 @@ export const OVERLAY_CHOICES = {layout: ['card', 'bar', 'rates', 'chart', 'live'
   name: ['character', 'none'], theme: ['night', 'day', 'red', 'green', 'blue', 'purple'], bg: ['dark', 'green', 'magenta'],
   interval: ['60', '300', '1800'], range: ['60', '15', '30', '720', '1440']};
 export const OVERLAY_COLORS = ['background', 'header', 'graph', 'bar', 'text', 'level', 'badge', 'accent'];
-export const THEME_COLORS = {night: {background: '232c3e', header: '705035', graph: 'ffc56b', bar: 'a6ef2e', text: 'ffc56b', level: 'ffc56b', badge: '2b354a'},
+export const THEME_COLORS = {night: {background: '232c3e', header: '995c2c', graph: 'ffc56b', bar: 'a6ef2e', text: 'ffc56b', level: 'ffc56b', badge: '2b354a'},
   day: {background: 'fff9e9', header: '8a6440', graph: 'a8520a', bar: '7fcc12', text: 'a8520a', level: 'ffb534', badge: '6e5139'},
   red: {background: '301f26', header: '8c3547', graph: 'ff9b9b', bar: 'ef6575', text: 'ffb4b4', level: 'ffd5bd', badge: '542b38'},
   green: {background: '1c3029', header: '32684e', graph: '8fe0b2', bar: '70ce82', text: 'b1ebc6', level: 'e4f3b0', badge: '294b3b'},
