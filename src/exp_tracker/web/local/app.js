@@ -39,7 +39,7 @@ let table = null, engine = null, enginePromise = null;
 // glyphs: templates learned from confirmed readings, per window size ({'1368x800': templates}): another size
 // draws other pixels, and a size used before reads at once again. pickupFont: the same for pickup messages
 // (fonts saved as messageFont, learned before the word alignment, held misread shapes and are not loaded).
-let settings = {interval: 1, window: 5, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: true, scenery: true, liveKind: 'exp', liveWindow: 5, mesoWindow: 5, itemWindow: 1440, itemKind: 'all', pickupFont: null};
+let settings = {interval: 1, window: 5, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: true, scenery: true, liveKind: 'exp', liveWindow: 5, mesoWindow: 5, mesoTotalWindow: 1440, itemWindow: 1440, itemKind: 'all', pickupFont: null};
 let character = null, readingsCache = [], daysCache = [], pickupsCache = [], itemIcons = null;
 // Chart and overlay-builder choices, as on the live character page (kept for this page view only).
 const charts = {mode: 'exp', bucket: 60, chartWindow: 60, longWindow: 1440, lineWindow: 15, days: 30, levelOnly: false};
@@ -629,8 +629,9 @@ function renderPickups(now) {
   $('meso-window').value = String(settings.mesoWindow); $('item-window').value = String(settings.itemWindow);
   $('meso-rate').textContent = rate == null ? '—' : fmtExp(rate);
   $('meso-rate-note').textContent = rate == null ? 'After a few meso pickups with Track pickups on' : !capture?.pickups ? 'Not reading pickups right now'
-    : now - since < window ? `So far · ${duration((now - since) / 1000)} tracked` : 'Approximate';
-  $('meso-day').textContent = fmtExp(view.mesosDay);
+    : now - since < window ? `So far · ${duration((now - since) / 1000)} tracked` : `Over the last ${settings.mesoWindow} min`;
+  $('meso-total-window').value = String(settings.mesoTotalWindow);
+  $('meso-day').textContent = fmtExp(mesos.filter((r) => r.at >= now - settings.mesoTotalWindow * 60e3).reduce((sum, r) => sum + r.amount, 0));
   // Item icons come from the drop list's sprite sheets (32 px cells), loaded once.
   if (view.items.length && !itemIcons) {
     itemIcons = new Map();
@@ -870,6 +871,9 @@ async function init() {
   });
   $('items-search').addEventListener('input', () => render());
   $('items-popup').addEventListener('toggle', (event) => { if (event.newState === 'open') render(); });
+  $('meso-total-window').addEventListener('change', (event) => {
+    settings.mesoTotalWindow = Number(event.target.value); store.setSetting('mesoTotalWindow', settings.mesoTotalWindow).catch(() => {}); render();
+  });
   $('meso-window').addEventListener('change', (event) => {
     settings.mesoWindow = Number(event.target.value); store.setSetting('mesoWindow', settings.mesoWindow).catch(() => {}); render();
   });
@@ -950,7 +954,7 @@ async function init() {
     text: 'Every character, reading and pickup in this browser is deleted, along with what the reader has learned. This can\'t be undone.', yes: 'Clear everything'}, async () => {
     if (capture) await stop('cleared');
     await store.clearAll();
-    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: true, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow, mesoWindow: settings.mesoWindow, itemWindow: settings.itemWindow, itemKind: settings.itemKind};
+    settings = {interval: settings.interval, window: settings.window, calibration: null, activeCharacterId: null, glyphs: null, letters: {}, pickups: true, scenery: settings.scenery, liveKind: settings.liveKind, liveWindow: settings.liveWindow, mesoWindow: settings.mesoWindow, mesoTotalWindow: settings.mesoTotalWindow, itemWindow: settings.itemWindow, itemKind: settings.itemKind};
     character = null; readingsCache = []; pickupsCache = []; $('track-pickups').checked = true;
     await refreshCharacters(); broadcast(); setStatus('Local history cleared');
   }));
@@ -960,7 +964,7 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'mesoWindow', 'itemWindow', 'itemKind', 'pickupFont']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'mesoWindow', 'mesoTotalWindow', 'itemWindow', 'itemKind', 'pickupFont']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
@@ -1053,6 +1057,7 @@ function showLive() {
   if (!WINDOWS.includes(settings.liveWindow)) settings.liveWindow = 5;
   if (![...WINDOWS, 60, 1440].includes(settings.itemWindow)) settings.itemWindow = 1440;
   if (!WINDOWS.includes(settings.mesoWindow)) settings.mesoWindow = 5;
+  if (![5, 10, 15, 30, 60, 240, 720, 1440].includes(settings.mesoTotalWindow)) settings.mesoTotalWindow = 1440;
   if (!['all', 'equip', 'use', 'etc'].includes(settings.itemKind)) settings.itemKind = 'all';
   pressed('[data-item-kind]', 'itemKind', settings.itemKind);
   pressed('[data-item-window]', 'itemWindow', settings.itemWindow);
@@ -1080,7 +1085,9 @@ function liveSource() {
   $('live-note').textContent = latest
     ? `${fmtExp(latest.perHour)} ${kind === 'mesos' ? 'mesos' : 'EXP'} / hour now · ${fmtExp(gained)} gained in the last ${settings.liveWindow} min${kind === 'mesos' ? ' (approximate)' : ''}`
     : kind === 'mesos' && !settings.pickups ? 'Turn on Track pickups to see mesos.' : 'The line starts after a few gains while tracking.';
-  live.view = {series: drawn, window, unit, empty: kind === 'mesos' && !settings.pickups ? 'Turn on Track pickups' : 'Waiting for a few gains…'};
+  // Smooth while this tab tracks or gains are in view (another tab tracking sends them here).
+  live.view = {series: drawn, window, unit, empty: kind === 'mesos' && !settings.pickups ? 'Turn on Track pickups' : 'Waiting for a few gains…',
+    live: Boolean(capture) || events.some((e) => e.at > now - window)};
   return live.view;
 }
 

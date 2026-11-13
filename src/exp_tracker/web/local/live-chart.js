@@ -33,16 +33,18 @@ const short = new Intl.NumberFormat('en-US', {notation: 'compact', maximumFracti
 const clock = (at) => new Date(at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', timeZone});
 
 /**
- * Draws `source()` ({series, window, unit}) on a canvas about 30 times a second while it is on screen
- * and the tab is visible; hovering shows the nearest second's value. `axes: false` draws the line alone
- * (the pop-out overlay).
+ * Draws `source()` ({series, window, unit, live}) on a canvas about 30 times a second while it is on screen,
+ * the tab is visible and `live` is not false (else once a second); hovering shows the nearest second's value.
+ * `axes: false` draws the line alone (the pop-out overlay).
  */
 export function liveChart(canvas, source, {axes = true} = {}) {
   let hover = null, frame = 0, last = 0, visible = true, top = 0;
   const loop = (time) => {
     frame = 0;
     if (!visible || document.hidden) return;
-    if (time - last >= 33) { last = time; draw(); }
+    // About 30 times a second while the line moves (or under the pointer), else once a second: an idle page
+    // only needs its clock labels kept current (measured on an idle /local page: 8% of a core before, under 1%).
+    if (time - last >= (hover != null || source().live !== false ? 33 : 1000)) { last = time; draw(); }
     frame = requestAnimationFrame(loop);
   };
   const wake = () => { if (!frame && visible && !document.hidden) frame = requestAnimationFrame(loop); };

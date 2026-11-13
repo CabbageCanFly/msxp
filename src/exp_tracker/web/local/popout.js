@@ -114,7 +114,8 @@ function renderLive(view, now) {
   $('live-percent').textContent = expRate != null && need ? `${(expRate / need * 100).toFixed(2)}%` : '—';
   $('live-exp').textContent = view.last ? exp(gained.reduce((sum, r) => sum + r.gain, 0)) : '—';
   $('live-exp-label').textContent = `EXP · last ${liveWindow} min`;
-  liveView = {series: mesos ? mesoLine : expLine, window, unit: mesos ? 'mesos / h' : 'EXP / h', empty: ''};
+  const rows = mesos ? pickups.filter((r) => r.kind === 'mesos') : readings;
+  liveView = {series: mesos ? mesoLine : expLine, window, unit: mesos ? 'mesos / h' : 'EXP / h', empty: '', live: rows.some((r) => r.at > now - window)};
 }
 
 // The Items layout: what was picked up in the last 24 hours, largest counts first, with the drop list's icons.
