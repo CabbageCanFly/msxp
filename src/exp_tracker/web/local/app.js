@@ -73,6 +73,10 @@ async function refreshCharacters() {
   const select = $('character-select');
   select.replaceChildren(...list.map((c) => new Option(c.name, c.id)), new Option('+ New character…', 'new'));
   character = list.find((c) => c.id === settings.activeCharacterId) ?? list[0] ?? null;
+  // A fallback (the saved one is gone, e.g. after an import) is saved too: the overlays follow the saved one.
+  if ((character?.id ?? null) !== (settings.activeCharacterId ?? null)) {
+    settings.activeCharacterId = character?.id ?? null; await store.setSetting('activeCharacterId', settings.activeCharacterId);
+  }
   select.value = character ? String(character.id) : 'new';
   readingsCache = character ? await store.readings(character.id, Date.now() - store.DETAIL_MS) : [];
   daysCache = character ? await store.days(character.id) : [];
@@ -942,20 +946,24 @@ async function init() {
       if (file.size > 200e6) throw new Error('This file is too large to be a backup.');
       backup = store.checkBackup(JSON.parse(await file.text()));
     } catch (error) {
-      note.textContent = `Can't restore: ${error instanceof SyntaxError ? "the file isn't valid JSON." : error.message}`;
+      note.textContent = `Can't import: ${error instanceof SyntaxError ? "the file isn't valid JSON." : error.message}`;
       return;
     }
     note.textContent = '';
     const when = backup.exportedAt && !Number.isNaN(Date.parse(backup.exportedAt)) ? ` from ${new Date(backup.exportedAt).toLocaleString()}` : '';
     const count = (n, word) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
-    confirmFirst($('restore'), {title: 'Restore this backup?',
-      text: `Everything tracked in this browser is replaced by the backup${when}: ${count(backup.characters.length, 'character')}, ${count(backup.readings.length, 'reading')} and ${count(backup.pickups.length, 'pickup')}. This can't be undone.`,
-      yes: 'Restore'}, async () => {
+    confirmFirst($('restore'), {title: 'Import this file?',
+      text: `Everything tracked in this browser is replaced by the file${when}: ${count(backup.characters.length, 'character')}, ${count(backup.readings.length, 'reading')} and ${count(backup.pickups.length, 'pickup')}. This can't be undone.`,
+      yes: 'Import'}, async () => {
       if (capture) await stop('restored');
-      try { await store.restoreAll(backup); } catch (error) { note.textContent = `Can't restore: ${error.message}`; return; }
+      try { await store.restoreAll(backup); } catch (error) { note.textContent = `Can't import: ${error.message}`; return; }
+      // The character tracked most recently in the file becomes the active one (the overlays show it).
+      const latest = backup.readings.reduce((a, r) => (r.at > (a?.at ?? -Infinity) ? r : a), null);
+      settings.activeCharacterId = latest?.characterId ?? backup.characters[0]?.id ?? null;
+      await store.setSetting('activeCharacterId', settings.activeCharacterId);
       character = null; readingsCache = []; pickupsCache = [];
       await refreshCharacters(); broadcast();
-      note.textContent = `Backup restored: ${count(backup.characters.length, 'character')}.`;
+      note.textContent = `Imported: ${count(backup.characters.length, 'character')}.`;
     });
   });
   for (const id of ['clear', 'editor-clear']) $(id).addEventListener('click', (event) => confirmFirst(event.currentTarget, {title: 'Clear all local history?',
