@@ -9,9 +9,9 @@
 .local-controls, .character-form, .identity-check, .hud-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:12px 25px 4px; }
 /* The controls row: a little more air above and below, so it, the EXP bar and the time pills sit evenly. */
 .player-board .local-controls { margin:16px 25px 0; }
-/* Not the toggle pills, which keep the live pages' look (.windows, .chart-modes). */
-.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
-.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab):hover:not(:disabled) { border-color:var(--gold); }
+/* Buttons with shared styles, including the level planner, keep their own styling. */
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab, .eta-plan) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab, .eta-plan):hover:not(:disabled) { border-color:var(--gold); }
 .local-page button:disabled { opacity:.45; cursor:default; }
 /* The one main action: gold like the site's selected buttons (by id, over the general button rule, which had
    made it a plain grey pill). */
