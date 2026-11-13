@@ -168,6 +168,9 @@ async function start() {
     await store.setSetting('activeCharacterId', settings.activeCharacterId); await refreshCharacters();
   }
   if (!navigator.mediaDevices?.getDisplayMedia) return setStatus('This browser cannot share a window. Use Chrome or Edge on a computer.', 'warn');
+  // Firefox lists the game window but captures it black (hardware-drawn windows; reported 2026-11-13), and has no
+  // MediaStreamTrackProcessor for pickups: say so rather than track nothing.
+  if (/firefox/i.test(navigator.userAgent)) return setStatus(`Firefox shows the game window as black, so it can't be read. Use Chrome or Edge.`, 'warn');
   if (!await acquireLock()) return setStatus('Tracking is already running in another msxp tab or window.', 'warn');
   setStatus('Choose the MapleStory window in the sharing dialog…');
   let stream;
