@@ -86,6 +86,14 @@ export function messageLines(frame, keep = false) {
 // a 1920x1080 window: strokes doubled, edge pixels half-blended, text 1.4x larger). Pickup reading undoes it.
 export const GAME_WIDTH = 1366, GAME_HEIGHT = 768;
 
+export function captureScale(width, height) {
+  const sx = width / GAME_WIDTH;
+  if (sx <= 1.03) return {sx: 1, sy: 1};
+  // Chrome on macOS captured each game pixel as a 2×2 block, with window chrome adding to the height.
+  if (sx === 2 && height > 2 * GAME_HEIGHT && height <= 2 * (GAME_HEIGHT + 32)) return {sx, sy: sx, mode: 'area'};
+  return {sx, sy: height / GAME_HEIGHT};
+}
+
 // One axis of a stretch by `s`: screen pixel j (counted from the window's edge) mixes the game's pixels k and
 // k+1, the second weighted a. 'bilinear' (the game's default): sampled at p = (j + .5) / s - .5. 'area' (the
 // game's sharper 1080p filter, measured live: strokes pure white, one blended pixel at each edge): each game

@@ -148,8 +148,13 @@ export async function readHud(engine, frame, regions, templates = null, {table =
 // The level badge: learned glyphs, else OCR at two magnifications that must agree ({ambiguous} if not); line
 // mode first, single-word mode when it reads nothing (a lone digit).
 async function readLevelBadge(engine, frame, box, templates, raw, smooth) {
-  const segments = segment(frame, box, 'min'), known = parseLevel(readGlyphs(segments, templates) ?? '');
+  const segments = segment(frame, box, 'min');
+  let known = parseLevel(readGlyphs(segments, templates) ?? '');
   if (known !== null) return {level: known, source: 'glyphs', segments};
+  // The game draws its cursor into the capture. A pointer at the badge edge can add white pixels below the digits.
+  const interior = segment(frame, {...box, y1: box.y1 - 2}, 'min');
+  known = parseLevel(readGlyphs(interior, templates) ?? '');
+  if (known !== null) return {level: known, source: 'glyphs', segments: interior};
   let levels = new Set((await readField(engine, frame, box, 'level', raw, smooth)).map(parseLevel).filter((v) => v !== null));
   if (!levels.size) levels = new Set((await readField(engine, frame, box, 'levelWord', raw, smooth)).map(parseLevel).filter((v) => v !== null));
   return {level: levels.size === 1 ? [...levels][0] : null, source: 'ocr', segments, ambiguous: levels.size > 1};

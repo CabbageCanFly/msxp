@@ -5,7 +5,7 @@ import {acceptBaseline, maxGapFor, resolveLevel, step, suspicious} from './exp.j
 import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud, readIdentity} from './reader.js';
 import {HUD_GLYPHS, displayed, learn, learnLetters} from './glyphs.js';
-import {GAME_HEIGHT, GAME_WIDTH, unstretch} from './pickups.js';
+import {GAME_WIDTH, captureScale, unstretch} from './pickups.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, THEME_COLORS, WINDOWS, overlaySize, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, setTimeZone, timeZone} from './charts.js';
@@ -272,7 +272,7 @@ async function grab(band = null) {
     if (!video.videoWidth) throw new Error('no_frame');
     source = video; w = video.videoWidth; h = video.videoHeight;
   }
-  const sx = w / GAME_WIDTH > 1.03 ? w / GAME_WIDTH : 1, sy = sx > 1 ? h / GAME_HEIGHT : 1;
+  const {sx, sy, mode} = captureScale(w, h);
   // Band rows are in frame (game) pixels; a stretched window needs a few more rows around them.
   const pad = sx > 1 ? 2 : 0, top = band ? Math.max(0, Math.min(h - 1, Math.floor(band.y0 * sy) - pad)) : 0;
   const rows = band ? Math.max(1, Math.min(h, Math.ceil(band.y1 * sy) + pad) - top) : h;
@@ -284,8 +284,8 @@ async function grab(band = null) {
   const frame = context.getImageData(0, 0, w, rows);
   if (sx === 1) return {width: w, height: rows, data: frame.data, top, full: {width: w, height: h}};
   // Undone the way the game stretched it: its default (bilinear) or its sharper 1080p filter ('area'); see scan.
-  const game = unstretch(frame, sx, sy, 0, top, capture.unstretch ??= {}, capture.stretchMode ?? 'bilinear');
-  return {width: game.width, height: game.height, data: game.data, top: Math.ceil(top / sy), full: {width: Math.round(w / sx), height: Math.round(h / sy)}, stretched: true};
+  const game = unstretch(frame, sx, sy, 0, top, capture.unstretch ??= {}, mode ?? capture.stretchMode ?? 'bilinear');
+  return {width: game.width, height: game.height, data: game.data, top: Math.ceil(top / sy), full: {width: Math.round(w / sx), height: Math.round(h / sy)}, stretched: !mode};
 }
 
 const isFull = (frame) => frame && frame.top === 0 && frame.height === frame.full.height;
@@ -445,11 +445,11 @@ async function identify(current, outcome, at) {
     // Remember the name's glyphs, so a later rename can teach its letters.
     if (!character.nameGlyphs && id.nameGlyphs) character = await store.getCharacter(await store.saveCharacter({...character, nameGlyphs: id.nameGlyphs}));
     // A name read by OCR (never one the player typed) is re-read once per session with the current
-    // reader and learned letters; a same-length correction replaces the old label.
+    // reader and learned letters. Only an OCR label needs a same-length correction.
     if (character.nameSource !== 'user' && current.nameChecked !== character.id) {
       current.nameChecked = character.id;
       const who = await readIdentity(engine, current.lastFrame, {name: outcome.boxes.name}, templatesFor(current.lastFrame), JOBS, settings.letters);
-      if (who.name && who.name !== character.name && who.name.length === character.name.length) {
+      if (who.name && who.name !== character.name && (character.nameSource === 'placeholder' || who.name.length === character.name.length)) {
         character = await store.getCharacter(await store.saveCharacter({...character, name: who.name, nameSource: 'ocr'}));
         await refreshCharacters(); broadcast();
       }
@@ -770,7 +770,7 @@ function drawPreview() {
     if (tight) { context.setLineDash([]); context.strokeRect(tight.x0, tight.y0 - y0, tight.x1 - tight.x0, tight.y1 - tight.y0); }
     cropPreview($(`crop-${key}`), frame, tight);
     const raw = lastScan?.raw?.[key]?.map((r) => r.text).join(' | ');
-    $(`text-${key}`).textContent = raw || '—';
+    $(`text-${key}`).textContent = key === 'level' && lastScan?.levelSource === 'glyphs' ? `${lastScan.level} (glyphs)` : raw || '—';
   }
   canvas.dataset.offset = y0;
 }

@@ -219,6 +219,13 @@ located (overlays, third-party trackers, scaled layouts); manual calibration is 
 
 ## Pickup messages (Track pickups)
 
+On macOS, one Chrome window capture reported 2732×1592. Its pixels were doubled on both axes.
+The extra height is consistent with window chrome. Keeping the 2× vertical scale in both the HUD
+and pickup readers preserves the original text rows. On a 43-second, 251-frame pickup recording,
+offline replay with the same sharper filter on both runs resolved 6 item messages instead of 2
+and left 3 unread messages instead of 11. The recording had no inventory tally. Offline HUD
+replay also read the name, job and level, including one badge with the game cursor at its lower edge.
+
 **Track pickups** (off by default, remembered) reads the game's pickup messages while tracking and
 keeps meso and item pickups in IndexedDB (`pickups` store, 24 hours like readings; included in the
 JSON export and deleted with the character). EXP messages are read but never kept: EXP comes only

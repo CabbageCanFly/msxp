@@ -296,6 +296,17 @@ test('pickups: a bilinear-stretched corner is unstretched back to the game pixel
   assert.ok(worst <= 8, `largest difference ${worst}`);  // The game's pixels within the screen's 8-bit rounding (edges aside).
 });
 
+test('a doubled capture with window chrome preserves the native pixel grid', async () => {
+  const P = await import(new URL('pickups.js', web));
+  const {sx, sy, mode} = P.captureScale(2732, 1592);
+  assert.deepEqual({sx, sy, mode}, {sx: 2, sy: 2, mode: 'area'});
+  const data = Uint8ClampedArray.from([20, 20, 240, 240, 20, 20, 240, 240].flatMap((v) => [v, v, v, 255]));
+  const frame = P.unstretch({width: 4, height: 2, data}, sx, sy, 0, 1588, {}, mode);
+  assert.deepEqual([...frame.data], [20, 20, 20, 255, 240, 240, 240, 255]);
+  assert.deepEqual(P.captureScale(1368, 800), {sx: 1, sy: 1});
+  assert.deepEqual(P.captureScale(1920, 1080), {sx: 1920 / 1366, sy: 1080 / 768});
+});
+
 test("the game's sharper 1080p stretch ('area') is undone with its own model", async () => {
   const P = await import(new URL('pickups.js', web));
   // A row of game pixels: dark with 1-pixel white strokes, stretched by 1920/1366 with each screen pixel the
@@ -358,6 +369,26 @@ test('panel lines beside the level badge give stable per-line keys', async () =>
   assert.equal(G.lineKey(frame, lines.name), G.lineKey(frame, lines.name));
   assert.notEqual(G.lineKey(frame, lines.name), G.lineKey(frame, lines.job));
   assert.equal(G.trimKey('000/010/000'), '010');
+});
+
+test('badge glyph matching ignores a cursor at the lower tile edge', async () => {
+  const R = await import(new URL('reader.js', web));
+  const G = await import(new URL('glyphs.js', web));
+  const frame = {width: 100, height: 20, data: new Uint8ClampedArray(100 * 20 * 4)};
+  const paint = (x, y, rgb) => frame.data.set([...rgb, 255], (y * frame.width + x) * 4);
+  for (let y = 2; y < 15; y++) for (let x = 3; x < 24; x++) paint(x, y, [240, 130, 30]);
+  for (const left of [5, 14]) '0111110/1100011/0000011/0011110/0110000/1100000/1111111'.split('/').forEach((row, y) => {
+    [...row].forEach((bit, x) => { if (bit === '1') paint(left + x, y + 4, [255, 255, 255]); });
+  });
+  paint(11, 14, [255, 255, 255]);
+  for (const x of [54, 77]) for (let y = 4; y < 12; y++) paint(x, y, [160, 185, 130]);
+  const engine = {read: async (_, field) => {
+    assert.ok(field === 'number' || field === 'percent', 'badge read from glyphs');
+    return {text: field === 'number' ? '5000' : '25.00%'};
+  }};
+  const read = await R.readHud(engine, frame, {exp: {x0: 42, x1: 95, y0: 2, y1: 15}, level: {x0: 2, x1: 26, y0: 0, y1: 17}}, G.HUD_GLYPHS);
+  assert.equal(read.level, 22);
+  assert.equal(read.levelSource, 'glyphs');
 });
 
 test('letters: learned from verified text only when counts match; renames are authoritative', async () => {
