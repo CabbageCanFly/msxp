@@ -351,7 +351,7 @@ meso total:
   factored once; ~12 ms a frame, only when the window is >3% wider than 1366), so the detector sees the
   game's own pixels. Measured on a 2-minute 1920x1080 recording: 64 messages, 22 meso amounts read (1
   rounded), EXP messages ~317 against +364 on the EXP bar. Assumes the window shows only the game (no
-  title bar). Edge: works (reported by the player, 2026-11-13). 800x600 (2026-11-13, one screenshot): the game draws its interface at
+  title bar). Edge, Brave and Opera: work (reported by the player, 2026-11-13); Firefox: no (below); Safari: not tested yet. 800x600 (2026-11-13, one screenshot): the game draws its interface at
   the same pixel size, so windows not wider than the game's screen now use the shipped HUD glyphs and pickup
   font (the HUD read Lv. 22, 19,671, 67.88% with them, nothing without; the HUD box was found automatically).
   The pickup area is at least 300 px wide (the right quarter, 200 px, dropped 5 of 6 lines including both meso
