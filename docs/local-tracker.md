@@ -351,7 +351,11 @@ meso total:
   factored once; ~12 ms a frame, only when the window is >3% wider than 1366), so the detector sees the
   game's own pixels. Measured on a 2-minute 1920x1080 recording: 64 messages, 22 meso amounts read (1
   rounded), EXP messages ~317 against +364 on the EXP bar. Assumes the window shows only the game (no
-  title bar). Edge: works (reported by the player, 2026-11-13). Not verified: level-ups and character switches on a live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
+  title bar). Edge: works (reported by the player, 2026-11-13). 800x600 (2026-11-13, one screenshot): the game draws its interface at
+  the same pixel size, so windows not wider than the game's screen now use the shipped HUD glyphs and pickup
+  font (the HUD read Lv. 22, 19,671, 67.88% with them, nothing without; the HUD box was found automatically).
+  The pickup area is at least 300 px wide (the right quarter, 200 px, dropped 5 of 6 lines including both meso
+  lines). Firefox lists the game window but captures it black; the page now says so and points to Chrome or Edge. Not verified: level-ups and character switches on a live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
 - The `_headers` detach syntax (`! Content-Security-Policy`) on real Cloudflare Pages; the local
   preview implements it the same way.
 - A job advancement on the live client (job detection was verified on Beginner and Swordsman).

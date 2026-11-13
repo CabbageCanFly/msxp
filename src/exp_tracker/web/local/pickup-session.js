@@ -12,7 +12,14 @@ export const loadItems = () => items ??= fetch('/static/local/items/items.json')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const SHAPE_COST = 1.5, SHAPE_LEAD = .5;
 // The right part of the window above the status bar, past the quick-slot panel.
-export const REGION = {x0: .75, y0: .45, y1: .89};  // Same box the tracker was tuned on (live recording).
+// Same box the tracker was tuned on (live recording), but never narrower than minWidth: at 800x600 the right quarter
+// is 200 px, and lines starting in its left fifth (most, mesos included) were dropped as UI (measured on a screenshot:
+// 1 of 6 lines seen; 6 of 6 at 300 px). Wider windows are unchanged.
+export const REGION = {x0: .75, y0: .45, y1: .89, minWidth: 300};
+export const regionBox = (W, H, region = REGION) => {
+  const x = Math.max(0, Math.floor(Math.min(W * region.x0, W - region.minWidth))), y = Math.floor(H * region.y0);
+  return {x, y, w: W - x, h: Math.floor(H * region.y1) - y};
+};
 
 // OCR of a mask, padded and magnified. A background job: waits while an EXP scan holds or wants the engine.
 async function ocr(engine, mask, field, scale) {

@@ -27,7 +27,7 @@ onmessage = async ({data}) => {
       // old size keep winning and every line lands in the wrong one (measured live).
       if (`${W}x${H}` !== size) { size = `${W}x${H}`; tracker = stackTracker({read}); cache = {}; }
       // Right of the quick-slot panel, above the status bar: where pickup messages stack up.
-      const x = Math.floor(W * data.region.x0), y = Math.floor(H * data.region.y0), w = W - x, h = Math.floor(H * data.region.y1) - y;
+      const x = Math.max(0, Math.floor(Math.min(W * data.region.x0, W - data.region.minWidth))), y = Math.floor(H * data.region.y0), w = W - x, h = Math.floor(H * data.region.y1) - y;  // As regionBox.
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       context.drawImage(frame, x, y, w, h, 0, 0, w, h);
       frame.close();

@@ -9,7 +9,7 @@ import {GAME_HEIGHT, GAME_WIDTH, unstretch} from './pickups.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, THEME_COLORS, WINDOWS, overlaySize, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, setTimeZone, timeZone} from './charts.js';
-import {REGION, loadItems, startPickups} from './pickup-session.js';
+import {loadItems, regionBox, startPickups} from './pickup-session.js';
 import {seedFont} from './message-font.js';
 import {setScenery} from './scenery.js';
 import {liveChart, rateSeries, smooth} from './live-chart.js';
@@ -405,7 +405,10 @@ const MESSAGES = {
 
 // Learned glyphs are kept per size, and every frame of game pixels (a native window, or a stretched one
 // read unstretched) shares one set: the same digits at 768p and 1080p, over the built-in HUD_GLYPHS.
-const glyphSize = ({width, height}) => (width >= GAME_WIDTH && width / GAME_WIDTH <= 1.03 ? 'game' : `${width}x${height}`);
+// The game draws its interface at the same pixel size at every resolution (800x600 reads with the shipped
+// glyphs: measured on a screenshot), so any window not wider than the game's screen is 'game'; a wider one is
+// stretched and learns its own.
+const glyphSize = ({width, height}) => (width / GAME_WIDTH <= 1.03 ? 'game' : `${width}x${height}`);
 const templatesFor = (frame) => {
   const size = glyphSize(frame.full), learned = settings.glyphs?.[size] ?? null;
   return size === 'game' ? {...HUD_GLYPHS, ...learned} : learned;
@@ -604,7 +607,9 @@ async function stopPickupTracking(current = capture) {
 }
 
 const saveFont = () => store.setSetting('pickupFont', settings.pickupFont).catch(() => {});
-const fontSize = ({width, height}) => (width >= GAME_WIDTH ? 'game' : `${width}x${height}`);
+// Pickup messages are read in game pixels at every size: native when the window is not wider than the game's
+// screen (800x600 included), unstretched when it is.
+const fontSize = () => 'game';
 
 // Mesos and items that resolve to a known item are kept; EXP comes from the EXP bar, exactly.
 async function savePickup(current, m) {
@@ -1154,7 +1159,7 @@ function recordButton() {
         if (index.frame && index.frame !== `${W}x${H}`) { frame.close(); break; }
         if (stopped || at - last < 90) { frame.close(); if (stopped) break; continue; }  // ~10 fps is plenty.
         last = at;
-        const x = Math.floor(W * REGION.x0), y = Math.floor(H * REGION.y0), w = W - x, h = Math.floor(H * REGION.y1) - y;
+        const {x, y, w, h} = regionBox(W, H);
         if (!index.frame) Object.assign(index, {region: {x, y, w, h}, frame: `${W}x${H}`});
         const canvas = new OffscreenCanvas(w, h);
         canvas.getContext('2d').drawImage(frame, x, y, w, h, 0, 0, w, h);

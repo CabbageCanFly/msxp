@@ -581,3 +581,10 @@ test('pickup stack: lines whose numbers read differently are new messages, even 
   done.push(...t.update([], 9000));
   assert.equal(done.length, 3);  // All three new lines, once each.
 });
+
+test('pickup area: the right quarter above the status bar, never narrower than 300 px', async () => {
+  const {regionBox} = await import(new URL('pickup-session.js', web));
+  assert.deepEqual(regionBox(1368, 800), {x: 1026, y: 360, w: 342, h: 352});  // As tuned (768p window).
+  assert.equal(regionBox(1920, 1080).x, 1440);  // Stretched 1080p: unchanged.
+  assert.deepEqual(regionBox(800, 600), {x: 500, y: 270, w: 300, h: 264});  // 800x600: widened.
+});
