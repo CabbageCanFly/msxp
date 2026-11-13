@@ -1112,12 +1112,17 @@ function setupPickupLog() {
   window.msxpPickups = {messages: []};
 }
 
+// The last LOG_KEEP messages only (with their masks): an all-session log grew memory for as long as tracking ran.
+const LOG_KEEP = 300;
 function logPickup(m) {
-  window.msxpPickups.messages.push(m);
+  const kept = window.msxpPickups.messages;
+  kept.push(m);
+  if (kept.length > LOG_KEEP) kept.splice(0, kept.length - LOG_KEEP);
   const p = m.parsed, row = document.createElement('li');
   const what = !p ? 'unread' : p.kind === 'item' ? `${m.item?.name ?? p.name + (p.cut ? '…' : '') + ' (?)'} ×${p.count}` : `${p.kind} +${fmtExp(p.amount)}${p.approx ? '~' : ''}`;
   row.textContent = `${new Date(m.at).toLocaleTimeString()} · ${what} · “${m.text}”${m.via ? ` · ${m.via}` : ''}`;
   $('pickup-log').prepend(row);
+  while ($('pickup-log').children.length > LOG_KEEP) $('pickup-log').lastElementChild.remove();
 }
 
 // ?debug: save the bottom of the last frame to a local file for diagnosing OCR. Never automatic.
