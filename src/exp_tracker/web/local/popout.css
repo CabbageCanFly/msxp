@@ -43,3 +43,6 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 .items-grid strong { color:var(--text); font:600 13px/1 "Fredoka", sans-serif; font-variant-numeric:tabular-nums; }
 /* An empty slot: a faint pill the size of one item, so the overlay keeps its size with few items. */
 .items-grid .items-slot { width:62px; height:32px; padding:2px; background:var(--badge); opacity:.3; }
+/* No background (?bg=none): the card fills the window edge to edge, a plain rectangle (keying out a background
+   took bits of item icons with it). */
+.local-overlay[data-bg="none"] #card { width:100vw; height:100vh; margin:0; border:0; border-radius:0; box-shadow:none; box-sizing:border-box; }

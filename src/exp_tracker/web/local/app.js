@@ -6,7 +6,7 @@ import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud, readIdentity} from './reader.js';
 import {HUD_GLYPHS, displayed, learn, learnLetters} from './glyphs.js';
 import {GAME_HEIGHT, GAME_WIDTH, unstretch} from './pickups.js';
-import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, WINDOWS, duration, exp as fmtExp, jobIcon, overlayOptions,
+import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, THEME_COLORS, WINDOWS, overlaySize, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
 import {drawDailyChart, drawExpChart, drawPercentChart, expText, hideTip, setTimeZone, timeZone} from './charts.js';
 import {REGION, loadItems, startPickups} from './pickup-session.js';
@@ -1008,7 +1008,7 @@ function setupCharts() {
 function overlayURL() { const query = overlayQuery(builder); return `/local/overlay${query ? '?' + query : ''}`; }
 function updateBuilder() {
   builder.interval = String(charts.bucket); builder.range = String(charts.bucket === 1800 ? charts.longWindow : charts.chartWindow);
-  const url = overlayURL(), [width, height] = OVERLAY_SIZES[builder.layout], frame = $('overlay-preview');
+  const url = overlayURL(), [width, height] = overlaySize(builder), frame = $('overlay-preview');
   $('overlay-url').value = location.origin + url; $('overlay-link').href = url; $('overlay-size').textContent = `Window · ${width} × ${height}`;
   for (const button of document.querySelectorAll('[data-option] button')) {
     const key = button.closest('[data-option]').dataset.option;
@@ -1039,7 +1039,7 @@ function setupBuilder() {
   $('popout').addEventListener('click', () => {
     // A separate window of this browser profile shares IndexedDB and BroadcastChannel with this tab. One window
     // per layout, so several can be open at once (Last hour, Live and Items in one scene).
-    const [width, height] = OVERLAY_SIZES[builder.layout];
+    const [width, height] = overlaySize(builder);
     window.open(overlayURL(), `msxp-local-overlay-${builder.layout}`, `popup,width=${width},height=${height}`);
   });
   window.addEventListener('resize', scalePreview);

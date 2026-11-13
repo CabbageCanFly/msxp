@@ -3,7 +3,7 @@
 // arrive over BroadcastChannel; IndexedDB is the source of truth (initial state, missed messages and a
 // slow poll while the tracker tab is in the background).
 import * as store from './store.js';
-import {CHANNEL, OVERLAY_COLORS, OVERLAY_SIZES, THEME_COLORS, duration, exp, headerInk, historyLabel, overlayOptions, percent, summarize, summarizePickups} from './view.js';
+import {CHANNEL, OVERLAY_COLORS, THEME_COLORS, duration, exp, headerInk, historyLabel, overlayOptions, overlaySize, percent, summarize, summarizePickups} from './view.js';
 import {drawHourChart, expText} from './charts.js';
 import {liveChart, rateSeries, smooth} from './live-chart.js';
 import {eta, requirement} from './exp.js';
@@ -150,7 +150,7 @@ function renderItems(now) {
 // The pop-out window (opened by the tracker page as 'msxp-local-overlay-<layout>') is sized from the outside, and
 // the browser's own frame may take some of it: resize so the page area is exactly the layout's size.
 function fitWindow() {
-  const [width, height] = OVERLAY_SIZES[options.layout] ?? [];
+  const [width, height] = overlaySize(options);
   if (!window.name.startsWith('msxp-local-overlay') || !width) return;
   const dw = width - window.innerWidth, dh = height - window.innerHeight;
   if (dw || dh) window.resizeBy(dw, dh);
