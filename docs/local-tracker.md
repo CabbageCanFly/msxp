@@ -310,7 +310,8 @@ meso total:
   | Perion fog, 4.3 min (+965) | +965 (duplicates hiding misses) | +955; three lines of a 16-line burst found |
   | Perion fog, 7.5 min (+1,466; shells +12) | +1,269, shells 14 | +1,193, shells 12 |
   | Burst, 13.5 s (+244) | +88 | +129 |
-  Before, a fog burst at 257 s of the 7.5-minute run counted six "+11" for two; now four. Cost: the tracker
+  Still over in one place: a fog burst at 257 s of the 7.5-minute run counts six "+11" where three arrived (before:
+  the same six and two "~10" more), as nearly every number there reads incomplete. Cost: the tracker
   takes ~0.3 ms more a frame in clear maps and ~0.8-1.0 ms in fog (worker, 15 fps). A stack swapped whole
   between frames is still undercounted when the reads are incomplete (fog).
 
