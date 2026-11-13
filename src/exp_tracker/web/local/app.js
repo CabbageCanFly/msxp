@@ -200,7 +200,8 @@ async function start() {
   const [track] = stream.getVideoTracks();
   capture = {stream, track, tracker: null, sessionId: null, timer: null, scans: [], failures: 0, lastDetect: 0};
   track.addEventListener('ended', () => stop('sharing_stopped'));
-  capture.grabber = 'ImageCapture' in window ? new ImageCapture(track) : null;
+  // Safari can expose ImageCapture without grabFrame; use the video fallback in that case.
+  capture.grabber = typeof window.ImageCapture?.prototype?.grabFrame === 'function' ? new ImageCapture(track) : null;
   if (!capture.grabber) {
     const video = Object.assign(document.createElement('video'), {muted: true, playsInline: true, srcObject: stream});
     await video.play().catch(() => {});

@@ -43,6 +43,29 @@ each scan takes the latest frame (`ImageCapture.grabFrame`, a `<video>` fallback
 the HUD and discards the pixels. One scan runs at a time; a tick that finds the previous scan still
 running is skipped, never queued.
 
+The frame path checks for `ImageCapture.prototype.grabFrame`, not just `ImageCapture`:
+Safari was reported (2026-11-13) to expose the constructor without that method, causing
+"grabber.grabFrame is not a function" before OCR. It now uses the existing `<video>` fallback.
+Synthetic tests cover that partial API, an absent API and the full API.
+
+**Safari on macOS, measured 2026-11-13:** the video fallback captured the game at
+1366×796, including the title bar. Its saved HUD pixels were softened; localization and
+level 1 worked, but EXP OCR failed. `getCapabilities()` reported maximum dimensions of
+1366×796. Applying ideal dimensions of 2732×1592 with `resizeMode: 'none'` still produced
+1366×796; `getSupportedConstraints()` did not list `resizeMode`. The app copies these
+video pixels at their supplied size, without resizing. Chrome on the same Mac was
+reported to read successfully, and the earlier Chrome capture below supplied 2732×1592.
+The same stream later read level 1 and `2 [13.33%]` successfully, with agreeing EXP OCR.
+Name recognition still left the placeholder: offline replay of its name crop with the
+vendored English data returned two identical correct smoothed reads, but the fallback
+discarded names whose length equalled the glyph count. It now accepts two identical
+valid whole-line reads regardless of glyph count; no new glyphs or fuzzy matching were
+needed for this case. After the player refreshed to load the fix, the live Safari
+session displayed the name automatically while EXP tracking continued (2026-11-13).
+The tested Safari stream did not supply the sharper capture;
+Chrome remains the confirmed option for pickups (Safari lacks the frame-worker API).
+Other Safari versions and full-display sharing have not been checked.
+
 | Step | Module | Notes |
 | --- | --- | --- |
 | Locate the status bar | `hud.js` `locate` | One sparse Tesseract pass over the bottom 22 % of the window finds the `EXP`, `HP`, `MP` and `LV.` labels (the Python `discover_regions` geometry). Boxes are saved normalized with the window size. Without `LV.`, the level box is a strip left of HP. |
@@ -99,7 +122,8 @@ and later scans read EXP from templates alone.
   identical to a digit learned from the EXP bar is that digit,
   and any other OCR `0` is the letter O). Names are read at four magnifications with votes pooled
   per identical glyph (one misread letter is outvoted). When touching letters prevent alignment,
-  two agreeing whole-line reads of the smoothed crop can label the bitmap. **Letters are learned like digits**, from
+  two agreeing whole-line reads of the smoothed crop can label the bitmap; that also handles blurred
+  glyphs whose count is unchanged. **Letters are learned like digits**, from
   verified text only: every job line that matches the job list, and every rename you type
   (authoritative); a name whose glyphs are all known is read without OCR. Only scans whose level
   matches the EXP table count toward a change, so logout fades and loading screens cannot.
@@ -359,7 +383,9 @@ meso total:
   factored once; ~12 ms a frame, only when the window is >3% wider than 1366), so the detector sees the
   game's own pixels. Measured on a 2-minute 1920x1080 recording: 64 messages, 22 meso amounts read (1
   rounded), EXP messages ~317 against +364 on the EXP bar. Assumes the window shows only the game (no
-  title bar). Edge, Brave and Opera: work (reported by the player, 2026-11-13); Firefox: no (below); Safari: not tested yet. 800x600 (2026-11-13, one screenshot): the game draws its interface at
+  title bar). Edge, Brave and Opera: work (reported by the player, 2026-11-13); Firefox: no (below);
+  Safari: window capture and later EXP OCR worked on its softened 1366×796 stream (see above).
+  800x600 (2026-11-13, one screenshot): the game draws its interface at
   the same pixel size, so windows not wider than the game's screen now use the shipped HUD glyphs and pickup
   font (the HUD read Lv. 22, 19,671, 67.88% with them, nothing without; the HUD box was found automatically).
   The pickup area is at least 300 px wide (the right quarter, 200 px, dropped 5 of 6 lines including both meso

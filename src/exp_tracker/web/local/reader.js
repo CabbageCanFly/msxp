@@ -190,12 +190,12 @@ async function votedName(engine, frame, box, glyphs) {
     });
   }
   if (readings >= 2) return glyphs.map((g) => [...votes.get(g.key)].sort((a, b) => b[1] - a[1])[0][0]).join('');
-  // Touching letters can share a column run. For a longer label, require two identical whole-line reads.
+  // Blur can damage glyphs without changing their count; require two identical whole-line reads.
   const whole = new Set();
   for (const scale of [2, 3, 4]) {
     const image = binarize(gray, part.width, part.height, 125, scale, 8, true);
     const text = (await engine.read(pgm(image), 'name')).text.trim();
-    if (text.length <= glyphs.length || !/^[A-Za-z0-9]{2,13}$/.test(text)) continue;
+    if (!/^[A-Za-z0-9]{2,13}$/.test(text)) continue;
     if (whole.has(text)) return text;
     whole.add(text);
   }

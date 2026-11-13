@@ -1,6 +1,7 @@
 // Unit tests for the browser-only local tracker (/local): parsing, EXP-table checks, tracking and stats.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
 import test from 'node:test';
 
 const web = new URL('../src/exp_tracker/web/local/', import.meta.url);
@@ -12,6 +13,54 @@ const at = (s) => Date.UTC(2026, 0, 1) + s * 1000;
 // Synthetic readings from the published requirement, so tests never hold real character data.
 const pair = (level, exp) => ({level, exp, bp: Math.floor(exp * 10000 / table.to_next[level])});
 const r = (s, level, exp) => ({at: at(s), ...pair(level, exp)});
+
+// Run the capture entry point and frame copy with synthetic browser frames, without OCR or storage.
+const app = readFileSync(new URL('app.js', web), 'utf8');
+for (const mode of ['no ImageCapture', 'ImageCapture without grabFrame', 'ImageCapture with grabFrame']) {
+  test(`capture reads full frames and HUD bands: ${mode}`, async () => {
+    let played = 0, grabbed = 0, closed = 0;
+    const copies = [], track = {addEventListener() {}}, stream = {getVideoTracks: () => [track]};
+    const video = {videoWidth: 800, videoHeight: 600, async play() { played++; }};
+    const bitmap = {width: 800, height: 600, close() { closed++; }};
+    class ImageCapture {
+      constructor(input) { assert.equal(input, track); }
+    }
+    if (mode === 'ImageCapture with grabFrame') ImageCapture.prototype.grabFrame = async () => { grabbed++; return bitmap; };
+    const window = {addEventListener() {}};
+    if (mode !== 'no ImageCapture') window.ImageCapture = ImageCapture;
+    const context = vm.createContext({window, ImageCapture, capture: null, character: {id: 1},
+      navigator: {userAgent: 'test browser', mediaDevices: {getDisplayMedia: async () => stream}},
+      document: {body: {dataset: {}}, createElement(tag) { assert.equal(tag, 'video'); return video; }},
+      $: () => ({}), setStatus() {}, acquireLock: async () => true, beginSession: async () => {},
+      getEngine: async () => {}, store: {prune: async () => {}}, scan() {}, startPickupTracking() {},
+      guardUnload() {}, setInterval() {}, setTimeout() {}, captureScale: () => ({sx: 1, sy: 1}),
+      OffscreenCanvas: class {
+        getContext() { return {
+          drawImage(...args) { copies.push(args); },
+          getImageData: () => ({data: new Uint8ClampedArray(this.width * this.height * 4)}),
+        }; }
+      },
+    });
+    vm.runInContext(app.slice(app.indexOf('let starting ='), app.indexOf('async function beginSession()')) +
+      app.slice(app.indexOf('async function grab('), app.indexOf('const isFull =')), context);
+    await vm.runInContext('start()', context);
+    assert.equal(context.capture.stream, stream);
+    assert.equal(played, mode === 'ImageCapture with grabFrame' ? 0 : 1);
+    const full = await vm.runInContext('grab()', context);
+    assert.equal(full.width, 800); assert.equal(full.height, 600); assert.equal(full.top, 0);
+    const band = await vm.runInContext('grab({y0: 500, y1: 560})', context);
+    assert.equal(band.width, 800); assert.equal(band.height, 60); assert.equal(band.top, 500);
+    assert.equal(band.full.height, 600);
+    assert.equal(copies[0][0], played ? video : bitmap);
+    assert.deepEqual(copies[1].slice(1), [0, 500, 800, 60, 0, 0, 800, 60]);
+    assert.equal(grabbed, played ? 0 : 2); assert.equal(closed, grabbed);
+    if (played) {
+      assert.equal(video.srcObject, stream); assert.equal(video.muted, true); assert.equal(video.playsInline, true);
+      video.videoWidth = 0;
+      await assert.rejects(vm.runInContext('grab()', context), /no_frame/);
+    }
+  });
+}
 
 test('strict EXP parsing never invents punctuation', () => {
   assert.deepEqual(E.parseExp('5,477[27.09%]'), {exp: 5477, bp: 2709});
@@ -388,6 +437,20 @@ test('a name with joined glyphs needs two matching whole-line OCR reads', async 
   };
   assert.equal(await nameFrom(['CharA', 'CharB', 'CharA']), 'CharA');
   assert.equal(await nameFrom(['CharA', 'CharB', 'CharC']), null);
+});
+
+test('a blurred name can agree in whole-line OCR at the same glyph count', async () => {
+  const R = await import(new URL('reader.js', web));
+  const frame = {width: 24, height: 12, data: new Uint8ClampedArray(24 * 12 * 4)};
+  for (let y = 3; y < 9; y++) for (const x of [2, 6, 10, 14, 18]) frame.data.fill(255, (y * 24 + x) * 4, (y * 24 + x) * 4 + 4);
+  const nameFrom = async (fallback) => {
+    const texts = ['Ca', 'Ga', 'Cai', 'Co', ...fallback];
+    return (await R.readIdentity({read: async () => ({text: texts.shift()})}, frame,
+      {name: {x0: 0, y0: 0, x1: 24, y1: 12}}, null, [])).name;
+  };
+  assert.equal(await nameFrom(['CharA', 'CharA', 'CharB']), 'CharA');
+  assert.equal(await nameFrom(['CharA', 'CharB', 'CharC']), null);
+  assert.equal(await nameFrom(['Char A', 'Char A', 'CharB']), null);
 });
 
 test('badge glyph matching ignores a cursor at the lower tile edge', async () => {
