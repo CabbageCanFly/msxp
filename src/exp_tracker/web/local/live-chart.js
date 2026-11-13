@@ -38,13 +38,15 @@ const clock = (at) => new Date(at).toLocaleTimeString([], {hour: '2-digit', minu
  * `axes: false` draws the line alone (the pop-out overlay).
  */
 export function liveChart(canvas, source, {axes = true} = {}) {
-  let hover = null, frame = 0, last = 0, visible = true, top = 0;
+  let hover = null, frame = 0, last = 0, visible = true, top = 0, easing = false, drawn = null;
   const loop = (time) => {
     frame = 0;
     if (!visible || document.hidden) return;
     // About 30 times a second while the line moves (or under the pointer), else once a second: an idle page
     // only needs its clock labels kept current (measured on an idle /local page: 8% of a core before, under 1%).
-    if (time - last >= (hover != null || source().live !== false ? 33 : 1000)) { last = time; draw(); }
+    // A scale still easing toward its peak (switching EXP and mesos) also draws at full speed.
+    const view = source();  // A new view (switching EXP and mesos, a new reading) draws at once.
+    if (view !== drawn || time - last >= (hover != null || easing || view.live !== false ? 33 : 1000)) { last = time; drawn = view; draw(); }
     frame = requestAnimationFrame(loop);
   };
   const wake = () => { if (!frame && visible && !document.hidden) frame = requestAnimationFrame(loop); };
@@ -68,6 +70,7 @@ export function liveChart(canvas, source, {axes = true} = {}) {
     // between EXP and mesos), gently for the line's own ups and downs.
     const target = Math.max(1, ...shown.map((p) => p.perHour)) * 1.2;
     top = top ? top + (target - top) * (Math.max(target, top) > 2 * Math.min(target, top) ? .35 : .12) : target;
+    easing = Math.abs(target - top) > top * .005;  // Full speed until the scale settles (switching EXP and mesos).
     const y = (value) => bottom - value / top * (bottom - upper);
     c.font = `600 11px ${style.fontFamily}`; c.fillStyle = css('--muted'); c.strokeStyle = css('--grid'); c.lineWidth = 1;
     if (axes) {
