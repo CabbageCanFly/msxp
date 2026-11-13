@@ -276,6 +276,7 @@ Restart only the services affected by the change. The [docs index](docs/README.m
 - [ ] `/local` bonus: item sell prices for "mesos/hour including drops" (maplestory.io rebuild or our own client extraction)
 - [ ] `/local` bonus: potions used per hour from the quick-slot count (low priority; error-prone)
 - [ ] `/local` pickups: combine brightness over calm frames for fog; confirm an amount only when samples agree
+- [ ] `/local`: check for a memory leak: one untouched tracking tab on the normal page (no `?debug`) for 1-2 hours with Chrome's memory logged (a `?debug` session rose ~1.5-3 MB a minute; the debug log is now capped)
 - [ ] Revisit deferred OCR work: [obscured LV labels and localization timeouts](docs/stationary-level-up.md#todo-deferred-obscured-lv-labels-and-localization-timeouts)
 
 ## How it works
