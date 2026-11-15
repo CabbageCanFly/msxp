@@ -1,7 +1,7 @@
 # Personal EXP tracker in the browser (`/local`)
 
 `msxp.pages.dev/local` tracks **your own** character without Twitch, Python or any install. You
-share the MapleStory window with Chrome or Edge; the page reads the EXP bar every few seconds and
+share the MapleStory window from a desktop browser (tested: Chrome, Edge, Brave and Opera on Windows, Chrome and Safari on macOS; Firefox is not supported); the page reads the EXP bar every few seconds and
 keeps the history in this browser. It is independent of the VPS, the API and the production
 database: the page and its OCR runtime are static Pages files, and the page's Content Security
 Policy allows network requests only to its own origin (`connect-src 'self'`), so readings cannot be
@@ -86,6 +86,10 @@ dropped the leading 5. A final smoothed word-mode pass recovers it, with the sam
 unique table-match requirement (or two agreeing variants without level evidence).
 Offline replay reads all five saved HUD crops correctly, including that failure.
 The word fallback has not yet been checked in the live Safari session.
+These Safari passes (the threshold-125 smooth pass, the word-mode pass and the label-fragment retry) run only in
+Safari since 2026-11-15: on private Twitch frames the unconditional threshold 125 made other browsers' smooth pass
+misread (65.59% as `65.594.`, a number as nothing), which the word pass then recovered at 4–8 extra OCR calls per
+failing scan. Other browsers are back to the earlier reads and call counts on those frames.
 A later private level-23 crop showed `575 [1.68%]` but OCR read `57`, `5` or nothing.
 The field retained a short upper fragment of the taller EXP label, and smoothing at
 the usual 5×/6× magnifications joined the digit tops. When all existing passes fail,
@@ -157,7 +161,7 @@ Other Safari versions and full-display sharing have not been checked.
 | Locate the status bar | `hud.js` `locate` | One sparse Tesseract pass over the bottom 22 % of the window finds the `EXP`, `HP`, `MP` and `LV.` labels (the Python `discover_regions` geometry). Boxes are saved normalized with the window size. Without `LV.`, the level box is a strip left of HP. |
 | Copy the HUD rows | `app.js` `grab` | Once boxes are known, only the band of rows holding them is copied (1368×56 instead of 1368×800 in the test). Detection and the preview use full frames. |
 | Fit the fields | `reader.js` `fieldBoxes` | Each scan finds the two olive-green brackets around the percentage in pixels, trims the `EXP.` label (it is taller than the digits) and finds the orange level tiles. Without both brackets the field is treated as hidden or covered. |
-| Read EXP | `glyphs.js`, `reader.js` | Learned glyph templates first (exact pixels, ~2 ms). Otherwise Tesseract reads the number and percentage separately at two magnifications, then a smoothed pass for scaled HUDs and a word-mode fallback. Level evidence permits one unique table-consistent pair across observed candidates; without it, both variants of one pass must agree. |
+| Read EXP | `glyphs.js`, `reader.js` | Learned glyph templates first (exact pixels, ~2 ms). Otherwise Tesseract reads the number and percentage separately at two magnifications, then a smoothed pass for scaled HUDs (Safari adds a word-mode fallback). Level evidence permits one unique table-consistent pair across observed candidates; without it, both variants of one pass must agree. |
 | Read level | `reader.js` | Learned digit templates on the orange tiles; otherwise Tesseract (white digits via the minimum channel). |
 | Name and job | `hud.js` `panelLines`, `glyphs.js` `lineKey` | The two text lines beside the badge, found in pixels. Each scan compares their exact bitmaps (about 0.1 ms); OCR runs only to label a new bitmap. |
 | Validate and track | `exp.js` | Strict parsing, EXP-table arithmetic, confirmation rules below. |
@@ -198,6 +202,20 @@ and later scans read EXP from templates alone.
 - **Confirmation**: the first reading of a session, a level change, an EXP loss (death), a jump of
   more than 20 percentage points and anything after a gap (more than `max(120 s, 4 × interval + 10 s)`)
   wait for a second agreeing reading. A one-off misread is dropped and the accepted state kept.
+- **Percentage-only HUD** (`EXP. [78.63%]`, no number before `[`; common at higher levels): the same
+  rules as the Twitch tracker (`shadow_types.parse_percentage_only`, `product.percentage_exp`). The field
+  must be exactly `dd.dd%` within 0.00–100.00; the level comes from the badge alone (no EXP table can check
+  it) and must have a published requirement; EXP is the estimate `percentage × requirement`, rounded half
+  up, shown with "≈". The number box counts as empty when its bright ink covers less than 60 % of the digit
+  band (the label's dot does not). Stricter than the numeric path, because a blurred 7 can read as 2 in both
+  OCR variants: a change of more than 1 percentage point must repeat and then starts a baseline rather than
+  counting; a level-up counts only when the percentage reset (a badge misread as the next level does not);
+  only crisp-pass reads teach percentage glyphs, and a smooth-pass agreement that contradicts a valid crisp read is
+  refused. Measured on 28 private two-feed stream frames (levels 71–72, compressed 1080p): 24 showed the field and
+  all 24 were detected as percentage-only; 17 read, all correct except one whose badge also misread (level 4 for
+  72, which the tracker treats as another character, never a gain); 7 were skipped. Before the contradiction rule
+  the smooth pass read three leading 7s as 2. Cost: 4–6 OCR calls on a scan that needs OCR; a native-size window
+  reads with the shipped glyphs. Numeric HUD frames read as before. Not yet seen on a live high-level client.
 - **Gains**: only endpoint differences between consecutive accepted readings in the same session.
   A confirmed break starts a baseline whose difference is never counted. A confirmed +1 level-up
   inside the gap limit with a published requirement counts `to_next − previous EXP + new EXP`.
@@ -549,13 +567,13 @@ meso total:
   factored once; ~12 ms a frame, only when the window is >3% wider than 1366), so the detector sees the
   game's own pixels. Measured on a 2-minute 1920x1080 recording: 64 messages, 22 meso amounts read (1
   rounded), EXP messages ~317 against +364 on the EXP bar. Assumes the window shows only the game (no
-  title bar). Edge, Brave and Opera: work (reported by the player, 2026-11-13); Firefox: no (below);
+  title bar). Edge, Brave and Opera: work (reported by the player, 2026-11-13); Firefox: not supported;
   Safari: window capture and later EXP OCR worked on its softened 1366×796 stream (see above).
   800x600 (2026-11-13, one screenshot): the game draws its interface at
   the same pixel size, so windows not wider than the game's screen now use the shipped HUD glyphs and pickup
   font (the HUD read Lv. 22, 19,671, 67.88% with them, nothing without; the HUD box was found automatically).
   The pickup area is at least 300 px wide (the right quarter, 200 px, dropped 5 of 6 lines including both meso
-  lines). Firefox lists the game window but captures it black; the page now says so and points to Chrome or Edge. Not verified: level-ups and character switches on a live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
+  lines). Firefox is not supported; the page says so and suggests another browser. Not verified: level-ups and character switches on a live client. The smoothed fallback exists for scaled HUDs but is tested only on Twitch frames.
 - The `_headers` detach syntax (`! Content-Security-Policy`) on real Cloudflare Pages; the local
   preview implements it the same way.
 - A job advancement on the live client (job detection was verified on Beginner and Swordsman).

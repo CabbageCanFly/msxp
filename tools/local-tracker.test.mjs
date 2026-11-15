@@ -315,6 +315,50 @@ test('a confirmed +1 level-up counts the EXP across the boundary', () => {
   assert.deepEqual(accepted.map((a) => [a.kind, a.gain]), [['baseline', null], ['gain', 100], ['level_up', 250], ['gain', 30]]);
 });
 
+test('percentage-only: parsed and estimated as the Twitch tracker; misreads and badge errors never overcount', () => {
+  // The cases of docs/percentage-only-level51.md (brackets are found in pixels, so the field is the inside).
+  assert.deepEqual(['70.51%', '0.00%', '100.00%', ' 7.05% '].map(E.parsePercent), [7051, 0, 10000, 705]);
+  for (const bad of ['70.5%', '100.01%', '7 0.51%', '70.51', '70.51%1', '.12%']) assert.equal(E.parsePercent(bad), null, bad);
+  const total = E.requirement(table, 71);
+  assert.equal(E.estimateExp(table, 71, 7863), Math.floor((7863 * total + 5000) / 10000));  // Half up.
+  assert.equal(E.estimateExp(table, 100, 5000), null);  // No published requirement: no EXP.
+  const est = (s, level, bp) => ({at: at(s), level, bp, exp: E.estimateExp(table, level, bp), estimated: true});
+  const gains = (readings) => run(readings).accepted.reduce((sum, a) => sum + (a.gain ?? 0), 0);
+  assert.equal(gains([est(0, 71, 7863), est(5, 71, 7863), est(10, 71, 7866), est(15, 71, 7870)]), est(0, 71, 7870).exp - est(0, 71, 7863).exp);
+  // A blurred 7 read as 2 once (78.63 -> 72.63), or the same misread twice in a row: never counted.
+  const truth = est(0, 71, 7870).exp - est(0, 71, 7863).exp;
+  assert.ok(gains([est(0, 71, 7863), est(5, 71, 7863), est(10, 71, 7263), est(15, 71, 7863), est(20, 71, 7870)]) <= truth);
+  assert.ok(gains([est(0, 71, 7863), est(5, 71, 7863), est(10, 71, 8863), est(15, 71, 8863), est(20, 71, 7870), est(25, 71, 7870)]) <= truth);
+  // A real level-up counts across the boundary; a badge misread as the next level at the same percentage does not.
+  const up = run([est(0, 71, 9990), est(5, 71, 9995), est(10, 72, 10), est(15, 72, 12)]).accepted;
+  assert.deepEqual(up.map((a) => a.kind), ['baseline', 'gain', 'level_up', 'gain']);
+  assert.equal(up[2].gain, total - est(0, 71, 9995).exp + est(0, 72, 10).exp);
+  assert.ok(!run([est(0, 71, 7863), est(5, 71, 7863), est(10, 72, 7863), est(15, 72, 7863)]).accepted.some((a) => a.kind === 'level_up'));
+});
+
+test('a percentage-only HUD reads its percentage; a dot before "[" is not a number', async () => {
+  const R = await import(new URL('reader.js', web));
+  const read = async (digit, percents = null) => {
+    const width = 100, height = 24, frame = {width, height, data: new Uint8ClampedArray(width * height * 4)};
+    const paint = (x, y, rgb) => frame.data.set([...rgb, 255], (y * width + x) * 4);
+    for (const x of [30, 80]) for (let y = 5; y < 15; y++) paint(x, y, [160, 185, 130]);
+    for (let y = 7; y < 14; y++) for (const x of [40, 41, 50, 51, 60, 61]) paint(x, y, [255, 255, 255]);
+    for (let y = 5; y < 7; y++) paint(8, y, [255, 255, 255]);  // The EXP label, above the digit band.
+    for (let y = 12; y < 14; y++) for (const x of [10, 11]) paint(x, y, [255, 255, 255]);  // Its dot.
+    if (digit) for (let y = 7; y < 14; y++) paint(20, y, [255, 255, 255]);
+    const engine = {read: async (_, field) => ({text: field.startsWith('percent') ? (percents ? percents.shift() : '78.63%') : field.startsWith('number') ? '1' : ''})};
+    return R.readHud(engine, frame, {exp: {x0: 0, y0: 0, x1: 98, y1: 21}}, null, {table, previousLevel: 71});
+  };
+  const only = await read(false);
+  assert.equal(only.percentOnly, true); assert.equal(only.bp, 7863); assert.equal(only.exp, null);
+  // Without a level badge there is no EXP to estimate: never a reading.
+  assert.equal(only.status, 'unreadable'); assert.equal(only.reason, 'level_unreadable');
+  assert.equal((await read(true)).percentOnly, undefined);  // A full-height glyph is a number: the usual path.
+  // Crisp pass, then smooth: a smooth agreement that contradicts a valid crisp read is refused (a 7 read as 2).
+  assert.equal((await read(false, ['79.88%', '79.883', '29.88%', '29.88%'])).bp, null);
+  assert.equal((await read(false, ['.19%', '.19%', '26.19%', '26.19%'])).bp, 2619);  // Nothing valid to contradict.
+});
+
 test('long gaps and level jumps start baselines; different characters pause for the user', () => {
   const gap = run([r(0, 20, 5000), r(20, 20, 5100), r(500, 20, 6000), r(520, 20, 6050)]);
   assert.deepEqual(gap.accepted.map((a) => a.gain), [null, 100, null, 50]);
@@ -538,7 +582,7 @@ test('EXP can combine observed candidates across passes only with a unique table
   assert.notEqual(unguarded.exp, exp);
 });
 
-test('EXP word fallback recovers a dropped leading digit and retains validation', async () => {
+test('Safari EXP word fallback recovers a dropped leading digit and retains validation', async () => {
   const R = await import(new URL('reader.js', web));
   const frame = {width: 100, height: 20, data: new Uint8ClampedArray(100 * 20 * 4)};
   for (const x of [35, 90]) for (let y = 4; y < 12; y++) frame.data.set([160, 185, 130, 255], (y * 100 + x) * 4);
@@ -546,14 +590,17 @@ test('EXP word fallback recovers a dropped leading digit and retains validation'
   const run = (options, wordPercent) => R.readHud({read: async (_, field) => ({text:
     field.startsWith('number') ? String(exp) : field === 'percentWord' ? wordPercent : '3015%'})}, frame,
   {exp: {x0: 0, y0: 2, x1: 98, y1: 15}}, null, options);
-  const matched = await run({table, previousLevel: 21}, percent);
+  const matched = await run({table, previousLevel: 21, safari: true}, percent);
   assert.equal(matched.status, 'ok'); assert.equal(matched.exp, exp);
   assert.ok(matched.raw.exp.some((r) => r.word && r.field === 'percent'));
-  assert.equal((await run({table, previousLevel: 21}, '1.00%')).status, 'ambiguous');
-  assert.equal((await run({}, percent)).status, 'ok');  // Both word variants agree without level evidence.
+  assert.equal((await run({table, previousLevel: 21, safari: true}, '1.00%')).status, 'ambiguous');
+  assert.equal((await run({safari: true}, percent)).status, 'ok');  // Both word variants agree without level evidence.
+  // Other browsers skip the extra pass (4 OCR calls on every failing scan).
+  const other = await run({table, previousLevel: 21}, percent);
+  assert.notEqual(other.status, 'ok'); assert.ok(!other.raw.exp.some((r) => r.word));
 });
 
-test('failed EXP OCR can exclude a short label fragment and retry smaller images', async () => {
+test('Safari: failed EXP OCR can exclude a short label fragment and retry smaller images', async () => {
   const R = await import(new URL('reader.js', web));
   const exp = Math.round(E.requirement(table, 21) * .3015), bp = Math.floor(exp * 10000 / E.requirement(table, 21));
   const run = async ({tall = false, accepted = false, level = true, hasLabel = true} = {}) => {
@@ -567,7 +614,7 @@ test('failed EXP OCR can exclude a short label fragment and retry smaller images
     const engine = {read: async (_, field) => ({text: field === 'number' ? (++numbers > 4 || accepted ? String(exp) : '')
       : field === 'numberWord' ? '' : `${(bp / 100).toFixed(2)}%`})};
     return {result: await R.readHud(engine, frame, {exp: {x0: 0, y0: 0, x1: 98, y1: 21}}, null,
-      level ? {table, previousLevel: 21} : {}), numbers};
+      level ? {table, previousLevel: 21, safari: true} : {safari: true}), numbers};
   };
   for (const level of [false, true]) {
     const {result, numbers} = await run({level});
@@ -575,12 +622,13 @@ test('failed EXP OCR can exclude a short label fragment and retry smaller images
     assert.equal(numbers, 6);
     assert.deepEqual(result.raw.exp.filter((r) => r.field === 'number').slice(-2).map((r) => r.scale), [3, 4]);
   }
-  const tall = await run({tall: true});  // A full-height leading digit must never be removed.
-  assert.notEqual(tall.result.status, 'ok'); assert.equal(tall.numbers, 4);
+  // A full-height leading digit must never be removed (Safari's later threshold pass may still read it).
+  const trimmed = ({result}) => result.raw.exp.some((r) => r.field === 'number' && r.scale === 3);
+  const tall = await run({tall: true});
+  assert.ok(!trimmed(tall));
   const accepted = await run({accepted: true});
   assert.equal(accepted.result.status, 'ok'); assert.equal(accepted.numbers, 2);
-  const noLabel = await run({hasLabel: false});
-  assert.notEqual(noLabel.result.status, 'ok'); assert.equal(noLabel.numbers, 4);
+  assert.ok(!trimmed(await run({hasLabel: false})));
 });
 
 test('Safari re-segments past an EXP label fragment before falling back from exact glyphs', async () => {

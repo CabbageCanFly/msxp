@@ -1,7 +1,7 @@
 // /local: capture the game window the user shares, read the HUD every few seconds, track locally.
 // No network requests besides this site's own static files; nothing leaves the browser.
 import * as store from './store.js';
-import {acceptBaseline, maxGapFor, resolveLevel, step, suspicious} from './exp.js';
+import {acceptBaseline, estimateExp, maxGapFor, resolveLevel, step, suspicious} from './exp.js';
 import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud, readIdentity} from './reader.js';
 import {HUD_GLYPHS, displayed, learn, learnLetters} from './glyphs.js';
@@ -167,9 +167,9 @@ async function applyRemoval() {
 let starting = false;
 async function start() {
   if (capture || starting) return;
-  if (!navigator.mediaDevices?.getDisplayMedia) return setStatus('This browser cannot share a window. Use Chrome or Edge on a computer.', 'warn');
-  // Firefox lists the game window but captures it black (hardware-drawn windows; reported 2026-11-13).
-  if (/firefox/i.test(navigator.userAgent)) return setStatus(`Firefox shows the game window as black, so it can't be read. Try a different browser.`, 'warn');
+  if (!navigator.mediaDevices?.getDisplayMedia) return setStatus('This browser cannot share a window. Try another browser on a computer.', 'warn');
+  // Firefox is not supported (tested 2026-11-13).
+  if (/firefox/i.test(navigator.userAgent)) return setStatus('Firefox is not supported. Try a different browser.', 'warn');
   // Safari allows the sharing dialog only straight from the click: ask before any await (reported 2026-11-13).
   const sharing = navigator.mediaDevices.getDisplayMedia({
     // A low frame rate is only a request; scans sample the latest frame on their own schedule.
@@ -407,6 +407,7 @@ const MESSAGES = {
   ambiguous: 'The EXP numbers were unclear, so this reading was skipped.',
   invalid: 'That reading didn\'t make sense, so it was skipped.',
   level_unreadable: 'Couldn\'t read your level badge.',
+  no_exp_table_for_level: 'No EXP table for this level, so the percentage alone can\'t be counted.',
   level_disagrees_with_exp: 'Level and EXP didn\'t match the EXP table, so this reading was skipped.',
   awaiting_confirmation: 'Got a reading. Confirming it on the next scan…',
   level_change_pending: 'Level changed. Confirming on the next scan…',
@@ -483,12 +484,11 @@ async function identify(current, outcome, at) {
   }
   // A logout, loading screen or fade can show a half-drawn panel next to the old EXP bar: such a scan
   // never counts toward a change (and is not tracked either).
-  const evidence = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, null).evidence;
+  const resolved = asReading(outcome, at, null), {evidence, reading} = resolved;
   if (evidence !== 'ocr_and_table' && evidence !== 'ocr_only') { current.nameStreak = null; current.burst = Math.max(current.burst || 0, 1); return 'name_confirming'; }
   current.nameStreak = current.nameStreak?.key === id.nameKey ? {key: id.nameKey, count: current.nameStreak.count + 1} : {key: id.nameKey, count: 1};
   if (current.nameStreak.count < 3) { current.burst = Math.max(current.burst || 0, 1); return 'name_confirming'; }
   current.nameStreak = null;
-  const resolved = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, null), reading = {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp};
   const fits = !character.last || (resolved.level !== null && !suspicious(character.last, reading));
   // At a screen size this character has no name bitmap for yet, the name is drawn with other pixels
   // (measured: a stretched 1920x1080 window). When the EXP carries on from its last reading, it is still
@@ -517,6 +517,19 @@ async function identify(current, outcome, at) {
   return 'character_switched';
 }
 
+// The scan as a tracker reading. A percentage-only HUD: the badge's level, and EXP estimated from the
+// percentage and that level's published requirement (as the Twitch tracker does); without both, no reading.
+// A full HUD: the level must agree with the EXP table (resolveLevel).
+function asReading(outcome, at, previous) {
+  if (outcome.percentOnly) {
+    const exp = estimateExp(table, outcome.level, outcome.bp);
+    return exp === null ? {level: null, reason: 'no_exp_table_for_level'}
+      : {level: outcome.level, evidence: 'ocr_only', reading: {at, level: outcome.level, exp, bp: outcome.bp, estimated: true}};
+  }
+  const resolved = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, previous);
+  return {...resolved, reading: {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp}};
+}
+
 async function handle(current, outcome, at) {
   let status = outcome.status, reason = outcome.reason, accepted = [];
   // Name and job reads hold the text reader too, so a pickup read cannot change its settings midway.
@@ -525,11 +538,11 @@ async function handle(current, outcome, at) {
   if (switched) { status = 'identity_pending'; reason = switched; }
   if (status === 'ok') {
     const previous = current.tracker.last?.level ?? current.tracker.pending?.level ?? null;
-    const resolved = resolveLevel(table, outcome.level, outcome.exp, outcome.bp, previous);
+    const resolved = asReading(outcome, at, previous);
     if (resolved.level === null) { status = 'rejected'; reason = resolved.reason; }
     else {
       const trustedIdentity = Boolean(character.nameKey && outcome.identity?.nameKey && ownsName(character, outcome.identity.nameKey));
-      const result = step(table, current.tracker, {at, level: resolved.level, exp: outcome.exp, bp: outcome.bp}, {maxGapSeconds: maxGapFor(settings.interval), trustedIdentity});
+      const result = step(table, current.tracker, resolved.reading, {maxGapSeconds: maxGapFor(settings.interval), trustedIdentity});
       current.tracker = result.state; accepted = result.accept; status = result.status; reason = result.reason;
       if (status === 'pending') current.burst = Math.max(current.burst || 0, 1);  // Confirm a second later.
       // Within a minute of "Ignore these readings", such readings are dropped without asking again.
@@ -567,9 +580,14 @@ async function handle(current, outcome, at) {
 async function teach(outcome) {
   const frameSize = glyphSize({width: outcome.frameWidth, height: outcome.frameHeight});
   const known = settings.glyphs?.[frameSize] ?? {};
-  const text = displayed(outcome.exp, outcome.bp), templates = {...known}, last = capture?.tracker.last;
+  const templates = {...known}, last = capture?.tracker.last;
   let added = 0;
-  if (outcome.source === 'ocr' && outcome.segments) added += (learn(templates, outcome.segments.number, text.number) ?? 0) + (learn(templates, outcome.segments.percent, text.percent) ?? 0);
+  // A percentage-only reading has no EXP-table check: it teaches its percentage only from the crisp pass, since
+  // the smooth pass can agree on a blurred 7 as 2 (measured on a stream frame: 79.18% read as 29.18%).
+  if (outcome.source === 'ocr' && outcome.segments && !(outcome.percentOnly && outcome.smooth)) {
+    const text = displayed(outcome.exp ?? 0, outcome.bp);
+    added += (outcome.percentOnly ? 0 : learn(templates, outcome.segments.number, text.number) ?? 0) + (learn(templates, outcome.segments.percent, text.percent) ?? 0);
+  }
   // Level digits too, from the accepted level: when the badge OCR read that level, or read nothing (a lone
   // digit, which OCR misses) and the EXP table settled it. Never when OCR read another level.
   if (outcome.levelSource === 'ocr' && outcome.levelSegments && last?.level != null && (outcome.level === null || outcome.level === last.level)) {
@@ -707,7 +725,7 @@ function render() {
   if (character?.job) { $('player-job-icon').src = jobIcon(character.job); $('player-job-name').textContent = character.job; }
   $('level').textContent = view.last ? `Lv. ${view.last.level}` : 'Lv. —';
   $('progress').value = view.progress;
-  $('exp').textContent = view.last ? fmtExp(view.last.exp) : '—';
+  $('exp').textContent = view.last ? `${view.last.estimated ? '≈' : ''}${fmtExp(view.last.exp)}` : '—';  // ≈: from a percentage-only HUD.
   $('percentage').textContent = view.last ? ` [${percent(view.last.bp)}]` : '';
   // The shared style (product.css) puts the dot before it.
   $('age').textContent = view.last ? `last reading ${duration(view.age)} ago` : '';

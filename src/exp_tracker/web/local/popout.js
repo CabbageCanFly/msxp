@@ -71,7 +71,7 @@ function render() {
   $('overlay-job').textContent = character.job || '';
   $('level').textContent = view.last ? `Lv. ${view.last.level}` : 'Lv. —';
   $('progress').value = view.progress;
-  $('exp').textContent = view.last ? exp(view.last.exp) : '—';
+  $('exp').textContent = view.last ? `${view.last.estimated ? '≈' : ''}${exp(view.last.exp)}` : '—';
   $('percentage').textContent = view.last ? percent(view.last.bp) : '—';
   $('movement').textContent = view.recent == null ? '—' : expText(view.recent);
   $('rate-label').textContent = view.early ? 'EXP/h · so far' : 'EXP / hour';

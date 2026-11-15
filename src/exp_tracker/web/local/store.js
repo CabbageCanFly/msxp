@@ -116,7 +116,7 @@ export function record(characterId, sessionId, accepted, trackerState, status) {
     if (!character || !session || session.characterId !== characterId) throw new Error('Character or session no longer exists');
     let gain = 0;
     for (const r of accepted) {
-      const row = {characterId, sessionId, at: r.at, level: r.level, exp: r.exp, bp: r.bp, gain: r.gain, kind: r.kind};
+      const row = {characterId, sessionId, at: r.at, level: r.level, exp: r.exp, bp: r.bp, gain: r.gain, kind: r.kind, ...(r.estimated ? {estimated: true} : {})};
       readings.add(row);
       days.put(foldDay(await result(days.get([characterId, dayOf(r.at)])), row));
       gain += r.gain ?? 0;

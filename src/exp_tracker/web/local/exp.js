@@ -11,6 +11,21 @@ export function parseExp(text) {
   return {exp, bp: Number(m[2]) * 100 + Number(m[3])};
 }
 
+// A percentage-only field ("78.63%", brackets found in pixels), as shadow_types.parse_percentage_only: two
+// decimals, 0.00-100.00. Returns basis points or null.
+export function parsePercent(text) {
+  const m = /^(\d{1,2}|100)\.(\d{2})%$/.exec(String(text).trim());
+  const bp = m && Number(m[1]) * 100 + Number(m[2]);
+  return m && bp <= 10000 ? bp : null;
+}
+
+// EXP estimated from a percentage-only reading, as product.percentage_exp and the public endpoint policy:
+// percentage x the level's requirement, rounded half up. Null without a published requirement.
+export function estimateExp(table, level, bp) {
+  const total = requirement(table, level);
+  return total === null ? null : Math.floor((bp * total + 5000) / 10000);
+}
+
 export function parseLevel(text) {
   const m = /^(?:LV[.:]?)?(\d{1,3})$/.exec(String(text).toUpperCase().replace(/\s+/g, ''));
   const level = m && Number(m[1]);
@@ -63,7 +78,9 @@ export function resolveLevel(table, ocrLevel, exp, bp, previousLevel) {
   return {level: null, reason: ocrLevel === null ? 'level_unreadable' : 'level_disagrees_with_exp'};
 }
 
-export const DEFAULTS = Object.freeze({maxGapSeconds: 120, deathDropBp: 1500, jumpBp: 2000});
+// estimatedJumpBp: percentage-only readings have no EXP-table check, and a blurred 7 can read as 2 in both OCR
+// variants: past 1 % of the level a change must repeat, and a confirmed jump that large starts a new baseline.
+export const DEFAULTS = Object.freeze({maxGapSeconds: 120, deathDropBp: 1500, jumpBp: 2000, estimatedJumpBp: 100});
 // MapleStory Classic's level cap (November 2026); raise it when the game does.
 export const MAX_LEVEL = 100;
 // Agreeing scans before a jump that looks like another character (a level drop, several levels, a big loss)
@@ -78,11 +95,13 @@ function continues(from, r, maxGap) {
   return seconds > 0 && seconds <= maxGap && r.level === from.level && r.exp >= from.exp && r.bp >= from.bp
     && !(r.exp === from.exp && r.bp !== from.bp);
 }
-const quiet = (from, r) => r.bp - from.bp <= DEFAULTS.jumpBp;
+const quiet = (from, r) => r.bp - from.bp <= (from.estimated || r.estimated ? DEFAULTS.estimatedJumpBp : DEFAULTS.jumpBp);
 
 function levelUpGain(table, from, r, maxGap) {
   const total = requirement(table, from.level), seconds = (r.at - from.at) / 1000;
-  if (total === null || r.level !== from.level + 1 || seconds <= 0 || seconds > maxGap || from.exp >= total) return null;
+  // A real level-up resets the percentage. Without that a misread badge (72 for 71) would count a whole level;
+  // a percentage-only reading has no EXP-table check to catch it.
+  if (total === null || r.level !== from.level + 1 || seconds <= 0 || seconds > maxGap || from.exp >= total || r.bp >= from.bp) return null;
   return total - from.exp + r.exp;
 }
 
@@ -104,7 +123,7 @@ export function step(table, state, r, {maxGapSeconds = DEFAULTS.maxGapSeconds, t
   if (pending && continues(pending, r, maxGapSeconds) && quiet(pending, r)) {
     // The candidate is confirmed by a second, agreeing reading.
     let first;
-    if (last && continues(last, pending, maxGapSeconds)) first = {...pending, gain: pending.exp - last.exp, kind: 'gain'};
+    if (last && continues(last, pending, maxGapSeconds) && (!pending.estimated || quiet(last, pending))) first = {...pending, gain: pending.exp - last.exp, kind: 'gain'};
     else {
       const gain = last ? levelUpGain(table, last, pending, maxGapSeconds) : null;
       first = gain === null ? {...pending, gain: null, kind: 'baseline'} : {...pending, gain, kind: 'level_up'};
