@@ -345,7 +345,8 @@ test('a percentage-only HUD reads its percentage; a dot before "[" is not a numb
     for (let y = 7; y < 14; y++) for (const x of [40, 41, 50, 51, 60, 61]) paint(x, y, [255, 255, 255]);
     for (let y = 5; y < 7; y++) paint(8, y, [255, 255, 255]);  // The EXP label, above the digit band.
     for (let y = 12; y < 14; y++) for (const x of [10, 11]) paint(x, y, [255, 255, 255]);  // Its dot.
-    if (digit) for (let y = 7; y < 14; y++) paint(20, y, [255, 255, 255]);
+    for (let y = 6; y < 15; y++) paint(29, y, [140, 140, 140]);  // A dim bracket outline touching "[".
+    if (digit) for (let y = 7; y < 14; y++) paint(20, y, digit === 'dim' ? [140, 140, 140] : [255, 255, 255]);
     const engine = {read: async (_, field) => ({text: field.startsWith('percent') ? (percents ? percents.shift() : '78.63%') : field.startsWith('number') ? '1' : ''})};
     return R.readHud(engine, frame, {exp: {x0: 0, y0: 0, x1: 98, y1: 21}}, null, {table, previousLevel: 71});
   };
@@ -354,6 +355,7 @@ test('a percentage-only HUD reads its percentage; a dot before "[" is not a numb
   // Without a level badge there is no EXP to estimate: never a reading.
   assert.equal(only.status, 'unreadable'); assert.equal(only.reason, 'level_unreadable');
   assert.equal((await read(true)).percentOnly, undefined);  // A full-height glyph is a number: the usual path.
+  assert.equal((await read('dim')).percentOnly, undefined);  // Safari blurs a lone 7's stroke to 110-170.
   // Crisp pass, then smooth: a smooth agreement that contradicts a valid crisp read is refused (a 7 read as 2).
   assert.equal((await read(false, ['79.88%', '79.883', '29.88%', '29.88%'])).bp, null);
   assert.equal((await read(false, ['.19%', '.19%', '26.19%', '26.19%'])).bp, 2619);  // Nothing valid to contradict.

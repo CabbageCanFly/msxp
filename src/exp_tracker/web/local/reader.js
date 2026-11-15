@@ -224,15 +224,16 @@ export async function readHud(engine, frame, regions, templates = null, {table =
   return result;
 }
 
-// Does the box before "[" hold digits? Bright ink must span most of the digit band: the EXP label's dot (its
-// bottom rows) or a stray bracket outline does not (measured on percentage-only stream frames).
+// Does the box before "[" hold digits? Ink must span most of the digit band: the EXP label's dot (its bottom
+// rows) does not. Dim ink counts (Safari blurs a lone 7's stroke to 110-170), except the column touching "[",
+// where stream frames show a dim bracket outline (measured on percentage-only stream frames).
 export function hasDigits(frame, box, band) {
   if (!box) return false;
   let rows = 0;
   for (let y = band.top; y <= band.bottom; y++) {
-    for (let x = Math.max(0, Math.floor(box.x0)); x < Math.min(frame.width, Math.ceil(box.x1)); x++) {
+    for (let x = Math.max(0, Math.floor(box.x0)); x < Math.min(frame.width, Math.ceil(box.x1) - 1); x++) {
       const i = (y * frame.width + x) * 4, r = frame.data[i], g = frame.data[i + 1], b = frame.data[i + 2];
-      if (Math.max(r, g, b) > 170 && !bracketColour(r, g, b)) { rows++; break; }
+      if (Math.max(r, g, b) > 110 && !bracketColour(r, g, b)) { rows++; break; }
     }
   }
   return rows >= .6 * (band.bottom - band.top + 1);
