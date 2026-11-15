@@ -67,15 +67,19 @@ and provenance manifest. `msxp test-data` restores these through the existing ch
 No expanded RGBA files, OCR caches, local history exports or installed language models are backed up.
 
 `msxp test` now includes `tests/test_local_browser.py`. With **Node.js 18+** it runs the
-synthetic browser checks; with the private fixtures and Tesseract it also replays the saved
-pixels through the production JavaScript readers. It checks HUD readings with fresh and learned
-glyph banks, saved job/name cases, and exact item counts and meso amounts in all six clips.
-The English model comes from the site's vendored data. PNG decoding and temporary OCR output
-use normal pytest temporary storage. Missing Node, Tesseract or private fixtures produce explicit
+synthetic browser checks; with the private fixtures it also replays the saved pixels through the
+production JavaScript readers on the page's own OCR engine: the vendored tesseract.js-core 7.0.0
+WebAssembly and English data, driven with the calls its worker makes. An installed Tesseract is not
+used; versions differ between machines (5.4.0 on the Windows PC, 5.5.3 on the MacBook) and read some
+blurred captures differently from the browser. Each HUD strip is read as a **first scan** (no previous
+level for the EXP table to judge by) and as a **continuing scan**, with fresh and learned glyph banks;
+a reading must be exact or skipped, never wrong. On the browser engine (2026-11-15) two of the twelve
+strips (h10, h12) are skipped and c05 misses one item, which 5.5.3 read; more skips than that fail.
+Items are never invented or over-counted, meso amounts are exact, and saved job/name cases must match.
+PNG decoding uses normal pytest temporary storage. Missing Node or private fixtures produce explicit
 skips; no network, screen sharing or running browser is needed for these checks.
 
-These are **native Tesseract replays**, not execution of Safari's capture APIs or WebAssembly
-runtime. The recordings include a known missed final +12 at c01's clip boundary; c06 begins with
+These replays do not execute Safari's capture APIs. The recordings include a known missed final +12 at c01's clip boundary; c06 begins with
 an inherited fading message that must not be counted. Live Safari behavior is documented separately
 in [the personal tracker guide](local-tracker.md).
 

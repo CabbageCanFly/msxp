@@ -129,8 +129,8 @@ and checked; the full research archive and a permanent data-repo clone are not k
 See [private test data](docs/private-test-data.md) for recovery details.
 
 With Node.js 18 or newer installed, `msxp test` also runs the browser tracker's synthetic
-checks and the restored Safari capture replays. These checks skip when Node.js is absent;
-the private replays also need Tesseract (`msxp install`).
+checks and the restored Safari capture replays. These checks skip when Node.js is absent. The
+replays use the page's own bundled OCR engine, so they give the browser's results on any machine.
 
 ### Manage streamers without a browser
 
