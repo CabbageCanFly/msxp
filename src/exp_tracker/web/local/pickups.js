@@ -7,15 +7,16 @@
 // Only that neighbour: over white clouds the fill vanishes into the cloud, and the cloud just past the
 // shadow is light next to dark too (measured: any-neighbour masks drew every letter hollow there).
 // With `keep`, each line also carries `bits`, its text mask (1 = text), for reading the line.
-export function messageLines(frame, keep = false) {
+export function messageLines(frame, keep = false, soft = false) {
   const {width: w, height: h, data: d} = frame, text = new Uint8Array(w * h), rows = new Int32Array(h);
+  const lightFloor = soft ? 110 : 150, contrast = soft ? 60 : 100;
   const lum = (i) => (d[i] + d[i + 1] + d[i + 2]) / 3;
   // Not the last columns: the window's own edge is a light column there (messages end ~8 px before it).
   // Bottom-up, so the down-right neighbour is decided first.
-  const light = (i) => { const low = Math.min(d[i], d[i + 1], d[i + 2]); return low > 150 && Math.max(d[i], d[i + 1], d[i + 2]) - low < 80; };
+  const light = (i) => { const low = Math.min(d[i], d[i + 1], d[i + 2]); return low > lightFloor && Math.max(d[i], d[i + 1], d[i + 2]) - low < 80; };
   for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 4; x++) {
     const p = y * w + x, i = p * 4;
-    if (light(i) && lum(i) - lum((p + w + 1) * 4) > 100) { text[p] = 1; rows[y]++; }
+    if (light(i) && lum(i) - lum((p + w + 1) * 4) > contrast) { text[p] = 1; rows[y]++; }
   }
   // Over grass the shadow blends to dark green, so there is no colour test for it. A stroke pixel whose
   // down-right neighbour is more stroke (the corner of a "+") casts no shadow: it counts when scenery
@@ -24,7 +25,7 @@ export function messageLines(frame, keep = false) {
   for (let y = h - 2; y >= 1; y--) for (let x = w - 4; x >= 2; x--) {
     const p = y * w + x, i = p * 4;
     if (text[p] || !text[p + w + 1] || !light(i) || (y >= 2 && text[p - 2 * w - 2])) continue;
-    if (lum(i) - lum((p - w - 1) * 4) > 50 && lum(i) >= lum((p + w + 1) * 4) - 20) { text[p] = 1; rows[y]++; }
+    if (lum(i) - lum((p - w - 1) * 4) > contrast / 2 && lum(i) >= lum((p + w + 1) * 4) - 20) { text[p] = 1; rows[y]++; }
   }
   // The centre of an "x" has stroke on every diagonal, so neither test sees a shadow or darker scenery:
   // a light pixel with text on all four diagonals is text (measured live: "x1" split in two, so counts
@@ -33,7 +34,7 @@ export function messageLines(frame, keep = false) {
     const p = y * w + x, i = p * 4;
     if (text[p] || !text[p - w - 1] || !text[p - w + 1] || !text[p + w - 1] || !text[p + w + 1]) continue;
     const low = Math.min(d[i], d[i + 1], d[i + 2]);
-    if (low > 150 && Math.max(d[i], d[i + 1], d[i + 2]) - low < 80) { text[p] = 1; rows[y]++; }
+    if (low > lightFloor && Math.max(d[i], d[i + 1], d[i + 2]) - low < 80) { text[p] = 1; rows[y]++; }
   }
   const lines = [];
   const emit = (top, bottom) => {
@@ -472,8 +473,8 @@ export const tabOf = (text) => {
 
 /**
  * The item an OCR'd name refers to: the closest name in the tab, allowing about one wrong letter in four.
- * A cut-off name ("Orange Mushro...") is compared with the same length of each name. A tie means no
- * guess, so the shown text is kept instead.
+ * A cut-off name ("Orange Mushro...") is compared with the same length of each name. Fuzzy matches
+ * must lead the runner-up by two edits; otherwise the shown text is kept instead.
  */
 export function resolveItem(items, {name, cut, tab}) {
   const norm = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, ''), want = norm(name);
@@ -493,6 +494,8 @@ export function resolveItem(items, {name, cut, tab}) {
     if (etc.length !== 1 || tied.some((item) => item.tab !== 'Etc' && item.tab !== 'Use')) return null;
     best = etc[0];
   }
+  // A shared suffix can hide an ambiguous word: "Sift Feather" is one edit from Soft, two from Stiff.
+  if (score > 0 && second - score < 2) return null;
   // Up to a quarter of the letters may be misread; up to a third ("Syulshy Liguld") only when no other
   // item comes within two edits of it (measured live: thin strokes garble several letters of a name).
   if (want.length < 4) return score === 0 ? best : null;  // "Si" is not "Sai".

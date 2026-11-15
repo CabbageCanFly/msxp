@@ -104,7 +104,7 @@ function shown({parsed, item}) {
  * closing "(+1,250)" for mesos and EXP; the count in "x3", the tab in "(Etc)" and the name, matched
  * against the item list, for items. A confirmed reading teaches the font every glyph of its lines.
  */
-export async function readMessage(engine, samples, list, font = null) {
+export async function readMessage(engine, samples, list, font = null, soft = false) {
   // The first sample is the bottom slot, where scenery is busiest: read it last.
   const order = [...samples.slice(1), ...samples.slice(0, 1)].map((mask) => ({mask, words: lineWords(mask)}));
   let result = null, confirmed = false;
@@ -117,7 +117,13 @@ export async function readMessage(engine, samples, list, font = null) {
   }
   if (!confirmed) {
     // Partial font reads ("?ree ?ra??h x1 ...") still carry the glyphs the font knows, digits above all.
-    const read = await readByOcr(engine, order, list, font ? order.map(({mask}) => readLine(font, mask)) : [], font);
+    const fontTexts = font ? order.map(({mask}) => readLine(font, mask)) : [];
+    let read = await readByOcr(engine, order, list, fontTexts, font, false, soft);
+    // Safari's softened lines sometimes read only in word mode; keep any existing parsed reading.
+    if (soft && !result?.parsed && !read.result.parsed) {
+      const retry = await readByOcr(engine, order, list, fontTexts, font, true, soft);
+      if (retry.result.parsed) read = retry;
+    }
     confirmed = read.confirmed;
     if (!result || read.result.parsed) result = {via: 'OCR', ...read.result};
   }
@@ -138,22 +144,28 @@ export function lineParts(text) {
   return {amount: amount ? Number(amount) : null, name: name || null, count: item ? Number(item[2]) : null, tab: item && tab ? tabOf(tab) : null};
 }
 
-async function readByOcr(engine, order, list, fontTexts, font = null) {
+async function readByOcr(engine, order, list, fontTexts, font = null, word = false, soft = false) {
+  const messageField = word ? 'messageWord' : 'message';
   // Every sample is read whole first: with clean masks those reads carry the digits too (measured), and
   // the separate reads of just the digits, the tab or the name only add votes when they disagree.
   const texts = [];
-  for (const {mask} of order) texts.push(await ocr(engine, mask, 'message', 3));
+  for (const {mask} of order) texts.push(await ocr(engine, mask, messageField, 3));
   const kind = (await vote([...fontTexts, ...texts].map((t) => async () => kindOf(t)))).value;
   const text = texts.find((t) => kindOf(t) === kind) ?? texts[0] ?? '';
-  const parts = [...fontTexts, ...texts].filter((t) => kindOf(t) === kind).map(lineParts);
+  // A partial font read can know every digit even when it cannot label the fixed words ("gai?ed").
+  const parts = [...fontTexts.filter((t) => kindOf(t) === kind || soft && !kindOf(t)),
+    ...texts.filter((t) => kindOf(t) === kind)].map(lineParts);
   const fromLines = (field) => parts.map((p) => async () => p[field]);
   // Digit reads of a span of each sample (columns [x0, x1) or null), at two magnifications.
   const digits = async (field, spanOf) => {
     const votes = await vote([...fromLines(field), ...order.flatMap(({mask, words}) => {
-      const at = spanOf(mask, words);
+      const amount = soft && field === 'amount';
+      // Safari's blurred parentheses/plus confuse the glyph crop: retain the whole suffix and its delimiters.
+      // shortcut: 100 game pixels covers current amount strings; expand if longer ones appear.
+      const at = amount ? [Math.max(0, mask.width - 100), mask.width] : spanOf(mask, words);
       return at ? [3, 5].map((scale) => async () => {
-        const read = (await ocr(engine, span(mask, ...at), 'number', scale)).replace(/[,.]/g, '');
-        return /^\d+$/.test(read) ? Number(read) : null;
+        const read = (await ocr(engine, span(mask, ...at), amount ? 'amount' : 'number', scale)).replace(/[,.]/g, '');
+        return amount ? lineParts(read).amount : /^\d+$/.test(read) ? Number(read) : null;
       }) : [];
     })]);
     return votes.agreed ? {amount: votes.value, approx: false} : votes.values.length ? {amount: rounded(votes.values), approx: true} : null;
@@ -167,7 +179,7 @@ async function readByOcr(engine, order, list, fontTexts, font = null) {
   if (kind !== 'item') return none;
   // "Arrows for Bows x3 earned. (Use)": the count is the third word from the end, after its "x".
   const n = await digits('count', (mask) => countSpan(mask)?.count ?? null);
-  const tab = await vote([...fromLines('tab'), ...order.map(({mask, words}) => async () => (words.length >= 4 ? tabOf(await ocr(engine, span(mask, words.at(-1).x0, words.at(-1).x1), 'message', 3)) : null))]);
+  const tab = await vote([...fromLines('tab'), ...order.map(({mask, words}) => async () => (words.length >= 4 ? tabOf(await ocr(engine, span(mask, words.at(-1).x0, words.at(-1).x1), messageField, 3)) : null))]);
   // The name compared shape by shape with every item name (matchName), when it is clearly one item: close
   // (SHAPE_COST pixels per letter) and ahead of the runner-up (SHAPE_LEAD). Measured on 63 saved item lines:
   // the 42 OCR had matched all agreed, and 20 it could not match were found ("Biff Feather": Stiff, not Soft).
@@ -181,7 +193,7 @@ async function readByOcr(engine, order, list, fontTexts, font = null) {
   const name = (await vote([...fromLines('name'), ...order.map(({mask, words}) => async () => {
     const at = countSpan(mask)?.name ?? (words.length >= 4 ? [words[0].x0, words.at(-4).x1] : null);
     if (!at) return null;
-    const read = await ocr(engine, span(mask, ...at), 'message', 3);
+    const read = await ocr(engine, span(mask, ...at), messageField, 3);
     return read.replace(/[^A-Za-z0-9' .:-]/g, '').trim() || null;
   })])).value;
   if (!name) return none;
@@ -197,19 +209,21 @@ async function readByOcr(engine, order, list, fontTexts, font = null) {
 // `font` is the message font learned so far (saved by the page); reading adds to it in place.
 export async function startPickups({track, engine, font = {}, onMessage, onStats, onError}) {
   const list = await loadItems();
-  if (!('MediaStreamTrackProcessor' in window)) throw new Error('This browser cannot stream frames to a worker (needs Chrome or Edge)');
   await track.applyConstraints({frameRate: {ideal: 15, max: 15}});
-  const clone = track.clone(), processor = new MediaStreamTrackProcessor({track: clone});
+  const clone = track.clone();
   const worker = new Worker(new URL('./pickup-worker.js', import.meta.url), {type: 'module'});
   const queue = [];
-  let draining = false, stopped = false;
+  let draining = false, stopped = false, snapshot = null;
+  let ready, failed;
+  const startup = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
+  const timeout = setTimeout(() => failed(new Error('Pickup frame reader did not start')), 5000);
   const drain = async () => {
     if (draining) return;
     draining = true;
     while (queue.length && !stopped) {
       const message = queue.shift();
       // Far behind (a flood of messages): count the oldest unread rather than starve EXP scans of OCR.
-      const read = queue.length > 50 ? {text: '', parsed: null, item: null} : await readMessage(engine, message.samples, list, font);
+      const read = queue.length > 50 ? {text: '', parsed: null, item: null} : await readMessage(engine, message.samples, list, font, message.soft);
       // The masks stay with the message (memory only) so a debug session can inspect what was read.
       onMessage({at: message.at, ...read, samples: message.samples});
     }
@@ -218,15 +232,42 @@ export async function startPickups({track, engine, font = {}, onMessage, onStats
   worker.onmessage = ({data}) => {
     // Every message is counted; reading waits its turn (the worker only reports finished messages).
     if (data.type === 'message') { queue.push(data); drain(); }
+    else if (data.type === 'ready') ready();
     else if (data.type === 'stats') onStats?.({...data, queued: queue.length});
-    else if (data.type === 'error') onError?.(data.message);
+    else if (data.type === 'snapshot') snapshot?.resolve(data);
+    else if (data.type === 'error') { failed(new Error(data.message)); onError?.(data.message); }
   };
-  worker.postMessage({type: 'start', stream: processor.readable, region: REGION}, [processor.readable]);
+  worker.onerror = (event) => { failed(new Error(event.message)); onError?.(event.message); };
+  try {
+    // Chrome exposes the processor on the page; Safari exposes it only in workers.
+    if (typeof window.MediaStreamTrackProcessor === 'function') {
+      const {readable} = new MediaStreamTrackProcessor({track: clone});
+      worker.postMessage({type: 'start', stream: readable, region: REGION}, [readable]);
+    } else worker.postMessage({type: 'start', track: clone, region: REGION}, [clone]);
+    await startup;
+  } catch (error) {
+    worker.terminate(); clone.stop();
+    await track.applyConstraints({frameRate: {ideal: 5, max: 5}}).catch(() => {});
+    throw error;
+  } finally { clearTimeout(timeout); }
   return {
+    async snapshot() {
+      if (stopped) throw new Error('Pickup reading has stopped');
+      if (snapshot) throw new Error('A pickup snapshot is already pending');
+      let timer;
+      try {
+        return await new Promise((resolve, reject) => {
+          snapshot = {resolve, reject};
+          timer = setTimeout(() => reject(new Error('No pickup frame arrived')), 5000);
+          worker.postMessage({type: 'snapshot'});
+        });
+      } finally { clearTimeout(timer); snapshot = null; }
+    },
     // How a stretched window is undone (the EXP reader finds out which way the game stretches; see app.js scan).
     setStretch(mode) { worker.postMessage({type: 'stretch', mode}); },
     async stop() {
       stopped = true;
+      snapshot?.reject(new Error('Pickup reading has stopped'));
       worker.postMessage({type: 'stop'}); worker.terminate(); clone.stop();
       await track.applyConstraints({frameRate: {ideal: 5, max: 5}}).catch(() => {});
     },

@@ -9,6 +9,10 @@ import {lineKey, read as readGlyphs, segment, trimKey} from './glyphs.js';
 export const PARAMS = {
   number: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789,.'},
   percent: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789.%'},
+  percentGlyph: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789.%'},
+  numberWord: {tessedit_pageseg_mode: '8', tessedit_char_whitelist: '0123456789,.'},
+  percentWord: {tessedit_pageseg_mode: '8', tessedit_char_whitelist: '0123456789.%'},
+  amount: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789,.()+'},
   level: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789'},
   // A lone badge digit: line mode reads nothing, single-word mode reads it (measured live: "4" at 4 of 5 scales).
   levelWord: {tessedit_pageseg_mode: '8', tessedit_char_whitelist: '0123456789'},
@@ -16,15 +20,18 @@ export const PARAMS = {
   job: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz (),'},
   // Pickup messages: "You have gained mesos (+10)", "Orange Mushro... x1 earned. (Etc)".
   message: {tessedit_pageseg_mode: '7', tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,()+:'-"},
+  messageWord: {tessedit_pageseg_mode: '8', tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,()+:'-"},
 };
 
 // Two binarized variants per field at neighbouring magnifications; both must agree for EXP.
-export function variants(frame, box, field, smooth = false) {
+export function variants(frame, box, field, smooth = false, {scale: scaleOverride = null, threshold: thresholdOverride = null} = {}) {
   const part = crop(frame, box);
   if (part.width < 4 || part.height < 4) return [];
   const level = field.startsWith('level');
   const gray = channel(part, level ? 'min' : 'max');
-  const scale = magnification(part.height * (level ? .7 : .8)), threshold = Math.max(otsu(gray), level ? 120 : 110);
+  const scale = scaleOverride ?? magnification(part.height * (level ? .7 : .8));
+  // A softened decimal is lost when the smooth pass reuses the digit-heavy Otsu threshold.
+  const threshold = thresholdOverride ?? (!level && smooth ? 125 : Math.max(otsu(gray), level ? 120 : 110));
   return [scale, scale + 1].map((s) => ({threshold, scale: s, image: binarize(gray, part.width, part.height, threshold, s, 8, smooth)}));
 }
 
@@ -61,12 +68,12 @@ export function fieldBoxes(frame, regions) {
   return out;
 }
 
-async function readField(engine, frame, box, field, raw, smooth) {
+async function readField(engine, frame, box, field, raw, smooth, word = false, options = {}) {
   const texts = [];
-  for (const {threshold, scale, image} of variants(frame, box, field, smooth)) {
-    const {text, confidence} = await engine.read(pgm(image), field);
+  for (const {threshold, scale, image} of variants(frame, box, field, smooth, options)) {
+    const {text, confidence} = await engine.read(pgm(image), word ? `${field}Word` : field);
     const clean = text.replace(/\s+/g, '');
-    raw.push({field, smooth, threshold, scale, text: clean, confidence});
+    raw.push({field, smooth, word, threshold, scale, text: clean, confidence});
     texts.push(clean);
   }
   return texts;
@@ -76,10 +83,29 @@ async function readField(engine, frame, box, field, raw, smooth) {
 // unless `fits` (the EXP table, for a known level) can pick: then the number and percentage reads that
 // fit it, in any pairing. Measured on a stretched 1920x1080 HUD: one pass read "7.358" twice but the
 // percentage as "30.15%" and "0.15%"; the next read "2.358" twice. Only 7,358 fits 30.15% at its level.
-async function readExp(engine, frame, boxes, raw, smooth, fits = null) {
-  const numbers = await readField(engine, frame, boxes.number, 'number', raw, smooth);
-  const percents = await readField(engine, frame, boxes.percent, 'percent', raw, smooth);
-  return pickExp(numbers, percents, fits);
+async function readExp(engine, frame, boxes, raw, smooth, fits = null, word = false, options = {}) {
+  const numbers = await readField(engine, frame, boxes.number, 'number', raw, smooth, word, options);
+  const percents = await readField(engine, frame, boxes.percent, 'percent', raw, smooth, word, options);
+  // Both passes saw this same frame: a number from one can fit a percentage from the other.
+  return fits ? pickExp(raw.filter((r) => r.field === 'number').map((r) => r.text),
+    raw.filter((r) => r.field === 'percent').map((r) => r.text), fits) : pickExp(numbers, percents);
+}
+
+// Keep exact known digits when Safari's whole-line OCR drops one; two agreeing reads label each unknown.
+async function readPercentGlyphs(engine, frame, box, segmented, templates, raw) {
+  const chars = segmented?.glyphs.map((g) => templates?.[g.key]);
+  if (!chars?.some((c) => /^\d$/.test(c ?? ''))) return null;
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] === '?') return null;
+    if (chars[i]) continue;
+    const glyph = segmented.glyphs[i], part = {...box, x0: box.x0 + glyph.x0, x1: box.x0 + glyph.x1};
+    for (const smooth of [false, true]) {
+      const texts = await readField(engine, frame, part, 'percentGlyph', raw, smooth);
+      if (texts.length === 2 && texts[0] === texts[1] && /^[0-9.%]$/.test(texts[0])) { chars[i] = texts[0]; break; }
+    }
+    if (!chars[i]) return null;
+  }
+  return chars.join('');
 }
 
 // The EXP pair from one pass's OCR texts (number and percentage, one per magnification), or a reason.
@@ -88,8 +114,9 @@ export function pickExp(numbers, percents, fits = null) {
   if (fits) {
     const pairs = numbers.flatMap((number) => percents.map((percent) => parseExp(`${number}[${percent}]`))).filter(Boolean);
     if (!pairs.length) return {reason: 'cannot_parse_exp'};
-    const fit = pairs.find((v) => fits(v.exp, v.bp));
-    return fit ? {value: fit} : {reason: 'exp_disagrees_with_table'};
+    const valid = new Map(pairs.filter((v) => fits(v.exp, v.bp)).map((v) => [`${v.exp}/${v.bp}`, v]));
+    if (valid.size > 1) return {reason: 'exp_variants_disagree'};
+    return valid.size ? {value: valid.values().next().value} : {reason: 'exp_disagrees_with_table'};
   }
   const values = numbers.map((number, i) => parseExp(`${number}[${percents[i]}]`));
   if (!values.some(Boolean)) return {reason: 'cannot_parse_exp'};
@@ -99,22 +126,36 @@ export function pickExp(numbers, percents, fits = null) {
 
 /**
  * Read EXP and level. Learned glyph templates first (exact pixels, no OCR); otherwise a crisp (native)
- * Tesseract pass, then a smooth pass for scaled HUDs. Within a pass, variants must agree, unless the EXP
+ * Tesseract pass, then a smooth pass and word-mode fallback for scaled HUDs. Within a pass, variants must agree, unless the EXP
  * table (`table`) can judge them against the level read from the badge or `previousLevel`: then only a
  * reading that fits it is taken. A disagreement is never resolved by picking the higher score. A missing
  * level stays null for the EXP table to judge. `segments` are returned so a confirmed reading can teach glyphs.
  */
-export async function readHud(engine, frame, regions, templates = null, {table = null, previousLevel = null} = {}) {
+export async function readHud(engine, frame, regions, templates = null, {table = null, previousLevel = null, safari = false} = {}) {
   const boxes = fieldBoxes(frame, regions), raw = {exp: [], level: []};
   const result = {status: 'ok', raw, boxes, exp: null, bp: null, level: null, source: null, segments: null};
   if (!boxes.exp) return {...result, status: 'no_hud', reason: 'exp_brackets_not_visible'};
   const segments = result.segments = {number: segment(frame, boxes.number), percent: segment(frame, boxes.percent)};
+  const first = segments.number?.glyphs[0], next = segments.number?.glyphs[1];
+  const trimmedNumber = boxes.number.x0 > regions.exp.x0 && first?.x0 === 0 && next
+    && first.key.split('/').slice(Math.ceil(segments.number.height / 2)).every((row) => !row.includes('1'))
+    ? {...boxes.number, x0: boxes.number.x0 + next.x0} : null;
   let read = null, smooth = false, early = null;
-  const number = readGlyphs(segments.number, templates), percent = readGlyphs(segments.percent, templates);
+  let number = readGlyphs(segments.number, templates);
+  let percent = readGlyphs(segments.percent, templates);
+  if (safari && number === null && trimmedNumber) {
+    // The label fragment changes the ink band and threshold; re-segment before giving up on exact glyphs.
+    const clean = segment(frame, trimmedNumber);
+    const known = readGlyphs(clean, templates);
+    if (known !== null) {
+      percent ??= await readPercentGlyphs(engine, frame, boxes.percent, segments.percent, templates, raw.exp);
+      if (percent !== null) { number = known; segments.number = clean; smooth = true; }
+    }
+  }
   if (number !== null && percent !== null) {
     const value = parseExp(`${number}[${percent}]`);
     raw.exp.push({field: 'glyphs', text: `${number}[${percent}]`});
-    if (value) { read = {value}; result.source = 'glyphs'; }
+    if (value) { read = {value}; result.source = raw.exp.some((r) => r.field === 'percentGlyph') ? 'ocr' : 'glyphs'; }
   }
   if (!read) {
     // The badge first, so the EXP table can choose among the OCR readings.
@@ -124,6 +165,33 @@ export async function readHud(engine, frame, regions, templates = null, {table =
     for (smooth of [false, true]) {
       read = await readExp(engine, frame, boxes, raw.exp, smooth, fits);
       if (read.value) break;
+    }
+    // Soft, touching digits can make line mode drop a leading digit; word mode keeps the whole field.
+    if (!read.value) read = await readExp(engine, frame, boxes, raw.exp, true, fits, true);
+    // A blurred EXP label can leave a short upper fragment at the number's left edge.
+    if (!read.value && trimmedNumber) {
+      // Smaller images keep softened, touching digits apart; preserve all earlier accepted reads.
+      read = await readExp(engine, frame, {...boxes, number: trimmedNumber}, raw.exp, true, fits, false, {scale: 3});
+    }
+    if (!read.value && safari) {
+      const percent = await readPercentGlyphs(engine, frame, boxes.percent, segments.percent, templates, raw.exp);
+      if (percent !== null) {
+        raw.exp.push({field: 'percent', text: percent, glyphs: true});
+        if (fits) read = pickExp(raw.exp.filter((r) => r.field === 'number').map((r) => r.text),
+          raw.exp.filter((r) => r.field === 'percent').map((r) => r.text), fits);
+        else for (smooth of [false, true]) {
+          const numbers = await readField(engine, frame, boxes.number, 'number', raw.exp, smooth);
+          read = pickExp(numbers, [percent, percent]);
+          if (read.value) break;
+        }
+      }
+    }
+    if (!read.value && safari && fits) {
+      // A firmer mask separates blurred digit tops; the usual unique table match still judges both reads.
+      await readField(engine, frame, boxes.number, 'number', raw.exp, false, false, {threshold: 150});
+      read = pickExp(
+        raw.exp.filter((r) => r.field === 'number').map((r) => r.text),
+        raw.exp.filter((r) => r.field === 'percent').map((r) => r.text), fits);
     }
     result.source = 'ocr';
   }
@@ -137,7 +205,8 @@ export async function readHud(engine, frame, regions, templates = null, {table =
   result.identity = boxes.name ? {nameKey: lineKey(frame, boxes.name), nameGlyphs: glyphKeys(boxes.name),
     jobKey: boxes.job ? lineKey(frame, boxes.job) : null, jobGlyphs: boxes.job ? glyphKeys(boxes.job) : null} : null;
   if (boxes.level) {
-    const badge = early?.level != null ? early : await readLevelBadge(engine, frame, boxes.level, templates, raw.level, smooth);
+    let badge = early?.level != null ? early : await readLevelBadge(engine, frame, boxes.level, templates, raw.level, smooth);
+    if (safari && badge.level === null && !badge.ambiguous) badge = await readLevelBadge(engine, frame, boxes.level, templates, raw.level, !smooth);
     result.levelSegments = badge.segments;
     if (badge.ambiguous) return {...result, status: 'ambiguous', reason: 'conflicting_level_variants'};
     result.level = badge.level; result.levelSource = badge.source;
@@ -162,10 +231,10 @@ async function readLevelBadge(engine, frame, box, templates, raw, smooth) {
 
 // OCR text of one panel line at several native magnifications: the text at least two agree on (and, when
 // given, with exactly `length` characters), else null.
-async function lineText(engine, frame, box, field, length = null) {
+async function lineText(engine, frame, box, field, length = null, smooth = false) {
   const part = crop(frame, {x0: box.x0 - 2, y0: box.y0 - 2, x1: box.x1 + 2, y1: box.y1 + 2}), gray = channel(part, 'min'), votes = new Map();
   for (const scale of [3, 4, 2, 5]) {
-    const text = (await engine.read(pgm(binarize(gray, part.width, part.height, 170, scale)), field)).text.trim().replace(/\s+/g, ' ');
+    const text = (await engine.read(pgm(binarize(gray, part.width, part.height, smooth ? 125 : 170, scale, 8, smooth)), field)).text.trim().replace(/\s+/g, ' ');
     if (!text || length !== null && text.length !== length) continue;
     votes.set(text, (votes.get(text) || 0) + 1);
     if (votes.get(text) >= 2) return text;
@@ -239,6 +308,9 @@ export async function readIdentity(engine, frame, boxes, templates, jobs, letter
     }
     out.name = name && /^[A-Za-z0-9]{2,13}$/.test(name) ? name : null;
   }
-  if (boxes.job) out.job = matchJob(await lineText(engine, frame, boxes.job, 'job'), jobs);
+  if (boxes.job) {
+    out.job = matchJob(await lineText(engine, frame, boxes.job, 'job'), jobs);
+    if (!out.job) out.job = matchJob(await lineText(engine, frame, boxes.job, 'job', null, true), jobs);
+  }
   return out;
 }

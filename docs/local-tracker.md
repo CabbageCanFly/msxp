@@ -62,8 +62,94 @@ discarded names whose length equalled the glyph count. It now accepts two identi
 valid whole-line reads regardless of glyph count; no new glyphs or fuzzy matching were
 needed for this case. After the player refreshed to load the fix, the live Safari
 session displayed the name automatically while EXP tracking continued (2026-11-13).
-The tested Safari stream did not supply the sharper capture;
-Chrome remains the confirmed option for pickups (Safari lacks the frame-worker API).
+The tested Safari stream did not supply the sharper capture.
+Pickup startup previously checked only `window.MediaStreamTrackProcessor`, incorrectly
+rejecting Safari's worker-only implementation. The worker can now open a transferred
+clone of the shared track; Chrome still passes its processor's frame stream. Startup
+waits for the worker to confirm readiness, and failure releases the clone and restores
+the 5 fps capture request. Synthetic tests cover both paths and startup failure.
+Live Safari after refresh (2026-11-13): the pickup worker reported 15.0 fps while EXP
+tracking continued. Item and meso counting accuracy on that capture has not yet been verified.
+Later at `7 [46.67%]`, EXP OCR dropped the percentage decimal. The HUD pixels were
+identical with pickups enabled (15 fps) and disabled (5 fps), and scans stayed one
+second apart. The smooth numeric pass now uses threshold 125 to preserve softened
+punctuation. With level evidence, candidates from both passes of the same frame are
+checked together: the crisp pass can supply the number and the smooth pass the
+percentage. Exactly one distinct pair must fit the EXP table; competing valid pairs
+are rejected. Without level evidence, the two variants of one pass must still agree.
+Offline replay with the vendored English data read level 1 and the exact pairs at
+0, 2 and 7 EXP (including the pickup-on/off comparison); these are private fixtures.
+Live Safari after refresh read `7 [46.67%]` and level 1, with pickups still at 15.0 fps
+and scans every second. Further level-up and digit combinations remain to be checked.
+At level 3, a later private crop showed `30 [52.63%]`; both smoothed line-mode reads
+dropped the leading 5. A final smoothed word-mode pass recovers it, with the same
+unique table-match requirement (or two agreeing variants without level evidence).
+Offline replay reads all five saved HUD crops correctly, including that failure.
+The word fallback has not yet been checked in the live Safari session.
+A later private level-23 crop showed `575 [1.68%]` but OCR read `57`, `5` or nothing.
+The field retained a short upper fragment of the taller EXP label, and smoothing at
+the usual 5×/6× magnifications joined the digit tops. When all existing passes fail,
+the reader can exclude that leading fragment and retry at 3×/4×. The fragment must
+touch the field's left edge, occupy only its upper half, follow a detected label and
+precede another glyph; a full-height leading digit is kept. Existing successful reads
+are unchanged. The same parsing, agreement and unique table-match rules apply.
+Native replay reads all seven saved HUD crops correctly, including this failure;
+grayscale-only preprocessing did not recover it and was not added. Live verification
+of the fragment fallback is pending.
+A later live Safari session (2026-11-15 UTC) read `919 [2.68%]` correctly but the
+level preview contained only the final `3` of `23`. It resumed reading `23` without
+user action; saved failing and recovered captures have identical badge pixels.
+Failed automatic scans re-run HUD localization once a minute. The level search
+previously began at the right edge of the sparse OCR `LV.` word, which can include
+badge digits. In Safari it now begins at the word's left edge; orange pixels still
+define the actual badge crop. Other browsers keep the original right-edge start.
+Synthetic merged-label cases and native replay reproduce a
+clipped `3` and recover the full `23`. The exact failing calibration was not saved,
+so a merged label is a reproduced failure mechanism, not a confirmed OCR transcript
+from that live scan. The new localization change still needs a page refresh for
+live verification.
+A subsequent Safari crop showed `931 [2.71%]` at level 23, but whole-field OCR
+dropped the `7` from the percentage. The existing exact templates already matched
+the `7`, `1` and decimal; only the `2` and percent sign were unknown. After the
+other passes fail, Safari can retain those exact matches and OCR each unknown
+glyph at two magnifications, requiring identical single-character reads. Conflicted
+templates and fields with no known digit are rejected. The reconstructed percentage
+still needs two agreeing number variants without level evidence, or one unique
+table-consistent pair across observed candidates with level evidence. This fallback
+does not run in other browsers or replace an earlier successful read. Native replay
+passes all ten saved HUD crops; live verification after refresh is pending.
+A later crop showed `955 [2.78%]`: the level and percentage read correctly, but
+softened digit tops joined the EXP number into one component and OCR returned `98`
+or `95`. After the other methods fail, Safari with level evidence retries the number
+only, unsmoothed at threshold 150 and the normal two magnifications. The accumulated
+number/percentage candidates must have exactly one table-consistent pair. A missing
+level or an earlier successful reading bypasses this retry. Live Safari returned
+`55` and `955` at the two magnifications, while native replay read `955` twice.
+Requiring the two new numbers to agree blocked that live reading; the retry now
+uses the regular reader's unique table-match rule and the tracker's existing
+confirmation rules for baselines and suspicious changes; ordinary same-level gains
+can be accepted immediately. Competing valid pairs remain rejected. The native
+replay reads all eleven saved HUD crops, including the exact `955 [2.78%]` pair.
+Live Safari after refresh (2026-11-15) accepted level 23 and `955 [2.78%]`, displayed
+Tracking and updated its last-reading age to zero. This check used a manually fitted
+EXP box made during diagnosis. Automatic localization had produced changing crop
+heights and intermittent level OCR noise; that path and further digit combinations
+still need live coverage. The Safari retry's acceptance rule is covered by a synthetic
+case where one variant drops a digit and only the complete observed number fits,
+plus rejection of two different table-consistent candidates.
+A subsequent live value, `971 [2.83%]`, still failed whole-number OCR. Excluding the
+short EXP-label fragment before segmentation made all three number digits match the
+existing exact templates. Safari now tries that clean segmentation first; unknown
+percentage glyphs can use the same two-agreeing-read fallback. An entirely known
+pair needs no EXP OCR. A partial percentage remains an OCR result so accepted scans
+can teach its new glyphs. The level read keeps the smoothed preprocessing used for
+this softened capture; if it reads no badge, Safari can try the crisp pass, while
+conflicting variants still reject the reading. Other browsers retain the original
+glyph path. Native replay passes twelve HUD crops both with a fresh template bank
+and with glyph learning between accepted frames. The live session later showed
+`1,128 [3.29%]` and a fresh Tracking state using ordinary OCR; that observation does
+not directly verify the new `971` glyph path. The player subsequently confirmed
+that the refreshed Safari session read `971` correctly and continued tracking.
 Other Safari versions and full-display sharing have not been checked.
 
 | Step | Module | Notes |
@@ -71,7 +157,7 @@ Other Safari versions and full-display sharing have not been checked.
 | Locate the status bar | `hud.js` `locate` | One sparse Tesseract pass over the bottom 22 % of the window finds the `EXP`, `HP`, `MP` and `LV.` labels (the Python `discover_regions` geometry). Boxes are saved normalized with the window size. Without `LV.`, the level box is a strip left of HP. |
 | Copy the HUD rows | `app.js` `grab` | Once boxes are known, only the band of rows holding them is copied (1368×56 instead of 1368×800 in the test). Detection and the preview use full frames. |
 | Fit the fields | `reader.js` `fieldBoxes` | Each scan finds the two olive-green brackets around the percentage in pixels, trims the `EXP.` label (it is taller than the digits) and finds the orange level tiles. Without both brackets the field is treated as hidden or covered. |
-| Read EXP | `glyphs.js`, `reader.js` | Learned glyph templates first (exact pixels, ~2 ms). Otherwise Tesseract reads the number and the percentage separately (digit whitelists), nearest-neighbour at two magnifications, then a smoothed pass for scaled HUDs. Both variants of a pass must parse to the same value. |
+| Read EXP | `glyphs.js`, `reader.js` | Learned glyph templates first (exact pixels, ~2 ms). Otherwise Tesseract reads the number and percentage separately at two magnifications, then a smoothed pass for scaled HUDs and a word-mode fallback. Level evidence permits one unique table-consistent pair across observed candidates; without it, both variants of one pass must agree. |
 | Read level | `reader.js` | Learned digit templates on the orange tiles; otherwise Tesseract (white digits via the minimum channel). |
 | Name and job | `hud.js` `panelLines`, `glyphs.js` `lineKey` | The two text lines beside the badge, found in pixels. Each scan compares their exact bitmaps (about 0.1 ms); OCR runs only to label a new bitmap. |
 | Validate and track | `exp.js` | Strict parsing, EXP-table arithmetic, confirmation rules below. |
@@ -139,6 +225,12 @@ and later scans read EXP from templates alone.
   after its HUD reappeared), by bitmap alone with no OCR; loading screens were skipped.
 - **Job**: a changed job line must repeat on two scans; OCR is matched to the 15 known jobs (at most
   two edits, and never between two equally close jobs, e.g. the two Wizards).
+  If the crisp reads fail, a smoothed threshold-125 pass still needs two identical reads.
+  On a private Safari Swordsman crop (2026-11-13), four crisp spellings disagreed while
+  the smoothed reads agreed correctly; replay also preserved Beginner on five earlier crops.
+  A failed read keeps the last job and retries after 30 seconds rather than marking that
+  bitmap as successfully labelled. Each capture rechecks the job, recovering older cached
+  failures that left the default Beginner label. Live verification of this fix is pending.
 - **Fallback identity check**: without a readable name line (manual boxes, covered panel), a
   confirmed reading that drops a level, jumps more than one level, or loses more than 15 percentage
   points pauses with "this looks like a different character". A new session keeps the previous
@@ -262,8 +354,37 @@ a log lists every message as read. Not yet in the OBS overlay; the learned messa
 (setting `pickupFont`; the older `messageFont` held shapes misread before word alignment and is ignored), one
 font for game pixels and one per other window size, so reading starts from it next time; *Clear all* resets it.
 Every browser starts from a shipped font (`message-font-base.js`, 57 characters learned from recorded play).
+Learning is local to this browser; a Safari-specific shipped starter font has not been calibrated.
+Use an ordinary window to retain learning between visits: Safari Private Browsing uses
+[ephemeral website storage](https://webkit.org/tracking-prevention/).
 
 `local/pickups.js` follows the message stack in the bottom-right corner (pickup-worker.js, 15 fps).
+Chrome creates `MediaStreamTrackProcessor` on the page and transfers its readable stream;
+Safari transfers a cloned track and creates the processor inside the worker. Both use
+the same frame cropping, message detection and OCR. Stopping terminates the worker,
+releases the clone and restores the shared track's 5 fps request.
+With `?debug`, the pickup status also shows the cumulative number of frames with detected
+text and messages sent to OCR. The log appears after a tracked line leaves the screen
+and its OCR finishes; an empty log alone does not distinguish detection from OCR failure.
+**Save pickup area (debug)** downloads the next detector frame from the pickup worker
+when running, or a fresh crop from the page capture otherwise. Worker snapshots include
+`worker` and the source frame size in the filename; the status also shows that size.
+This matters when a browser's processor and video element deliver different pixels.
+The first live worker snapshot (Safari, 2026-11-13) exposed a capture error: the
+9-argument `drawImage(VideoFrame, ...)` squeezed the entire 1366×796 window into the
+342×350 destination instead of cropping the requested corner. The earlier page-video
+snapshots cropped correctly, hiding this difference. The transferred-track worker now
+draws the whole frame at its supplied size, then crops with `getImageData`; a second
+live snapshot confirmed the correct corner. The Safari recorder crops its video element
+directly for the same reason. Chrome's streamed-frame crop is unchanged. Pickup totals
+with this correction still need a live comparison against visible messages.
+**Record pickups (debug)** uses the page processor where available, or snapshots of the
+shared video in Safari. With a directory picker it keeps the existing `frames.bin` and
+`index.json` folder format. Without one, it records at most 30 seconds or about 32 MB in
+memory, then downloads `msxp-pickups-TIMESTAMP.tar` containing `frames.bin` and `index.json`.
+Safari dropped the frame download when these were triggered separately, so they now
+travel together. Extract the archive into a private folder for the replay tools. Synthetic tests
+check the binary offsets, metadata, frame cleanup and both output paths.
 The text is light grey with a dark drop shadow one pixel right and down, so a text pixel is a light
 pixel whose down-right neighbour is much darker; over white clouds the fill itself is invisible and
 only that rule keeps the letters solid (any darker neighbour drew them hollow there). Each new
@@ -272,13 +393,57 @@ frame, and the whole stack fades out together. Each frame picks the shift that b
 lines; lines on screen when tracking starts are followed but not counted. A message is reported once
 its line leaves the screen, with up to four masks of it (a mask unlike its first is another line
 and is dropped).
+
+Safari's unscaled worker-track capture uses a softer mask (brightness floor 110,
+stroke/shadow difference 60, instead of 150/100). The earlier 70/30 calibration
+included too much scenery in the letters. Only the transferred-track path at 1× uses
+this calibration; streamed and unstretched larger captures keep the existing mask.
+An unread message also gets a word-mode OCR attempt; a parsed reading is kept.
+
+Six private Safari recordings, 2026-11-13: 542 frames, about 62 seconds, including
+controlled item drops and meso amounts. Controlled Etc/equipment clips supplied mask
+calibration examples; rock, moving-background and single-feather clips supplied replay
+checks. The following compares the previous 70/30 reader against the final production
+reader, using native Tesseract with the vendored English data and the actual detector,
+stack tracker and message reader. Both fresh fonts and a font learned by the previous
+reader passed exact item/count and amount checks.
+
+| Clip | Correct item pickups, before → after | Mesos read, before → after | Visible mesos |
+| --- | --- | --- | --- |
+| Rock, burst pickups | 0 → 8 | 0 → 107 | 119; final +12 begins at the recording edge and is missed |
+| Moving background | 3 → 3 | 75 → 89 | 89 |
+| Single Stiff Feather | 0 → 1 | 0 → 0 | 0 |
+| Controlled Etc items | 7 → 10 | 21 → 21 | 21 |
+| Equipment and 10/100/888 amounts | 7 → 7 | 110 → 998 | 998 |
+| Already fading tail | 0 → 0 | 0 → 0 | Inherited on-screen message correctly excluded |
+
+All 29 item pickups resolved correctly, including both Stiff Feathers; all 17 counted
+meso amounts matched the visible digits. No incorrect counted item or amount appeared
+in this small calibration/replay set. This is not a general accuracy guarantee or a
+live Safari measurement. The more selective mask loses some very faint still-frame
+reads: five parsed lines on the four older snapshots fell to one; whole recordings
+can read a notification earlier while it is bright. Live verification is pending.
+
+On the same Safari path, meso OCR keeps the final 100 game pixels with `(+amount)`
+delimiters rather than trusting the glyph-derived digit box: blur made the plus look
+like an opening parenthesis and cropped +13 to 3. At least one delimiter is still
+required. Known digits from partial font reads are retained even when the fixed words
+cannot be classified; previously `(+888)` was discarded when `gained` had unknown
+letters, allowing an OCR 808 to win. Item-count OCR and other capture paths are unchanged.
+Experimental Safari font banks and alternate stroke thickening did not improve these
+checks and were not shipped. Existing local learning remains available.
 Reading (pickup-session.js) first tries the message font learned during the session
 (message-font.js): every confirmed reading teaches it each glyph of its lines, and a line it reads
 completely needs no OCR. Otherwise every mask is read whole by OCR (strokes thickened to 2x2 first),
 and the amount, "xN" count, tab and name are taken from those reads, from the font's partial reads
 (known digits) and, when they disagree, from OCR of just those parts, voting across the masks. Item
-names are matched to the item list allowing OCR slips; an unread tab is the named item's own. Each line is
-also added up over every frame it is on screen (a pixel is text when it is text in 45% of them, so scenery
+names are matched to the item list allowing OCR slips; an unread tab is the named item's own.
+Fuzzy item names must be at least two edits ahead of the runner-up, including within the
+usual typo allowance: the live OCR text `Sift Feather` previously chose Soft Feather
+(one edit) over Stiff Feather (two edits). It now stays unresolved and cannot teach that
+wrong item name. Exact names still match. This rejects uncertainty rather than correcting
+the letters from an assumed drop; the original feather pixels were not recorded.
+Each line is also added up over every frame it is on screen (a pixel is text when it is text in 45% of them, so scenery
 drops out), and item names are compared shape by shape with every item name before OCR is asked
 (`matchName`). Measured 2026-11-12 on the three recordings with the shipped font: unread lines 14 to 10 and
 2 to 1, three garbled names resolved ("Biift Feather" to Stiff Feather), no wrong items; on 63 saved item
@@ -374,7 +539,8 @@ meso total:
   Measured live 2026-11-11 (1080p, 768p, 1080p): 212 of 212 scans read from learned digits, each switch
   2 s. Before, stretched digits looked different at every position (53 learned shapes) and the first
   minutes skipped scans. The EXP table picks, among a pass's OCR readings, the one that fits the level
-  (badge or last accepted). The game's 1080p filter setting stretches sharply instead (each screen pixel the
+  (badge or last accepted), requiring one distinct matching pair across the passes of that frame.
+  The game's 1080p filter setting stretches sharply instead (each screen pixel the
   area-weighted mix of the game pixels it covers; measured 2026-11-12): the HUD is then undone with that model,
   chosen by whichever one makes the exact digits match (20,679 [84.74%] read exactly; bilinear lost the
   percentage). Pickup reading keeps the bilinear model; it read the filtered screen fine. A name bitmap is kept per screen

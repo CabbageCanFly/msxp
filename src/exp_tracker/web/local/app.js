@@ -17,6 +17,7 @@ import {liveChart, rateSeries, smooth} from './live-chart.js';
 const $ = (id) => document.getElementById(id);
 const INTERVALS = [1, 5, 10, 20, 30];
 const debug = new URLSearchParams(location.search).has('debug');
+const safari = /Version\/[\d.]+.*Safari\//.test(navigator.userAgent) && !/(Chrome|Chromium|CriOS|Edg|OPR|FxiOS)\//.test(navigator.userAgent);
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel(CHANNEL) : null;
 // One capture session per browser profile: a second /local tab neither tracks nor closes the first's session.
 const LOCK = 'msxp-local-capture';
@@ -167,8 +168,7 @@ let starting = false;
 async function start() {
   if (capture || starting) return;
   if (!navigator.mediaDevices?.getDisplayMedia) return setStatus('This browser cannot share a window. Use Chrome or Edge on a computer.', 'warn');
-  // Firefox lists the game window but captures it black (hardware-drawn windows; reported 2026-11-13), and has no
-  // MediaStreamTrackProcessor for pickups: say so rather than track nothing.
+  // Firefox lists the game window but captures it black (hardware-drawn windows; reported 2026-11-13).
   if (/firefox/i.test(navigator.userAgent)) return setStatus(`Firefox shows the game window as black, so it can't be read. Try a different browser.`, 'warn');
   // Safari allows the sharing dialog only straight from the click: ask before any await (reported 2026-11-13).
   const sharing = navigator.mediaDevices.getDisplayMedia({
@@ -321,7 +321,7 @@ function bandFor(regions, size) {
 async function detect(frame) {
   capture.lastDetect = Date.now();
   const found = await engine.labels(frame);
-  const result = locate(found, frame);
+  const result = locate(found, frame, {safari});
   if (!result.exp) return result.reason;
   await saveCalibration({source: 'auto', width: frame.width, height: frame.height, exp: normalize(result.exp, frame),
     level: normalize(result.level, frame)});
@@ -365,7 +365,7 @@ async function scan() {
         if (!regions) return {status: 'no_hud', reason: reason ?? 'hud_not_found'};
       }
       return readHud(engine, frame, shifted(regions, frame.top), templatesFor(frame),
-        {table, previousLevel: current.tracker.last?.level ?? current.tracker.pending?.level ?? current.tracker.reference?.level ?? null});
+        {table, previousLevel: current.tracker.last?.level ?? current.tracker.pending?.level ?? current.tracker.reference?.level ?? null, safari});
     });
     if (!outcome) return;  // A previous scan is still running; never queue another.
     if (capture !== current) return;
@@ -464,14 +464,19 @@ async function identify(current, outcome, at) {
         await refreshCharacters(); broadcast();
       }
     }
-    if (id.jobKey && character.jobKey !== id.jobKey) {
+    // Recheck once per session too: older versions cached job bitmaps even when OCR failed.
+    const job = current.jobRead;
+    if (id.jobKey && (!job || job.id !== character.id || job.key !== id.jobKey || !job.value && at - job.at >= 30e3)) {
       current.jobStreak = current.jobStreak?.key === id.jobKey ? {key: id.jobKey, count: current.jobStreak.count + 1} : {key: id.jobKey, count: 1};
       if (current.jobStreak.count >= 2) {
         current.jobStreak = null;
         const who = await readIdentity(engine, current.lastFrame, {job: outcome.boxes.job}, null, JOBS);
-        if (who.job) await teachLetters(id.jobGlyphs, who.job);
-        character = await store.saveCharacter({...character, jobKey: id.jobKey, ...(who.job ? {job: who.job} : {})}).then(store.getCharacter);
-        await refreshCharacters(); broadcast();
+        current.jobRead = {id: character.id, key: id.jobKey, at, value: who.job};
+        if (who.job) {
+          await teachLetters(id.jobGlyphs, who.job);
+          character = await store.saveCharacter({...character, jobKey: id.jobKey, job: who.job}).then(store.getCharacter);
+          await refreshCharacters(); broadcast();
+        }
       } else current.burst = Math.max(current.burst || 0, 1);
     }
     return null;
@@ -499,14 +504,15 @@ async function identify(current, outcome, at) {
   if (who.job) await teachLetters(id.jobGlyphs, who.job);
   if (!character.nameKey && fits) {
     // The character being tracked had no name bitmap yet: this is it.
-    character = await store.getCharacter(await store.saveCharacter({...character, nameKey: id.nameKey, nameGlyphs: id.nameGlyphs, jobKey: id.jobKey,
-      ...(who.name ? {name: who.name, nameSource: 'ocr'} : {}), ...(who.job ? {job: who.job} : {})}));
+    character = await store.getCharacter(await store.saveCharacter({...character, nameKey: id.nameKey, nameGlyphs: id.nameGlyphs,
+      ...(who.name ? {name: who.name, nameSource: 'ocr'} : {}), ...(who.job ? {job: who.job, jobKey: id.jobKey} : {})}));
     await refreshCharacters(); broadcast();
     return null;
   }
   // Identity is the bitmap; an unreadable name only means a placeholder label the player can rename.
   const name = who.name ?? `Character ${all.length + 1}`;
-  const created = await store.saveCharacter({name, nameSource: who.name ? 'ocr' : 'placeholder', job: who.job ?? 'Beginner', nameKey: id.nameKey, nameGlyphs: id.nameGlyphs, jobKey: id.jobKey});
+  const created = await store.saveCharacter({name, nameSource: who.name ? 'ocr' : 'placeholder', job: who.job ?? 'Beginner', nameKey: id.nameKey, nameGlyphs: id.nameGlyphs,
+    ...(who.job ? {jobKey: id.jobKey} : {})});
   await selectCharacter(created); setStatus(who.name ? `New character: ${name}` : `New character (name unreadable, rename it): ${name}`, 'ok');
   return 'character_switched';
 }
@@ -599,7 +605,8 @@ async function startPickupTracking() {
   try {
     state.session = await startPickups({track: current.track, engine: await getPickupEngine(), font,
       onMessage: (m) => savePickup(current, m).catch((error) => setStatus(`Couldn't save a pickup: ${error.message}`, 'warn')),
-      onStats(s) { $('pickup-stats').textContent = `Reading pickups · ${s.fps.toFixed(1)} fps${s.queued ? ` · ${s.queued} waiting` : ''}`; },
+      onStats(s) { $('pickup-stats').textContent = `Reading pickups · ${s.fps.toFixed(1)} fps${s.queued ? ` · ${s.queued} waiting` : ''}`
+        + (debug ? ` · ${s.frameSize} worker · ${s.detectedFrames} frames with text · ${s.reported} messages sent` : ''); },
       onError(message) { $('pickup-stats').textContent = `Pickup reading stopped: ${message}`; },
     });
     // Stopped, or switched off, while starting.
@@ -1157,18 +1164,45 @@ function logPickup(m) {
 // ?debug: save the bottom of the last frame to a local file for diagnosing OCR. Never automatic.
 // Test recordings of the pickup corner (?debug only), in the format the offline benches read: frames.bin
 // (the corner's lossless PNGs, back to back) and index.json {region, frame, frames: [{at, offset, size}]}.
+function recordingArchive(index, chunks) {
+  const parts = [], encoder = new TextEncoder();
+  for (const [name, blob] of [['frames.bin', new Blob(chunks)], ['index.json', new Blob([JSON.stringify(index)])]]) {
+    const header = new Uint8Array(512), put = (offset, text) => header.set(encoder.encode(text), offset);
+    put(0, name); put(100, '0000600\0'); put(108, '0000000\0'); put(116, '0000000\0');
+    put(124, blob.size.toString(8).padStart(11, '0') + '\0'); put(136, '00000000000\0');
+    header.fill(32, 148, 156); put(156, '0'); put(257, 'ustar\0'); put(263, '00');
+    put(148, header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0') + '\0 ');
+    parts.push(header, blob, new Uint8Array((512 - blob.size % 512) % 512));
+  }
+  parts.push(new Uint8Array(1024));
+  return new Blob(parts, {type: 'application/x-tar'});
+}
+
 function recordButton() {
   const button = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Record pickups (debug)'});
   button.addEventListener('click', async () => {
     if (capture?.recording) return capture.recording.stop();
     const current = capture;
-    if (!current || !('MediaStreamTrackProcessor' in window)) return setStatus('Start tracking in Chrome or Edge first.', 'warn');
-    const folder = await (await showDirectoryPicker({mode: 'readwrite'}).catch(() => null))
+    if (!current) return setStatus('Start tracking first.', 'warn');
+    const directoryPicker = typeof showDirectoryPicker === 'function';
+    const folder = directoryPicker && await (await showDirectoryPicker({mode: 'readwrite'}).catch(() => null))
       ?.getDirectoryHandle(`pickup-recording-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}`, {create: true});
-    if (!folder || capture !== current || current.recording) return;
+    if (directoryPicker && !folder || capture !== current || current.recording) return;
     await current.track.applyConstraints({frameRate: {ideal: 15, max: 15}});
-    const clone = current.track.clone(), reader = new MediaStreamTrackProcessor({track: clone}).readable.getReader();
-    const out = await (await folder.getFileHandle('frames.bin', {create: true})).createWritable();
+    const clone = typeof window.MediaStreamTrackProcessor === 'function' ? current.track.clone() : null;
+    let cancelled = false;
+    const reader = clone ? new MediaStreamTrackProcessor({track: clone}).readable.getReader() : new ReadableStream({
+      async pull(controller) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (cancelled) return;
+        if (!current.video?.videoWidth) return controller.close();
+        controller.enqueue(new VideoFrame(current.video, {timestamp: performance.now() * 1000}));
+      },
+      cancel() { cancelled = true; },
+    }, {highWaterMark: 0}).getReader();
+    const chunks = [];
+    const out = folder ? await (await folder.getFileHandle('frames.bin', {create: true})).createWritable()
+      : {async write(blob) { chunks.push(blob); }, async close() {}};
     const index = {region: null, frame: '', frames: []}, started = performance.now();
     let offset = 0, last = -1e9, stopped = false;
     const done = (async () => {
@@ -1177,13 +1211,15 @@ function recordButton() {
         if (ended) break;
         const at = Math.round(performance.now() - started), W = frame.displayWidth, H = frame.displayHeight;
         // One region per recording: a resized window ends it.
-        if (index.frame && index.frame !== `${W}x${H}`) { frame.close(); break; }
+        // Browsers without a directory picker keep a short clip in memory, then download the pair.
+        if (index.frame && index.frame !== `${W}x${H}` || !folder && (at > 30000 || offset >= 32e6)) { frame.close(); break; }
         if (stopped || at - last < 90) { frame.close(); if (stopped) break; continue; }  // ~10 fps is plenty.
         last = at;
         const {x, y, w, h} = regionBox(W, H);
         if (!index.frame) Object.assign(index, {region: {x, y, w, h}, frame: `${W}x${H}`});
         const canvas = new OffscreenCanvas(w, h);
-        canvas.getContext('2d').drawImage(frame, x, y, w, h, 0, 0, w, h);
+        // Safari's VideoFrame drawImage ignores source crops; the video element crops correctly.
+        canvas.getContext('2d').drawImage(clone ? frame : current.video, x, y, w, h, 0, 0, w, h);
         frame.close();
         const png = await canvas.convertToBlob();
         await out.write(png);
@@ -1191,14 +1227,20 @@ function recordButton() {
         offset += png.size;
         button.textContent = `Stop recording (${index.frames.length} frames · ${Math.round(offset / 1e6)} MB)`;
       }
-      clone.stop();
+      await reader.cancel().catch(() => {}); clone?.stop();
       await out.close();
-      const file = await (await folder.getFileHandle('index.json', {create: true})).createWritable();
-      await file.write(JSON.stringify(index)); await file.close();
+      if (folder) {
+        const file = await (await folder.getFileHandle('index.json', {create: true})).createWritable();
+        await file.write(JSON.stringify(index)); await file.close();
+      } else {
+        // Safari can drop the first of two downloads; keep the frame data and index in one archive.
+        const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(recordingArchive(index, chunks)), download: `msxp-pickups-${Date.now()}.tar`});
+        link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      }
       if (current.recording === recording) current.recording = null;
       if (!current.pickups) await current.track.applyConstraints({frameRate: {ideal: 5, max: 5}}).catch(() => {});
       button.textContent = 'Record pickups (debug)';
-      setStatus(`Saved ${index.frames.length} frames to ${folder.name}.`, 'ok');
+      setStatus(`Saved ${index.frames.length} frames to ${folder ? folder.name : 'downloads'}.`, 'ok');
     })();
     const recording = current.recording = {stop() { stopped = true; reader.cancel().catch(() => {}); return done; }};
   });
@@ -1206,6 +1248,18 @@ function recordButton() {
 }
 
 function setupDebug() {
+  const pickupButton = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Save pickup area (debug)'});
+  pickupButton.addEventListener('click', async () => {
+    try {
+      const session = capture?.pickups?.session, frame = session ? await session.snapshot() : capture && await grab();
+      if (!frame) return;
+      const {x, y, w, h} = session ? {x: 0, y: 0, w: frame.width, h: frame.height} : regionBox(frame.width, frame.height);
+      const canvas = new OffscreenCanvas(w, h);
+      canvas.getContext('2d').putImageData(new ImageData(frame.data, frame.width, frame.height), -x, -y);
+      const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(await canvas.convertToBlob()), download: `msxp-pickups-${session ? 'worker-' : ''}${frame.frameSize ?? `${frame.width}x${frame.height}`}-${Date.now()}.png`});
+      link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    } catch (error) { setStatus(`Couldn't save pickup area: ${error.message}`, 'warn'); }
+  });
   const button = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Save HUD strip (debug)'});
   button.addEventListener('click', async () => {
     const frame = capture?.lastFrame; if (!isFull(frame)) return;
@@ -1214,7 +1268,7 @@ function setupDebug() {
     const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(await canvas.convertToBlob()), download: `msxp-hud-${frame.width}x${frame.height}-${Date.now()}.png`});
     link.click();
   });
-  document.querySelector('.hud-actions').append(button, recordButton());
+  document.querySelector('.hud-actions').append(button, pickupButton, recordButton());
   setupPickupLog();
   // Diagnostics for the pickup-message milestone: raise or restore the share's frame rate (?debug only).
   // Measured 2026-11-10: asked 5/15/30 fps, Chrome delivered 4.7/14.8/29.0 on the same share, no new prompt.

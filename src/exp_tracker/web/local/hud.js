@@ -194,7 +194,7 @@ const label = (t) => t.text.toUpperCase().replace(/[^A-Z]/g, '');
  * Bind EXP/LV labels to one status bar (the Python discover_regions geometry, simplified).
  * Words are in frame pixels. Returns {exp, level} boxes or a reason; ambiguity is a failure.
  */
-export function locate(found, frame) {
+export function locate(found, frame, {safari = false} = {}) {
   const exps = found.filter((t) => /^EXP/.test(label(t)) && label(t).length <= 4);
   const hps = found.filter((t) => label(t).startsWith('HP')), mps = found.filter((t) => label(t).startsWith('MP'));
   const lvs = found.filter((t) => label(t) === 'LV');
@@ -231,9 +231,9 @@ export function locate(found, frame) {
   // "217 [12.65%]" made a box that ended before the percentage, and every scan failed).
   const lastDigit = Math.max(...band.map((t) => t.x1));
   const expBox = {x0: exp.x0 - .2 * h, y0: top - .3 * th, x1: Math.min(frame.width, exp.x0 + 1.15 * span, step === null ? lastDigit + 3 * th : Infinity), y1: bottom + .3 * th};
-  // The orange tiles are found in pixels each scan; LV. only narrows the search when it was recognised.
+  // Safari's sparse OCR can group a leading badge digit into the LV. label box.
   const lh = level ? level.y1 - level.y0 : h;
-  const levelBox = level ? {x0: level.x1, y0: level.y0 - .6 * lh, x1: level.x1 + 4 * lh, y1: level.y1 + .6 * lh}
+  const levelBox = level ? {x0: safari ? level.x0 : level.x1, y0: level.y0 - .6 * lh, x1: level.x1 + 4 * lh, y1: level.y1 + .6 * lh}
     : {x0: Math.max(0, exp.x0 - 4.5 * span), y0: exp.y0 - 1.2 * h, x1: Math.max(0, exp.x0 - 2.1 * span), y1: Math.min(frame.height, exp.y1 + 1.6 * h)};
   return {exp: expBox, level: levelBox};
 }

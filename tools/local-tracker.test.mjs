@@ -16,6 +16,187 @@ const r = (s, level, exp) => ({at: at(s), ...pair(level, exp)});
 
 // Run the capture entry point and frame copy with synthetic browser frames, without OCR or storage.
 const app = readFileSync(new URL('app.js', web), 'utf8');
+const pickupSession = readFileSync(new URL('pickup-session.js', web), 'utf8');
+const pickupWorker = readFileSync(new URL('pickup-worker.js', web), 'utf8').replace(/^import .*;\n/gm, '');
+
+test('Safari HUD workarounds exclude Chrome, Edge and Firefox user agents', () => {
+  const flag = app.match(/^const safari = .*;$/m)[0];
+  for (const [userAgent, expected] of [
+    ['Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/26.1 Safari/605.1.15', true],
+    ['Mozilla/5.0 (iPhone) Version/18.0 Mobile/15E148 Safari/604.1', true],
+    ['Mozilla/5.0 (Macintosh) Chrome/140.0.0.0 Safari/537.36', false],
+    ['Mozilla/5.0 (Windows NT 10.0) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0', false],
+    ['Mozilla/5.0 (Macintosh) Gecko/20100101 Firefox/140.0', false],
+    ['Mozilla/5.0 (iPhone) CriOS/140.0.0.0 Mobile/15E148 Safari/604.1', false],
+    ['Mozilla/5.0 Version/26.1 Safari/605.1.15 OPR/120.0', false],
+  ]) assert.equal(vm.runInNewContext(`${flag}\nsafari`, {navigator: {userAgent}}), expected, userAgent);
+});
+
+for (const mode of ['native folder', 'native downloads', 'video downloads']) {
+  test(`pickup recorder preserves its frame/index pair: ${mode}`, async () => {
+    const downloads = [], blobs = new Map(), files = new Map(), constraints = [];
+    let click, clock = 0, closed = 0, cloneStopped = 0;
+    const frame = () => ({displayWidth: 800, displayHeight: 600, close() { closed++; }});
+    const clone = {stop() { cloneStopped++; }}, video = {videoWidth: 800};
+    const current = {video, track: {clone: () => clone, async applyConstraints(c) { constraints.push(c.frameRate.max); }}};
+    const folder = {name: 'test recording', async getFileHandle(name) { return {async createWritable() {
+      return {async write(data) { files.set(name, data); }, async close() {}};
+    }}; }};
+    const window = {}, context = vm.createContext({window, capture: current, Blob, ReadableStream, TextEncoder,
+      document: {createElement(tag) { return tag === 'button' ? {addEventListener(_, fn) { click = fn; }} : {click() { downloads.push(this); }}; }},
+      performance: {now() { const at = clock; clock += 10000; return at; }},
+      setTimeout(fn) { queueMicrotask(fn); }, setStatus() {}, regionBox: () => ({x: 500, y: 270, w: 300, h: 264}),
+      URL: {createObjectURL(blob) { const key = String(blobs.size); blobs.set(key, blob); return key; }, revokeObjectURL() {}},
+      OffscreenCanvas: class { getContext() { return {drawImage(source, ...args) {
+        assert.equal(source === video, mode === 'video downloads');
+        assert.deepEqual(args, [500, 270, 300, 264, 0, 0, 300, 264]);
+      }}; } async convertToBlob() { return new Blob([new Uint8Array([1, 2, 3])]); } },
+      VideoFrame: class { constructor(input) { assert.equal(input, video); return frame(); } },
+      ...(mode === 'native folder' ? {showDirectoryPicker: async () => ({getDirectoryHandle: async () => folder})} : {}),
+    });
+    if (mode.startsWith('native')) {
+      context.MediaStreamTrackProcessor = window.MediaStreamTrackProcessor = class {
+        constructor({track}) {
+          assert.equal(track, clone); let sent = false;
+          this.readable = new ReadableStream({pull(controller) {
+            if (sent) controller.close(); else { sent = true; controller.enqueue(frame()); }
+          }}, {highWaterMark: 0});
+        }
+      };
+    }
+    vm.runInContext(app.slice(app.indexOf('function recordingArchive('), app.indexOf('function setupDebug()')), context);
+    vm.runInContext('recordButton()', context);
+    await click();
+    for (let i = 0; i < 20 && current.recording; i++) await new Promise(setImmediate);
+    assert.equal(current.recording, null);
+    let index, binary;
+    if (mode === 'native folder') { index = JSON.parse(files.get('index.json')); binary = files.get('frames.bin'); }
+    else {
+      assert.equal(downloads.length, 1); assert.match(downloads[0].download, /\.tar$/);
+      const archive = new Uint8Array(await blobs.get(downloads[0].href).arrayBuffer()), entries = {};
+      const text = (bytes) => new TextDecoder().decode(bytes).replace(/\0.*$/s, '');
+      let offset = 0;
+      for (let i = 0; i < 2; i++) {
+        const header = archive.slice(offset, offset + 512), size = parseInt(text(header.subarray(124, 136)), 8);
+        const checksum = parseInt(text(header.subarray(148, 156)), 8);
+        header.fill(32, 148, 156);
+        assert.equal(header.reduce((sum, byte) => sum + byte, 0), checksum);
+        assert.equal(text(header.subarray(257, 263)), 'ustar');
+        entries[text(header.subarray(0, 100))] = archive.slice(offset + 512, offset + 512 + size);
+        offset += 512 + Math.ceil(size / 512) * 512;
+      }
+      assert.equal(archive.length - offset, 1024); assert.ok(archive.subarray(offset).every((b) => b === 0));
+      index = JSON.parse(text(entries['index.json'])); binary = new Blob([entries['frames.bin']]);
+    }
+    assert.equal(index.frame, '800x600'); assert.equal(index.frames.length, 1);
+    assert.equal(index.frames[0].offset, 0); assert.equal(index.frames[0].size, binary.size);
+    assert.deepEqual(index.region, {x: 500, y: 270, w: 300, h: 264});
+    assert.equal(closed, mode === 'video downloads' ? 2 : 1);
+    assert.equal(cloneStopped, mode.startsWith('native') ? 1 : 0);
+    assert.deepEqual(constraints, [15, 5]);
+  });
+}
+
+for (const mode of ['page processor', 'worker processor', 'transfer failure', 'worker failure', 'startup timeout']) {
+  test(`pickup session opens and releases its cloned track: ${mode}`, async () => {
+    const constraints = [], sent = [];
+    let stopped = 0, terminated = 0;
+    const clone = {stop() { stopped++; }}, track = {clone: () => clone, async applyConstraints(c) { constraints.push(c.frameRate.max); }};
+    const readable = {}, window = {};
+    class MediaStreamTrackProcessor {
+      constructor(options) { assert.equal(options.track, clone); this.readable = readable; }
+    }
+    if (mode === 'page processor') window.MediaStreamTrackProcessor = MediaStreamTrackProcessor;
+    class Worker {
+      constructor() { context.worker = this; }
+      postMessage(data, transfers) {
+        sent.push({data, transfers});
+        if (data.type !== 'start') return;
+        if (mode === 'transfer failure') throw new Error('transfer failed');
+        if (mode === 'worker failure') this.onerror({message: 'worker failed'});
+        else if (mode !== 'startup timeout') this.onmessage({data: {type: 'ready'}});
+      }
+      terminate() { terminated++; }
+    }
+    const context = vm.createContext({window, MediaStreamTrackProcessor, Worker, URL, setTimeout, clearTimeout,
+      loadItems: async () => [], REGION: {}, track, engine: {},
+      ...(mode === 'startup timeout' ? {setTimeout(fn) { queueMicrotask(fn); }} : {}),
+    });
+    vm.runInContext(pickupSession.slice(pickupSession.indexOf('export async function startPickups'))
+      .replace('export async', 'async').replace('import.meta.url', JSON.stringify(new URL('pickup-session.js', web).href)), context);
+    const start = vm.runInContext('startPickups({track, engine, onMessage() {}})', context);
+    if (mode.endsWith('failure') || mode === 'startup timeout') {
+      await assert.rejects(start, /failed|did not start/);
+    } else {
+      const session = await start, message = sent[0];
+      assert.equal(message.transfers[0], mode === 'page processor' ? readable : clone);
+      assert.equal(message.data.stream, mode === 'page processor' ? readable : undefined);
+      assert.equal(message.data.track, mode === 'worker processor' ? clone : undefined);
+      session.setStretch('area'); assert.equal(sent[1].data.mode, 'area');
+      const snapshot = session.snapshot();
+      assert.equal(sent[2].data.type, 'snapshot');
+      await assert.rejects(session.snapshot(), /already pending/);
+      context.worker.onmessage({data: {type: 'snapshot', width: 2, height: 1, data: new Uint8ClampedArray(8), frameSize: '800x600'}});
+      assert.equal((await snapshot).frameSize, '800x600');
+      const cancelled = session.snapshot(), rejected = assert.rejects(cancelled, /has stopped/);
+      await session.stop(); await rejected;
+      assert.equal(sent[4].data.type, 'stop');
+      await assert.rejects(session.snapshot(), /has stopped/);
+    }
+    assert.equal(stopped, 1); assert.equal(terminated, 1);
+    assert.deepEqual(constraints, [15, 5]);
+  });
+}
+
+for (const mode of ['stream', 'track', 'scaled track', 'unsupported']) {
+  test(`pickup worker reads frames and reports startup: ${mode}`, async () => {
+    const posted = [], copies = [], pixels = new Uint8ClampedArray(300 * 264 * 4);
+    let closed = 0, stopped = 0, processed = 0;
+    const track = {stop() { stopped++; }};
+    const frame = {displayWidth: 800, displayHeight: 600, close() { closed++; }};
+    const frames = [frame], stream = {getReader: () => ({async read() { const value = frames.shift(); return {value, done: !value}; }, async cancel() {}})};
+    const context = vm.createContext({postMessage: (data) => posted.push(data), performance: {now: () => closed ? 2001 : 0},
+      seedFont: (font) => font, readLine() {}, captureScale: () => mode === 'scaled track' ? {sx: 2, sy: 2} : {sx: 1, sy: 1}, unstretch: (image) => image,
+      messageLines: (_, keep, soft) => {
+        assert.equal(keep, true); assert.equal(soft, mode === 'track');
+        return mode === 'stream' || mode === 'track' ? [{}] : [];
+      },
+      stackTracker: () => ({update: (lines) => lines.length ? [{at: 123, samples: [{bits: new Uint8Array([1])}]}] : []}),
+      OffscreenCanvas: class { getContext() { return {
+        drawImage(...args) { copies.push(args); }, getImageData: (...args) => {
+          assert.deepEqual(args, mode === 'stream' ? [0, 0, 300, 264] : [500, 270, 300, 264]);
+          return {width: 300, height: 264, data: pixels};
+        },
+      }; } },
+      ...(mode !== 'unsupported' ? {MediaStreamTrackProcessor: class {
+        constructor(options) { assert.equal(options.track, track); processed++; this.readable = stream; }
+      }} : {}),
+    });
+    vm.runInContext(pickupWorker, context);
+    await context.onmessage({data: {type: 'snapshot'}});
+    await context.onmessage({data: {type: 'start', ...(mode === 'stream' ? {stream} : {track}),
+      region: {x0: .75, y0: .45, y1: .89, minWidth: 300}}});
+    if (mode === 'unsupported') {
+      assert.equal(posted[0].type, 'error'); assert.match(posted[0].message, /Cannot open pickup frames/);
+      assert.equal(stopped, 1); assert.equal(closed, 0);
+    } else {
+      assert.equal(posted[0].type, 'ready'); assert.equal(closed, 1);
+      const stats = posted.find((m) => m.type === 'stats');
+      assert.equal(stats.detectedFrames, mode === 'scaled track' ? 0 : 1);
+      assert.equal(stats.reported, mode === 'scaled track' ? 0 : 1);
+      assert.equal(stats.frameSize, '800x600');
+      const snapshot = posted.find((m) => m.type === 'snapshot');
+      assert.equal(snapshot.data, pixels); assert.equal(snapshot.width, 300); assert.equal(snapshot.height, 264);
+      assert.equal(posted.filter((m) => m.type === 'message').length, stats.reported);
+      for (const message of posted.filter((m) => m.type === 'message')) assert.equal(message.soft, mode === 'track');
+      assert.equal(processed, mode === 'stream' ? 0 : 1);
+      assert.deepEqual(copies[0].slice(1), mode === 'stream' ? [500, 270, 300, 264, 0, 0, 300, 264] : [0, 0, 800, 600]);
+      await context.onmessage({data: {type: 'stop'}});
+      assert.equal(stopped, mode === 'stream' ? 0 : 1);
+    }
+  });
+}
+
 for (const mode of ['no ImageCapture', 'ImageCapture without grabFrame', 'ImageCapture with grabFrame']) {
   test(`capture reads full frames and HUD bands: ${mode}`, async () => {
     let played = 0, grabbed = 0, closed = 0;
@@ -181,9 +362,19 @@ test('HUD geometry: labels bind to one status bar; brackets are found by colour'
   const bare = words.filter((t) => t.text[0] !== '5');
   assert.ok(H.locate(bare, frame).exp.x1 >= 840);
   assert.equal(H.locate(bare.filter((t) => !t.text.startsWith('MP')), frame).reason, 'exp_digits_not_found');
-  assert.ok(found.level.x0 >= 315);
+  assert.equal(found.level.x0, 315);
   assert.ok(H.locate(words.filter((t) => t.text !== 'LV.'), frame).level.x1 < 504);  // Orange-tile search left of HP.
-  assert.ok(found.level.x0 >= 315);
+  // LV. and a leading digit can be one sparse OCR word; colour must still find both tiles.
+  const badgeFrame = {...frame, data: new Uint8ClampedArray(frame.width * frame.height * 4)};
+  for (let y = 775; y < 788; y++) for (let x = 329; x < 352; x++) {
+    if (x !== 340) badgeFrame.data.set([240, 130, 30, 255], (y * frame.width + x) * 4);
+  }
+  for (const [text, right] of [['LV.', 315], ['LV.2', 340], ['LV.23', 352]]) {
+    const labels = [...words.slice(0, -1), w(text, 297, 775, right, 788)];
+    const located = H.locate(labels, frame, {safari: true});
+    assert.deepEqual(H.orangeBox(badgeFrame, located.level), {x0: 329, y0: 775, x1: 352, y1: 788});
+    assert.equal(H.locate(labels, frame).level.x0, right);  // Other browsers retain the original search area.
+  }
   assert.equal(H.locate(words.filter((t) => t.text !== 'EXP'), frame).reason, 'exp_label_not_found');
   assert.equal(H.locate([...words, ...words.map((t) => ({...t, y0: t.y0 - 300, y1: t.y1 - 300}))], frame).reason, 'multiple_huds');
   // A synthetic strip: white digits on grey with two olive brackets.
@@ -326,6 +517,190 @@ test('EXP reading: the EXP table picks the reading that fits the level, else var
   const misread = `2${shown.slice(1)}`;
   assert.deepEqual(R.pickExp([misread, misread], [percent, percent], fits), {reason: 'exp_disagrees_with_table'});
   assert.equal(R.pickExp([misread, misread], [percent, percent]).value.exp, Number(misread.replace(/,/g, '')));  // Without a level: agreement only.
+  assert.deepEqual(R.pickExp(['4000', '4001'], ['30.15%', '30.15%'], () => true), {reason: 'exp_variants_disagree'});
+});
+
+test('EXP can combine observed candidates across passes only with a unique table match', async () => {
+  const R = await import(new URL('reader.js', web));
+  const frame = {width: 100, height: 20, data: new Uint8ClampedArray(100 * 20 * 4)};
+  for (const x of [35, 90]) for (let y = 4; y < 12; y++) frame.data.set([160, 185, 130, 255], (y * 100 + x) * 4);
+  const exp = Math.round(E.requirement(table, 21) * .3015), bp = Math.floor(exp * 10000 / E.requirement(table, 21));
+  const shown = exp.toLocaleString('en-US'), percent = `${(bp / 100).toFixed(2)}%`;
+  const run = async (options) => {
+    const texts = {number: [shown, shown, `2${shown.slice(1)}`, `2${shown.slice(1)}`], percent: ['3015%', '3015%', percent, percent]};
+    return R.readHud({read: async (_, field) => ({text: texts[field].shift()})}, frame,
+      {exp: {x0: 0, y0: 2, x1: 98, y1: 15}}, null, options);
+  };
+  const matched = await run({table, previousLevel: 21});
+  assert.equal(matched.status, 'ok'); assert.equal(matched.exp, exp); assert.equal(matched.bp, bp);
+  // Without level evidence, the earlier number is never combined with the later percentage.
+  const unguarded = await run({});
+  assert.notEqual(unguarded.exp, exp);
+});
+
+test('EXP word fallback recovers a dropped leading digit and retains validation', async () => {
+  const R = await import(new URL('reader.js', web));
+  const frame = {width: 100, height: 20, data: new Uint8ClampedArray(100 * 20 * 4)};
+  for (const x of [35, 90]) for (let y = 4; y < 12; y++) frame.data.set([160, 185, 130, 255], (y * 100 + x) * 4);
+  const exp = Math.round(E.requirement(table, 21) * .3015), percent = `${(Math.floor(exp * 10000 / E.requirement(table, 21)) / 100).toFixed(2)}%`;
+  const run = (options, wordPercent) => R.readHud({read: async (_, field) => ({text:
+    field.startsWith('number') ? String(exp) : field === 'percentWord' ? wordPercent : '3015%'})}, frame,
+  {exp: {x0: 0, y0: 2, x1: 98, y1: 15}}, null, options);
+  const matched = await run({table, previousLevel: 21}, percent);
+  assert.equal(matched.status, 'ok'); assert.equal(matched.exp, exp);
+  assert.ok(matched.raw.exp.some((r) => r.word && r.field === 'percent'));
+  assert.equal((await run({table, previousLevel: 21}, '1.00%')).status, 'ambiguous');
+  assert.equal((await run({}, percent)).status, 'ok');  // Both word variants agree without level evidence.
+});
+
+test('failed EXP OCR can exclude a short label fragment and retry smaller images', async () => {
+  const R = await import(new URL('reader.js', web));
+  const exp = Math.round(E.requirement(table, 21) * .3015), bp = Math.floor(exp * 10000 / E.requirement(table, 21));
+  const run = async ({tall = false, accepted = false, level = true, hasLabel = true} = {}) => {
+    const width = 100, height = 24, frame = {width, height, data: new Uint8ClampedArray(width * height * 4)};
+    const paint = (x, y, rgb) => frame.data.set([...rgb, 255], (y * width + x) * 4);
+    for (const x of [60, 90]) for (let y = 5; y < 15; y++) paint(x, y, [160, 185, 130]);
+    for (let y = 7; y < 14; y++) for (const x of [14, 15, 16, 70, 71, 72]) paint(x, y, [255, 255, 255]);
+    if (hasLabel) for (let y = 5; y < 7; y++) paint(8, y, [255, 255, 255]);  // Label ends at x8 above the digit band.
+    for (let y = 7; y < (tall ? 14 : 9); y++) paint(hasLabel ? 9 : 0, y, [255, 255, 255]);
+    let numbers = 0;
+    const engine = {read: async (_, field) => ({text: field === 'number' ? (++numbers > 4 || accepted ? String(exp) : '')
+      : field === 'numberWord' ? '' : `${(bp / 100).toFixed(2)}%`})};
+    return {result: await R.readHud(engine, frame, {exp: {x0: 0, y0: 0, x1: 98, y1: 21}}, null,
+      level ? {table, previousLevel: 21} : {}), numbers};
+  };
+  for (const level of [false, true]) {
+    const {result, numbers} = await run({level});
+    assert.equal(result.status, 'ok'); assert.equal(result.exp, exp); assert.equal(result.bp, bp);
+    assert.equal(numbers, 6);
+    assert.deepEqual(result.raw.exp.filter((r) => r.field === 'number').slice(-2).map((r) => r.scale), [3, 4]);
+  }
+  const tall = await run({tall: true});  // A full-height leading digit must never be removed.
+  assert.notEqual(tall.result.status, 'ok'); assert.equal(tall.numbers, 4);
+  const accepted = await run({accepted: true});
+  assert.equal(accepted.result.status, 'ok'); assert.equal(accepted.numbers, 2);
+  const noLabel = await run({hasLabel: false});
+  assert.notEqual(noLabel.result.status, 'ok'); assert.equal(noLabel.numbers, 4);
+});
+
+test('Safari re-segments past an EXP label fragment before falling back from exact glyphs', async () => {
+  const R = await import(new URL('reader.js', web)), G = await import(new URL('glyphs.js', web));
+  const frame = {width: 128, height: 24, data: new Uint8ClampedArray(128 * 24 * 4)};
+  const paint = (x, y, rgb) => frame.data.set([...rgb, 255], (y * frame.width + x) * 4);
+  for (const x of [60, 120]) for (let y = 5; y < 15; y++) paint(x, y, [160, 185, 130]);
+  const stamp = (left, char) => Object.entries(G.HUD_GLYPHS).find(([, c]) => c === char)[0].split('/').forEach((row, y) => {
+    [...row].forEach((bit, x) => { if (bit === '1') paint(left + x, y + 7, [255, 255, 255]); });
+  });
+  stamp(14, '2');
+  [...'13.33%'].forEach((char, i) => stamp([64, 68, 75, 78, 85, 92][i], char));
+  for (const y of [5, 6]) paint(8, y, [255, 255, 255]);
+  for (const y of [7, 8]) paint(9, y, [255, 255, 255]);
+  const regions = {exp: {x0: 0, y0: 0, x1: 128, y1: 21}};
+  const run = async (safari, templates = G.HUD_GLYPHS, glyphText = '') => {
+    let calls = 0;
+    const result = await R.readHud({read: async (_, field) => { calls++; return {text: field === 'percentGlyph' ? glyphText : ''}; }},
+      frame, regions, templates, {safari});
+    return {result, calls};
+  };
+  const {result, calls} = await run(true);
+  assert.deepEqual([result.status, result.exp, result.bp, result.source, calls], ['ok', 2, 1333, 'glyphs', 0]);
+  assert.equal(result.segments.number.glyphs.length, 1);
+  assert.equal(E.consistency(table, 1, result.exp, result.bp), 'consistent');
+  const other = await run(false);
+  assert.notEqual(other.result.status, 'ok'); assert.ok(other.calls > 0);
+  const unknown = await run(true, {});
+  assert.notEqual(unknown.result.status, 'ok'); assert.ok(unknown.calls > 0);
+  const partial = await run(true, Object.fromEntries(Object.entries(G.HUD_GLYPHS).filter(([, char]) => char !== '3')), '3');
+  assert.deepEqual([partial.result.status, partial.result.exp, partial.result.bp, partial.result.source, partial.calls],
+    ['ok', 2, 1333, 'ocr', 6]);
+  // A softened digit pass may read no badge at all; Safari can try the crisp badge without dropping EXP.
+  for (let y = 16; y < 23; y++) for (let x = 100; x < 110; x++) paint(x, y, [240, 130, 30]);
+  for (let y = 17; y < 23; y++) paint(105, y, [255, 255, 255]);
+  let badgeCalls = 0;
+  const badge = await R.readHud({read: async () => ({text: ++badgeCalls > 4 ? '1' : ''})}, frame,
+    {...regions, level: {x0: 99, y0: 15, x1: 111, y1: 24}}, G.HUD_GLYPHS, {safari: true});
+  assert.equal(badge.status, 'ok'); assert.equal(badge.level, 1); assert.equal(badgeCalls, 6);
+  assert.deepEqual(badge.raw.level.map((r) => r.smooth), [true, true, true, true, false, false]);
+});
+
+test('Safari can retain known percentage glyphs and require agreement on each unknown', async () => {
+  const R = await import(new URL('reader.js', web)), G = await import(new URL('glyphs.js', web));
+  const frame = {width: 120, height: 24, data: new Uint8ClampedArray(120 * 24 * 4)};
+  const paint = (x, y, rgb) => frame.data.set([...rgb, 255], (y * frame.width + x) * 4);
+  for (const x of [40, 110]) for (let y = 4; y < 15; y++) paint(x, y, [160, 185, 130]);
+  const shapes = ['01110/10001/00001/00010/00100/01100/11111', '0/0/0/0/0/0/1',
+    '11111/00001/00001/00001/00010/00100/00100', '01/11/01/01/01/01/01',
+    '0100001/1110010/0100100/0001000/0010010/0100111/1000010'];
+  const stamp = (left, shape) => shape.split('/').forEach((row, y) => [...row].forEach((bit, x) => {
+    if (bit === '1') paint(left + x, y + 6, [255, 255, 255]);
+  }));
+  stamp(10, shapes[0]);
+  shapes.forEach((shape, i) => stamp([44, 52, 56, 65, 71][i], shape));
+  const regions = {exp: {x0: 0, y0: 0, x1: 120, y1: 21}};
+  const glyphs = G.segment(frame, R.fieldBoxes(frame, regions).percent).glyphs;
+  const known = Object.fromEntries([1, 2, 3].map((i) => [glyphs[i].key, ['2', '.', '7', '1', '%'][i]]));
+  const exp = Math.ceil(E.requirement(table, 21) * .0271);
+  const run = async ({safari = true, level = true, accepted = false, disagree = false, templates = known,
+    texts = ['2', '2', '', '', '%', '%']} = {}) => {
+    let glyphCalls = 0, numbers = 0;
+    const engine = {read: async (_, field) => ({text: field === 'percentGlyph' ? texts[glyphCalls++] ?? ''
+      : field.startsWith('number') ? String(exp + (disagree ? numbers++ % 2 : 0)) : accepted ? '2.71%' : '2.1%'})};
+    const result = await R.readHud(engine, frame, regions, templates, {safari, ...(level ? {table, previousLevel: 21} : {})});
+    return {result, glyphCalls};
+  };
+  for (const level of [true, false]) {
+    const {result, glyphCalls} = await run({level});
+    assert.deepEqual([result.status, result.exp, result.bp], ['ok', exp, 271]);
+    assert.equal(glyphCalls, 6);  // Unknown 2 agrees crisply; unknown % needs smoothing.
+    assert.ok(result.raw.exp.some((r) => r.glyphs && r.text === '2.71%'));
+    assert.notEqual((await run({level, disagree: true})).result.status, 'ok');
+  }
+  const other = await run({safari: false});
+  assert.notEqual(other.result.status, 'ok'); assert.equal(other.glyphCalls, 0);
+  const accepted = await run({accepted: true});
+  assert.equal(accepted.result.status, 'ok'); assert.equal(accepted.glyphCalls, 0);
+  const unlearned = await run({templates: {}});
+  assert.notEqual(unlearned.result.status, 'ok'); assert.equal(unlearned.glyphCalls, 0);
+  assert.notEqual((await run({texts: ['2', '3', '2', '3']})).result.status, 'ok');
+  assert.notEqual((await run({texts: ['3', '3', '', '', '%', '%']})).result.status, 'ok');  // Table mismatch.
+  assert.notEqual((await run({templates: {...known, [glyphs[2].key]: '?'}})).result.status, 'ok');
+});
+
+test('Safari can separate blurred number strokes with one unique table-consistent pair', async () => {
+  const R = await import(new URL('reader.js', web));
+  const frame = {width: 100, height: 24, data: new Uint8ClampedArray(100 * 24 * 4)};
+  const paint = (x, y, rgb) => frame.data.set([...rgb, 255], (y * frame.width + x) * 4);
+  for (const x of [40, 90]) for (let y = 4; y < 15; y++) paint(x, y, [160, 185, 130]);
+  for (let y = 6; y < 13; y++) for (const x of [10, 11, 12, 18, 19, 20, 50, 51, 52]) paint(x, y, [255, 255, 255]);
+  for (const y of [8, 9]) for (let x = 13; x < 18; x++) paint(x, y, [130, 130, 130]);  // Blur joins two strokes.
+  const exp = Math.ceil(E.requirement(table, 21) * .03), bp = Math.floor(exp * 10000 / E.requirement(table, 21));
+  assert.equal(E.consistency(table, 21, exp + 1, bp), 'consistent');  // Two valid candidates must be rejected.
+  const run = async ({safari = true, level = true, disagree = false, mismatch = false, accepted = false, partial = false} = {}) => {
+    let separated = 0;
+    const engine = {read: async (bytes, field) => {
+      if (!field.startsWith('number')) return {text: `${(bp / 100).toFixed(2)}%`};
+      const header = new TextDecoder().decode(bytes.subarray(0, 40)).match(/^P5\n(\d+) (\d+)\n255\n/);
+      const width = Number(header[1]), height = Number(header[2]), scale = (width - 16) / 40;
+      const column = 8 + Math.floor(15.5 * scale), pixels = bytes.subarray(header[0].length);
+      const joined = Array.from({length: height}, (_, y) => pixels[y * width + column]).includes(0);
+      if (!joined) separated++;
+      if (partial && separated === 1) return {text: String(Math.floor(exp / 10))};  // One magnification drops a digit.
+      return {text: accepted || !joined ? String(exp * (mismatch ? 2 : 1) + (disagree ? separated % 2 : 0)) : ''};
+    }};
+    return {result: await R.readHud(engine, frame, {exp: {x0: 0, y0: 0, x1: 98, y1: 21}}, null,
+      {safari, ...(level ? {table, previousLevel: 21} : {})}), separated};
+  };
+  const fixed = await run();
+  assert.deepEqual([fixed.result.status, fixed.result.exp, fixed.result.bp], ['ok', exp, bp]);
+  assert.equal(fixed.separated, 2);
+  assert.deepEqual(fixed.result.raw.exp.filter((r) => r.field === 'number').slice(-2).map((r) => [r.smooth, r.threshold]),
+    [[false, 150], [false, 150]]);
+  assert.equal((await run({partial: true})).result.exp, exp);  // Only the complete observed number fits.
+  for (const options of [{safari: false}, {level: false}, {disagree: true}, {mismatch: true}]) {
+    assert.notEqual((await run(options)).result.status, 'ok');
+  }
+  const accepted = await run({accepted: true});
+  assert.equal(accepted.result.status, 'ok'); assert.equal(accepted.separated, 0);
 });
 
 test('pickups: a bilinear-stretched corner is unstretched back to the game pixels', async () => {
@@ -407,6 +782,44 @@ test('identity: a matching on-screen name skips the different-character pause; j
   assert.equal(R.matchJob('Swenrdsrman', V.JOBS), null);
   assert.equal(R.matchJob('', V.JOBS), null);
 });
+
+test('a softened job needs two matching reads and a unique known job', async () => {
+  const R = await import(new URL('reader.js', web));
+  const frame = {width: 24, height: 12, data: new Uint8ClampedArray(24 * 12 * 4).fill(120)};
+  const run = async (texts) => {
+    let calls = 0;
+    const result = await R.readIdentity({read: async (_, field) => {
+      assert.equal(field, 'job'); calls++; return {text: texts.shift()};
+    }}, frame, {job: {x0: 0, y0: 0, x1: 24, y1: 12}}, null, V.JOBS);
+    return {...result, calls};
+  };
+  assert.equal((await run(['Swdrdsman', 'Zegrdsman', 'Zwardsman', 'Zwtd seman', 'Swordsman', 'Swordsman'])).job, 'Swordsman');
+  assert.equal((await run(['', '', '', '', 'Fighter', 'Page', 'Spearman', 'Swordsman'])).job, null);
+  assert.equal((await run(['', '', '', '', 'Wizard', 'Wizard'])).job, null);
+  assert.equal((await run(['Swordsman', 'Swordsman'])).calls, 2);
+});
+
+for (const initialKey of ['job', 'old-job']) {
+  test(`job OCR failures retry without caching a success: ${initialKey}`, async () => {
+    const saved = [], reads = [null, 'Swordsman'];
+    const current = {nameChecked: 1, lastFrame: {}}, outcome = {frameWidth: 1366, frameHeight: 796,
+      identity: {nameKey: 'name', jobKey: 'job', jobGlyphs: []}, boxes: {job: {}}};
+    let attempts = 0;
+    const context = vm.createContext({character: {id: 1, nameKey: 'name', nameSize: '1366x796', nameGlyphs: [], nameSource: 'user', job: 'Beginner', jobKey: initialKey},
+      engine: {}, JOBS: V.JOBS, readIdentity: async () => { attempts++; return {job: reads.shift()}; },
+      teachLetters: async () => {}, refreshCharacters: async () => {}, broadcast() {},
+      store: {async saveCharacter(c) { saved.push(c); return 1; }, async getCharacter() { return saved.at(-1); }},
+    });
+    vm.runInContext(app.slice(app.indexOf('const ownsName ='), app.indexOf('async function handle(')), context);
+    await context.identify(current, outcome, 1000); await context.identify(current, outcome, 2000);
+    assert.equal(attempts, 1); assert.equal(saved.length, 0);
+    assert.equal(context.character.jobKey, initialKey); assert.equal(context.character.job, 'Beginner');
+    await context.identify(current, outcome, 3000); assert.equal(attempts, 1);
+    await context.identify(current, outcome, 32000); await context.identify(current, outcome, 33000);
+    assert.equal(attempts, 2); assert.equal(context.character.job, 'Swordsman'); assert.equal(context.character.jobKey, 'job');
+    await context.identify(current, outcome, 34000); assert.equal(attempts, 2);
+  });
+}
 
 test('panel lines beside the level badge give stable per-line keys', async () => {
   const G = await import(new URL('glyphs.js', web));
@@ -502,6 +915,19 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   };
   assert.equal(P.messageLines(frame([[48, 1]])).length, 1);
   assert.equal(P.messageLines(frame([])).length, 0);
+  // Synthetic softened strokes: a grey backdrop, dark shadow and a partial 3x3 blur, without game pixels.
+  const sharp = frame([[48, 1]]), softened = {width, height, data: new Uint8ClampedArray(width * height * 4).fill(60)};
+  const grayAt = (x, y) => sharp.data[(y * width + x) * 4] === 235 ? 220 : sharp.data[(y * width + x) * 4] === 0 ? 0 : 60;
+  for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
+    let value = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) value += grayAt(x + dx, y + dy) * (dx ? 1 : 2) * (dy ? 1 : 2) / 16;
+    value = value * .8 + grayAt(x, y) * .2;
+    softened.data.set([value, value, value, 255], (y * width + x) * 4);
+  }
+  assert.equal(P.messageLines(softened).length, 0);
+  assert.equal(P.messageLines(softened, true, true).length, 1);
+  assert.equal(P.messageLines(frame([]), true, true).length, 0);
+  assert.equal(P.messageLines(frame([[48, 1]]), true, true).length, 1);
   // Each new message enters at the bottom and pushes the stack up one 14-pixel slot. Messages are
   // reported once their lines have left the screen, each exactly once.
   const early = P.stackTracker();  // Lines already on screen when tracking starts are not counted.
@@ -554,6 +980,10 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   assert.equal(P.resolveItem(more, {name: 'Sliver Ora', cut: false, tab: null}).name, 'Silver Ore');
   assert.equal(P.resolveItem(more, {name: 'Si', cut: false, tab: null}), null);
   assert.equal(P.resolveItem([...more, {name: 'Silver Ora', tab: 'Etc'}], {name: 'Sliver Orb', cut: false, tab: null}), null);  // Two close: no guess.
+  const feathers = [{name: 'Stiff Feather', tab: 'Etc'}, {name: 'Soft Feather', tab: 'Etc'}];
+  assert.equal(P.resolveItem(feathers, {name: 'Sift Feather', cut: false, tab: 'Etc'}), null);
+  assert.equal(P.resolveItem(feathers, {name: 'Stitf Feather', cut: false, tab: 'Etc'}).name, 'Stiff Feather');
+  for (const item of feathers) assert.equal(P.resolveItem(feathers, {name: item.name, cut: false, tab: 'Etc'}), item);
   // A cut name that also starts Use items: the one Etc item (a drop) wins the tie; two Etc items still don't.
   const caps = [{name: 'Orange Mushroom Cap', tab: 'Etc'}, {name: 'Orange Mushroom Daydream', tab: 'Use'}, {name: 'Orange Mushroom Package', tab: 'Use'}];
   assert.equal(P.resolveItem(caps, {name: 'Orange Mushro', cut: true, tab: null}).name, 'Orange Mushroom Cap');
@@ -586,6 +1016,56 @@ test('pickup messages: outlined text lines, stack counting and reading helpers',
   assert.equal(F.readLine(font8, taught), '?');
   assert.equal(F.learnLine(font8, taught, '8'), 1);
   assert.equal(F.readLine(font8, taught), '8');
+});
+
+test('Safari retries unread pickup messages in word mode without replacing parsed readings', async () => {
+  const S = await import(new URL('pickup-session.js', web));
+  const mask = {width: 12, height: 12, bits: new Uint8Array(144)};
+  const run = async (soft, first = '') => {
+    const fields = [], engine = {exclusive: (fn) => fn(), read: async (_, field) => {
+      fields.push(field);
+      return {text: field === 'messageWord' ? 'You have gained mesos (+12)' : first};
+    }};
+    return {result: await S.readMessage(engine, [mask, mask], [], null, soft), fields};
+  };
+  const safari = await run(true);
+  assert.deepEqual(safari.result.parsed, {kind: 'mesos', amount: 12, approx: false});
+  assert.deepEqual(safari.fields, ['message', 'message', 'messageWord', 'messageWord']);
+  const other = await run(false);
+  assert.equal(other.result.parsed, null); assert.deepEqual(other.fields, ['message', 'message']);
+  const existing = await run(true, 'You have gained mesos (+15)');
+  assert.equal(existing.result.parsed.amount, 15); assert.deepEqual(existing.fields, ['message', 'message']);
+});
+
+test('Safari keeps known font digits when the fixed words are unreadable', async () => {
+  const mask = {width: 120, height: 12, bits: new Uint8Array(1440)};
+  for (const soft of [false, true]) {
+    const context = vm.createContext({binarize: H.binarize, pgm: H.pgm, lineWords: () => [],
+      readLine: () => 'Y?u have ?ai?ed ????s (+888)', learnLine() {}, amountSpan: () => null, URL, setTimeout, clearTimeout,
+    });
+    vm.runInContext(pickupSession.replace(/^import .*;\n/gm, '').replaceAll('export ', '')
+      .replaceAll('import.meta.url', JSON.stringify(new URL('pickup-session.js', web).href)), context);
+    const engine = {exclusive: (fn) => fn(), read: async () => ({text: 'You have gained mesos (+808)'})};
+    const result = await context.readMessage(engine, [mask, mask], [], {}, soft);
+    assert.equal(result.parsed.amount, soft ? 888 : 808);
+    assert.equal(result.parsed.approx, false);
+  }
+});
+
+test('Safari reads the amount suffix with delimiters instead of a possibly clipped digit span', async () => {
+  const S = await import(new URL('pickup-session.js', web));
+  const mask = {width: 180, height: 12, bits: new Uint8Array(2160)};
+  for (const soft of [false, true]) for (const amount of ['30(+13)', '1313']) {
+    const fields = [], engine = {exclusive: (fn) => fn(), read: async (_, field) => {
+      fields.push(field);
+      return {text: field === 'amount' ? amount : 'You have gained mesos'};
+    }};
+    const result = await S.readMessage(engine, [mask, mask], [], null, soft);
+    if (soft && amount === '30(+13)') {
+      assert.deepEqual(result.parsed, {kind: 'mesos', amount: 13, approx: false});
+    } else assert.equal(result.parsed, null);
+    assert.equal(fields.includes('amount'), soft);
+  }
 });
 
 test('pickup message font: learned glyphs read later lines, misaligned lines are refused', async () => {
