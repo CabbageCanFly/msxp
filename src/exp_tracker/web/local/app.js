@@ -248,6 +248,11 @@ async function stop(reason = 'stopped') {
   await current.recording?.stop();
   current.stream.getTracks().forEach((t) => t.stop());
   if (current.video) current.video.srcObject = null;
+  // The text readers' WebAssembly memory never shrinks, so an idle page would keep all of it (measured 2026-11-15:
+  // an idle tab held ~870 MB, its page scripts ~40 MB). Start loads fresh ones, once (a second or two).
+  const readers = [enginePromise, pickupEnginePromise];
+  engine = enginePromise = pickupEnginePromise = null;
+  for (const reader of readers) reader?.then((e) => e.terminate(), () => {});
   window.removeEventListener('beforeunload', guardUnload);
   document.body.dataset.tracking = 'off';
   $('start').hidden = false; $('stop').hidden = true;
