@@ -14,7 +14,7 @@ msxp test
 
 Git must be installed and signed in with access to the private data repository. The command reads its
 manifest, downloads only missing required files, verifies original bytes, and removes the temporary Git
-download afterward. About 729 MB of test inputs remain installed; old research is not downloaded.
+download afterward. About 868 MB of test inputs remain installed; old research is not downloaded.
 Different local files are never overwritten. `--check` downloads only the manifest and verifies installed
 inputs; it fails if a required file is missing or changed. Correct existing files are not downloaded again.
 
@@ -59,6 +59,31 @@ skip this set when its private manifest is absent. Existing test expectations st
   recordings, screenshots and crops never go into Git (see [AGENTS.md](../AGENTS.md)). These tests skip
   when their files are absent, so a public checkout stays green. Only the maintainer runs them.
 
+### Safari browser captures
+
+The 2026-11 Safari set adds **139 MB** of required inputs under `samples/safari/`: twelve
+lossless HUD strips, six pickup archives containing 542 PNG frames, and their private labels
+and provenance manifest. `msxp test-data` restores these through the existing checksum manifest.
+No expanded RGBA files, OCR caches, local history exports or installed language models are backed up.
+
+`msxp test` now includes `tests/test_local_browser.py`. With **Node.js 18+** it runs the
+synthetic browser checks; with the private fixtures and Tesseract it also replays the saved
+pixels through the production JavaScript readers. It checks HUD readings with fresh and learned
+glyph banks, saved job/name cases, and exact item counts and meso amounts in all six clips.
+The English model comes from the site's vendored data. PNG decoding and temporary OCR output
+use normal pytest temporary storage. Missing Node, Tesseract or private fixtures produce explicit
+skips; no network, screen sharing or running browser is needed for these checks.
+
+These are **native Tesseract replays**, not execution of Safari's capture APIs or WebAssembly
+runtime. The recordings include a known missed final +12 at c01's clip boundary; c06 begins with
+an inherited fading message that must not be counted. Live Safari behavior is documented separately
+in [the personal tracker guide](local-tracker.md).
+
+The private data repository's optional `research/2026-11-safari/` keeps about **31 MB** of
+additional source captures and compact investigation scripts. It has no restore targets and is
+excluded from `msxp test-data`. The seventh recording there has not been given asserted labels.
+All original capture pixels are retained losslessly; generated RGBA/PGM files can be recreated.
+
 ## What the private data is, and how to recreate it
 
 | Data | Where | Recreatable from |
@@ -71,6 +96,7 @@ skip this set when its private manifest is absent. Existing test expectations st
 | Two-feed screenshots (percentage-only HUD, second gameplay feed): 1–21 at level 71, 23–29 at level 72 after a feed swap (70 MB) | `samples/two-feed/` | Nothing; copy `two-feed/` back from the private test-data repository |
 | Saved capture logs for replay tests | `private/test-fixtures/runs/` | A frozen copy of tracker logs. Tests read an anonymized copy built from it using the private `names.json` |
 | Compact live regressions (28.5 MB) | `samples/live-regression/` | Restore with `msxp test-data`; the private manifest holds the labels and provenance |
+| Safari browser replays (139 MB) | `samples/safari/` | Restore with `msxp test-data`; lossless HUD PNGs, original pickup archives and private labels |
 
 `tools/rebuild_fixture_crops.py --check` regenerates every crop from its saved full frame (or recording fallback) and compares pixels
 without writing. On 2026-10-23 all 414 crops above came back identical.

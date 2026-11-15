@@ -128,6 +128,10 @@ test-data repository can run `msxp test-data`, then `msxp test`. Only missing re
 and checked; the full research archive and a permanent data-repo clone are not kept locally.
 See [private test data](docs/private-test-data.md) for recovery details.
 
+With Node.js 18 or newer installed, `msxp test` also runs the browser tracker's synthetic
+checks and the restored Safari capture replays. These checks skip when Node.js is absent;
+the private replays also need Tesseract (`msxp install`).
+
 ### Manage streamers without a browser
 
 ```bash
