@@ -591,7 +591,12 @@ html, body.product { overflow-x:clip; }
 .companion-cards .next-card:has(.eta-plan):hover .eta-plan, .companion-cards .eta-plan:focus-visible { border-color:var(--gold-deep);
   background:linear-gradient(#ffd68c,var(--gold-deep)); color:var(--on-gold); }
 .planner { width:min(420px,calc(100vw - 32px)); }
-.planner-now { color:var(--text-muted); font-size:13px; font-weight:700; }
+.planner-from { display:grid; grid-template-columns:92px 92px auto; justify-content:start; align-items:end; gap:10px; }
+/* Icon only, quiet until hovered: back to the reading's level and EXP. */
+.planner-reset { display:grid; place-items:center; width:24px; height:24px; min-height:0; margin:0 0 6px 1px; padding:0; border:0;
+  border-radius:50%; background:transparent; color:var(--text-muted); font:inherit; font-size:16px; line-height:1; opacity:.7; cursor:pointer; }
+.planner-reset:hover:not(:disabled), .planner-reset:focus-visible { border-radius:50%; background:color-mix(in srgb, var(--gold) 14%, transparent); color:var(--gold); opacity:1; }
+.planner-reset[hidden] { display:none; }
 .planner-inputs { display:grid; grid-template-columns:minmax(0,1fr) 92px 92px; gap:10px; margin:10px 0 12px; }
 .planner-inputs input { width:100%; }
 .planner label { position:relative; }

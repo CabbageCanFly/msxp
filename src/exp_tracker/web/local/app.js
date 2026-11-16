@@ -777,7 +777,7 @@ function render() {
   $('movement').textContent = view.recent == null ? '—' : fmtExp(view.recent);
   $('tracked-exp').textContent = view.dayGain == null ? '—' : expText(view.dayGain);
   $('tracked-note').textContent = view.dayGain == null ? `${expText(view.totalGain)} EXP tracked on this device` : `${duration(view.dayCovered)} observed · ${expText(view.totalGain)} all time`;
-  plannerState = {level: view.last?.level ?? null, exp: view.last?.exp ?? null, rate: view.perHour, tracked: view.dayCovered};
+  plannerState = {level: view.last?.level ?? null, exp: view.last?.exp ?? null, bp: view.last?.bp ?? null, rate: view.perHour, tracked: view.dayCovered};
   $('eta').textContent = view.eta == null ? '—' : duration(view.eta);
   $('eta-note').textContent = view.eta == null ? (view.last && !view.total ? 'No EXP table for this level' : 'Needs an EXP / hour') : `${fmtExp(view.total - view.last.exp)} EXP to go`;
   renderPickups(now);

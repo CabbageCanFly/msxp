@@ -34,7 +34,7 @@ export const finish = (hours, daily, now) => {
 export const playable = (ms, daily) => { const days = Math.floor(ms / 864e5); return days * daily + Math.min((ms - days * 864e5) / 36e5, daily); };
 // When a level is reached: the clock time when playing all day, else "Today", "Tomorrow", a weekday within the
 // week or the date (with the year when it is not this year's).
-const date = (at, now) => at.toLocaleDateString(undefined, {month: 'short', day: 'numeric', ...(at.getFullYear() !== new Date(now).getFullYear() && {year: 'numeric'})});
+const date = (at, now) => at.toLocaleDateString('en-US', {month: 'short', day: 'numeric', ...(at.getFullYear() !== new Date(now).getFullYear() && {year: 'numeric'})});
 export const when = (hours, daily, now) => {
   if (daily >= 24) {
     const at = new Date(now + hours * 36e5), time = at.toLocaleTimeString(undefined, {hour: 'numeric', minute: '2-digit'});
@@ -52,6 +52,10 @@ const local = (at) => new Date(at - new Date(at).getTimezoneOffset() * 6e4).toIS
 const node = (tag, props = {}, ...children) => { const n = Object.assign(document.createElement(tag), props); n.append(...children); return n; };
 
 let goal = null, daily = null;  // Kept while the page is open.
+// The planner starts from the reading's level and percentage, which can be edited to plan from elsewhere. Without
+// a reading it starts from the last one typed (Lv. 1 at 0% at first), at 50,000 EXP an hour and 2 hours a day
+// toward Lv. 40: a plan before the first scan, or for another character.
+let fromLevel = 1, fromPercent = 0;
 const opened = new Set();  // Levels whose EXP is shown (a tap on the row).
 
 /**
@@ -61,15 +65,16 @@ const opened = new Set();  // Levels whose EXP is shown (a tap on the row).
  * set the "By" date; changing the date sets the EXP / hour that date needs.
  */
 export function openPlanner(root, table, state) {
-  const level = state.level, now = Date.now();
+  const now = Date.now(), typed = !state.level;
   root.replaceChildren();
-  if (!level || !need(table, level)) { root.append(node('p', {className: 'planner-empty', textContent: level ? 'No EXP table for this level.' : 'Waiting for a reading.'})); return; }
-  const exp = state.exp ?? (state.bp != null ? state.bp / 10000 * need(table, level) : 0);
-  const current = state.rate ?? (state.pph != null ? state.pph / 100 * need(table, level) : null);
-  let top = level + 1;
+  if (!typed && !need(table, state.level)) { root.append(node('p', {className: 'planner-empty', textContent: 'No EXP table for this level.'})); return; }
+  let top = 2;
   while (need(table, top)) top++;  // The level after the table's last requirement (Lv. 100).
-  if (!goal || goal <= level || goal > top) goal = Math.min(top, Math.ceil((level + 1) / 10) * 10);
-  daily ??= state.tracked >= 1800 ? Math.min(24, Math.round(state.tracked / 1800) / 2) : 4;
+  let level = typed ? fromLevel : state.level;
+  let exp = typed ? fromPercent / 100 * need(table, level) : state.exp ?? (state.bp != null ? state.bp / 10000 * need(table, level) : 0);
+  const current = state.rate ?? (state.pph != null ? state.pph / 100 * need(table, level) : typed ? 50000 : null);
+  if (!goal || goal <= level || goal > top) goal = typed ? Math.max(level + 1, Math.min(top, 40)) : Math.min(top, Math.ceil((level + 1) / 10) * 10);
+  daily ??= state.tracked >= 1800 ? Math.min(24, Math.round(state.tracked / 1800) / 2) : typed ? 2 : 4;
 
   const rate = node('input', {type: 'text', inputMode: 'numeric', autocomplete: 'off', value: current ? numbers.format(Math.round(current)) : '', placeholder: '50,000'});
   const hours = node('input', {type: 'number', inputMode: 'decimal', min: .5, max: 24, step: .5, value: daily});
@@ -90,8 +95,18 @@ export function openPlanner(root, table, state) {
   const head = node('div', {className: 'planner-head'}, node('span', {textContent: 'Lvl'}), node('span', {textContent: 'Play time'}), node('span', {textContent: 'Reached'}));
   head.setAttribute('aria-hidden', 'true');
   box.append(head, steps);
+  // The starting point: the reading, or (without one) a level and percentage to type in.
+  const fromLvl = node('input', {type: 'number', inputMode: 'numeric', min: 1, max: top - 1, step: 1, value: level});
+  const fromPct = node('input', {type: 'number', inputMode: 'decimal', min: 0, max: 99.99, step: .01,
+    value: typed ? fromPercent : state.bp != null ? state.bp / 100 : Math.round(exp / need(table, level) * 10000) / 100});  // As the HUD shows it.
+  // With a reading, Reset (shown once the start is edited) goes back to it.
+  const reading = {level: fromLvl.value, percent: fromPct.value};
+  const reset = node('button', {type: 'button', className: 'planner-reset', textContent: '↺', title: 'Back to the current level and EXP', hidden: true});
+  reset.setAttribute('aria-label', 'Back to the current level and EXP');
+  const start = node('div', {className: 'planner-from'},
+    node('label', {}, node('span', {textContent: 'From Lvl'}), fromLvl), node('label', {}, node('span', {textContent: 'At %'}), fromPct), ...(typed ? [] : [reset]));
   root.append(
-    node('p', {className: 'planner-now', textContent: `Lv. ${level} · ${((exp / need(table, level)) * 100).toFixed(2)}%`}),
+    start,
     node('div', {className: 'planner-inputs'},
       node('label', {}, node('span', {textContent: 'EXP / hour'}), rate),
       node('label', {}, node('span', {}, 'Hours / day', capped), hours),
@@ -138,6 +153,19 @@ export function openPlanner(root, table, state) {
     draw();
   };
   rate.addEventListener('input', update);
+  // A typed start: the level within the table and a percentage below 100; the goal stays above it.
+  const restart = () => {
+    const typedLevel = Math.round(Number(fromLvl.value)), typedPercent = Number(fromPct.value);
+    if (!(typedLevel >= 1 && typedLevel < top) || !(typedPercent >= 0 && typedPercent < 100)) return;
+    level = typedLevel; exp = typedPercent / 100 * need(table, level);
+    reset.hidden = fromLvl.value === reading.level && fromPct.value === reading.percent;
+    if (typed) { fromLevel = typedLevel; fromPercent = typedPercent; }  // A reading's own start is not remembered.
+    target.min = level + 1;
+    if (goal <= level) { goal = level + 1; target.value = goal; }
+    update();
+  };
+  fromLvl.addEventListener('input', restart); fromPct.addEventListener('input', restart);
+  reset.addEventListener('click', () => { fromLvl.value = reading.level; fromPct.value = reading.percent; restart(); fromLvl.focus(); });
   hours.addEventListener('input', () => {
     cap(hours, capped, 24);
     daily = Number(hours.value) > 0 ? Number(hours.value) : null;
