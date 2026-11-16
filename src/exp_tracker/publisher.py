@@ -58,7 +58,9 @@ def broadcast(players, statuses, now):
         status['capture_disagreement'] = bool(status['status'] == 'offline' and value.get('latest_attempt_at') and status.get('checked_at')
             and datetime.fromisoformat(value['latest_attempt_at']) >= datetime.fromisoformat(status['checked_at']) - timedelta(seconds=60)
             and value['latest_attempt_status'] != 'capture_failed')
-    return [refresh(p, now=now, activity=p.get('activity')) for p in players]
+    # Callers pass values fresh from player() (already copied): updating them in place saves a second deep copy,
+    # which was most of the streamer list's build time.
+    return [refresh(p, now=now, activity=p.get('activity'), copy=False) for p in players]
 
 
 def numbers(estimates):
@@ -445,10 +447,14 @@ class Publisher:
             self.stats['presentations'] += 1; self.stats['present_seconds'] += time.perf_counter() - tick
             return body
 
-    def player(self, entry, now):
-        card = entry['card']
-        value = refresh(entry['public']['player'], now=now, activity=operation(entry['extras']['lifecycle'], self.server.coordinator_status.get(card['channel']), now))
-        value = tracked_statistics(value, entry['public']['tracked'], now=now, pace_as_of=datetime.fromisoformat(card['recent_as_of']))
+    def player(self, entry, now, character_page=True):
+        card = entry['card']; record = entry['public']['player']
+        # The Streamers list never shows the character page's current-level windows: leave them out before the copy
+        # (about a third of a record) instead of copying and refreshing them only to delete them.
+        if not character_page:record = {k: v for k, v in record.items() if k not in CHARACTER_ONLY}
+        value = refresh(record, now=now, activity=operation(entry['extras']['lifecycle'], self.server.coordinator_status.get(card['channel']), now))
+        value = tracked_statistics(value, entry['public']['tracked'], now=now, pace_as_of=datetime.fromisoformat(card['recent_as_of']),
+            current_level=character_page)
         value['activity'] = public(value['activity'])  # The coordinator's runtime state joins at presentation.
         if entry.get('restored'):value['publication']=dict(state='restored',computed_at=entry['built_at'],updating=True)
         return value
@@ -462,13 +468,13 @@ class Publisher:
             for head in heads:
                 entry = entries.get(head['login'])
                 if entry is None:warming.append(head['login']);continue
-                value = self.player(entry, now)
+                value = self.player(entry, now, character_page=False)
                 # Same chart-only buckets as the profile; long-gap gains remain in the 24h total.
                 value['day_buckets'] = [None if b['chart_value'] is None else round(b['chart_value']['approximate']) for b in entry['public']['tracked']['buckets']]
                 if entry.get('restored'):
                     warming.append(head['login'])
                     value['publication']=dict(state='restored',computed_at=entry['built_at'],updating=True)
-                for field in CHARACTER_ONLY:del value[field]
+                for field in CHARACTER_ONLY:value.pop(field, None)
                 players.append(value)
             body = dict(players=[board(p) for p in broadcast(players, statuses, now)], served_at=utc(now), truncated=truncated, experimental=True, poll_seconds=4)
             if warming:body['warming'] = warming

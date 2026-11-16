@@ -199,14 +199,17 @@ def fraction(value):
     return Fraction(value['numerator'],value['denominator'])
 
 
-def tracked_statistics(value,data,*,now,pace_as_of=None):
-    """One saved-character/as-of packet supplies every public tracked-EXP total."""
+def tracked_statistics(value,data,*,now,pace_as_of=None,current_level=True):
+    """One saved-character/as-of packet supplies every public tracked-EXP total. current_level=False skips the
+    current-level windows (only the character page's level toggle reads them)."""
     value['tracked_as_of']=data['as_of'];value['tracked_status']=data['status']
     as_of=datetime.fromisoformat(data['as_of'])
     value['tracked_windows']=deepcopy(data['windows'])
-    value['tracked_current_level_windows']=deepcopy(data['current_level_windows'])
-    for windows,rate_windows in ((value['tracked_windows'],value['recent_windows']),
-                                (value['tracked_current_level_windows'],value['current_level_windows'])):
+    pairs=[(value['tracked_windows'],value['recent_windows'])]
+    if current_level:
+        value['tracked_current_level_windows']=deepcopy(data['current_level_windows'])
+        pairs.append((value['tracked_current_level_windows'],value['current_level_windows']))
+    for windows,rate_windows in pairs:
         for metric in windows.values():
             observed=metric.get('observed',{})
             if not observed.get('available'):continue
@@ -595,8 +598,9 @@ def player(snapshot,*,now=None,recent_snapshot=None):
     return refresh(result,now=now)
 
 
-def refresh(value,*,now=None,activity=None):
-    now=now or datetime.now(timezone.utc);value=deepcopy(value)
+def refresh(value,*,now=None,activity=None,copy=True):
+    """Ages and freshness as of now, on a copy; copy=False updates a value the caller already owns (a fresh copy)."""
+    now=now or datetime.now(timezone.utc);value=deepcopy(value) if copy else value
     latest=value['reading'];age=(now-datetime.fromisoformat(latest['timestamp'])).total_seconds() if latest else None
     value['age_seconds']=max(0,age) if age is not None else None
     value['latest_attempt_age_seconds']=(now-datetime.fromisoformat(value['latest_attempt_at'])).total_seconds() if value.get('latest_attempt_at') else None
