@@ -52,3 +52,9 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
 /* No background (?bg=none): the card fills the window edge to edge, a plain rectangle (keying out a background
    took bits of item icons with it). */
 .local-overlay[data-bg="none"] #card { width:100vw; height:100vh; margin:0; border:0; border-radius:0; box-shadow:none; box-sizing:border-box; }
+/* Tells viewers this overlay is the local tracker, not the Twitch one: a quiet "/local" pill after the site name,
+   in the header's own ink (the Twitch overlay has none). Hidden with the title. */
+.local-tag { flex:none; margin-left:-2px; padding:1px 5px 2px; border-radius:999px; background:#0000002e;
+  font:600 10px/1 "Fredoka", sans-serif; letter-spacing:.3px; opacity:.85; white-space:nowrap; }
+[data-header-ink="dark"] .local-tag { background:#ffffff4d; }
+[data-title="none"] .local-tag { display:none; }
