@@ -426,6 +426,29 @@ test('percentage-only: parsed and estimated as the Twitch tracker; misreads and 
   assert.ok(!run([est(0, 71, 7863), est(5, 71, 7863), est(10, 72, 7863), est(15, 72, 7863)]).accepted.some((a) => a.kind === 'level_up'));
 });
 
+test('Free play: another name on screen for three scans starts a fresh baseline; fades never do', async () => {
+  const source = app.match(/^async function identifyFree\(current, outcome, at\) \{[\s\S]*?^\}$/m)[0];
+  let evidence = 'ocr_and_table';
+  const identifyFree = vm.runInNewContext(`(${source.replace('async function identifyFree', 'async function')})`, {asReading: () => ({evidence})});
+  const scan = (key) => ({identity: key ? {nameKey: key} : null});
+  const current = {tracker: {last: r(0, 20, 5000), pending: null, reference: null}};
+  assert.equal(await identifyFree(current, scan('A'), 0), null);  // The first name is adopted at once.
+  assert.equal(current.tracker.last.exp, 5000);
+  assert.equal(await identifyFree(current, scan('A'), 1), null);
+  assert.equal(await identifyFree(current, scan(null), 2), null);  // No name line: carry on.
+  evidence = 'none';  // A logout fade: never counts toward a change.
+  assert.equal(await identifyFree(current, scan('B'), 3), 'name_confirming');
+  evidence = 'ocr_and_table';
+  assert.equal(await identifyFree(current, scan('B'), 4), 'name_confirming');
+  assert.equal(await identifyFree(current, scan('B'), 5), 'name_confirming');
+  assert.equal(current.tracker.last.exp, 5000);  // Not yet: the previous character's state is kept.
+  assert.equal(await identifyFree(current, scan('B'), 6), null);
+  assert.equal(JSON.stringify(current.tracker), '{"last":null,"pending":null,"reference":null}');  // Fresh baseline: no jump counted.
+  // The next readings start that baseline: the first waits, the second is a baseline with no gain.
+  const {accepted} = run([r(10, 35, 100), r(11, 35, 120)], current.tracker);
+  assert.deepEqual(accepted.map((a) => [a.kind, a.gain]), [['baseline', null], ['gain', 20]]);
+});
+
 test('a percentage-only HUD reads its percentage; a dot before "[" is not a number', async () => {
   const R = await import(new URL('reader.js', web));
   const read = async (digit, percents = null) => {

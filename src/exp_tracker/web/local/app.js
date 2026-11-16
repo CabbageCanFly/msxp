@@ -71,15 +71,15 @@ const getPickupEngine = () => pickupEnginePromise ??= import('./ocr.js').then((m
 // ---------- characters ----------
 
 async function refreshCharacters() {
-  const list = (await store.characters()).sort((a, b) => a.name.localeCompare(b.name));
+  const all = await store.characters(), list = all.filter((c) => !c.free).sort((a, b) => a.name.localeCompare(b.name));
   const select = $('character-select');
   select.replaceChildren(...list.map((c) => new Option(c.name, c.id)), new Option('+ New character…', 'new'));
-  character = list.find((c) => c.id === settings.activeCharacterId) ?? list[0] ?? null;
+  character = all.find((c) => c.id === settings.activeCharacterId) ?? list[0] ?? null;
   // A fallback (the saved one is gone, e.g. after an import) is saved too: the overlays follow the saved one.
   if ((character?.id ?? null) !== (settings.activeCharacterId ?? null)) {
     settings.activeCharacterId = character?.id ?? null; await store.setSetting('activeCharacterId', settings.activeCharacterId);
   }
-  select.value = character ? String(character.id) : 'new';
+  select.value = character && !character.free ? String(character.id) : String(settings.characterBeforeFree ?? list[0]?.id ?? 'new');
   readingsCache = character ? await store.readings(character.id, Date.now() - store.DETAIL_MS) : [];
   daysCache = character ? await store.days(character.id) : [];
   pickupsCache = character ? await store.pickups(character.id, Date.now() - store.DETAIL_MS) : [];
@@ -111,6 +111,19 @@ async function saveCharacterForm(asNew) {
   if (!isNew && name !== character.name) await teachLetters(character.nameGlyphs, name, true);
   $('editor').hidePopover();
   await selectCharacter(id);
+}
+
+// Free play: one shared record that follows no character (no name or job; EXP, mesos and items for whoever is
+// playing). Its 24 hours of detail and daily summaries stay like any character's, so ticking the box also shows them.
+async function setFreePlay(on) {
+  const all = await store.characters();
+  if (on) {
+    if (character && !character.free) { settings.characterBeforeFree = character.id; await store.setSetting('characterBeforeFree', character.id); }
+    return selectCharacter(all.find((c) => c.free)?.id ?? await store.saveCharacter({name: 'Free play', job: '', free: true, nameSource: 'user'}));
+  }
+  const real = all.filter((c) => !c.free);
+  return selectCharacter(real.find((c) => c.id === settings.characterBeforeFree)?.id ?? real[0]?.id
+    ?? await store.saveCharacter({name: 'New character', nameSource: 'placeholder', job: 'Beginner'}));
 }
 
 async function selectCharacter(id) {
@@ -455,6 +468,21 @@ async function teachLetters(keys, text, authoritative = false) {
 // A character's name bitmap, or one learned for another screen size (each size draws other pixels).
 const ownsName = (c, key) => c.nameKey === key || Object.values(c.nameKeys ?? {}).includes(key);
 
+// Free play follows no character, but a different name on screen (three scans, as in identify) is another
+// character: the tracker starts a fresh baseline, so the jump between their EXP is never counted.
+async function identifyFree(current, outcome, at) {
+  const key = outcome.identity?.nameKey;
+  if (!key || key === current.freeName) { current.nameStreak = null; return null; }
+  if (current.freeName == null) { current.freeName = key; return null; }
+  const evidence = asReading(outcome, at, null).evidence;
+  if (evidence !== 'ocr_and_table' && evidence !== 'ocr_only') { current.nameStreak = null; current.burst = Math.max(current.burst || 0, 1); return 'name_confirming'; }
+  current.nameStreak = current.nameStreak?.key === key ? {key, count: current.nameStreak.count + 1} : {key, count: 1};
+  if (current.nameStreak.count < 3) { current.burst = Math.max(current.burst || 0, 1); return 'name_confirming'; }
+  current.nameStreak = null; current.freeName = key;
+  current.tracker = {last: null, pending: null, reference: null};
+  return null;
+}
+
 async function identify(current, outcome, at) {
   const id = outcome.identity;
   if (!id?.nameKey) return null;
@@ -543,7 +571,7 @@ function asReading(outcome, at, previous) {
 async function handle(current, outcome, at) {
   let status = outcome.status, reason = outcome.reason, accepted = [];
   // Name and job reads hold the text reader too, so a pickup read cannot change its settings midway.
-  const switched = status === 'ok' ? await engine.exclusive(() => identify(current, outcome, at)) : null;
+  const switched = status === 'ok' ? await engine.exclusive(() => (character.free ? identifyFree : identify)(current, outcome, at)) : null;
   if (switched === 'character_switched' || capture !== current) { render(); return; }
   if (switched) { status = 'identity_pending'; reason = switched; }
   if (status === 'ok') {
@@ -551,7 +579,7 @@ async function handle(current, outcome, at) {
     const resolved = asReading(outcome, at, previous);
     if (resolved.level === null) { status = 'rejected'; reason = resolved.reason; }
     else {
-      const trustedIdentity = Boolean(character.nameKey && outcome.identity?.nameKey && ownsName(character, outcome.identity.nameKey));
+      const trustedIdentity = Boolean(character.free || character.nameKey && outcome.identity?.nameKey && ownsName(character, outcome.identity.nameKey));
       const result = step(table, current.tracker, resolved.reading, {maxGapSeconds: maxGapFor(settings.interval), trustedIdentity});
       current.tracker = result.state; accepted = result.accept; status = result.status; reason = result.reason;
       if (status === 'pending') current.burst = Math.max(current.burst || 0, 1);  // Confirm a second later.
@@ -732,6 +760,8 @@ function render() {
   const now = Date.now();
   const view = summarize(table, character, readingsCache, now, settings.window, {sessionId: capture?.sessionId ?? null, levelOnly: charts.levelOnly, live: Boolean(capture)});
   $('player-name').textContent = character?.name || 'Your character';
+  const free = Boolean(character?.free);
+  $('free-play').checked = free; $('character-select').disabled = free; $('character-edit').disabled = free; $('free-note').hidden = !free;
   $('player-job').hidden = !character?.job;
   if (character?.job) { $('player-job-icon').src = jobIcon(character.job); $('player-job-name').textContent = character.job; }
   $('level').textContent = view.last ? `Lv. ${view.last.level}` : 'Lv. —';
@@ -761,6 +791,9 @@ function render() {
 
 // The live character page's chart panel: EXP bars, Level % line, or daily History.
 function drawHistory(view, now = Date.now()) {
+  // Level % and History follow one character's level, so Free play shows EXP bars only.
+  for (const b of document.querySelectorAll('[data-chart="percentage"], [data-chart="daily"]')) { b.disabled = Boolean(character?.free); b.title = character?.free ? 'Not in Free play' : ''; }
+  if (character?.free) charts.mode = 'exp';
   const svg = $('history-chart'), daily = charts.mode === 'daily', long = charts.bucket === 1800;
   pressed('[data-chart]', 'chart', charts.mode); pressed('[data-bucket]', 'bucket', charts.bucket);
   pressed('[data-line-window]', 'lineWindow', charts.lineWindow); pressed('[data-daily-days]', 'dailyDays', charts.days);
@@ -963,6 +996,7 @@ async function init() {
     settings.pickups = event.target.checked;
     await store.setSetting('pickups', settings.pickups);
     if (settings.pickups) await startPickupTracking(); else await stopPickupTracking();
+  $('free-play').addEventListener('change', (event) => setFreePlay(event.target.checked).catch((error) => setStatus(`Couldn't switch Free play: ${error.message}`, 'warn')));
     render();
   });
   setupCharts();
@@ -1026,7 +1060,7 @@ async function init() {
   try {
     await loadTable();
     if (!await lockHeldElsewhere()) await store.closeAbandoned();
-    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'mesoWindow', 'mesoTotalWindow', 'itemWindow', 'itemKind', 'pickupFont']) {
+    for (const key of ['interval', 'window', 'calibration', 'activeCharacterId', 'glyphs', 'letters', 'pickups', 'scenery', 'liveKind', 'liveWindow', 'mesoWindow', 'mesoTotalWindow', 'itemWindow', 'itemKind', 'pickupFont', 'characterBeforeFree']) {
       const value = await store.getSetting(key);
       if (value !== undefined) settings[key] = value;
     }
