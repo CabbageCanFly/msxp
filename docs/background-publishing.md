@@ -47,6 +47,15 @@ received two or three captures at once. An expired entry joins the new captures 
 publication. Cold-start work grows with the visible roster; there is no fixed
 channel-count publication limit.
 
+**Idle channels (2026-11-16).** A channel without a capture for an hour (`IDLE_AFTER_SECONDS`) has only its
+24-hour window left to age, so it is refreshed every 10 minutes (`IDLE_REFRESH_SECONDS`) instead of every
+30 s, and its 10 s rolling-window expiry no longer applies. A new capture still rebuilds it at once, and a pace
+that ages out still changes state (`pace_due`). Measured on the VPS that day: 116 directory channels, 17 live
+and 74 without a reading for over 24 hours; the refresher thread used 98% of a core and a live channel's
+tracked revision changed about every 75 s instead of 30 s. At ≈0.35 s per build, refreshing every channel
+every 30 s needs ≈1.35 cores; with idle channels every 10 minutes the estimate is ≈0.75. Not yet measured
+after deployment.
+
 **Shared window work.** One `recent_windows` pass (5 min to 24 h, current and basis
 clocks) used to re-sort and re-evaluate every pair of the day's endpoints for each window.
 `window_endpoints(memo=)` keeps one sorted order and each pair's interval for calls over the

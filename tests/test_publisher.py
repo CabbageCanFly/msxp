@@ -11,6 +11,7 @@ from urllib.error import HTTPError
 import pytest
 
 import exp_tracker.server as server_module
+import exp_tracker.publisher as publisher_module
 import exp_tracker.diagnostics as diagnostics_module
 from exp_tracker.diagnostics import Diagnostics,operation
 from exp_tracker.product import refresh,tracked_statistics
@@ -418,11 +419,26 @@ def test_changed_channel_cannot_starve_expired_channel(tracking,clock):
     path,store,d=tracking;store.add_channel('quiet')
     with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
         p=server.publisher;p.settle();before=p.entry('quiet')['built_at']
-        clock.at+=timedelta(seconds=31)
+        clock.at+=timedelta(seconds=publisher_module.IDLE_REFRESH_SECONDS+1)  # 'quiet' has no capture: idle.
         for i in range(1,4):
             save(d,'run',i,i*20,3300+i)
             p.step()
         assert p.entry('quiet')['built_at']!=before
+
+
+def test_idle_channels_refresh_every_ten_minutes_and_recent_ones_every_thirty_seconds(tracking,clock):
+    """Most channels are offline: only their 24-hour window still ages, so they are not rebuilt every 30 s."""
+    path,store,d=tracking;store.add_channel('quiet')
+    save(d,'run',1,0,3301)  # alpha: a capture now; quiet: none.
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;p.settle();start=clock.at
+        assert p.due(p.heads,start+timedelta(seconds=31))==['alpha']
+        assert set(p.due(p.heads,start+timedelta(seconds=publisher_module.IDLE_REFRESH_SECONDS+1)))=={'alpha','quiet'}
+        # An hour without a capture: alpha is idle too, so 31 s alone no longer makes it due.
+        later=start+timedelta(seconds=publisher_module.IDLE_AFTER_SECONDS+31)
+        with p.lock:
+            for entry in p.entries.values():entry['built_at']=(later-timedelta(seconds=31)).isoformat()
+        assert p.due(p.heads,later)==[]
 
 
 def test_new_capture_is_published_before_time_only_expiry(tracking,clock,monkeypatch):
