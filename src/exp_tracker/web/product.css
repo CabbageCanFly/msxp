@@ -80,10 +80,14 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 /* Wide screens: muted honey draws attention beside the quieter About tab; phones keep the
    text link, as the tabs are hidden there. Only on the deployed site, like the link. */
 @media(min-width:651px) { .reading-info .local-link { display:none; } }
+/* A link to the other tracker, styled as the About tab (a gold tab read as "you are here"); the gold arrow says
+   it goes somewhere. */
 .local-tab { display:block; padding:5px 14px 7px; border:1px solid var(--line); border-bottom:0; border-radius:var(--radius) var(--radius) 0 0;
-  background:linear-gradient(#d5a15c,#bb8445); box-shadow:inset 0 1px #e2b879; color:var(--on-gold); font:500 14px/18px var(--font-display); text-decoration:none; }
-.reading-info .local-tab { color:var(--on-gold); }  /* Over the intro line's muted link colour. */
-.local-tab:hover { background:linear-gradient(#e3b370,#ce9853); }
+  background:linear-gradient(#303b50,#273145); box-shadow:inset 0 1px #46526a; color:#fff3dc; font:500 14px/18px var(--font-display); text-decoration:none; }
+.reading-info .local-tab { color:#fff3dc; }  /* Over the intro line's muted link colour. */
+.local-tab::after { content:"→"; display:inline-block; margin-left:6px; color:#ffd68c; transition:transform .15s ease-out; }
+.reading-info .local-tab:hover { background:linear-gradient(#3a475f,#303b50); color:#fff; }
+.local-tab:hover::after { transform:translateX(2px); }
 html:not([data-api]) :is(.local-link, .local-tab) { display:none; }
 .welcome { padding:18px 4px 30px; }
 .eyebrow { color:var(--gold); letter-spacing:2px; font-size:12px; font-weight:800; margin:0; }
