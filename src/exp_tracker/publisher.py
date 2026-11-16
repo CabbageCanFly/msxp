@@ -23,18 +23,13 @@ import threading
 import time
 
 from .character_automation import PLACEHOLDER_CHARACTER
-from .diagnostics import Diagnostics, due, operation, pace_due
+from .diagnostics import Diagnostics, due, operation
 from .product import refresh, tracked_statistics
 from .store import Store, utc
 from .twitch_probe import outside_maplestory
 
 PRESENT_SECONDS = 1  # A presented body is reused for at most this long.
 TRACKED_SECONDS = 30  # Tracked windows age even without a new capture, as before.
-# A channel without a capture for an hour has only its 24-hour window left to age: refreshing it every 30 s (and
-# its 24-hour window every 10 s) was most of the publisher's work, since most channels are offline. A new capture
-# still rebuilds it at once, and a pace that ages out still changes state (pace_due).
-IDLE_AFTER_SECONDS = 3600
-IDLE_REFRESH_SECONDS = 600
 SUMMARY_SECONDS = 5  # Idle refresher: at most one inactive character's Characters-list summary per this many seconds.
 RETRY_SECONDS = (5, 60)  # Failed channel refresh: exponential backoff bounds.
 # Never in public responses, at any depth: internal identities, capture scheduling, and
@@ -53,12 +48,6 @@ MAX_VIEWS = 8  # Unselected-character views across all channels.
 VIEW_IDLE_SECONDS = 60
 VIEW_KEEP_SECONDS = 1800  # A first view replays the character's saved runs (seconds); keep it for a return visit.
 MAX_CHANNEL_VIEWS = 8  # Hidden/historical channels requested directly, separate from directory slots.
-
-
-def idle(player, now):
-    """No capture for IDLE_AFTER_SECONDS (or none at all)."""
-    latest = player.get('latest_attempt_at')
-    return not latest or now - datetime.fromisoformat(latest) >= timedelta(seconds=IDLE_AFTER_SECONDS)
 
 
 def broadcast(players, statuses, now):
@@ -299,11 +288,6 @@ class Publisher:
             if failure and now < failure[1]:continue
             if entry is None or entry.get('restored'):rank = (0 if login in self.wanted else 1, '')
             elif entry['key'] != tuple(head):rank = (2, entry['built_at'])
-            elif idle(entry['card']['player'], now):
-                if not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=IDLE_REFRESH_SECONDS):
-                    rank = (2, entry['built_at'])
-                elif pace_due(entry['card']['player'], now):rank = (3, entry['built_at'])
-                else:continue
             elif not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=TRACKED_SECONDS):
                 rank = (2, entry['built_at'])
             elif due(entry['card']['player'], entry['card']['recent_as_of'], now):rank = (3, entry['built_at'])
