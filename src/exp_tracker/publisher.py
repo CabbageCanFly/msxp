@@ -30,6 +30,9 @@ from .twitch_probe import outside_maplestory
 
 PRESENT_SECONDS = 1  # A presented body is reused for at most this long.
 TRACKED_SECONDS = 30  # Tracked windows age even without a new capture, as before.
+IDLE_AFTER_SECONDS = 3600  # No capture for this long: the channel is idle.
+IDLE_REFRESH_SECONDS = 600  # An idle channel's 24h windows still age, so it is refreshed this often.
+IDLE_EVERY = 4  # While other channels are due, at most every IDLE_EVERY-th build refreshes an idle one.
 SUMMARY_SECONDS = 5  # Idle refresher: at most one inactive character's Characters-list summary per this many seconds.
 RETRY_SECONDS = (5, 60)  # Failed channel refresh: exponential backoff bounds.
 # Never in public responses, at any depth: internal identities, capture scheduling, and
@@ -48,6 +51,11 @@ MAX_VIEWS = 8  # Unselected-character views across all channels.
 VIEW_IDLE_SECONDS = 60
 VIEW_KEEP_SECONDS = 1800  # A first view replays the character's saved runs (seconds); keep it for a return visit.
 MAX_CHANNEL_VIEWS = 8  # Hidden/historical channels requested directly, separate from directory slots.
+
+
+def is_idle(player, now):
+    latest = player.get('latest_attempt_at')
+    return latest is None or now - datetime.fromisoformat(latest) >= timedelta(seconds=IDLE_AFTER_SECONDS)
 
 
 def broadcast(players, statuses, now):
@@ -246,7 +254,9 @@ class Publisher:
                     self.summary_due = time.monotonic() + SUMMARY_SECONDS
                     self.build(diagnostics, store, missing[0][0], now, view=(('view', *missing[0]), None))
                 elif views and (not pending or self.stats['steps'] % 2):self.build(diagnostics, store, views[0][1][1], now, view=views[0][1:])
-                elif pending:self.build(diagnostics, store, pending[0], now)
+                elif pending:
+                    spare = next((login for login in pending if (entry := self.entries.get(login)) and is_idle(entry['card']['player'], now)), None)
+                    self.build(diagnostics, store, spare if spare and self.stats['steps'] % IDLE_EVERY == 0 else pending[0], now)
                 if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in directory):
                     self.stats['ready_at'] = time.monotonic()
                 return len(pending) + len(requested) + len(views) > 1
@@ -280,14 +290,19 @@ class Publisher:
 
     def due(self, heads, now):
         """Cold (wanted first), then new captures and expired entries older than TRACKED_SECONDS,
-        oldest first, then other time-only expiries. With many live channels something always
-        expires, and new readings queued behind those reached viewers several captures at once."""
+        oldest first, then other time-only expiries, then idle channels every IDLE_REFRESH_SECONDS. With many
+        live channels something always expires, and new readings queued behind those reached viewers
+        several captures at once."""
         ranked = []
         for head in heads:
             login = head['login']; entry = self.entries.get(login); failure = self.failures.get(login)
             if failure and now < failure[1]:continue
             if entry is None or entry.get('restored'):rank = (0 if login in self.wanted else 1, '')
             elif entry['key'] != tuple(head):rank = (2, entry['built_at'])
+            elif is_idle(entry['card']['player'], now):
+                # Last: step() spaces these out, so a backlog (all built together at startup) never blocks live captures.
+                if timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=IDLE_REFRESH_SECONDS):continue
+                rank = (4, entry['built_at'])
             elif not timedelta(0) <= now - datetime.fromisoformat(entry['built_at']) < timedelta(seconds=TRACKED_SECONDS):
                 rank = (2, entry['built_at'])
             elif due(entry['card']['player'], entry['card']['recent_as_of'], now):rank = (3, entry['built_at'])

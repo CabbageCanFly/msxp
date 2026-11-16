@@ -11,6 +11,7 @@ from urllib.error import HTTPError
 import pytest
 
 import exp_tracker.server as server_module
+import exp_tracker.publisher as publisher_module
 import exp_tracker.diagnostics as diagnostics_module
 from exp_tracker.diagnostics import Diagnostics,operation
 from exp_tracker.product import refresh,tracked_statistics
@@ -418,11 +419,22 @@ def test_changed_channel_cannot_starve_expired_channel(tracking,clock):
     path,store,d=tracking;store.add_channel('quiet')
     with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
         p=server.publisher;p.settle();before=p.entry('quiet')['built_at']
-        clock.at+=timedelta(seconds=31)
-        for i in range(1,4):
+        clock.at+=timedelta(seconds=publisher_module.IDLE_REFRESH_SECONDS+1)  # 'quiet' never captured: idle.
+        for i in range(1,publisher_module.IDLE_EVERY+1):
             save(d,'run',i,i*20,3300+i)
             p.step()
         assert p.entry('quiet')['built_at']!=before
+
+
+def test_idle_channel_refreshes_every_ten_minutes_while_a_recent_one_refreshes_every_thirty_seconds(tracking,clock):
+    path,store,d=tracking;store.add_channel('quiet')
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;save(d,'run',1,20,3301);p.settle()
+        quiet,alpha=p.entry('quiet')['built_at'],p.entry('alpha')['built_at']
+        clock.at+=timedelta(seconds=publisher_module.TRACKED_SECONDS+1);p.settle()
+        assert p.entry('alpha')['built_at']!=alpha and p.entry('quiet')['built_at']==quiet
+        clock.at+=timedelta(seconds=publisher_module.IDLE_REFRESH_SECONDS);p.settle()
+        assert p.entry('quiet')['built_at']==clock.at.isoformat()
 
 
 def test_new_capture_is_published_before_time_only_expiry(tracking,clock,monkeypatch):

@@ -288,3 +288,25 @@ separate result objects; typed checkpoint round trips; restart-cache recovery an
 This pass was not deployed or benchmarked on the VPS. Card projection and full-day
 interval aggregation still dominate publication cost; a larger reduction would require
 further measured changes to those calculations.
+
+## Production CPU pass (2026-11-16)
+
+Measured on the VPS (116 channels, 17 live): the publisher thread held one core at ≈96%
+and live channels updated every 43–50 s. A 30 s in-process stack sample (`sys.remote_exec`,
+nothing restarted) attributed 56% of the thread to one query in `step()`: finding each
+streamer's latest run scanned `diagnostic_runs` once per streamer (118 × ≈2,300 rows,
+≈170 ms per step). It now groups once (≈7 ms, identical rows on the live database).
+Deployed: warm-up after a restart fell from ≈7.5 to 3.7 min, rebuilds rose from 113 to
+168 per minute and live channels updated every ≈36 s.
+
+- **Idle channels:** no capture for an hour (`IDLE_AFTER_SECONDS`) means only the 24h
+  windows age, so such a channel is refreshed every 10 minutes (`IDLE_REFRESH_SECONDS`)
+  instead of every 30 s. These refreshes rank last, and while other work is due at most
+  every fourth build (`IDLE_EVERY`) is one. A first attempt ranked them with new captures:
+  every idle channel, built together at startup, came due together and delayed live
+  channels to ≈5 minutes until it was reverted.
+- **Arithmetic:** `responsive_pace(..., intervals=False)` skips the per-interval records
+  `recent_windows` discarded, and `window_endpoints` sums whole-EXP gains and microsecond
+  coverage as integers instead of `Fraction`s. One synthetic full-day channel, ten
+  rebuilds (cold, 10 s steps, then aging past each window): output byte-identical, warm
+  rebuild ≈0.59 → ≈0.44 s.
