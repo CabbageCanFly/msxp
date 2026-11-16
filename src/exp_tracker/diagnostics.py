@@ -424,13 +424,15 @@ class Diagnostics:
         rows = list(reversed(rows[:limit]))
         observations = []
         previous = None
-        links={}
+        links={};runs={}  # A run's settings and summary are shared by its ~60 rows: decoded once each.
         for row in rows:
             payload = json.loads(row['payload_json'])
             value = observation(payload)  # Same HTTP allowlist as the log viewer.
             value['grammar_recovery'] = propose_full_exp(value['raw_text'])
             value['interpretations'] = interpret_exp(value['raw_text'])
-            config=json.loads(row['configuration_json'])
+            if row['run_id'] not in runs:
+                runs[row['run_id']]=(json.loads(row['configuration_json']),bool(row['summary_json'] and json.loads(row['summary_json']).get('interrupted')))
+            config,interrupted=runs[row['run_id']]
             if config.get('timing_mode')=='simulated': value['timing_mode']='simulated'
             value['interval_seconds'] = config['interval']
             value['rotation_from']=None
@@ -444,7 +446,7 @@ class Diagnostics:
             value['coordinator_instance']=config.get('coordinator_instance') if re.fullmatch(r'[0-9a-f]{32}',str(config.get('coordinator_instance'))) else None
             value.update(assigned_channel=state['channel'], character_id=selected['id'], session_id=session['id'],
                          run_start_reason=config.get('start_reason') if config.get('start_reason') in ('process_start','scheduled_rotation','automatic_character_switch') else None,
-                         run_interrupted=bool(row['summary_json'] and json.loads(row['summary_json']).get('interrupted')))
+                         run_interrupted=interrupted)
             localization = payload.get('localization')
             count = localization.get('count') if isinstance(localization, dict) else None
             value['hud_count'] = count if type(count) is int and 0 <= count <= 200 else None
