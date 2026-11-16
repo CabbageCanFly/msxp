@@ -80,12 +80,15 @@ so their requests stay same-origin. `--api-origin` takes precedence over
 the same rule as the server's `--cors-origin`. Anything else, including paths, trailing
 slashes, uppercase or wildcards, stops the build; `product.js` also refuses to start with
 a malformed value. The origin is fixed at build time; no URL parameter can change it.
-`_headers` sends `default-src 'self'; connect-src 'self' <API origin>`, so browsers load
-every script, stylesheet, font, image and frame from the Pages origin and send network
-requests only there and to the API. `/local`, `/local/*`, `/local-overlay` and `/static/local/*`
+`_headers` sends `default-src 'self'; script-src 'self' https://static.cloudflareinsights.com;
+connect-src 'self' <API origin> https://cloudflareinsights.com`, so browsers load every script,
+stylesheet, font, image and frame from the Pages origin, plus Cloudflare Web Analytics' beacon
+(injected by Pages when Web Analytics is on; cookieless), and send network requests only there,
+to the API and to the analytics report. `/local`, `/local/*`, `/local-overlay` and `/static/local/*`
 detach that policy (`! Content-Security-Policy`) and send their own: the same rules plus
-`'wasm-unsafe-eval'` and `worker-src 'self'` for the OCR worker, and `connect-src 'self'` with no
-API origin, because the local tracker never contacts the API.
+`'wasm-unsafe-eval'` and `worker-src 'self'` for the OCR worker. The local tracker's only API
+request is one `GET /ping/local` per page load, carrying no data; Caddy answers it 404 and its
+access log (`/var/log/caddy/msxp-access.log`) counts `/local` visits.
 
 The Caddy allowlist (`deploy/Caddyfile`) already covers the player GET routes, including
 `/api/players/{channel}/daily-history`; no proxy change is needed for that endpoint.

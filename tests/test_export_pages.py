@@ -124,8 +124,10 @@ def test_mob_sprites_match_the_names_product_js_uses():
 def test_cloudflare_rewrites_keep_public_routes_and_nothing_else(out):
     assert (out / '_redirects').read_text(encoding='utf-8').splitlines() == ROUTES
     headers = (out / '_headers').read_text(encoding='utf-8')
-    # default-src 'self' keeps scripts, styles, fonts, images and frames on the Pages origin; only the API is added.
-    assert f"default-src 'self'; connect-src 'self' {API};" in headers and "frame-ancestors 'self'" in headers
+    # default-src 'self' keeps scripts, styles, fonts, images and frames on the Pages origin; only the API and
+    # Cloudflare Web Analytics (its beacon script and its report) are added.
+    assert (f"default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; "
+            f"connect-src 'self' {API} https://cloudflareinsights.com;") in headers and "frame-ancestors 'self'" in headers
 
 
 @pytest.fixture
@@ -278,25 +280,31 @@ def test_about_popover_is_identical_on_home_and_player_pages():
     assert about('tracker.html') == about('player.html')
 
 
-def test_local_tracker_pages_get_their_own_policy_and_never_contact_the_api(out, preview):
-    """/local runs OCR (WebAssembly in a same-origin worker) and keeps readings in the browser."""
+def test_local_tracker_pages_get_their_own_policy_and_send_only_a_visit_ping(out, preview):
+    """/local runs OCR (WebAssembly in a same-origin worker) and keeps readings in the browser; its only API request
+    is one visit ping that carries no data."""
     headers = (out / '_headers').read_text(encoding='utf-8')
+    policy = export_pages.local_policy(API)
     for path in export_pages.LOCAL_PATHS:
-        assert f'{path}\n  ! Content-Security-Policy\n  Content-Security-Policy: {export_pages.LOCAL_POLICY}' in headers
-    assert "connect-src 'self';" in export_pages.LOCAL_POLICY and API not in export_pages.LOCAL_POLICY
+        assert f'{path}\n  ! Content-Security-Policy\n  Content-Security-Policy: {policy}' in headers
+    assert f"connect-src 'self' {API} https://cloudflareinsights.com;" in policy
     for path, marker in (('/local', b'Start tracking'), ('/local/', b'Start tracking'), ('/local/overlay', b'local-overlay'),
                          ('/local/overlay?layout=rates', b'local-overlay')):
         status, body, response = get(preview + path)
         assert status == 200 and marker in body, path
-        assert response['Content-Security-Policy'] == export_pages.LOCAL_POLICY, path
+        assert response['Content-Security-Policy'] == policy, path
     _, _, response = get(preview + '/static/local/vendor/worker.min.js')
-    assert response['Content-Security-Policy'] == export_pages.LOCAL_POLICY  # A worker gets its own script's policy.
+    assert response['Content-Security-Policy'] == policy  # A worker gets its own script's policy.
     assert get(preview + '/static/local/vendor/tesseract-core-simd-lstm.wasm')[2]['Content-Type'] == 'application/wasm'
     assert "'wasm-unsafe-eval'" not in get(preview + '/')[2]['Content-Security-Policy']  # Other pages keep the strict policy.
-    # Local modules fetch only same-origin static files and never read the API origin.
+    # Local modules fetch only same-origin static files; the API origin is read once, for the visit ping alone.
+    readers = []
     for module in (export_pages.WEB / 'local').glob('*.js'):
         # The SVG namespace is an identifier, not a request.
         source = module.read_text(encoding='utf-8').replace("'http://www.w3.org/2000/svg'", "''")
-        assert 'data-api' not in source and 'dataset.api' not in source and '/api/' not in source, module.name
+        assert 'data-api' not in source and '/api/' not in source, module.name
+        if 'dataset.api' in source:readers.append((module.name, source.count('dataset.api'), source.count('${api}')))
         assert set(re.findall(r"fetch\('([^']*)'", source)) <= {'/static/local/community-exp.json', '/static/local/items/items.json'}, module.name
         assert 'https://' not in source and 'http://' not in source, module.name
+    assert readers == [('app.js', 1, 1)]
+    assert "fetch(`${api}/ping/local`, {mode: 'no-cors', cache: 'no-store', credentials: 'omit'})" in (export_pages.WEB / 'local/app.js').read_text(encoding='utf-8')

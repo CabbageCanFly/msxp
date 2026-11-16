@@ -16,6 +16,13 @@
 }
 
 API_HOSTNAME {
+	# Access log: counts /local visits (its one GET /ping/local per page load, answered 404 below) and API use.
+	log {
+		output file /var/log/caddy/msxp-access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000"

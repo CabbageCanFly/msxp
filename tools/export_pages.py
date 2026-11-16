@@ -51,10 +51,16 @@ REDIRECTS = ('/streams / 200', '/streams/ / 200', '/stream/:channel /player 200'
              '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200',
              '/local/ /local 200', '/local/overlay /local-overlay 200', '/local/overlay/ /local-overlay 200')
 ROUTES = {'/', '/streams', '/local', '/local/overlay'}
-# The local tracker compiles WebAssembly (OCR) in a same-origin worker and never contacts the API.
+# Cloudflare Web Analytics (enabled on the Pages project, which injects its beacon): its script and its report.
+ANALYTICS_SCRIPT, ANALYTICS_REPORT = 'https://static.cloudflareinsights.com', 'https://cloudflareinsights.com'
+# The local tracker compiles WebAssembly (OCR) in a same-origin worker. Its only API request is one visit ping per
+# page load (app.js), which carries no data: the API host's access log counts /local visits.
 LOCAL_PATHS = ('/local', '/local/*', '/local-overlay', '/static/local/*')
-LOCAL_POLICY = ("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; "
-                "object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'")
+
+
+def local_policy(origin):
+    return (f"default-src 'self'; script-src 'self' 'wasm-unsafe-eval' {ANALYTICS_SCRIPT}; worker-src 'self'; "
+            f"connect-src 'self' {origin} {ANALYTICS_REPORT}; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'")
 CACHED = ('/static/fonts/*', '/static/steely.png', '/static/sleepywood.webp', '/static/sleepywood-forest.webp',
           '/static/kerning.webp', '/static/kerning-sky.webp', '/static/mobs/*', '/static/jobs/*', '/static/classes/*', '/static/local/vendor/*', '/static/local/items/*')
 NOT_FOUND = '''<!doctype html>
@@ -92,11 +98,12 @@ def page(name, origin):
 
 
 def headers(origin):
-    policy = f"default-src 'self'; connect-src 'self' {origin}; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'"
+    policy = (f"default-src 'self'; script-src 'self' {ANALYTICS_SCRIPT}; connect-src 'self' {origin} {ANALYTICS_REPORT}; "
+              "object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'")
     lines = ['/*', f'  Content-Security-Policy: {policy}', '  X-Content-Type-Options: nosniff',
              '  Referrer-Policy: strict-origin-when-cross-origin']
     # '!' detaches the site-wide policy so these paths get their own (Cloudflare _headers syntax).
-    for path in LOCAL_PATHS:lines += [path, '  ! Content-Security-Policy', f'  Content-Security-Policy: {LOCAL_POLICY}']
+    for path in LOCAL_PATHS:lines += [path, '  ! Content-Security-Policy', f'  Content-Security-Policy: {local_policy(origin)}']
     for path in CACHED:lines += [path, '  Cache-Control: public, max-age=86400']
     return '\n'.join(lines) + '\n'
 

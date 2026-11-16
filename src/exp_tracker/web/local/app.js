@@ -913,6 +913,10 @@ function pressed(selector, attribute, value) {
 }
 
 async function init() {
+  // One request per visit, to a path the API host answers with 404: its access log is how /local visits are
+  // counted. It carries nothing (no readings, no cookies); only the deployed site names an API origin.
+  const api = document.documentElement.dataset.api;
+  if (api) fetch(`${api}/ping/local`, {mode: 'no-cors', cache: 'no-store', credentials: 'omit'}).catch(() => {});
   $('character-job').replaceChildren(...JOBS.map((j) => new Option(j, j)));
   $('start').addEventListener('click', start);
   $('stop').addEventListener('click', () => stop('stopped'));
@@ -992,11 +996,11 @@ async function init() {
     settings.scenery = $('scenery-toggle').getAttribute('aria-pressed') !== 'true';
     showScenery(settings.scenery); store.setSetting('scenery', settings.scenery).catch(() => {});
   });
+  $('free-play').addEventListener('change', (event) => setFreePlay(event.target.checked).catch((error) => setStatus(`Couldn't switch Free play: ${error.message}`, 'warn')));
   $('track-pickups').addEventListener('change', async (event) => {
     settings.pickups = event.target.checked;
     await store.setSetting('pickups', settings.pickups);
     if (settings.pickups) await startPickupTracking(); else await stopPickupTracking();
-  $('free-play').addEventListener('change', (event) => setFreePlay(event.target.checked).catch((error) => setStatus(`Couldn't switch Free play: ${error.message}`, 'warn')));
     render();
   });
   setupCharts();

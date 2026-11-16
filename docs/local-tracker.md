@@ -4,8 +4,9 @@
 share the MapleStory window from a desktop browser (tested: Chrome, Edge, Brave and Opera on Windows, Chrome and Safari on macOS; Firefox is not supported); the page reads the EXP bar every few seconds and
 keeps the history in this browser. It is independent of the VPS, the API and the production
 database: the page and its OCR runtime are static Pages files, and the page's Content Security
-Policy allows network requests only to its own origin (`connect-src 'self'`), so readings cannot be
-sent anywhere.
+Policy allows network requests only to its own origin, the API host and Cloudflare Web Analytics. The
+page sends one data-free `GET /ping/local` to the API host per visit (counted in its access log) and
+never sends readings, mesos, items or screen images anywhere.
 
 ## Using it
 
