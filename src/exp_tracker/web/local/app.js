@@ -707,7 +707,7 @@ function renderPickups(now) {
   }
   const span = settings.itemWindow === 1440 ? '24 hours' : `${settings.itemWindow} min`;
   $('pickup-note').textContent = (view.items.length ? `Items picked up in the last ${span}. ` : `No items picked up in the last ${span}. `)
-    + 'Pickups are read from the game\'s messages, so a few can be missed or misread.';
+    + 'Pickups are read from the game\'s text messages, so some can be misread.';
 }
 
 const ITEM_KINDS = {1: 'equip', 2: 'use', 4: 'etc'};
