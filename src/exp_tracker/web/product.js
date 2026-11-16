@@ -108,6 +108,9 @@ function applyOverlay(o) {
   if(view==='overlay'){
     el('general-history-caption').textContent=historyLabel;
     el('general-chart').setAttribute('aria-label',`EXP history: ${historyLabel}; dashes mean no data`);
+    // The EXP chart layout follows the same interval and window as the General card (and the chart panel's pills).
+    el('hour-caption').textContent=`EXP per ${historyLabel}`;
+    el('overlay-chart').setAttribute('aria-label',`EXP gained per ${historyLabel}`);
   }
   for(const key of OVERLAY_COLORS)if(/^[0-9a-f]{6}$/.test(o[key] ?? ''))document.body.style.setProperty('--'+key,'#'+o[key]);else document.body.style.removeProperty?.('--'+key);
   el('overlay-brand').textContent={site:'msxp.pages.dev',tracker:'EXP TRACKER',none:''}[o.title];
@@ -659,7 +662,7 @@ function renderPlayer() {
       n.textContent=rate?`${expText(rate.value.approximate)}`:'—';n.dataset.paused=String(!!windowPace && !windowPace.active && faded(windowPace.age));
     }
     if(document.body.dataset.layout==='card')drawHourChart(el('general-chart'),Number(document.body.dataset.interval),Number(document.body.dataset.range)*60);
-    else if(document.body.dataset.layout==='chart')drawHourChart();
+    else if(document.body.dataset.layout==='chart')drawHourChart(el('overlay-chart'),Number(document.body.dataset.interval),Number(document.body.dataset.range)*60);
   }
   if(view==='player') {
     const rolling=rollingData?.character_id===p.character?.id?rollingData:null;
@@ -771,8 +774,8 @@ function drawHourChart(svg=el('overlay-chart'),seconds=300,range=3600) {
   if(!chart){el('hour-total').textContent='—';return;}
   const shape=(tag,attrs)=>{const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);svg.append(n);return n;};
   const max=Math.max(1,...chart.bins.map(b=>b.value ?? 0));
-  // The "Last hour" layout gets a y-axis and the peak's value; the General card's mini chart stays bare.
-  // No time labels: the caption already says "last hour", and a "now" would crowd the Updated line below.
+  // The EXP chart layout gets a y-axis and the peak's value; the General card's mini chart stays bare.
+  // No time labels: the caption already names the window, and a "now" would crowd the Updated line below.
   // It is drawn at its real pixel size so the text is not stretched (OBS keeps the source a fixed size).
   const labelled=svg===el('overlay-chart'),width=labelled?svg.clientWidth || 462:462,height=labelled?svg.clientHeight || 90:76;
   const left=labelled?28:0,top=labelled?11:2,bottom=height-2,scale=10**Math.floor(Math.log10(max));

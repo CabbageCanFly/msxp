@@ -2016,7 +2016,11 @@ test('General overlay shows minute history, preserves missing and zero bins, and
   p.run('applyOverlay(overlayOptions("?layout=bar"))');
   assert.equal(p.context.document.body.dataset.layout,'bar');
   assert.equal(p.elements.progress.value,5.9);assert.equal(p.elements.rate.textContent,'2K');
-  p.run('applyOverlay(overlayOptions("?layout=chart"))');assert.equal(p.elements['overlay-chart'].children.filter(n=>n.tag==='rect').length,12);
+  // The EXP chart layout follows the chosen interval and window, as the General card does.
+  p.run('applyOverlay(overlayOptions("?layout=chart"))');assert.equal(p.elements['overlay-chart'].children.filter(n=>n.tag==='rect').length,60);
+  assert.equal(p.elements['hour-caption'].textContent,'EXP per 1 min · last hour');
+  p.run('applyOverlay(overlayOptions("?layout=chart&interval=300&range=60"))');assert.equal(p.elements['overlay-chart'].children.filter(n=>n.tag==='rect').length,12);
+  assert.equal(p.elements['hour-caption'].textContent,'EXP per 5 min · last hour');
   p.run('delete data.tracked_history;applyOverlay(overlayOptions(""))');
   assert.equal(p.elements['general-chart'].children.length,0);
 });
