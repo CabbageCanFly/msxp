@@ -652,6 +652,22 @@ test('homepage pace ranking allows saved estimates only within the selected fres
   }
 });
 
+test('% / hour sits beside the pace note; a saved ETA alone shows its own EXP / hour as last seen',()=>{
+  const p=page('player');
+  const pace={active:true,age_seconds:0,estimates:{exp_per_hour:{value:{approximate:2000}},percentage_per_hour:{value:{approximate:1.23}},eta:null}};
+  p.render(player({recent_windows:{5:{status:'ready',pace}}}));
+  assert.equal(p.elements['pp-stat'].hidden,false);assert.equal(p.elements['pp-rate'].textContent,'1.23');
+  // Offline with no current pace, but an ETA kept from 6 days ago with the rate it was estimated at.
+  p.render(player({stale:true,estimates:null,recent_windows:{5:{status:'ready',eta:{estimate:{seconds:7200},age_seconds:518400,
+    historical:true,window_minutes:5,rate:{approximate:243540},rate_age_seconds:518400}}}}));
+  assert.equal(p.elements['rate-label'].textContent,'Last EXP / hour');
+  assert.equal(p.elements.rate.dataset.fullNumber,'243,540');
+  assert.equal(p.elements['early-value'].textContent,'Last seen 6d ago');
+  assert.equal(p.elements.rate.dataset.paused,'true');  // Not the live green.
+  assert.equal(p.elements['pp-stat'].hidden,true);
+  assert.equal(p.run('plannerState.rate'),243540);  // The level planner starts from it.
+});
+
 test('observed windows show real partial endpoints without ranking them or relabeling recent pace',()=>{
   const p=page('player'),base=player();
   const observed={available:true,difference_percentage_points:'0.55',span_seconds:{approximate:208},

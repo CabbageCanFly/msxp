@@ -299,9 +299,15 @@ html:not([data-api]) :is(.local-link, .local-tab) { display:none; }
 .companion-cards > div > span:first-child { display:block; color:var(--gold); font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; }
 .companion-cards strong { display:block; color:var(--text); font-family:var(--font-display); font-size:30px; font-weight:600; line-height:1.15; margin:10px 0 8px; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .companion-cards #rate { color:var(--green); }
+/* A pace from a while ago (offline over 5 minutes, or a saved ETA's rate): no live green, dimmed like other paused stats. */
+.companion-cards #rate[data-paused="true"] { color:var(--text); opacity:.7; }
 .companion-cards #eta { font-size:30px; }
 .companion-cards small { color:var(--text-muted); font-size:12px; font-weight:600; line-height:1.45; }
 .companion-cards #early-value { color:var(--text-muted); font-size:12px; }
+/* % / hour on the pace note's line, as on /local: "As of 6d ago · 1.23% / hour". */
+.companion-cards :is(#early-value, #pp-stat) { display:inline; }
+.companion-cards #pp-stat { color:var(--text-muted); font-size:12px; }
+.companion-cards #early-value:not(:empty) + #pp-stat::before { content:" · "; }
 .companion-cards [hidden] { display:none; }
 .comparison-details { margin:0 25px 12px; color:var(--text-muted); font-size:12px; font-weight:600; }
 .comparison-details summary { cursor:pointer; margin-bottom:8px; color:var(--text-soft); }

@@ -646,7 +646,7 @@ function renderPlayer() {
   el('pp-rate').title='Estimated level % per hour.';
   const savedETA=publicETA(p),eta=p.recent_windows?savedETA?.estimate:m?.eta;
   // What the level planner starts from (static/local/level-plan.js): the shown reading and the rate.
-  plannerState={level:displayLevel(p)?.value ?? null,exp:shown?.exp!=null && shown.exp!==''?Number(shown.exp):null,bp:shownBp,rate:m?.exp_per_hour?.value.approximate ?? null,pph:m?.percentage_per_hour?.value.approximate ?? null,
+  plannerState={level:displayLevel(p)?.value ?? null,exp:shown?.exp!=null && shown.exp!==''?Number(shown.exp):null,bp:shownBp,rate:m?.exp_per_hour?.value.approximate ?? savedETA?.rate?.approximate ?? null,pph:m?.percentage_per_hour?.value.approximate ?? null,
     tracked:rollingData && rollingData.character_id===p.character?.id?rollingData.coverage_seconds?.approximate ?? null:null};
   amount('eta',etaText(eta),etaText(eta,true));el('eta').title=eta?`${etaText(eta)} to the next level at ${savedETA?`the ${savedETA.window_minutes} min pace${Date.parse(savedETA.estimated_at)?`, estimated ${localTime(savedETA.estimated_at)}`:''}`:'the recent pace'}. Not a live countdown.`:'Needs recent EXP gains';
   if(view==='overlay')el('eta').textContent=etaText(eta);
@@ -674,13 +674,20 @@ function renderPlayer() {
     el('early-value').textContent=pace?pace.label:text ?? (early?.segment?'Paused':'Calculating…');
     el('rate-label').textContent=m?.exp_per_hour?'EXP / hour':'% / hour';
     if(!m?.exp_per_hour && m?.percentage_per_hour)amount('rate',`${m.percentage_per_hour.value.approximate.toFixed(2)}%`,`${m.percentage_per_hour.value.approximate.toFixed(2)}%`);
+    // No current pace, but an ETA kept from the last time they were seen: the EXP / hour that ETA was estimated at.
+    const lastRate=!m?.exp_per_hour && !m?.percentage_per_hour && savedETA?.rate?.approximate?savedETA:null;
+    if(lastRate) {
+      amount('rate',expText(lastRate.rate.approximate,true),expText(lastRate.rate.approximate));
+      el('rate-label').textContent='Last EXP / hour';el('rate').dataset.paused='true';
+      el('early-value').textContent=`Last seen ${ageText((lastRate.rate_age_seconds ?? lastRate.age)+(performance.now()-receivedAt)/1000)}`;
+    }
     el('movement-label').textContent=`${observed?.historical || s.stale && ['completed','interrupted'].includes(p.capture_lifecycle)?'Saved':'Last'} ${windowMinutes} min`;
     el('segment-note').textContent=windowNote(p);
     el('window-rate').textContent=selectedWindow(p)?.eligible && s.metrics?.exp_per_hour?`${expText(s.metrics.exp_per_hour.value.approximate)}`:observed?(s.stale || failed || observed.paused?'Paused':`Needs a full ${windowMinutes} min`):'Calculating…';
     if(selectedWindow(p)?.eligible && s.metrics?.exp_per_hour)amount('window-rate',`${expText(s.metrics.exp_per_hour.value.approximate,true)}`,el('window-rate').textContent);
     else {delete el('window-rate').dataset.fullNumber;delete el('window-rate').dataset.compactNumber;}
     el('window-rate-label').textContent=`${windowMinutes} min EXP / hour`;
-    el('pp-stat').hidden=!!m?.exp_per_hour || !m?.percentage_per_hour;
+    el('pp-stat').hidden=!m?.exp_per_hour || !m?.percentage_per_hour;
     el('eta-stat').hidden=false;
     el('eta-note').textContent=savedETA?(savedETA.historical?`Estimated ${ageText(savedETA.age)} · ${savedETA.window_minutes} min pace`:savedETA.tentative?'Early estimate':`At your ${savedETA.window_minutes} min pace`):eta?`At your ${windowMinutes} min pace`:'Needs recent EXP gains';
     document.querySelectorAll('[data-window]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.window)===windowMinutes)));
