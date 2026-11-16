@@ -1080,7 +1080,7 @@ function updateBuilder() {
     button.setAttribute('aria-pressed', String(builder[key] === button.dataset.value && (key !== 'theme' || !OVERLAY_COLORS.some((color) => builder[color]))));
   }
   for (const input of document.querySelectorAll('[data-color]')) input.value = '#' + (builder[input.dataset.color] ?? THEME_COLORS[builder.theme][input.dataset.color]);
-  for (const row of document.querySelectorAll('[data-for-layout]')) row.hidden = row.dataset.forLayout !== builder.layout;
+  for (const row of document.querySelectorAll('[data-for-layout]')) row.hidden = !row.dataset.forLayout.split(' ').includes(builder.layout);
   frame.width = width; frame.height = height; scalePreview();
   if (frame.dataset.loaded) frame.contentWindow?.applyOverlay?.({...builder}); else if (!frame.src) frame.src = url;
 }

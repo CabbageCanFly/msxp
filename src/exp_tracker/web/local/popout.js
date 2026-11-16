@@ -18,7 +18,7 @@ let table = null, character = null, readings = [], pickups = [], liveWindow = 5,
 
 // Also called by the builder's same-origin preview as options change.
 // The window title names the layout, so OBS's window list tells pop-outs apart.
-const LAYOUT_NAMES = {card: 'General', bar: 'EXP bar', rates: 'EXP rates', chart: 'Last hour', live: 'Live', items: 'Items'};
+const LAYOUT_NAMES = {card: 'General', bar: 'EXP bar', rates: 'EXP rates', chart: 'EXP chart', live: 'Live', items: 'Items'};
 
 function applyOverlay(o) {
   options = o;

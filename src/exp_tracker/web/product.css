@@ -448,7 +448,18 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 .obs-help p { margin:0; color:var(--text-muted); }
 #overlay-url { flex:1 1 280px; min-width:0; padding:9px 12px; color:var(--text-soft); background:var(--surface-sunken); border:1px solid var(--line-strong); border-radius:var(--radius-sm); font:600 13px var(--font-ui); }
 #overlay-url:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
-@media(max-width:1100px) { .overlay-builder { grid-template-columns:minmax(0,1fr); } }
+/* The overlay's chart pills, under the preview: copies of the chart panel's (same data attributes, so either set
+   moves both), for the layouts with a chart. The options column spans both rows so they sit right below it. */
+.overlay-builder:has(.overlay-chart-controls) { grid-template-rows:auto 1fr; }
+.overlay-builder:has(.overlay-chart-controls) .overlay-options { grid-row:span 2; }
+.overlay-chart-controls { align-self:start; justify-self:start; width:max-content; max-width:100%; grid-template-columns:minmax(0,1fr); gap:8px; }
+.overlay-chart-controls > span { display:flex; align-items:center; gap:10px; text-align:left; }  /* CHART on its own line above the pills, */
+.overlay-chart-controls > span::after { content:""; flex:1; height:1px; background:var(--line); }  /* with a rule ending where the widest pill row ends. */
+.chart-pill-rows { display:grid; gap:8px; }
+/* The panel's grey labels, right-aligned to one width so both rows of pills start together. */
+.chart-pill-rows .windows > span { min-width:46px; text-align:right; }
+.overlay-chart-controls[hidden] { display:none; }
+@media(max-width:1100px) { .overlay-builder { grid-template-columns:minmax(0,1fr); grid-template-rows:none; } .overlay-builder:has(.overlay-chart-controls) .overlay-options { grid-row:auto; } }
 @media(max-width:650px) { .overlay-builder { padding:16px 14px 18px; } .option-row { grid-template-columns:minmax(0,1fr); gap:6px; } .option-row > span, .option-row > label { text-align:left; } }
 /* Decorative wandering mobs (product.js). The lane has no height, so feet rest on the card's top border. */
 /* Clip on html too, so body clips falling mobs itself rather than handing a scrollable "hidden" to the viewport. */

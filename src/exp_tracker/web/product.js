@@ -1250,6 +1250,7 @@ if(view==='player') {
     const character=el('overlay-character').value || '';
     if((frame.dataset.character ?? '')!==character){
       frame.dataset.character=character;frame.dataset.loaded='';frame.src=url;
+    document.querySelectorAll('[data-for-layout]').forEach(row=>{row.hidden=!row.dataset.forLayout.split(' ').includes(builder.layout);});
     } else if(frame.dataset.loaded)frame.contentWindow?.applyOverlay?.(builder);else if(!frame.src)frame.src=url;
   }
   frame.addEventListener('load',()=>{frame.dataset.loaded='true';frame.contentWindow?.applyOverlay?.(builder);});
