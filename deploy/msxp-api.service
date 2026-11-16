@@ -15,7 +15,7 @@ EnvironmentFile=/etc/msxp/split.env
 Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/opt/msxp PYTHONPATH=/opt/msxp/app/src
 ExecStart=/opt/msxp/app/.venv/bin/python -m exp_tracker.server \
     --db ${MSXP_DATABASE} --port 8765 --public-only \
-    --cors-origin https://msxp.pages.dev \
+    --cors-origin ${MSXP_FRONTEND_ORIGIN} \
     --publication-cache ${MSXP_PUBLICATION_CACHE} --runtime-state ${MSXP_RUNTIME_STATE} \
     $MSXP_TWITCH_STATUS
 KillSignal=SIGINT

@@ -23,7 +23,7 @@ def commands():
 
 
 def arguments(command,path,*,twitch=''):
-    env=dict(MSXP_DATABASE=str(path),MSXP_TWITCH_STATUS=twitch,
+    env=dict(MSXP_DATABASE=str(path),MSXP_TWITCH_STATUS=twitch,MSXP_FRONTEND_ORIGIN='https://msxp.pages.dev',
         MSXP_CAPTURE_LIMITS='--stop-after-seconds 600 --exit-after-capture')
     args=[]
     for token in command:
@@ -57,7 +57,7 @@ def test_service_is_opt_in_bounded_and_retention_free():
         assert flag in start
     assert start[start.index('--port')+1]=='8765'
     assert start[start.index('--workers')+1]=='6'
-    assert start[start.index('--cors-origin')+1]=='https://msxp.pages.dev'
+    assert start[start.index('--cors-origin')+1]=='${MSXP_FRONTEND_ORIGIN}'  # From /etc/msxp/msxp.env, as msxp-tracker.service.
     assert start[start.index('--ocr-python')+1]=='/opt/msxp/app/private/rapidocr/.venv/bin/python'
     assert '--retention-24h' not in start
     text=(DEPLOY/'msxp-tracker-roster.conf').read_text()
@@ -169,7 +169,7 @@ def test_split_services_are_opt_in_and_restart_independently():
     api=(DEPLOY/'msxp-api.service').read_text();capture=(DEPLOY/'msxp-tracker-capture-only.conf').read_text()
     assert '-m exp_tracker.server' in api and '--port 8765' in api
     assert '--publication-cache' in api and '--runtime-state' in api and '--public-only' in api
-    assert '--cors-origin https://msxp.pages.dev' in api
+    assert '--cors-origin ${MSXP_FRONTEND_ORIGIN}' in api and 'EnvironmentFile=/etc/msxp/msxp.env' in api
     assert 'PartOf=' not in api and 'Requires=msxp-tracker' not in api
     assert 'multi_alpha.py' not in api and '--retention-24h' not in api
     for line in capture.replace('\\\n','').splitlines():
