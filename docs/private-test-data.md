@@ -14,7 +14,7 @@ msxp test
 
 Git must be installed and signed in with access to the private data repository. The command reads its
 manifest, downloads only missing required files, verifies original bytes, and removes the temporary Git
-download afterward. About 868 MB of test inputs remain installed; old research is not downloaded.
+download afterward. About 869 MB of test inputs remain installed; old research is not downloaded.
 Different local files are never overwritten. `--check` downloads only the manifest and verifies installed
 inputs; it fails if a required file is missing or changed. Correct existing files are not downloaded again.
 
@@ -61,7 +61,7 @@ skip this set when its private manifest is absent. Existing test expectations st
 
 ### Safari browser captures
 
-The 2026-11 Safari set adds **139 MB** of required inputs under `samples/safari/`: twelve
+The original 2026-11 Safari set adds **139 MB** of required inputs under `samples/safari/`: twelve
 lossless HUD strips, six pickup archives containing 542 PNG frames, and their private labels
 and provenance manifest. `msxp test-data` restores these through the existing checksum manifest.
 No expanded RGBA files, OCR caches, local history exports or installed language models are backed up.
@@ -73,10 +73,17 @@ WebAssembly and English data, driven with the calls its worker makes. An install
 used; versions differ between machines (5.4.0 on the Windows PC, 5.5.3 on the MacBook) and read some
 blurred captures differently from the browser. Each HUD strip is read as a **first scan** (no previous
 level for the EXP table to judge by) and as a **continuing scan**, with fresh and learned glyph banks;
-a reading must be exact or skipped, never wrong. On the browser engine (2026-11-15) two of the twelve
-strips (h10, h12) are skipped and c05 misses one item, which 5.5.3 read; more skips than that fail.
+every saved HUD reading must succeed exactly. The earlier allowance for two unreadable
+HUD strips was removed after Safari native-font recovery read all saved cases. Pickup clip c05
+still permits one missed item.
 Items are never invented or over-counted, meso amounts are exact, and saved job/name cases must match.
-PNG decoding uses normal pytest temporary storage. Missing Node or private fixtures produce explicit
+Additional private manifests under `samples/safari/*/manifest.json` extend the set without
+changing the backed-up base manifest. Nine additional HUD captures in four extension directories bring the set to 21 HUD cases.
+Their nine PNGs and four manifests add **655,066 bytes** of required inputs, backed up in the
+private data repository at commit `09ebc0d6`. Another **3,638,737 bytes** of originals are optional
+research and are not downloaded by `msxp test-data`. All earlier manifest entries remain unchanged.
+For new Safari regressions, report the case and fixture size to the maintainer, back up the compact
+inputs, and verify restoration alongside the matching `msxp test` changes. PNG decoding uses normal pytest temporary storage. Missing Node or private fixtures produce explicit
 skips; no network, screen sharing or running browser is needed for these checks.
 
 These replays do not execute Safari's capture APIs. The recordings include a known missed final +12 at c01's clip boundary; c06 begins with

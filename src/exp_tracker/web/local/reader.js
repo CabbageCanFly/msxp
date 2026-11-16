@@ -2,7 +2,7 @@
 // the browser passes a tesseract.js worker, the Node fixture check passes its own.
 import {binarize, bracketColour, brackets, channel, crop, inkRows, labelEnd, magnification, orangeBox, otsu, panelLines, pgm} from './hud.js';
 import {consistency, parseExp, parseLevel, parsePercent} from './exp.js';
-import {lineKey, read as readGlyphs, segment, trimKey} from './glyphs.js';
+import {lineKey, read as readGlyphs, readSoftField, segment, trimKey} from './glyphs.js';
 
 // The thin 1-pixel brackets confuse Tesseract ('[' reads as '1'), so they are located by colour and
 // the number and percentage on either side are read separately.
@@ -85,8 +85,10 @@ async function readField(engine, frame, box, field, raw, smooth, word = false, o
 // fit it, in any pairing. Measured on a stretched 1920x1080 HUD: one pass read "7.358" twice but the
 // percentage as "30.15%" and "0.15%"; the next read "2.358" twice. Only 7,358 fits 30.15% at its level.
 async function readExp(engine, frame, boxes, raw, smooth, fits = null, word = false, options = {}) {
-  const numbers = await readField(engine, frame, boxes.number, 'number', raw, smooth, word, options);
-  const percents = await readField(engine, frame, boxes.percent, 'percent', raw, smooth, word, options);
+  const numbers = options.knownNumber != null ? [options.knownNumber, options.knownNumber]
+    : await readField(engine, frame, boxes.number, 'number', raw, smooth, word, options);
+  const percents = options.knownPercent != null ? [options.knownPercent, options.knownPercent]
+    : await readField(engine, frame, boxes.percent, 'percent', raw, smooth, word, options);
   // Both passes saw this same frame: a number from one can fit a percentage from the other.
   return fits ? pickExp(raw.filter((r) => r.field === 'number').map((r) => r.text),
     raw.filter((r) => r.field === 'percent').map((r) => r.text), fits) : pickExp(numbers, percents);
@@ -149,13 +151,20 @@ export async function readHud(engine, frame, regions, templates = null, {table =
       ? {...boxes.number, x0: boxes.number.x0 + next.x0} : null;
     let number = readGlyphs(segments.number, templates);
     let percent = readGlyphs(segments.percent, templates);
+    if (safari) {
+      const softNumber = readSoftField(frame, trimmedNumber ?? boxes.number, boxes.band, 'number', templates);
+      const softPercent = readSoftField(frame, boxes.percent, boxes.band, 'percent', templates);
+      if (softNumber?.ambiguous || softPercent?.ambiguous) return {...result, status: 'ambiguous', reason: 'conflicting_font_variants'};
+      number = softNumber?.text ?? number;
+      percent = softPercent?.text ?? percent;
+    }
     if (safari && number === null && trimmedNumber) {
       // The label fragment changes the ink band and threshold; re-segment before giving up on exact glyphs.
       const clean = segment(frame, trimmedNumber);
       const known = readGlyphs(clean, templates);
       if (known !== null) {
+        number = known; segments.number = clean; smooth = true;
         percent ??= await readPercentGlyphs(engine, frame, boxes.percent, segments.percent, templates, raw.exp);
-        if (percent !== null) { number = known; segments.number = clean; smooth = true; }
       }
     }
     if (number !== null && percent !== null) {
@@ -164,36 +173,41 @@ export async function readHud(engine, frame, regions, templates = null, {table =
       if (value) { read = {value}; result.source = raw.exp.some((r) => r.field === 'percentGlyph') ? 'ocr' : 'glyphs'; }
     }
     if (!read) {
+      // Exact Safari glyphs are stronger evidence than whole-field OCR; read only unknown fields.
+      const options = {soft: safari, knownNumber: safari ? number : null, knownPercent: safari ? percent : null};
+      if (options.knownNumber !== null) raw.exp.push({field: 'number', text: number, glyphs: true});
+      if (options.knownPercent !== null) raw.exp.push({field: 'percent', text: percent, glyphs: true});
       // The badge first, so the EXP table can choose among the OCR readings.
       early = table && boxes.level ? await readLevelBadge(engine, frame, boxes.level, templates, raw.level, false) : null;
       const levels = [early?.level, previousLevel].filter((level) => level != null);
       const fits = levels.length ? (exp, bp) => levels.some((level) => consistency(table, level, exp, bp) === 'consistent') : null;
       for (smooth of [false, true]) {
-        read = await readExp(engine, frame, boxes, raw.exp, smooth, fits, false, {soft: safari});
+        read = await readExp(engine, frame, boxes, raw.exp, smooth, fits, false, options);
         if (read.value) break;
       }
       // Safari's soft, touching digits can make line mode drop a leading digit; word mode keeps the whole field.
       // Safari only: elsewhere these extra passes cost 4-8 OCR calls on every failing scan.
-      if (!read.value && safari) read = await readExp(engine, frame, boxes, raw.exp, true, fits, true, {soft: true});
+      if (!read.value && safari) read = await readExp(engine, frame, boxes, raw.exp, true, fits, true, options);
       // A blurred EXP label can leave a short upper fragment at the number's left edge.
       if (!read.value && safari && trimmedNumber) {
         // Smaller images keep softened, touching digits apart; preserve all earlier accepted reads.
-        read = await readExp(engine, frame, {...boxes, number: trimmedNumber}, raw.exp, true, fits, false, {scale: 3, soft: true});
+        read = await readExp(engine, frame, {...boxes, number: trimmedNumber}, raw.exp, true, fits, false, {...options, scale: 3});
       }
       if (!read.value && safari) {
-        const percent = await readPercentGlyphs(engine, frame, boxes.percent, segments.percent, templates, raw.exp);
+        const percent = options.knownPercent ?? await readPercentGlyphs(engine, frame, boxes.percent, segments.percent, templates, raw.exp);
         if (percent !== null) {
           raw.exp.push({field: 'percent', text: percent, glyphs: true});
           if (fits) read = pickExp(raw.exp.filter((r) => r.field === 'number').map((r) => r.text),
             raw.exp.filter((r) => r.field === 'percent').map((r) => r.text), fits);
           else for (smooth of [false, true]) {
-            const numbers = await readField(engine, frame, boxes.number, 'number', raw.exp, smooth, false, {soft: true});
+            const numbers = number !== null ? [number, number]
+              : await readField(engine, frame, boxes.number, 'number', raw.exp, smooth, false, {soft: true});
             read = pickExp(numbers, [percent, percent]);
             if (read.value) break;
           }
         }
       }
-      if (!read.value && safari && fits) {
+      if (!read.value && safari && fits && number === null) {
         // A firmer mask separates blurred digit tops; the usual unique table match still judges both reads.
         await readField(engine, frame, boxes.number, 'number', raw.exp, false, false, {threshold: 150});
         read = pickExp(

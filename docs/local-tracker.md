@@ -156,6 +156,44 @@ not directly verify the new `971` glyph path. The player subsequently confirmed
 that the refreshed Safari session read `971` correctly and continued tracking.
 Other Safari versions and full-display sharing have not been checked.
 
+**Safari native-font recovery, 2026-11-15:** seven later saves exposed the same
+threshold problem across different numbers: one field-wide cutoff joins adjacent
+strokes, while a firmer cutoff removes faint strokes. Generic OCR can also produce a
+wrong number and percentage that happen to agree with the EXP table. The Safari path
+now checks the existing seven-row EXP font using its character advances, without
+requiring blank columns between digits. Each character must have a brightness cutoff
+between 110 and 200 that reproduces every stroke and background pixel of its known
+shape. All matching paths are considered; competing strings are rejected. Commas and
+the percentage decimal must occupy their actual font cells, and strict parsing still
+applies. This is restricted to Safari and the native seven-row font; other sizes keep
+the existing readers. A fully matched number is retained if the percentage needs OCR.
+Unknown or poisoned additional templates cannot supply a font match. On Safari native
+frames, checked shipped shapes take precedence over learned entries: a live browser
+had poisoned the canonical `6` as `?`, which prevented fresh-bank replay successes
+from carrying over to that session. The live crop, exact regions and captured glyph
+bank are now an additional private regression case. Other browsers retain their
+previous template precedence.
+
+Replay on the bundled browser OCR engine reads all **20** private HUD captures exactly,
+as first and continuing scans, with fresh and learned template banks (80 checks).
+The six new saves read EXP entirely from font shapes, including a case previously
+misread as a different table-consistent pair. The replay now requires every saved HUD
+case to succeed; it no longer permits the two earlier skipped captures. Synthetic
+checks cover all two-digit combinations from 10 to 99, differing local thresholds,
+invalid grouping and competing font matches. This is replay evidence; refreshed live
+Safari behavior and other capture sizes remain to be verified.
+
+A later debug archive contained six faded/black HUDs (correctly rejected before OCR)
+and two bright crops of the same `7,492 [21.83%]` value. The percentage matched the
+font exactly, while the number's softened `4` had no exact threshold match. The
+fallback retained verified numbers but still re-read a verified percentage; OCR then
+introduced both `21.82%` and `21.83%`, which can both fit truncation/rounding at that
+EXP value. Safari now retains either verified field and OCRs only the unknown one.
+Competing numeric candidates that both fit are still rejected. The saved live case,
+with its exact regions and glyph bank, passes first and continuing scans with fresh
+and learned banks, bringing the replay set to 21 HUD cases. After refresh, the player
+confirmed that live tracking detected the correct EXP.
+
 | Step | Module | Notes |
 | --- | --- | --- |
 | Locate the status bar | `hud.js` `locate` | One sparse Tesseract pass over the bottom 22 % of the window finds the `EXP`, `HP`, `MP` and `LV.` labels (the Python `discover_regions` geometry). Boxes are saved normalized with the window size. Without `LV.`, the level box is a strip left of HP. |
@@ -310,13 +348,13 @@ older boundary reading per character), pruned when tracking starts and hourly wh
 are kept indefinitely: about 200 bytes per character per day, so a year of one character is about
 75 KB. Each accepted reading updates its day row in the same transaction, so pruning loses nothing
 the History chart uses. Version 1 databases are migrated by folding existing readings into days.
-No frames are stored. The only pixel data kept are the learned bitmaps: single HUD characters
+Outside `?debug`, no frames are stored. Debug mode can retain failed HUD crops as described below. The other pixel data kept are the learned bitmaps: single HUD characters
 (about 35 pixels each) and each character's name and job lines, which are needed to read without
 OCR; *Clear all local history* deletes them.
 Sessions left open by a crash are closed at their last reading on the next visit. Only one tab
 of a browser profile can capture (Web Locks `msxp-local-capture`, released automatically when the
 tab closes); a second `/local` tab says tracking is already running and leaves that session open. *Export JSON*
-downloads everything; *Clear all local history* (two clicks) deletes the database.
+downloads tracking history (debug crops use their own archive); *Clear all local history* (two clicks) deletes the database.
 `navigator.storage.persist()` is requested once tracking starts; normal use does not depend on it.
 
 ## Measured (2026-11-10, Windows 11, Chrome, MapleStory Classic window 1368×800)
@@ -396,6 +434,33 @@ draws the whole frame at its supplied size, then crops with `getImageData`; a se
 live snapshot confirmed the correct corner. The Safari recorder crops its video element
 directly for the same reason. Chrome's streamed-frame crop is unchanged. Pickup totals
 with this correction still need a live comparison against visible messages.
+**Automatic EXP failure collection (`?debug`):** starting tracking also collects failed
+HUD reads and table-rejected readings in this site's IndexedDB. Each lossless PNG is
+stored separately, with the actual scan regions, glyph bank, previous level, reader
+identifier and raw OCR result. Identical EXP/level-region pixels, regions and failure reasons reuse
+one entry with a repeat count. Successful scans do not create images. Normal tracking
+without `?debug` does not collect them.
+
+**Save EXP issues** downloads one `msxp-exp-TIMESTAMP.tar` containing `frames.bin` and
+`index.json`; stopping tracking also attempts one download if new cases were collected.
+A blocked or cancelled download does not remove the originals. Reloads retain the
+saved cases in a normal browser session; private browsing or clearing site data can
+remove them. **Clear saved EXP issues** removes only these diagnostics, so save the
+archive first. Nothing is uploaded, and they are excluded from the history JSON export.
+
+Collection holds only the current crop's bytes in JavaScript, rather than previous
+PNGs. The on-disk limit is about **50 MB including scan metadata, or 5,000 unique
+cases**. At the limit, the button says **full** and collection pauses until cleared;
+tracking continues. Exporting constructs one archive from stored Blob records and
+can temporarily use additional browser memory. The six recent 1366×796 examples crop
+to about 21 KB each (575×33), versus 415–450 KB for their full HUD strips, before scan
+metadata. This does not reduce the OCR engine's own memory use. Storage quota errors
+also pause collection; earlier samples remain available. Live Safari collected five cases and exported one 181 KB archive successfully; those
+cases also exposed changing HP/MP pixels between the regions, which are now excluded
+from duplicate fingerprints. Real browser IndexedDB tests verified Blob persistence
+across reload, duplicates, cap rejection and isolated clearing in a disposable Chrome
+profile. Safari storage-quota behavior still needs live verification.
+
 **Record pickups (debug)** uses the page processor where available, or snapshots of the
 shared video in Safari. With a directory picker it keeps the existing `frames.bin` and
 `index.json` folder format. Without one, it records at most 30 seconds or about 32 MB in

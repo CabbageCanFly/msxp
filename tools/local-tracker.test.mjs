@@ -32,6 +32,21 @@ test('Safari HUD workarounds exclude Chrome, Edge and Firefox user agents', () =
   ]) assert.equal(vm.runInNewContext(`${flag}\nsafari`, {navigator: {userAgent}}), expected, userAgent);
 });
 
+test('Safari restores shipped HUD shapes over stale learned conflicts without changing other browsers', async () => {
+  const G = await import(new URL('glyphs.js', web));
+  const six = Object.keys(G.HUD_GLYPHS).find((k) => G.HUD_GLYPHS[k] === '6');
+  const learned = {[six]: '?', extra: '4'};
+  for (const safari of [true, false]) {
+    const context = vm.createContext({safari, GAME_WIDTH: 1368, HUD_GLYPHS: G.HUD_GLYPHS, safariGlyphs: G.safariGlyphs,
+      settings: {glyphs: {game: learned, '2000x1000': learned}}});
+    vm.runInContext(app.slice(app.indexOf('const glyphSize ='), app.indexOf('async function teachLetters(')), context);
+    const native = vm.runInContext('templatesFor({full: {width: 1366, height: 796}})', context);
+    assert.equal(native[six], safari ? '6' : '?'); assert.equal(native.extra, '4');
+    const stretched = vm.runInContext('templatesFor({full: {width: 2000, height: 1000}})', context);
+    assert.equal(stretched[six], '?'); assert.equal(learned[six], '?');
+  }
+});
+
 for (const mode of ['native folder', 'native downloads', 'video downloads']) {
   test(`pickup recorder preserves its frame/index pair: ${mode}`, async () => {
     const downloads = [], blobs = new Map(), files = new Map(), constraints = [];
@@ -96,6 +111,81 @@ for (const mode of ['native folder', 'native downloads', 'video downloads']) {
     assert.deepEqual(constraints, [15, 5]);
   });
 }
+
+test('failed HUD crops persist separately, deduplicate, respect the disk cap and export together', async () => {
+  const values = new Map([['unrelated-history-setting', 'keep']]);
+  const storage = vm.createContext({TextEncoder, getSetting: async (key) => structuredClone(values.get(key)),
+    result: async (v) => v, run: async (_, __, body) => body({objectStore: () => ({
+      get: (key) => structuredClone(values.get(key)), put: (value, key) => values.set(key, structuredClone(value)),
+      delete: (key) => values.delete(key),
+    })}),
+  });
+  const source = readFileSync(new URL('store.js', web), 'utf8');
+  vm.runInContext(source.slice(source.indexOf('export const HUD_DEBUG_LIMIT'), source.indexOf('export const characters')).replaceAll('export ', ''), storage);
+  const store = vm.runInContext('({HUD_DEBUG_LIMIT, hudIssueIndex, saveHudIssue, clearHudIssues, getSetting})', storage);
+  const buttons = {}, downloads = [], blobs = [], copied = [];
+  let encoded = 0;
+  const context = vm.createContext({store, hudRecording: null, safari: true, crypto, Blob, TextEncoder, Date,
+    $: (id) => buttons[id] ??= {}, templatesFor: () => ({glyph: '2'}), setStatus() {}, setTimeout() {},
+    document: {createElement: () => ({click() { downloads.push(this); }})},
+    URL: {createObjectURL(blob) { blobs.push(blob); return String(blobs.length); }, revokeObjectURL() {}},
+    ImageData: class {}, OffscreenCanvas: class {
+      constructor(w, h) { assert.deepEqual([w, h], [40, 10]); }
+      getContext() { return {putImageData(_, x, y) { copied.push([x, y]); }}; }
+      async convertToBlob() { encoded++; return new Blob([new Uint8Array([1, 2, 3])]); }
+    },
+  });
+  vm.runInContext(app.slice(app.indexOf('function recordingArchive('), app.indexOf('function recordButton()')) +
+    app.slice(app.indexOf('async function renderHudIssues('), app.indexOf('function setupDebug()')), context);
+  const scan = {status: 'ambiguous', reason: 'unclear', at: 10, previousLevel: 7,
+    frame: {width: 100, height: 30, data: new Uint8ClampedArray(12000), top: 300, full: {width: 100, height: 400}},
+    regions: {exp: {x0: 20, y0: 10, x1: 60, y1: 20}}, raw: {exp: [{text: 'bad'}]}};
+  context.scan = scan;
+  await vm.runInContext('startHudRecording();', context);
+  await vm.runInContext("recordHudScan({...scan, status: 'ok'})", context);
+  assert.equal(encoded, 0);
+  await vm.runInContext('recordHudScan(scan)', context);
+  await vm.runInContext('recordHudScan({...scan, at: 20})', context);
+  assert.equal(downloads.length, 0);  // A failed scan never triggers its own download.
+  let index = await store.hudIssueIndex();
+  assert.equal(index.keys.length, 1);
+  const saved = await store.getSetting('debug-hud-' + index.keys[0]);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.scan.origin)), {x: 20, y: 310});
+  assert.equal(saved.scan.regions.exp.x0, 0); assert.equal(saved.scan.regions.exp.y0, 0);
+  assert.equal(saved.scan.repeats, 2); assert.equal(saved.scan.lastAt, 20);
+  assert.equal(saved.scan.previousLevel, 7); assert.equal(saved.scan.templates.glyph, '2');
+  assert.deepEqual(copied, [[-20, -10], [-20, -10]]);
+  // Starting another page/session finds the stored crops; no PNG array is retained in recording state.
+  await vm.runInContext('startHudRecording()', context);
+  assert.match(buttons['hud-save-issues'].textContent, /\(1 /);
+  assert.equal(vm.runInContext('hudRecording.chunks', context), undefined);
+  await vm.runInContext('downloadHudIssues()', context);
+  assert.equal(downloads.length, 1); assert.match(downloads[0].download, /^msxp-exp-.*\.tar$/);
+  const tar = new Uint8Array(await blobs[0].arrayBuffer());
+  const text = (b) => new TextDecoder().decode(b).replace(/\0.*$/s, '');
+  assert.equal(text(tar.subarray(0, 100)), 'frames.bin');
+  assert.deepEqual([...tar.subarray(512, 515)], [1, 2, 3]);
+  assert.equal(text(tar.subarray(1024, 1124)), 'index.json');
+  const length = parseInt(text(tar.subarray(1148, 1160)), 8);
+  const manifest = JSON.parse(new TextDecoder().decode(tar.subarray(1536, 1536 + length)));
+  assert.equal(manifest.frames[0].offset, 0); assert.equal(manifest.frames[0].size, 3);
+  assert.equal(manifest.frames[0].repeats, 2);
+  assert.equal((await store.hudIssueIndex()).keys.length, 1);  // Download attempts never erase the originals.
+  scan.frame.data[(10 * 100 + 20) * 4] = 255;
+  await vm.runInContext('recordHudScan({...scan, at: 30})', context);
+  assert.equal((await store.hudIssueIndex()).keys.length, 2);  // Changed EXP pixels count even if PNG bytes match.
+  scan.frame.data[0] = 255;
+  await vm.runInContext('recordHudScan({...scan, at: 40})', context);
+  index = await store.hudIssueIndex();
+  assert.equal(index.keys.length, 2);  // Pixels outside the actual regions do not consume another slot.
+  const full = {...index, bytes: store.HUD_DEBUG_LIMIT};
+  values.set('debug-hud-index', full);
+  assert.equal((await store.saveHudIssue('new', new Blob(['data']), {at: 30})).full, true);
+  assert.equal(values.has('debug-hud-new'), false);
+  await store.clearHudIssues();
+  assert.equal((await store.hudIssueIndex()).keys.length, 0);
+  assert.equal(values.get('unrelated-history-setting'), 'keep');
+});
 
 for (const mode of ['page processor', 'worker processor', 'transfer failure', 'worker failure', 'startup timeout']) {
   test(`pickup session opens and releases its cloned track: ${mode}`, async () => {
@@ -209,7 +299,7 @@ for (const mode of ['no ImageCapture', 'ImageCapture without grabFrame', 'ImageC
     if (mode === 'ImageCapture with grabFrame') ImageCapture.prototype.grabFrame = async () => { grabbed++; return bitmap; };
     const window = {addEventListener() {}};
     if (mode !== 'no ImageCapture') window.ImageCapture = ImageCapture;
-    const context = vm.createContext({window, ImageCapture, capture: null, character: {id: 1},
+    const context = vm.createContext({window, ImageCapture, capture: null, character: {id: 1}, debug: false,
       navigator: {userAgent: 'test browser', mediaDevices: {getDisplayMedia: async () => stream}},
       document: {body: {dataset: {}}, createElement(tag) { assert.equal(tag, 'video'); return video; }},
       $: () => ({}), setStatus() {}, acquireLock: async () => true, beginSession: async () => {},
@@ -671,6 +761,98 @@ test('Safari re-segments past an EXP label fragment before falling back from exa
     {...regions, level: {x0: 99, y0: 15, x1: 111, y1: 24}}, G.HUD_GLYPHS, {safari: true});
   assert.equal(badge.status, 'ok'); assert.equal(badge.level, 1); assert.equal(badgeCalls, 6);
   assert.deepEqual(badge.raw.level.map((r) => r.smooth), [true, true, true, true, false, false]);
+});
+
+test('Safari font cells read every digit pair with different local thresholds and reject ambiguity', async () => {
+  const G = await import(new URL('glyphs.js', web));
+  const shapes = Object.entries(G.HUD_GLYPHS).slice(0, 13);
+  const render = (text) => {
+    const width = 2 + [...text].reduce((sum, c) => sum + (c === ',' ? 5 : 6), 0);
+    const frame = {width, height: 7, data: new Uint8ClampedArray(width * 7 * 4)};
+    let left = 1;
+    for (const [n, char] of [...text].entries()) {
+      const rows = shapes.find(([, c]) => c === char)[0].split('/'), offset = ['1', ','].includes(char) ? 1 : 0;
+      const advance = char === ',' ? 5 : 6;
+      for (let y = 0; y < 7; y++) for (let x = 0; x < advance - 1; x++) {
+        const value = rows[y][x - offset] === '1' ? (n % 2 ? 220 : 150) : (n % 2 ? 155 : 80);
+        frame.data.set([value, value, value, 255], (y * width + left + x) * 4);
+      }
+      left += advance;
+    }
+    return {frame, box: {x0: 1, x1: width, y0: 0, y1: 7}, band: {top: 0, bottom: 6}};
+  };
+  const read = ({frame, box, band}, templates = G.HUD_GLYPHS) => G.readSoftField(frame, box, band, 'number', templates);
+  for (let n = 10; n < 100; n++) {
+    const sample = render(String(n));
+    assert.equal(read(sample)?.text, String(n));
+    assert.equal(G.read(G.segment(sample.frame, sample.box), G.HUD_GLYPHS), null);
+  }
+  assert.equal(read(render('1,234'))?.text, '1,234');
+  assert.equal(read(render('12,34')), null);
+  assert.equal(read(render('12'), {}), null);
+  const sample = render('8'), eight = shapes.find(([, c]) => c === '8')[0].split('/');
+  const three = shapes.find(([, c]) => c === '3')[0].split('/');
+  // This faint stroke permits both 3 and 8 at different thresholds: neither may be chosen.
+  for (let y = 0; y < 7; y++) for (let x = 0; x < 5; x++) {
+    const value = eight[y][x] === three[y][x] ? (eight[y][x] === '1' ? 220 : 80) : 170;
+    sample.frame.data.set([value, value, value, 255], (y * sample.frame.width + x + 1) * 4);
+  }
+  assert.equal(read(sample)?.ambiguous, true);
+  assert.equal(read({...sample, band: {top: 0, bottom: 5}}), null);
+  assert.equal(read({...sample, box: {...sample.box, x0: -1}}), null);
+});
+
+test('Safari can separate blurred number glyphs without choosing between conflicting OCR candidates', async () => {
+  const R = await import(new URL('reader.js', web)), G = await import(new URL('glyphs.js', web));
+  const frame = {width: 128, height: 24, data: new Uint8ClampedArray(128 * 24 * 4)};
+  const paint = (x, y, rgb) => frame.data.set([...rgb, 255], (y * frame.width + x) * 4);
+  for (const x of [60, 120]) for (let y = 5; y < 15; y++) paint(x, y, [160, 185, 130]);
+  const stamp = (left, char) => Object.entries(G.HUD_GLYPHS).find(([, c]) => c === char)[0].split('/').forEach((row, y) => {
+    [...row].forEach((bit, x) => { if (bit === '1') paint(left + x, y + 7, [255, 255, 255]); });
+  });
+  stamp(47, '6'); stamp(53, '6');
+  paint(52, 8, [153, 153, 153]);  // A dim bridge joins both digit components in the adaptive mask.
+  [...'4.40%'].forEach((char, i) => stamp([64, 71, 74, 81, 88][i], char));
+  const regions = {exp: {x0: 47, y0: 0, x1: 128, y1: 21}}, boxes = R.fieldBoxes(frame, regions), box = boxes.number;
+  assert.equal(G.read(G.segment(frame, box), G.HUD_GLYPHS), null);
+  assert.equal(G.readSoftField(frame, box, boxes.band, 'number', G.HUD_GLYPHS)?.text, '66');
+  const run = async (safari, templates = G.HUD_GLYPHS) => {
+    let calls = 0;
+    const result = await R.readHud({read: async () => { calls++; return {text: ''}; }}, frame, regions, templates, {safari});
+    return {result, calls};
+  };
+  const {result, calls} = await run(true);
+  assert.deepEqual([result.status, result.exp, result.bp, result.source, calls], ['ok', 66, 440, 'glyphs', 0]);
+  assert.equal(E.consistency({to_next: {'10': 1500}}, 10, result.exp, result.bp), 'consistent');
+  const other = await run(false);
+  assert.notEqual(other.result.status, 'ok'); assert.ok(other.calls > 0);
+  const unknown = await run(true, {});
+  assert.notEqual(unknown.result.status, 'ok'); assert.ok(unknown.calls > 0);
+  const six = Object.keys(G.HUD_GLYPHS).find((key) => G.HUD_GLYPHS[key] === '6');
+  assert.notEqual((await run(true, {...G.HUD_GLYPHS, [six]: '?'})).result.status, 'ok');
+  const noPercent = Object.fromEntries(Object.entries(G.HUD_GLYPHS).filter(([, char]) => char !== '%'));
+  let numberCalls = 0;
+  const partial = await R.readHud({read: async (_, field) => {
+    if (field.startsWith('number')) numberCalls++;
+    return {text: field === 'percent' ? '4.40%' : field.startsWith('number') ? '68' : ''};
+  }}, frame, regions, noPercent, {safari: true, table: {to_next: {'10': 1500}}, previousLevel: 10});
+  assert.deepEqual([partial.status, partial.exp, partial.bp, partial.source, numberCalls], ['ok', 66, 440, 'ocr', 0]);
+  assert.ok(partial.raw.exp.some((r) => r.field === 'number' && r.glyphs && r.text === '66'));
+  // Rounded and truncated percentages can both fit; OCR must not replace an already verified field.
+  const noSix = Object.fromEntries(Object.entries(G.HUD_GLYPHS).filter(([, char]) => char !== '6'));
+  for (const previousLevel of [null, 10]) {
+    let percentCalls = 0;
+    const retained = await R.readHud({read: async (_, field) => {
+      if (field.startsWith('percent')) percentCalls++;
+      return {text: field.startsWith('number') ? '66' : '4.39%'};
+    }}, frame, regions, noSix, {safari: true, table: {to_next: {'10': 1501}}, previousLevel});
+    assert.deepEqual([retained.status, retained.exp, retained.bp, percentCalls], ['ok', 66, 440, 0]);
+    assert.ok(retained.raw.exp.some((r) => r.field === 'percent' && r.glyphs && r.text === '4.40%'));
+  }
+  let variants = 0;
+  const conflicting = await R.readHud({read: async (_, field) => ({text: field.startsWith('number') ? (++variants % 2 ? '4400' : '4401') : ''})},
+    frame, regions, noSix, {safari: true, table: {to_next: {'10': 100000}}, previousLevel: 10});
+  assert.equal(conflicting.status, 'ambiguous'); assert.equal(conflicting.reason, 'exp_variants_disagree');
 });
 
 test('Safari can retain known percentage glyphs and require agreement on each unknown', async () => {

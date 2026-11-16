@@ -4,7 +4,7 @@ import * as store from './store.js';
 import {acceptBaseline, estimateExp, maxGapFor, resolveLevel, step, suspicious} from './exp.js';
 import {denormalize, locate, normalize, orangeBox} from './hud.js';
 import {fieldBoxes, readHud, readIdentity} from './reader.js';
-import {HUD_GLYPHS, displayed, learn, learnLetters} from './glyphs.js';
+import {HUD_GLYPHS, displayed, learn, learnLetters, safariGlyphs} from './glyphs.js';
 import {GAME_WIDTH, captureScale, unstretch} from './pickups.js';
 import {CHANNEL, JOBS, OVERLAY_CHOICES, OVERLAY_COLORS, THEME_COLORS, WINDOWS, overlaySize, duration, exp as fmtExp, jobIcon, overlayOptions,
   overlayQuery, percent, randomOverlayColors, summarize, summarizePickups, trackedBetween} from './view.js';
@@ -47,7 +47,7 @@ const charts = {mode: 'exp', bucket: 60, chartWindow: 60, longWindow: 1440, line
 const builder = overlayOptions('');
 // Capture session state; only exists while the user is sharing a window.
 let capture = null;  // {stream, track, grabber, video, sessionId, tracker, timer, lastFrame, ...}
-let lastScan = null, identitySuspect = null;
+let lastScan = null, identitySuspect = null, hudRecording = null;
 let plannerState = {};  // Level, EXP and EXP / hour last shown, for the level planner (level-plan.js).
 
 async function loadTable() {
@@ -199,6 +199,7 @@ async function start() {
   } finally { starting = false; }
   const [track] = stream.getVideoTracks();
   capture = {stream, track, tracker: null, sessionId: null, timer: null, scans: [], failures: 0, lastDetect: 0};
+  if (debug) await startHudRecording();
   track.addEventListener('ended', () => stop('sharing_stopped'));
   // Safari can expose ImageCapture without grabFrame; use the video fallback in that case.
   capture.grabber = typeof window.ImageCapture?.prototype?.grabFrame === 'function' ? new ImageCapture(track) : null;
@@ -246,6 +247,7 @@ async function stop(reason = 'stopped') {
   clearTimeout(current.timer); clearInterval(current.pruneTimer);
   await stopPickupTracking(current);
   await current.recording?.stop();
+  await stopHudRecording();
   current.stream.getTracks().forEach((t) => t.stop());
   if (current.video) current.video.srcObject = null;
   // The text readers' WebAssembly memory never shrinks, so an idle page would keep all of it (measured 2026-11-15:
@@ -383,8 +385,10 @@ async function scan() {
     else if (frame.stretched && current.pickups?.session && current.pickups.stretch !== (current.stretchMode ?? 'bilinear')) {
       current.pickups.stretch = current.stretchMode ?? 'bilinear'; current.pickups.session.setStretch(current.pickups.stretch);
     }
-    lastScan = {...outcome, frame, at, ms: performance.now() - started};
-    await handle(current, outcome, at);
+    lastScan = {...outcome, frame, at, ms: performance.now() - started,
+      regions: shifted(regionsFor(frame.full), frame.top), previousLevel: current.tracker.last?.level ?? current.tracker.pending?.level ?? current.tracker.reference?.level ?? null};
+    const handled = await handle(current, outcome, at);
+    if (hudRecording) await recordHudScan({...lastScan, trackerStatus: handled?.status, trackerReason: handled?.reason});
     if (!$('hud-view').hidden) drawPreview();
   } catch (error) {
     if (capture !== current) return;
@@ -431,7 +435,7 @@ const MESSAGES = {
 const glyphSize = ({width, height}) => (width / GAME_WIDTH <= 1.03 ? 'game' : `${width}x${height}`);
 const templatesFor = (frame) => {
   const size = glyphSize(frame.full), learned = settings.glyphs?.[size] ?? null;
-  return size === 'game' ? {...HUD_GLYPHS, ...learned} : learned;
+  return size === 'game' ? (safari ? safariGlyphs(learned) : {...HUD_GLYPHS, ...learned}) : learned;
 };
 
 async function teachLetters(keys, text, authoritative = false) {
@@ -579,6 +583,7 @@ async function handle(current, outcome, at) {
   }
   else setStatus(MESSAGES[reason] ?? MESSAGES[status] ?? reason, 'warn');
   render();
+  return {status, reason};
 }
 
 // Only a reading the tracker accepted (table-consistent, confirmed by a second scan) teaches glyphs.
@@ -1270,7 +1275,92 @@ function recordButton() {
   return button;
 }
 
+async function renderHudIssues(full = false) {
+  const index = await store.hudIssueIndex(), button = $('hud-save-issues');
+  button.disabled = !index.keys.length;
+  button.textContent = `Save EXP issues (${index.keys.length} · ${(index.bytes / 1e6).toFixed(1)} MB${full ? ' · full' : ''})`;
+}
+
+async function downloadHudIssues() {
+  const index = await store.hudIssueIndex(), frames = [], chunks = [];
+  let offset = 0;
+  for (const key of index.keys) {
+    const {blob, scan} = await store.getSetting('debug-hud-' + key);
+    frames.push({...scan, offset, size: blob.size}); chunks.push(blob); offset += blob.size;
+  }
+  if (!frames.length) return;
+  const archive = recordingArchive({version: 1, kind: 'hud', frames}, chunks);
+  const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(archive), download: `msxp-exp-${Date.now()}.tar`});
+  link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+async function stopHudRecording() {
+  const recording = hudRecording;
+  if (!recording) return;
+  hudRecording = null;
+  await recording.pending;
+  if (recording.dirty) await downloadHudIssues().catch((error) => setStatus(`Couldn't download EXP issues: ${error.message}`, 'warn'));
+}
+
+async function recordHudScan(scan) {
+  const recording = hudRecording;
+  if (scan.status === 'ok' && scan.trackerStatus !== 'rejected' || recording.full) return;
+  try {
+    const {frame, regions} = scan, boxes = Object.values(regions ?? {}).filter(Boolean);
+    if (!boxes.length) boxes.push({x0: 0, y0: Math.floor(frame.height * .78), x1: frame.width, y1: frame.height});
+    const x0 = Math.max(0, Math.floor(Math.min(...boxes.map((b) => b.x0))));
+    const y0 = Math.max(0, Math.floor(Math.min(...boxes.map((b) => b.y0))));
+    const w = Math.min(frame.width, Math.ceil(Math.max(...boxes.map((b) => b.x1)))) - x0;
+    const h = Math.min(frame.height, Math.ceil(Math.max(...boxes.map((b) => b.y1)))) - y0;
+    if (w <= 0 || h <= 0) return;
+    const canvas = new OffscreenCanvas(w, h);
+    canvas.getContext('2d').putImageData(new ImageData(frame.data, frame.width, frame.height), -x0, -y0);
+    recording.pending = (async () => {
+      // Ignore changing HP/MP pixels between the two regions, and PNG encoder metadata.
+      const rows = [];
+      for (const box of boxes) for (let y = Math.max(0, Math.floor(box.y0)); y < Math.min(frame.height, Math.ceil(box.y1)); y++) {
+        rows.push(frame.data.subarray((y * frame.width + Math.max(0, Math.floor(box.x0))) * 4,
+          (y * frame.width + Math.min(frame.width, Math.ceil(box.x1))) * 4));
+      }
+      const png = await canvas.convertToBlob(), bytes = new Uint8Array(await new Blob(rows).arrayBuffer());
+      const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      const key = `${w}x${h}/${hash}/${scan.status}/${scan.reason ?? scan.trackerReason ?? ''}/${JSON.stringify(regions)}`;
+      const shiftedBoxes = regions && Object.fromEntries(Object.entries(regions).map(([k, b]) => [k, b && {x0: b.x0 - x0, y0: b.y0 - y0, x1: b.x1 - x0, y1: b.y1 - y0}]));
+      const index = await store.saveHudIssue(key, png, {at: scan.at, width: w, height: h,
+        reader: 'safari-font-cells-v1', safari, repeats: 1, lastAt: scan.at,
+        origin: {x: x0, y: y0 + (frame.top ?? 0)}, full: frame.full, regions: shiftedBoxes, templates: {...templatesFor(frame)},
+        previousLevel: scan.previousLevel, status: scan.status, reason: scan.reason, raw: scan.raw,
+        trackerStatus: scan.trackerStatus, trackerReason: scan.trackerReason,
+        exp: scan.exp, bp: scan.bp, level: scan.level, source: scan.source, ms: scan.ms});
+      recording.full = Boolean(index.full); recording.dirty ||= !index.duplicate && !index.full;
+      await renderHudIssues(recording.full);
+    })();
+    await recording.pending;
+  } catch (error) {
+    recording.full = true;
+    recording.pending = Promise.resolve();
+    await renderHudIssues(true).catch(() => {});
+    setStatus(`Couldn't save EXP issue: ${error.message}. Earlier samples remain available.`, 'warn');
+  }
+}
+
+async function startHudRecording() {
+  hudRecording = {pending: Promise.resolve(), dirty: false, full: false};
+  await renderHudIssues().catch(() => { hudRecording = null; });
+}
+
+function hudRecordButton() {
+  const button = Object.assign(document.createElement('button'), {id: 'hud-save-issues', type: 'button', textContent: 'Save EXP issues (0)', disabled: true});
+  button.title = 'With ?debug, failed EXP scans are collected in local browser storage. Save one archive here or when tracking stops. Saved samples remain until cleared.';
+  button.addEventListener('click', async () => {
+    try { await hudRecording?.pending; await downloadHudIssues(); }
+    catch (error) { setStatus(`Couldn't download EXP issues: ${error.message}`, 'warn'); }
+  });
+  return button;
+}
+
 function setupDebug() {
+  $('hud-storage-note').textContent = 'Debug mode keeps failed EXP crops locally until you clear saved EXP issues.';
   const pickupButton = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Save pickup area (debug)'});
   pickupButton.addEventListener('click', async () => {
     try {
@@ -1291,7 +1381,16 @@ function setupDebug() {
     const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(await canvas.convertToBlob()), download: `msxp-hud-${frame.width}x${frame.height}-${Date.now()}.png`});
     link.click();
   });
-  document.querySelector('.hud-actions').append(button, pickupButton, recordButton());
+  const clearIssues = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Clear saved EXP issues'});
+  clearIssues.addEventListener('click', async () => {
+    try {
+      await hudRecording?.pending; await store.clearHudIssues();
+      if (hudRecording) { hudRecording.full = false; hudRecording.dirty = false; }
+      await renderHudIssues();
+    } catch (error) { setStatus(`Couldn't clear EXP issues: ${error.message}`, 'warn'); }
+  });
+  document.querySelector('.hud-actions').append(button, hudRecordButton(), clearIssues, pickupButton, recordButton());
+  renderHudIssues().catch(() => {});
   setupPickupLog();
   // Diagnostics for the pickup-message milestone: raise or restore the share's frame rate (?debug only).
   // Measured 2026-11-10: asked 5/15/30 fps, Chrome delivered 4.7/14.8/29.0 on the same share, no new prompt.

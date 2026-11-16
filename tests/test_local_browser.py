@@ -31,11 +31,16 @@ def test_browser_tracker_synthetic_regressions(node):
 
 
 def cases(kind):
-    if not MANIFEST.is_file():
+    manifests = [p for p in [MANIFEST, *sorted(FIXTURES.glob('*/manifest.json'))] if p.is_file()]
+    if not manifests:
         return [pytest.param(None, id='private-safari-captures', marks=pytest.mark.skip(reason='Run msxp test-data to restore Safari captures'))]
-    manifest = json.loads(MANIFEST.read_text(encoding='utf-8'))
-    assert manifest['version'] == 1
-    return [pytest.param(c, id=c['id']) for c in manifest[kind]] if kind == 'pickups' else [pytest.param(manifest[kind], id='twelve-hud-captures')]
+    captures = []
+    for path in manifests:
+        manifest = json.loads(path.read_text(encoding='utf-8'))
+        assert manifest['version'] == 1
+        captures.extend(manifest[kind])
+    assert len({c['id'] for c in captures}) == len(captures), 'Duplicate Safari fixture ids'
+    return [pytest.param(c, id=c['id']) for c in captures] if kind == 'pickups' else [pytest.param(captures, id='saved-hud-captures')]
 
 
 def rgba(source, destination):

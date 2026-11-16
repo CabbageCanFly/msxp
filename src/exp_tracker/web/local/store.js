@@ -1,6 +1,6 @@
 // IndexedDB for the local tracker: characters, sessions, accepted readings, daily summaries, pickups and
 // settings.
-// Structured numbers and timestamps only; no frames or crops are ever stored.
+// Debug mode can also keep failed HUD crops in settings until the user clears them.
 
 const NAME = 'msxp-local', VERSION = 3;
 // Retention like the live site: detailed readings for 24 hours (+5 minutes, plus one older boundary
@@ -75,6 +75,36 @@ async function run(stores, mode, body) {
 
 export const getSetting = (key) => run('settings', 'readonly', (tx) => result(tx.objectStore('settings').get(key)));
 export const setSetting = (key, value) => run('settings', 'readwrite', (tx) => { tx.objectStore('settings').put(value, key); });
+export const HUD_DEBUG_LIMIT = 50e6;
+export const hudIssueIndex = async () => await getSetting('debug-hud-index') ?? {keys: [], bytes: 0};
+
+// Blob records stay separate: collecting one failure never loads earlier image bytes into RAM.
+export function saveHudIssue(key, blob, scan) {
+  return run('settings', 'readwrite', async (tx) => {
+    const settings = tx.objectStore('settings');
+    const index = await result(settings.get('debug-hud-index')) ?? {keys: [], bytes: 0};
+    if (index.keys.includes(key)) {
+      const saved = await result(settings.get('debug-hud-' + key));
+      saved.scan.repeats++; saved.scan.lastAt = scan.at;
+      settings.put(saved, 'debug-hud-' + key);
+      return {...index, duplicate: true};
+    }
+    const size = blob.size + new TextEncoder().encode(JSON.stringify(scan)).length;
+    if (index.bytes + size > HUD_DEBUG_LIMIT || index.keys.length >= 5000) return {...index, full: true};
+    settings.put({blob, scan}, 'debug-hud-' + key);
+    const updated = {keys: [...index.keys, key], bytes: index.bytes + size};
+    settings.put(updated, 'debug-hud-index');
+    return updated;
+  });
+}
+
+export function clearHudIssues() {
+  return run('settings', 'readwrite', async (tx) => {
+    const settings = tx.objectStore('settings'), index = await result(settings.get('debug-hud-index'));
+    for (const key of index?.keys ?? []) settings.delete('debug-hud-' + key);
+    settings.delete('debug-hud-index');
+  });
+}
 export const characters = () => run('characters', 'readonly', (tx) => result(tx.objectStore('characters').getAll()));
 export const getCharacter = (id) => run('characters', 'readonly', (tx) => result(tx.objectStore('characters').get(id)));
 

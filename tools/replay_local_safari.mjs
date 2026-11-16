@@ -6,7 +6,7 @@ import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {gunzipSync} from 'node:zlib';
-import {HUD_GLYPHS, displayed, learn} from '../src/exp_tracker/web/local/glyphs.js';
+import {HUD_GLYPHS, displayed, learn, safariGlyphs} from '../src/exp_tracker/web/local/glyphs.js';
 import {PARAMS, readHud, readIdentity} from '../src/exp_tracker/web/local/reader.js';
 import {messageLines, stackTracker} from '../src/exp_tracker/web/local/pickups.js';
 import {readMessage} from '../src/exp_tracker/web/local/pickup-session.js';
@@ -30,10 +30,8 @@ const engine = {exclusive: (fn) => fn(), async read(bytes, field) {
   return {text: api.GetUTF8Text(), confidence: api.MeanTextConf() / 100};
 }};
 
-// Measured on the browser engine (2026-11-15): two of the twelve HUD strips (h10, h12) are skipped as unreadable,
-// and c05 misses one item; Tesseract 5.5.3 read them. A skip keeps the last accepted state; a wrong
-// reading never passes, and more skips than these fail.
-const HUD_SKIPS = 2, ITEM_MISSES = 1;
+// Measured on the browser engine (2026-11-15): c05 misses one item; HUD captures must all read correctly.
+const ITEM_MISSES = 1;
 
 if (spec.kind === 'hud') {
   for (const learning of [false, true]) {
@@ -43,8 +41,8 @@ if (spec.kind === 'hud') {
       let result;
       // A first scan has no previous level for the EXP table to judge OCR variants by; a continuing scan has one.
       for (const [scan, previousLevel] of [['first', null], ['continuing', c.expected.level]]) {
-        result = await readHud(engine, frame, c.regions, templates, {table, previousLevel, safari: true});
-        if (result.status !== 'ok') continue;
+        result = await readHud(engine, frame, c.regions, safariGlyphs({...templates, ...c.templates}), {table, previousLevel, safari: true});
+        assert.equal(result.status, 'ok', `${c.id}, ${scan} scan, learning=${learning}: ${result.reason}`);
         assert.deepEqual([result.level, result.exp, result.bp], [c.expected.level, c.expected.exp, c.expected.bp],
           `${c.id}, ${scan} scan, learning=${learning}`);
         reads[scan]++;
@@ -61,7 +59,7 @@ if (spec.kind === 'hud') {
       }
     }
     for (const scan of ['first', 'continuing']) {
-      assert.ok(reads[scan] >= spec.cases.length - HUD_SKIPS, `${scan} scans read ${reads[scan]} of ${spec.cases.length}, learning=${learning}`);
+      assert.equal(reads[scan], spec.cases.length, `${scan} scans, learning=${learning}`);
     }
     console.log(`learning=${learning}: first scans read ${reads.first}, continuing ${reads.continuing} of ${spec.cases.length}, none wrong.`);
   }
