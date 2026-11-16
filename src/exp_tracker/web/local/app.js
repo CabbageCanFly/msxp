@@ -18,6 +18,7 @@ const $ = (id) => document.getElementById(id);
 const INTERVALS = [1, 5, 10, 20, 30];
 const debug = new URLSearchParams(location.search).has('debug');
 const safari = /Version\/[\d.]+.*Safari\//.test(navigator.userAgent) && !/(Chrome|Chromium|CriOS|Edg|OPR|FxiOS)\//.test(navigator.userAgent);
+if (safari) document.documentElement.dataset.browser = 'safari';  // Shows the Safari note (local.css).
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel(CHANNEL) : null;
 // One capture session per browser profile: a second /local tab neither tracks nor closes the first's session.
 const LOCK = 'msxp-local-capture';
