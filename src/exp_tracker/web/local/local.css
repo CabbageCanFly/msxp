@@ -114,7 +114,7 @@
 .phone-only { display:none; }
 @media(max-width:650px) { .phone-only { display:inline; } }
 /* Safari only (app.js sets data-browser); on a phone the note above already says to use a computer. */
-.safari-only { display:none; }
+.safari-only { display:none; color:var(--gold); font-weight:800; }
 @media(min-width:651px) { [data-browser="safari"] .safari-only { display:inline; } }
 .remove-range small { align-self:center; color:var(--text-muted); font-size:12px; font-weight:600; }
 /* On narrow screens the live pages' pills drop " min" for "m"; the scan interval is in seconds. */
