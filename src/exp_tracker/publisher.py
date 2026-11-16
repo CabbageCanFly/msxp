@@ -223,8 +223,8 @@ class Publisher:
                     logins=[h['login'] for h in directory]
                     sources = store.db.execute('''SELECT s.login,r.configuration_json AS config,
                         (SELECT payload_json FROM diagnostic_attempts WHERE run_id=r.run_id ORDER BY attempt_index DESC LIMIT 1) AS payload
-                        FROM streamers s LEFT JOIN diagnostic_runs r ON r.rowid=(
-                            SELECT rowid FROM diagnostic_runs WHERE streamer_id=s.id ORDER BY rowid DESC LIMIT 1)
+                        FROM streamers s LEFT JOIN (SELECT streamer_id,MAX(rowid) AS latest FROM diagnostic_runs GROUP BY streamer_id) l
+                            ON l.streamer_id=s.id LEFT JOIN diagnostic_runs r ON r.rowid=l.latest
                         WHERE s.login IN ('''+(','.join('?' for _ in logins) or 'NULL')+') ORDER BY s.login',logins).fetchall()
                 twitch = [r['login'] for r in sources if (json.loads(r['config'] or '{}').get('source_kind') or
                     json.loads(r['payload'] or '{}').get('source', {}).get('kind')) == 'twitch']
