@@ -16,12 +16,10 @@
 }
 
 API_HOSTNAME {
-	# Access log: counts /local visits (its one GET /ping/local per page load, answered 404 below) and API use.
+	# Access log (JSON, to the journal: journalctl -u caddy). It also counts /local visits: the page's one
+	# GET /ping/local per load, answered 404 below.
 	log {
-		output file /var/log/caddy/msxp-access.log {
-			roll_size 10MiB
-			roll_keep 5
-		}
+		format json
 	}
 	encode zstd gzip
 	header {

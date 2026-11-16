@@ -88,7 +88,8 @@ to the API and to the analytics report. `/local`, `/local/*`, `/local-overlay` a
 detach that policy (`! Content-Security-Policy`) and send their own: the same rules plus
 `'wasm-unsafe-eval'` and `worker-src 'self'` for the OCR worker. The local tracker's only API
 request is one `GET /ping/local` per page load, carrying no data; Caddy answers it 404 and its
-access log (`/var/log/caddy/msxp-access.log`) counts `/local` visits.
+access log (JSON in the journal) counts `/local` visits:
+`sudo journalctl -u caddy --since today -o cat | grep -c '"uri":"/ping/local"'`.
 
 The Caddy allowlist (`deploy/Caddyfile`) already covers the player GET routes, including
 `/api/players/{channel}/daily-history`; no proxy change is needed for that endpoint.
