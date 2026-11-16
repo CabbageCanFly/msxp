@@ -579,14 +579,17 @@ html, body.product { overflow-x:clip; }
   .product[data-view="player"] .windows:has(> span:first-child) { grid-auto-flow:row; grid-template-columns:auto repeat(3,minmax(52px,1fr)); }
   .product[data-view="player"] .windows:has(> span:first-child) > button:nth-of-type(3n+1) { grid-column:2; }
 }
-/* Level planner: the pencil on the "Next level" card opens it (static/local/level-plan.js). */
+/* Level planner: the "Plan" pill on the "Next level" card opens it (static/local/level-plan.js); the whole card is
+   clickable. The pill is labelled and faintly gold at rest, so the feature is visible without a hover, and fills
+   gold when the card is hovered. */
 .companion-cards .next-card { position:relative; }
 .companion-cards .next-card:has(.eta-plan) { cursor:pointer; transition:border-color .15s, background-color .15s, transform .15s; }
 .companion-cards .next-card:has(.eta-plan):hover { border-color:var(--gold-deep); background:color-mix(in srgb, var(--surface-raised) 85%, var(--gold) 6%); transform:translateY(-1px); }
-.companion-cards .next-card:has(.eta-plan):hover .eta-plan { color:var(--gold); }
-.companion-cards .eta-plan { position:absolute; top:10px; right:10px; display:grid; place-items:center; width:28px; height:28px; min-height:0; padding:0;
-  border-color:var(--line); background:transparent; color:var(--text-muted); }
-.companion-cards .eta-plan:hover:not(:disabled) { color:var(--gold); background:var(--surface); }
+.companion-cards .eta-plan { position:absolute; top:10px; right:10px; display:inline-flex; align-items:center; gap:5px; height:24px; min-height:0; padding:0 9px 0 8px;
+  border:1px solid color-mix(in srgb, var(--gold-deep) 55%, transparent); border-radius:999px; background:color-mix(in srgb, var(--gold) 9%, transparent);
+  color:var(--gold); font-family:inherit; font-size:11px; font-weight:800; line-height:1; letter-spacing:.3px; cursor:pointer; transition:background-color .15s, color .15s, border-color .15s; }
+.companion-cards .next-card:has(.eta-plan):hover .eta-plan, .companion-cards .eta-plan:focus-visible { border-color:var(--gold-deep);
+  background:linear-gradient(#ffd68c,var(--gold-deep)); color:var(--on-gold); }
 .planner { width:min(420px,calc(100vw - 32px)); }
 .planner-now { color:var(--text-muted); font-size:13px; font-weight:700; }
 .planner-inputs { display:grid; grid-template-columns:minmax(0,1fr) 92px 92px; gap:10px; margin:10px 0 12px; }
