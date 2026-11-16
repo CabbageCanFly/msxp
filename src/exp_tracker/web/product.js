@@ -37,15 +37,20 @@ if(view==='player' && channel)document.title=`${channel.toLowerCase()} · EXP Tr
 const numbers=new Intl.NumberFormat('en-US'),shortNumber=new Intl.NumberFormat('en-US',{maximumSignificantDigits:3});
 const wholeNumbers=new Intl.NumberFormat('en-US',{maximumFractionDigits:0});
 // Times use the visitor's zone, or one they picked (remembered in this browser only).
-let timeZone,localDates,clockMinutes,clockSeconds,monthDay;
+let timeZone,localDates,clockMinutes,clockSeconds,monthDay,monthDayYear,yearOf;
 function setTimeZone(zone) {
   try {new Intl.DateTimeFormat('en-US',{timeZone:zone || undefined});} catch {zone=null;}
   timeZone=zone || undefined;
   localDates=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'long',timeZone});
   clockMinutes=new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit',timeZone});
   clockSeconds=new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone});
-  monthDay=new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric',timeZone});
+  // Chart dates read 'Nov 16' everywhere (a browser's own numeric order flips day and month), with the year only
+  // when it is not this year.
+  monthDay=new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',timeZone});
+  monthDayYear=new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',year:'numeric',timeZone});
+  yearOf=new Intl.DateTimeFormat('en-US',{year:'numeric',timeZone});
 }
+const dayLabel=at=>(yearOf.format(at)===yearOf.format(Date.now())?monthDay:monthDayYear).format(at);
 setTimeZone((()=>{try {return localStorage.getItem('timezone');} catch {return null;}})());
 function zoneLabel() { return new Intl.DateTimeFormat('en-US',{timeZone,timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value ?? 'local time'; }
 // Live updates wait while the visitor has text selected, so re-rendering doesn't clear the selection.
@@ -752,7 +757,7 @@ function drawExpHistory() {
     const tick=new Date(chart.start+(chart.end-chart.start)*i/(ticks-1)).toISOString();
     const attrs={x:54+plotWidth*i/(ticks-1),'text-anchor':i===0?'start':i===ticks-1?'end':'middle'};
     shape('text',{...attrs,y:232}).textContent=clockMinutes.format(new Date(tick));
-    if(chart.range>=43200)shape('text',{...attrs,y:248}).textContent=monthDay.format(new Date(tick));
+    if(chart.range>=43200)shape('text',{...attrs,y:248}).textContent=dayLabel(new Date(tick));
   }
   const count=chart.bins.filter(b=>b.value!=null).length;
   el('history-note').textContent=`${chart.seconds/60} min per bar · last ${chart.range<3600?chart.range/60+' min':chart.range/3600+' hours'} · times in ${zoneLabel()}${count?'':' · no data in this period'}`;
@@ -890,9 +895,9 @@ function drawDailyHistory() {
     marked=x(r.time);
     shape('text',{x:Math.min(right-16,x(r.time)),y:Math.max(14,y(r.value)-10),'text-anchor':'middle',class:'level-mark'}).textContent=`Lv. ${r.level}`;
   });
-  const dates=new Intl.DateTimeFormat(undefined,{month:'2-digit',day:'2-digit',timeZone}),shownDates=new Set();
+  const shownDates=new Set();
   for(let i=0;i<ticks;i++) {
-    const stamp=first+(last-first)*i/(ticks-1),label=dates.format(new Date(stamp));
+    const stamp=first+(last-first)*i/(ticks-1),label=dayLabel(new Date(stamp));
     if(shownDates.has(label))continue;shownDates.add(label);
     shape('line',{x1:x(stamp),x2:x(stamp),y1:190,y2:195,class:'chart-tick'});
     shape('text',{x:x(stamp),y:218,'text-anchor':i===0?'start':i===ticks-1?'end':'middle'}).textContent=label;
@@ -1245,12 +1250,12 @@ if(view==='player') {
       b.setAttribute('aria-pressed',String(builder[key]===b.dataset.value && (key!=='theme' || !OVERLAY_COLORS.some(color=>builder[color]))));
     });
     document.querySelectorAll('[data-color]').forEach(input=>{input.value='#'+(builder[input.dataset.color] ?? THEME_COLORS[builder.theme][input.dataset.color]);});
+    document.querySelectorAll('[data-for-layout]').forEach(row=>{row.hidden=!row.dataset.forLayout.split(' ').includes(builder.layout);});
     frame.width=width;frame.height=height;scalePreview();
     // The preview is this site's own overlay page, so options apply in place without reloading it.
     const character=el('overlay-character').value || '';
     if((frame.dataset.character ?? '')!==character){
       frame.dataset.character=character;frame.dataset.loaded='';frame.src=url;
-    document.querySelectorAll('[data-for-layout]').forEach(row=>{row.hidden=!row.dataset.forLayout.split(' ').includes(builder.layout);});
     } else if(frame.dataset.loaded)frame.contentWindow?.applyOverlay?.(builder);else if(!frame.src)frame.src=url;
   }
   frame.addEventListener('load',()=>{frame.dataset.loaded='true';frame.contentWindow?.applyOverlay?.(builder);});
