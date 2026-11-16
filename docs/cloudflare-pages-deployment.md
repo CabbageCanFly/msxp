@@ -57,6 +57,11 @@ return the 404 page on Pages.
 | Build command | `python3 tools/export_pages.py` |
 | Build output directory | `dist/pages` |
 | Environment variables | `MSXP_API_ORIGIN` = the public API origin, e.g. `https://api.example.org`, set for **both** Production and Preview |
+| Build watch paths | Include `src/exp_tracker/web/*`, `src/exp_tracker/data/*`, `tools/export_pages.py`; exclude nothing |
+
+The watch paths are everything the export reads, so pushes that change only the API, tracker,
+tests or docs skip the Pages build (the Free plan allows 500 builds a month). Keep them in step
+if `export_pages.py` starts reading another folder.
 
 The build needs only Python 3.9 or newer, with no `pip install`. Without
 `MSXP_API_ORIGIN` the build fails with "set --api-origin or MSXP_API_ORIGIN", so a
