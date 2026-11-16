@@ -21,7 +21,7 @@ OBSERVED_MAX_GAP_SECONDS=60
 OBSERVED_MAX_MISSING=2
 
 
-def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=False,retain_history=True,collected=None,current_level_only=False,memo=None):
+def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=False,retain_history=True,collected=None,current_level_only=False,memo=None,intervals=True):
     """Eligible whole-interval gains, normalized over the selected lookback duration."""
     from .pace_intervals import collect_observed,window_endpoints,PUBLIC_POLICY
     rows=snapshot['observations'];reference=next((r.get('received_at') or r.get('attempted_at') for r in reversed(rows)),None)
@@ -61,18 +61,20 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
     active=bool(not retained and rows and rows[-1]['event_id']==last['event_id'] and not rows[-1].get('run_interrupted')
         and snapshot.get('run_status') not in ('completed','interrupted') and snapshot.get('run_id',rows[-1].get('run_id'))==rows[-1].get('run_id'))
     if not active:calculated['eta']=None
-    details=[];metadata={(e['before']['event_id'],e['after']['event_id']):e for e in collected.get('intervals',[])}
-    for interval in gain['intervals']:
-        detail=metadata.get((interval['first_event_id'],interval['last_event_id']),{})
-        details.append(dict(first_event_id=interval['first_event_id'],last_event_id=interval['last_event_id'],start=interval['start'],end=interval['end'],
-            kind=detail.get('kind','endpoint_supported'),basis=interval['basis'],level=interval['level'],requirement=interval['requirement'],gain=interval['value'],
+    metadata={(e['before']['event_id'],e['after']['event_id']):e for e in collected.get('intervals',[])}
+    found=[metadata.get((i['first_event_id'],i['last_event_id']),{}) for i in gain['intervals']]
+    kinds=[d.get('kind','endpoint_supported') for d in found]
+    # A full day holds thousands of intervals; recent_windows drops these records, so only the counts are built for it.
+    details=[dict(first_event_id=interval['first_event_id'],last_event_id=interval['last_event_id'],start=interval['start'],end=interval['end'],
+            kind=kind,basis=interval['basis'],level=interval['level'],requirement=interval['requirement'],gain=interval['value'],
             elapsed_seconds=rational(elapsed_seconds(datetime.fromisoformat(interval['start']),datetime.fromisoformat(interval['end']))),
-            missing_event_ids=detail.get('missing_event_ids',[]),unrecorded_attempts=detail.get('unrecorded_attempts',0)))
+            missing_event_ids=detail.get('missing_event_ids',[]),unrecorded_attempts=detail.get('unrecorded_attempts',0))
+        for interval,detail,kind in zip(gain['intervals'],found,kinds)] if intervals else None
     return dict(active=active,tentative=len(selected)<3 or elapsed<30,level=last['level']['value'],levels=sorted({p['level']['value'] for p in selected}),
         eta_at=last['timestamp'],start=first['timestamp'],end=last['timestamp'],source_kind=last.get('source_kind'),source_identity=last.get('source_identity'),
         readings=len(selected),last_observed_eta=saved_eta,span_seconds=rational(span),coverage_seconds=rational(elapsed),interruptions=int(bool(gain.get('manual_boundaries'))),
-        estimates=calculated,basis=gain['basis'],interval_counts={kind:sum(d['kind']==kind for d in details) for kind in ('direct','endpoint_supported')},intervals=details,total_gain=gain['value'],
-        basis_counts={gain['basis']:1},missing_attempts=len(collected['excluded'])+sum(d['unrecorded_attempts'] for d in details),
+        estimates=calculated,basis=gain['basis'],interval_counts={kind:kinds.count(kind) for kind in ('direct','endpoint_supported')},**({'intervals':details} if intervals else {}),total_gain=gain['value'],
+        basis_counts={gain['basis']:1},missing_attempts=len(collected['excluded'])+sum(d.get('unrecorded_attempts',0) for d in found),
         evidence_counts={kind:sum(p['evidence']==kind for p in selected) for kind in ('strict_full','strict_percentage_only','grammar_recovered','conditional_symbol')},
         conditional_recoveries=collected['recoveries'],excluded=collected['excluded'],latest_endpoint=collected.get('latest'),
         policy=PUBLIC_POLICY,minimum_seconds=0,trend_seconds=minutes*60,trusted=False,retained_history=retained,recent_pool_expired=retained,
@@ -87,7 +89,7 @@ def recent_windows(snapshot,display_level,*,now,current_level_only=False,collect
     result={}
     for minutes in WINDOWS:
         pace=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,
-            retain_history=False,collected=collected,current_level_only=current_level_only,memo=memo)
+            retain_history=False,collected=collected,current_level_only=current_level_only,memo=memo,intervals=False)
         observed=dict(available=False)
         if pace:
             percentage=pace['estimates']['percentage_per_hour']
@@ -111,7 +113,7 @@ def recent_windows(snapshot,display_level,*,now,current_level_only=False,collect
             _,_,reason=window_endpoints(collected['points'],start=now-timedelta(minutes=minutes),end=now,level=level if current_level_only else None,memo=memo)
             result[str(minutes)]['reason']=reason
         if pace is None:
-            previous=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only,memo=memo)
+            previous=responsive_pace(snapshot,display_level,now=now,minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only,memo=memo,intervals=False)
             result[str(minutes)]['last_observed_pace']=({k:v for k,v in previous.items()
                 if k not in ('intervals','conditional_recoveries','excluded','latest_endpoint')} if previous else None)
             if previous is None:
@@ -123,7 +125,7 @@ def recent_windows(snapshot,display_level,*,now,current_level_only=False,collect
         # Date the estimate at an observation, not at a poll that merely removes
         # old intervals. The gain/rate cards keep their actual current windows.
         basis=responsive_pace(snapshot,display_level,now=datetime.fromisoformat(current_basis.get('eta_at',current_basis['end'])),
-            minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only,memo=memo) if current_basis else None
+            minutes=minutes,pool_history=True,collected=collected,current_level_only=current_level_only,memo=memo,intervals=False) if current_basis else None
         eta=basis and basis['last_observed_eta']
         # An old duration survives missing OCR, never an affirmative new level or
         # confirmed reset. No subtraction or countdown crosses the boundary.

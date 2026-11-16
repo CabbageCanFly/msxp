@@ -114,7 +114,7 @@ def endpoint_interval(before,after):
         total=requirement(point['level']['value'])['to_next']
         if point['exp'] is None and total is None:return None,'percentage_requirement_unavailable'
         # Match the whole-EXP estimate shown at each percentage-only graph point.
-        values.append(Fraction(int(point['exp'])) if point['exp'] is not None else Fraction((point['bp']*total+5000)//10000))
+        values.append(int(point['exp']) if point['exp'] is not None else (point['bp']*total+5000)//10000)
     gain=values[1]-values[0]+sum(r['to_next'] for r in required)
     numeric=all(p['exp'] is not None for p in (before,after))
     basis='observed_exp_endpoints' if numeric else 'displayed_percentage_endpoints' if all(p['exp'] is None for p in (before,after)) else 'mixed_exp_and_percentage_endpoints'
@@ -149,7 +149,7 @@ def window_endpoints(points,*,start,end,level=None,memo=None):
         memo['ordered']=sorted(((datetime.fromisoformat(p['timestamp']),p) for p in points if usable_endpoint(p)),key=lambda t:t[0])
         memo['times']=[t for t,_ in memo['ordered']];memo['pairs']={}
     ordered,times,pairs=memo['ordered'],memo['times'],memo['pairs']
-    used=[];gains=[];coverage=Fraction(0);reason='two_distinct_observation_times_required'
+    used=[];gains=[];coverage=0;reason='two_distinct_observation_times_required'  # Whole microseconds, exact.
     # Sorted, so the skipped pairs are exactly those ending before start or after end.
     for i in range(max(0,bisect_left(times,start)-1),bisect_right(times,end)-1):
         (a,before),(b,after)=ordered[i],ordered[i+1]
@@ -164,15 +164,16 @@ def window_endpoints(points,*,start,end,level=None,memo=None):
         if gain['value']['numerator']<0:
             reason='observed_exp_decrease';continue
         if not used or used[-1]['event_id']!=before['event_id']:used.append(before)
-        used.append(after);gains.append(gain);coverage+=elapsed_seconds(a,b)
+        delta=b-a;used.append(after);gains.append(gain);coverage+=(delta.days*86400+delta.seconds)*1000000+delta.microseconds
     if not gains:
         available=[p for p in points if start<=datetime.fromisoformat(p['timestamp'])<=end]
         if len(available)>=2 and sum(usable_endpoint(p) for p in available)<2:
             reason='level_unavailable' if any(p['level']['value'] is None for p in available) else 'percentage_requirement_unavailable'
         return [],None,reason
     return used,dict(gains[-1],start=used[0]['timestamp'],first_event_id=used[0]['event_id'],
-        value=rational(sum((Fraction(g['value']['numerator'],g['value']['denominator']) for g in gains),Fraction(0))),
-        coverage_seconds=rational(coverage),intervals=gains,
+        value=rational(sum(g['value']['numerator'] for g in gains) if all(g['value']['denominator']==1 for g in gains)
+            else sum((Fraction(g['value']['numerator'],g['value']['denominator']) for g in gains),Fraction(0))),
+        coverage_seconds=rational(Fraction(coverage,1000000)),intervals=gains,
         manual_boundaries=any(a['last_event_id']!=b['first_event_id'] for a,b in zip(gains,gains[1:])),
         requirements=[r for g in gains for r in g['requirements']],
         transition_gain_included=any(g['transition_gain_included'] for g in gains),
