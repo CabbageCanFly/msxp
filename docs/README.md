@@ -34,7 +34,8 @@ The README's [Next improvements](../README.md#next-improvements) is the single s
 
 - [Player experience principles](product-experience-principles.md) · [Background preview and asset sources](website-background.md)
 - Performance: [homepage](homepage-performance.md), [incremental history](incremental-history.md),
-  [card projection](card-projection.md), [character summaries](per-character-summary-cache.md)
+  [card projection](card-projection.md), [character summaries](per-character-summary-cache.md),
+  [ledger redesign (handoff)](ledger-redesign.md)
 
 ## Development
 
