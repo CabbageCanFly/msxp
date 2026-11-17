@@ -22,7 +22,7 @@ from .product import player,refresh,history,PRODUCT_ROWS
 from .diagnostic_evidence import project
 from .manual import annotate,active,corrected_reading
 
-DECODED_LIMIT_BYTES = 128 * 1024 * 1024  # Packed size; roughly 60 live channels' recent rows.
+DECODED_LIMIT_BYTES = 192 * 1024 * 1024  # Packed size; every channel's 640 recent rows (~1-1.5 MB each) with room.
 DECODED = OrderedDict()  # Payload digest -> marshal bytes, least recently used first.
 DECODED_STATE = dict(bytes=0)
 DECODED_LOCK = threading.Lock()

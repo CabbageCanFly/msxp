@@ -17,7 +17,7 @@ the same 4 cores, so the pinned core also slows captures (asked 20 s, actual med
 |---|---|---|
 | Deployed on the VPS (main) | `9797a0a` list copies, `44a5e9c` latest-run lookup (was 56% of the thread), `ceacbc4` integer window sums, `73bba10` idle channels every 10 min, spaced behind live work | `ecbe889` (first idle attempt) was reverted by `3af5e52`: it delayed live updates to ~5 min |
 | Deployed 2026-11-17 | `51c9c7d` settings decoded once per run, `cc6ef03` deploy units read `MSXP_FRONTEND_ORIGIN` (no server effect) | |
-| Branch `ledger-redesign`, merged and deployed 2026-11-17 | `915327c` decode each attempt once (content-keyed marshal cache, 128 MB cap), `7578928` reading-pair intervals remembered between rebuilds and shared by card and totals (96 MB cap), `c5ce99a` card reuses the recent history's point collection, `ed3c4ba` clock-only refresh every 30 s instead of 10 s | Output byte-identical to main for the first three (synthetic full day, 10 rebuilds) |
+| Branch `ledger-redesign`, merged and deployed 2026-11-17 | `915327c` decode each attempt once (content-keyed marshal cache), `7578928` reading-pair intervals remembered between rebuilds and shared by card and totals; caps raised to 192 MB and 512 MB for up to ~80-100 live channels (owner's budget for both: ~1.5 GB), `c5ce99a` card reuses the recent history's point collection, `ed3c4ba` clock-only refresh every 30 s instead of 10 s | Output byte-identical to main for the first three (synthetic full day, 10 rebuilds) |
 
 Measured locally, synthetic full-day channel, CPU per warm rebuild: main 594 ms, branch 453 ms
 (−24%). Real captures are 9–14 KB against 0.5 KB synthetic, so phase 1 saves more there:

@@ -18,7 +18,7 @@ TRACKED_POLICY='tracked_endpoint_exp_v5'
 PUBLIC_POLICY='public_endpoint_window_v2'
 # Longest live window plus causal warmup; age by replay time, never query time.
 FRAME_HISTORY_SECONDS=24*60*60+5*60
-PAIR_BUDGET_BYTES=96*1024*1024  # About 25 full-day channels; beyond it the least recent channel recomputes.
+PAIR_BUDGET_BYTES=512*1024*1024  # ~80-100 live channels (2-5 MB each); with the decode cache, well under 1.5 GB.
 PAIR_BYTES=1300  # Measured size of one interval result, ~1.2 KB.
 PAIR_SLOTS=OrderedDict()  # Channel slot -> intervals by the content of their two readings.
 PAIR_LOCK=threading.Lock()
