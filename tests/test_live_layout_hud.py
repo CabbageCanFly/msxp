@@ -85,7 +85,7 @@ def test_capture_that_never_calls_locator_still_releases_lease(fake_pool,tmp_pat
     class Session:
         source_bytes=0
         def __init__(self,*args,**kwargs):pass
-        def frame(self,**kwargs):return SimpleNamespace(png=b'unused',received_at='x')
+        def frame(self,**kwargs):return SimpleNamespace(data=b'unused',received_at='x')
         def close(self):pass
     args=SimpleNamespace(timeout=1,max_age=1,ocr_timeout=1,ocr_python=None,save_crops=False,
         output=tmp_path/'unused.jsonl',layout_first_hud=True)

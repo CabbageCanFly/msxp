@@ -39,6 +39,29 @@ attempts, but overall CPU remained saturated while more live frames were acquire
 
 The earlier throughput measurements below predate these changes.
 
+## Uncompressed frame transfer (PPM)
+
+FFmpeg now hands capture sessions binary PPM (raw RGB with a 15-byte header) instead of PNG.
+The PNG encode was most of FFmpeg's work per capture. Frames are pixel-identical, so OCR inputs
+are unchanged. `read_ppm` checks the exact header and the pixel limit before reading the body.
+`frame_sha256` now hashes the PPM bytes: still a content hash of the decoded frame, but it no
+longer matches hashes recorded before this change (only distinctness within a run is used).
+`collect_hud_frames.py` still asks for PNG, because it saves FFmpeg's native files as fixtures.
+
+Measured:
+
+- **VPS, read-only `/proc` sampling, 2026-11-17, PNG code:** about 41 captures a minute. Each
+  FFmpeg process used **0.6–1.4 CPU-s** (typically ≈1.0), about a quarter of tracker CPU. Over the
+  same minute, the resident Tesseract workers used ≈2.4 CPU-s per capture, Streamlink ≈0.27 and
+  the coordinator ≈0.3.
+- **Workstation, the production command on three recorded 1080p Twitch clips, first frame then
+  terminate:** median FFmpeg CPU **0.23–0.28 s with PNG, 0.08–0.11 s with PPM**. Python decode
+  plus SHA-256 in the coordinator: 35–42 ms → 14–27 ms per frame.
+
+Not measured: the VPS saving. If it scales like the workstation, the estimate is
+≈0.6 CPU-s less per capture. The October estimate ("≈3 %, low value", in
+[throughput research](throughput-architecture-research.md)) used a workstation-only FFmpeg figure.
+
 ## Streamlink import preloading (automatic on Linux)
 
 Linux network capture enables this automatically (`MSXP_PRELOAD_STREAMLINK=auto`).

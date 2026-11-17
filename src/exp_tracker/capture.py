@@ -128,7 +128,7 @@ def main(argv=None):
                 capture_seconds = time.monotonic() - tick_started
                 age = time.monotonic() - frame.arrived_monotonic
                 image = frame.image()
-                frame_hash = hashlib.sha256(frame.png).hexdigest()
+                frame_hash = hashlib.sha256(frame.data).hexdigest()
                 ocr_started = time.monotonic()
                 result = recognize(image, regions=regions,
                                    glyph_profile=profile, pixel_scales=tuple(args.pixel_scale or [1]),

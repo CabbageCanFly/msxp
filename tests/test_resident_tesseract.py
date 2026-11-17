@@ -199,7 +199,7 @@ def test_engine_is_scoped_to_one_capture_attempt_and_its_thread(monkeypatch):
     class Session:
         source_bytes = 0
         def __init__(self, *args, **kwargs): pass
-        def frame(self, **kwargs): return SimpleNamespace(received_at='x', png=b'png')
+        def frame(self, **kwargs): return SimpleNamespace(received_at='x', data=b'png')
         def close(self): pass
 
     def analyze(frame, requirements, reader, **options):

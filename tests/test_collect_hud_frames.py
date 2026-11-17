@@ -70,7 +70,7 @@ def test_saves_original_bytes_dimensions_hashes_and_private_source_identity(coll
     assert len(list(args.output.iterdir())) == 3
     for saved, original in zip(result['frames'], frames):
         data = (args.output / saved['file']).read_bytes()
-        assert data == original.png
+        assert data == original.data
         assert saved['sha256'] == hashlib.sha256(data).hexdigest()
         assert (saved['width'], saved['height']) == (32, 16)
         assert saved['png_bytes'] == len(data) and saved['received_at'] == original.received_at

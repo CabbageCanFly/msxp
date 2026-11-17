@@ -8,7 +8,7 @@ import time
 from PIL import Image
 import pytest
 
-from exp_tracker.video import CaptureError, Frame, Source, VideoSession, ffmpeg_command, read_png
+from exp_tracker.video import CaptureError, Frame, Source, VideoSession, ffmpeg_command, read_png, read_ppm
 
 
 def png_bytes():
@@ -38,6 +38,42 @@ def test_png_parser_bounds_resolution():
     payload = b"\x89PNG\r\n\x1a\n" + struct.pack(">I4sII", 13, b"IHDR", 10000, 10000) + b"\x00" * 9
     with pytest.raises(CaptureError, match="pixel_limit"):
         read_png(BytesIO(payload))
+
+
+def ppm_bytes():
+    data = BytesIO()
+    Image.new("RGB", (16, 8), "red").save(data, format="PPM")
+    return data.getvalue()
+
+
+def test_ppm_pipe_reads_distinct_frames_and_decodes_like_png():
+    payload = ppm_bytes()
+    pipe = BytesIO(payload + payload)
+    assert read_ppm(pipe) == payload
+    assert read_ppm(pipe) == payload
+    with pytest.raises(EOFError):
+        read_ppm(pipe)
+    frame = Frame(payload, 1, time.monotonic(), "now")
+    assert frame.image().tobytes() == Frame(png_bytes(), 1, 0, "now").image().tobytes()
+
+
+@pytest.mark.parametrize("payload,reason", [
+    (b"P6\n10000 10000\n255\n", "pixel_limit"),  # Rejected before reading any body.
+    (b"P5\n16 8\n255\n", "invalid_decoder"),
+    (b"P6\n16 8\n65535\n", "invalid_decoder"),
+    (b"P6\n0016 8\n255\n", "invalid_decoder"),
+    (b"P6 " + b"9" * 40, "invalid_decoder"),
+])
+def test_ppm_parser_bounds_header_and_resolution(payload, reason):
+    with pytest.raises(CaptureError, match=reason):
+        read_ppm(BytesIO(payload))
+
+
+def test_capture_decodes_uncompressed_frames_but_collection_keeps_png():
+    command = ffmpeg_command("ffmpeg", Source("twitch", "example"))
+    assert command[command.index("-c:v") + 1] == "ppm"
+    command = ffmpeg_command("ffmpeg", Source("twitch", "example"), codec="png")
+    assert command[command.index("-c:v") + 1] == "png"
 
 
 def test_source_disables_browser_and_cached_credentials(monkeypatch):
@@ -128,7 +164,7 @@ def test_real_decoder_exit_is_unavailable_not_a_fresh_frame(monkeypatch):
 
 
 def test_live_small_producer_chunk_reaches_decoder_without_filling_relay_buffer(monkeypatch):
-    payload=png_bytes()
+    payload=ppm_bytes()
     producer=[sys.executable,'-c',
         f'import sys,time; sys.stdout.buffer.write({payload!r}); sys.stdout.buffer.flush(); time.sleep(60)']
     decoder=[sys.executable,'-c',
@@ -138,7 +174,7 @@ def test_live_small_producer_chunk_reaches_decoder_without_filling_relay_buffer(
     monkeypatch.setattr('exp_tracker.video.ffmpeg_command',lambda *a,**kw:decoder)
     session=VideoSession(Source('twitch','synthetic'))
     try:
-        assert session.frame(timeout=2).png==payload
+        assert session.frame(timeout=2).data==payload
         assert session.source_bytes==len(payload)<16384
     finally:
         session.close()

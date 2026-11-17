@@ -35,7 +35,7 @@ def test_capture_guard_database_and_worker_restart(tmp_path, monkeypatch, capsys
         def frame(self, **_kwargs):
             if tick == 3:
                 raise CaptureError("offline_or_unavailable")
-            return SimpleNamespace(sequence=1, png=b"owned-synthetic-frame", image=lambda: Image.new("RGB", (100, 20)),
+            return SimpleNamespace(sequence=1, data=b"owned-synthetic-frame", image=lambda: Image.new("RGB", (100, 20)),
                                    arrived_monotonic=capture.time.monotonic(),
                                    received_at=(now - timedelta(seconds=10 - tick)).isoformat())
 

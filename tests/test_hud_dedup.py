@@ -114,7 +114,7 @@ def test_deduplicated_streamer_a_geometry_flows_to_existing_inference_without_le
         assert result['neural_level']['status']=='missing_crop'
         assert [p.name for p in (tmp_path/f'crop-{index}').iterdir()]==['exp.png']
         d.append('run',dict(result,type='attempt',index=index,attempted_at=stamp,received_at=stamp,
-            frame_sha256=hashlib.sha256(frame.png).hexdigest(),source=dict(kind='twitch',channel='alpha')))
+            frame_sha256=hashlib.sha256(frame.data).hexdigest(),source=dict(kind='twitch',channel='alpha')))
     p=get(d,30)
     assert p['display_level']['value']==43 and p['reading']['percentage']=='21.06'
     assert p['display_level']['evidence']['status']=='retained_level'

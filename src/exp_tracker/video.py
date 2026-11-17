@@ -1,4 +1,4 @@
-"""Bounded Streamlink -> FFmpeg -> latest PNG pipeline. No image files or credentials."""
+"""Bounded Streamlink -> FFmpeg -> latest frame pipeline. No image files or credentials."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -58,6 +58,25 @@ def read_png(stream):
             return bytes(result)
 
 
+PPM_HEADER = re.compile(rb"P6\n([1-9][0-9]{0,4}) ([1-9][0-9]{0,4})\n255\n")
+
+
+def read_ppm(stream):
+    """Read one binary PPM (FFmpeg's exact P6 header) from image2pipe, bounded before the body."""
+    header = bytearray()
+    while header.count(b"\n") < 3:
+        if len(header) >= 20:
+            raise CaptureError("invalid_decoder_output")
+        header += read_exact(stream, 1)
+    match = PPM_HEADER.fullmatch(header)
+    if not match:
+        raise CaptureError("invalid_decoder_output")
+    width, height = int(match[1]), int(match[2])
+    if width * height > MAX_PIXELS:
+        raise CaptureError("frame_exceeds_pixel_limit")
+    return bytes(header) + read_exact(stream, width * height * 3)
+
+
 @dataclass(frozen=True)
 class Source:
     kind: str  # file, hls (HTTP input), twitch (public playback)
@@ -85,7 +104,7 @@ class Source:
                 "--ringbuffer-size", "4M", "--hls-live-edge", "2", "--stdout", url, self.quality]
 
 
-def ffmpeg_command(executable, source, *, file_offset=0, keyframes_only=True):
+def ffmpeg_command(executable, source, *, file_offset=0, keyframes_only=True, codec="ppm"):
     command = [executable, "-hide_banner", "-loglevel", "error", "-nostdin", "-threads", "1"]
     if keyframes_only:
         command += ["-skip_frame", "nokey"]
@@ -98,24 +117,27 @@ def ffmpeg_command(executable, source, *, file_offset=0, keyframes_only=True):
     # Decode keyframes by default; do not encode more than one preview/second.
     # This reduces CPU, NOT downloaded video bytes. The reader always drains output.
     command += ["-an", "-sn", "-dn", "-vf", "select=isnan(prev_selected_t)+gte(t-prev_selected_t\\,1)",
-                "-fps_mode", "vfr", "-c:v", "png", "-threads", "1", "-f", "image2pipe", "pipe:1"]
+                "-fps_mode", "vfr", "-c:v", codec, "-threads", "1", "-f", "image2pipe", "pipe:1"]
     return command
 
 
 @dataclass(frozen=True)
 class Frame:
-    png: bytes
+    data: bytes  # One encoded image: PPM from capture sessions, PNG from fixture collection.
     sequence: int
     arrived_monotonic: float
     received_at: str
 
     def image(self):
-        with Image.open(BytesIO(self.png)) as image:
+        with Image.open(BytesIO(self.data)) as image:
             return image.convert("RGB")
 
 
 class VideoSession:
     """One connection and decoder, one latest frame, bounded stderr and byte counters."""
+
+    # Uncompressed frames: PNG encoding was most of FFmpeg's CPU per capture (docs/capture-performance.md).
+    codec = "ppm"
 
     def __init__(self, source, *, ffmpeg="ffmpeg", file_offset=0, keyframes_only=True, producer_factory=None):
         self.condition = threading.Condition()
@@ -133,7 +155,7 @@ class VideoSession:
                 self.producer = (producer_factory or subprocess.Popen)(source.streamlink_command(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 self._thread(self._logs, self.producer.stderr, "streamlink")
             self.decoder = subprocess.Popen(ffmpeg_command(ffmpeg, source, file_offset=file_offset,
-                                                           keyframes_only=keyframes_only),
+                                                           keyframes_only=keyframes_only, codec=self.codec),
                                             stdin=subprocess.PIPE if self.producer else subprocess.DEVNULL,
                                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self._thread(self._logs, self.decoder.stderr, "ffmpeg")
@@ -175,12 +197,13 @@ class VideoSession:
                 pass
 
     def _frames(self):
+        read = read_png if self.codec == "png" else read_ppm
         try:
             while not self.stopping:
-                png = read_png(self.decoder.stdout)
+                data = read(self.decoder.stdout)
                 with self.condition:
                     sequence = self.latest.sequence + 1 if self.latest else 1
-                    self.latest = Frame(png, sequence, time.monotonic(), datetime.now(timezone.utc).isoformat())
+                    self.latest = Frame(data, sequence, time.monotonic(), datetime.now(timezone.utc).isoformat())
                     self.condition.notify_all()
         except EOFError:
             self.error = "source_ended"

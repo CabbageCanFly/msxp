@@ -21,6 +21,8 @@ MAX_SECONDS = 60
 
 
 class DiagnosticSession(VideoSession):
+    codec = 'png'  # Saved fixtures are FFmpeg's native PNG files.
+
     def __init__(self, *args, **kwargs):
         try:
             super().__init__(*args, **kwargs)
@@ -115,24 +117,24 @@ def collect(args, *, session_factory=DiagnosticSession, clock=time.monotonic, sl
                         break
                     if not 0 <= age <= 5:
                         attempt['outcome'] = 'stale_local_frame'
-                    elif len(frame.png) > MAX_PNG_BYTES:
+                    elif len(frame.data) > MAX_PNG_BYTES:
                         raise ValueError('Frame exceeds PNG byte limit')
                     else:
-                        digest = hashlib.sha256(frame.png).hexdigest()
+                        digest = hashlib.sha256(frame.data).hexdigest()
                         if digest in seen:
                             attempt['outcome'] = 'duplicate'
                         else:
-                            with Image.open(BytesIO(frame.png)) as image:
+                            with Image.open(BytesIO(frame.data)) as image:
                                 width, height = image.size
                                 if image.format != 'PNG' or not 0 < width * height <= MAX_PIXELS:
                                     raise ValueError('Invalid native PNG geometry')
                                 image.verify()
                             filename = f'frame-{len(seen) + 1:02d}.png'
                             with (output / filename).open('xb') as png:
-                                png.write(frame.png)
+                                png.write(frame.data)
                             seen.add(digest)
                             manifest['frames'].append(dict(file=filename, sha256=digest,
-                                width=width, height=height, png_bytes=len(frame.png),
+                                width=width, height=height, png_bytes=len(frame.data),
                                 received_at=frame.received_at, sequence=frame.sequence,
                                 local_age_seconds=age))
                             attempt['outcome'] = 'saved'

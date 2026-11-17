@@ -369,7 +369,7 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
             **({'producer_factory':streamlink} if streamlink is not None and source.kind!='file' else {}))
         frame = session.frame(timeout=args.timeout, max_age=min(5, args.max_age))
         record['received_at'] = frame.received_at
-        record['frame_sha256'] = hashlib.sha256(frame.png).hexdigest()
+        record['frame_sha256'] = hashlib.sha256(frame.data).hexdigest()
         record['timings']['capture_wait_seconds'] = clock() - tick
     except CaptureError as error:
         record.update(status='capture_failed', reasons=[str(error)])

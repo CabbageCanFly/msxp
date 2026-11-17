@@ -121,7 +121,7 @@ def test_real_decoder_receives_the_same_pixels_with_preloaded_streamlink(launche
                 except CaptureError:
                     pytest.fail(str({name:bytes(log).decode(errors='replace') for name,log in session.logs.items()}))
             finally:session.close()
-        assert frames[0].png==frames[1].png and frames[1].image().size==(160,90)
+        assert frames[0].data==frames[1].data and frames[1].image().size==(160,90)
         assert all(f.received_at and f.sequence>0 for f in frames)
 
 

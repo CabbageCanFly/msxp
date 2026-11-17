@@ -201,7 +201,7 @@ class IdentityCapture:
         digest = hashlib.sha256(str(image.size).encode() + image.tobytes()).hexdigest() if image else None
         evidence = dict(status='unavailable', name=None, score=None, raw=None, box=None,
                         received_at=frame.received_at, pixel_sha256=digest,
-                        frame_sha256=hashlib.sha256(frame.png).hexdigest(), trusted=False,
+                        frame_sha256=hashlib.sha256(frame.data).hexdigest(), trusted=False,
                         provenance=dict(field='own_name_status_panel', layout_count=len(layouts),
                                         frame_sequence=frame.sequence, owner_verified=False))
         numeric = self.numeric_check(result, frame.received_at, requirements)
