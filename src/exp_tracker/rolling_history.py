@@ -48,10 +48,15 @@ def select_runs(diagnostic,channel,*,start,now,character=None):
             ORDER BY rowid LIMIT ?''',(character,floor,now.isoformat(),MAX_RUNS+1))]
     selected={r['run_id']:r for r in runs}
     if len(selected)>MAX_RUNS:raise HistoryLimit('run_limit')
+    known=dict(selected)  # Same rows and transaction: a predecessor already read needs no query.
     for current in runs:
         while True:
             config=json.loads(current['configuration_json'])
-            previous=db.execute('SELECT rowid,* FROM diagnostic_runs WHERE run_id=?',(config.get('previous_run_id'),)).fetchone() if config.get('start_reason')=='scheduled_rotation' else None
+            previous=None
+            if config.get('start_reason')=='scheduled_rotation':
+                previous=known.get(config.get('previous_run_id'))
+                if previous is None:
+                    previous=db.execute('SELECT rowid,* FROM diagnostic_runs WHERE run_id=?',(config.get('previous_run_id'),)).fetchone()
             if not rotation_link(previous,current) or previous['run_id'] in selected:break
             if previous['rowid']<=floor:break
             selected[previous['run_id']]=dict(previous);current=selected[previous['run_id']]
