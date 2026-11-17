@@ -637,9 +637,11 @@ class Diagnostics:
 
     def rolling_history(self,channel,*,now=None,checkpoints=None,character=None):
         from .rolling_history import aggregate
-        if self.db.in_transaction:return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints,character=character)
-        with self.store._transaction():
-            return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints,character=character)
+        from .diagnostic_progress import remembered_points
+        with remembered_points():
+            if self.db.in_transaction:return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints,character=character)
+            with self.store._transaction():
+                return aggregate(self,channel,now=now or datetime.now(timezone.utc),checkpoints=checkpoints,character=character)
 
     def recent_snapshot(self,channel,*,now,eta_cache=None,checkpoints=None,character=None):
         from .rolling_history import recent_snapshot
@@ -713,6 +715,11 @@ class Diagnostics:
             '''+where+'ORDER BY s.login',(login,) if login else ()))
 
     def card(self,cache,head,*,now,checkpoints=None,eta_cache=None,character=None):
+        from .diagnostic_progress import remembered_points
+        with remembered_points():  # One build: each row's percentage point is computed once.
+            return self._card(cache,head,now=now,checkpoints=checkpoints,eta_cache=eta_cache,character=character)
+
+    def _card(self,cache,head,*,now,checkpoints=None,eta_cache=None,character=None):
         """One shared computation per channel revision for the homepage and character API.
 
         Entry: (revision, card, extras); extras carry the character page's chart history.

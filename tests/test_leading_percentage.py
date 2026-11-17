@@ -202,3 +202,18 @@ def test_saved_run_public_availability_and_causal_prefixes(tmp_path):
             assert reading(prefix[-1])==reading(current)  # No later captures used.
         assert not store.db.execute('select 1 from observations').fetchone()
     assert hashlib.sha256(path.read_bytes()).hexdigest()==digest
+
+
+def test_remembered_points_reread_leading_bracket_rows_and_hand_out_copies():
+    """percentage_review, set after the first check, changes leading-bracket points: they are never remembered."""
+    from exp_tracker.diagnostic_progress import remembered_points
+    leading=project([hypothesis(1,'155.64%1')])[0];ordinary=project([strict(2,'55.70')])[0]
+    with remembered_points():
+        before=percentage_point(leading)[0]
+        assert before['requires_current_capture'] and not before['comparison_eligible']
+        leading['percentage_review']=dict(current_capture=dict(supported=True))
+        assert percentage_point(leading)[0]['comparison_eligible']  # Re-read, not the remembered answer.
+        first=percentage_point(ordinary)[0];first['interval_seconds']=99  # Callers mutate their point (history()).
+        again=percentage_point(ordinary)[0]
+        assert 'interval_seconds' not in again and again==percentage_point(ordinary)[0]
+    assert again==percentage_point(ordinary)[0]  # Outside the block: computed fresh, same result.

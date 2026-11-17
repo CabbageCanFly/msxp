@@ -1,8 +1,10 @@
 """Displayed-percentage diagnostics only. No Store writes or trusted gains."""
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 from fractions import Fraction
+import threading
 
 from .exp_requirements import requirement
 from .shadow_grammar import interpret_exp
@@ -36,8 +38,34 @@ def elapsed_seconds(a, b):
     return Fraction((delta.days*86400+delta.seconds)*1000000+delta.microseconds, 1000000)
 
 
+REMEMBERED = threading.local()  # remembered_points(): (id(row), include_recovered) -> (row, point, reason)
+
+
+@contextmanager
+def remembered_points():
+    """Within one publication build, each row's percentage point is computed once.
+
+    Rows are not changed after judging except percentage_review, which only leading-bracket points read;
+    those are never remembered. Callers mutate points, so every call returns its own copy.
+    """
+    outer=getattr(REMEMBERED,'points',None);REMEMBERED.points={} if outer is None else outer
+    try:yield
+    finally:REMEMBERED.points=outer
+
+
 def percentage_point(row, *, include_recovered=True):
     """One percentage per immutable attempt; don't trust supplied proposal objects."""
+    memo=getattr(REMEMBERED,'points',None)
+    if memo is None:return _percentage_point(row,include_recovered=include_recovered)
+    key=(id(row),include_recovered);hit=memo.get(key)
+    if hit is not None and hit[0] is row:return (dict(hit[1]) if hit[1] is not None else None),hit[2]
+    point,reason=_percentage_point(row,include_recovered=include_recovered)
+    if point is None or 'requires_current_capture' not in point:
+        memo[key]=(row,dict(point) if point is not None else None,reason)  # Holds row: its id cannot be reused meanwhile.
+    return point,reason
+
+
+def _percentage_point(row, *, include_recovered=True):
     if row.get('reading_invalidated'):return None,'reading_invalidated'
     if row.get('manual_point'):return None,'manual_historical_correction'
     if row.get('exp_validity',{}).get('whole_pair_rejected'):
