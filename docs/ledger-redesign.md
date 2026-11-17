@@ -63,6 +63,29 @@ at peak load before deciding on phase 2.
    and capture cadence (gaps between `diagnostic_attempts.attempted_at`).
 5. Decide whether phase 2 below is still needed. If the core already has headroom, stop.
 
+## Phase 2 (branch `ledger-phase2`, worktree `H:/Desktop/codex/msxp-ledger-phase2`, not merged)
+
+| Commit | Change | Output |
+|---|---|---|
+| `694c32a` | Card window judged continuously: a per-channel ledger keeps the 640 judged rows (packed, ~2.1 MB per channel, 256 MB cap) and the `barriers`/`project` fold state; each rebuild judges only attempts newer than its cursor | Identical on a 122-capture live-style stream (3 runs, rotations); tests compare it with a cold window through rotation, interrupted restart, level-up, loss and source change |
+| `1fecd70` | 24h totals add whole EXP and microseconds as integers | Identical |
+
+Rebuild key (any change judges the window from scratch): database path, channel, character, session,
+window size, manual-correction and invalidation revisions, retention revision and floor, level-floor
+proof, the session's interrupted runs. The ledger also resumes only if its last attempt's payload digest
+is still present (a database replaced at the same path reuses IDs). Only the card's 640-row window uses
+it; `progress(now)` still runs over the whole window.
+
+Live-style stream, CPU per rebuild: main `13bae97` 453 ms → 359 ms (−21%; −40% against the
+pre-redesign 594 ms). Judging fell from ~11% to ~2% of a rebuild. Cache caps now total 960 MB
+(decode 192 + intervals 512 + ledger 256), inside the owner's 1.5 GB budget; the decode cap could
+shrink now that the card no longer decodes its window.
+
+Still open, each ~5–10%: `percentage_point` is called ~7 times per row per rebuild (results are mutated
+by callers, so a memo must hand out copies); the 640-row point collection for the 5-minute pace (its
+outputs cover the whole window, and `percentage_review` of the newest rows is clock-dependent); an
+indexed `window_endpoints` (prefix sums per window width and level filter).
+
 ## Remaining plan (if the measurement says it is worth it)
 
 **Phase 2: continuous card judging.** The card re-judges its 640-capture window from scratch
