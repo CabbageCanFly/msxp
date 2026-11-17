@@ -217,3 +217,18 @@ def test_remembered_points_reread_leading_bracket_rows_and_hand_out_copies():
         again=percentage_point(ordinary)[0]
         assert 'interval_seconds' not in again and again==percentage_point(ordinary)[0]
     assert again==percentage_point(ordinary)[0]  # Outside the block: computed fresh, same result.
+
+
+def test_remembered_readings_follow_a_later_review_and_hand_out_copies():
+    from exp_tracker.diagnostic_progress import remembered_points
+    value=project([strict(3,'55.70')])[0]
+    fresh=reading(value)
+    with remembered_points():
+        first=reading(value)
+        assert first==fresh and first['estimated_exp'] is not None  # A percentage-only reading carries an estimate.
+        first['estimated_exp']['value']='changed';first['bp']=-1  # Callers own their copy.
+        assert reading(value)==fresh
+        value['percentage_review']=dict(public_eligible=False)  # A review attached later in the build.
+        assert reading(value) is None
+        value['percentage_review']=dict(public_eligible=True)
+        assert reading(value)==fresh

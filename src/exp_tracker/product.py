@@ -277,6 +277,21 @@ def estimates(segment,pace,bp):
 
 
 def reading(row):
+    """The public reading of one row; within remembered_points(), computed once per row and review."""
+    from .diagnostic_progress import REMEMBERED
+    memo=getattr(REMEMBERED,'points',None)
+    if memo is None:return _reading(row)
+    review=row.get('percentage_review');key=('reading',id(row));hit=memo.get(key)
+    # Reused only while the row holds the same review object: a review attached later changes the answer.
+    if hit is None or hit[0] is not row or hit[1] is not review:
+        hit=(row,review,_reading(row));memo[key]=hit
+    value=hit[2]
+    if value is None:return None
+    # Callers get their own copy, including the one nested object a fresh call would create.
+    return dict(value,estimated_exp=deepcopy(value['estimated_exp'])) if value['estimated_exp'] else dict(value)
+
+
+def _reading(row):
     if row.get('reading_invalidated'):return None
     if row.get('manual_point'):
         from .manual import corrected_reading
