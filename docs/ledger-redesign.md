@@ -16,8 +16,8 @@ the same 4 cores, so the pinned core also slows captures (asked 20 s, actual med
 | State | Commits | Notes |
 |---|---|---|
 | Deployed on the VPS (main) | `9797a0a` list copies, `44a5e9c` latest-run lookup (was 56% of the thread), `ceacbc4` integer window sums, `73bba10` idle channels every 10 min, spaced behind live work | `ecbe889` (first idle attempt) was reverted by `3af5e52`: it delayed live updates to ~5 min |
-| On main, **not pushed** | `51c9c7d` settings decoded once per run, `cc6ef03` deploy units read `MSXP_FRONTEND_ORIGIN` (no server effect) | |
-| Branch `ledger-redesign` (worktree `.claude/worktrees/ledger-redesign`), **not merged** | `915327c` decode each attempt once (content-keyed marshal cache, 128 MB cap), `7578928` reading-pair intervals remembered between rebuilds and shared by card and totals (96 MB cap), `c5ce99a` card reuses the recent history's point collection, `ed3c4ba` clock-only refresh every 30 s instead of 10 s | Output byte-identical to main for the first three (synthetic full day, 10 rebuilds) |
+| Deployed 2026-11-17 | `51c9c7d` settings decoded once per run, `cc6ef03` deploy units read `MSXP_FRONTEND_ORIGIN` (no server effect) | |
+| Branch `ledger-redesign`, merged and deployed 2026-11-17 | `915327c` decode each attempt once (content-keyed marshal cache, 128 MB cap), `7578928` reading-pair intervals remembered between rebuilds and shared by card and totals (96 MB cap), `c5ce99a` card reuses the recent history's point collection, `ed3c4ba` clock-only refresh every 30 s instead of 10 s | Output byte-identical to main for the first three (synthetic full day, 10 rebuilds) |
 
 Measured locally, synthetic full-day channel, CPU per warm rebuild: main 594 ms, branch 453 ms
 (−24%). Real captures are 9–14 KB against 0.5 KB synthetic, so phase 1 saves more there:
@@ -30,10 +30,29 @@ decode of 640 real captures 140–160 ms → ~7 ms (measured read-only on the VP
 - Live rebuild ~1 s; build time ~70% of the thread, the rest cache saves, step overhead and views.
 - Warm-up after an API restart ~4 min.
 
-## Next step: deploy and measure (needs the owner's go-ahead)
+## Deployed 2026-11-17 09:01 UTC (main `53475d4`)
 
-1. Exit the worktree, merge `ledger-redesign` into main, run the **full** suite in the main
-   checkout (private fixtures exist only there; the worktree skips ~100 more tests).
+The 04:00 America/Toronto unattended upgrade (package `sos`) had restarted `msxp-api` at
+09:00:31 on the old code; the deploy restarted it once more at 09:01. Measured 09:05–09:11 UTC,
+14–16 live (fewer than the 19–21 of the baseline, so part of the gain is load):
+
+| | Before (2026-11-16) | After |
+|---|---|---|
+| Publisher thread | 95–98% | 60–78% |
+| CPU per live rebuild | ~1.0 s | 0.59 s median, 0.75 s p90 |
+| Live rebuild gap | median 24 s, p90 30 s | median 20 s, p90 31 s |
+| Capture gap (asked 20 s) | median 30 s | median 20 s, p90 28 s |
+| API memory | ~950 MB | ~1,250 MB (decode and interval caches, within their caps) |
+| Warm-up after restart | ~4 min | ~4 min |
+
+Idle channels were not yet due in that window (rebuilt at warm-up, every 10 min after). Re-measure
+at peak load before deciding on phase 2.
+
+## Deploy and measure (procedure, needs the owner's go-ahead)
+
+1. Merge the work branch into main and run the **full** suite in the main checkout (private
+   fixtures exist only there; a worktree skips ~100 more tests). Worktrees go beside the
+   repository (`H:/Desktop/codex/<name>`), never inside it.
 2. Check traffic first (Caddy journal, last 5 min: OBS overlays and pages); the owner prefers a
    quiet moment because the restart blips overlays. Ask before pushing or restarting.
 3. Push; on the VPS `cd /opt/msxp/app && sudo git pull --ff-only origin main` and
