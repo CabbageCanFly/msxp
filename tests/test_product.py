@@ -293,3 +293,14 @@ def test_card_window_covers_ninety_minutes_at_any_capture_interval():
     assert card_rows(3)==PRODUCT_ROWS and card_rows(7)==PRODUCT_ROWS  # Capped: the window never grows past 640.
     assert all(card_rows(i)*i>=5400 for i in (9,10,15,20,30,60))  # Always at least 90 minutes when uncapped.
     assert card_rows(None)==card_rows(0)==card_rows('20')==PRODUCT_ROWS  # Unusable interval: the former window.
+
+
+def test_exp_change_is_remembered_but_every_caller_gets_its_own_copy():
+    from exp_tracker.product import exp_change,_exp_change
+    first=exp_change(3300,3350,64)
+    fresh=_exp_change.__wrapped__(3300,3350,64)
+    assert first==fresh
+    first['value']='changed';first['hypotheses']['truncation']['lower']['numerator']=-1;first['requirement']['published_alternatives']['x']=1
+    again=exp_change(3300,3350,64)
+    assert again==fresh and again is not first  # interval_gain() updates its gain in place.
+    assert exp_change(3300,3350,None) is None

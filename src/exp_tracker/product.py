@@ -4,6 +4,7 @@ from collections import Counter
 from copy import deepcopy
 from datetime import datetime,timedelta,timezone
 from fractions import Fraction
+from functools import lru_cache
 
 from .diagnostic_progress import percentage_point,rational,quantization_pace,elapsed_seconds,difference_bounds
 from .diagnostic_evidence import project,full_reading,consistency,supported_exp,Projected
@@ -440,7 +441,16 @@ def observed_window(sequence, *, cutoff, end):
 
 
 def exp_change(first_bp,last_bp,level):
-    """Net display conversion, never an exact earned-EXP total."""
+    """Net display conversion, never an exact earned-EXP total; each call gets its own copy (callers update it)."""
+    found=_exp_change(first_bp,last_bp,level)
+    if found is None:return None
+    req=found['requirement']
+    return dict(found,value=dict(found['value']),requirement=dict(req,published_alternatives=dict(req['published_alternatives'])),
+        hypotheses={rule:{side:dict(bound) for side,bound in bounds.items()} for rule,bounds in found['hypotheses'].items()})
+
+
+@lru_cache(maxsize=8192)  # Chart history converts the same consecutive pairs on every rebuild.
+def _exp_change(first_bp,last_bp,level):
     req=requirement(level)
     if req['to_next'] is None:return None
     return dict(value=rational(Fraction((last_bp-first_bp)*req['to_next'],10000)),requirement=req,
