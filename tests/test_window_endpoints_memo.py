@@ -2,6 +2,8 @@
 from datetime import datetime,timedelta,timezone
 import random
 
+import pytest
+
 from exp_tracker.pace_intervals import window_endpoints
 from tests.test_product import tracking  # noqa: F401
 
@@ -86,3 +88,38 @@ def test_remembered_intervals_drop_unused_pairs_and_stay_within_budget(monkeypat
     rebuild('b',[point(i,20*i,64,1000*i) for i in range(30)],now)
     rebuild('b',[point(i,20*i,64,1000*i) for i in range(30)],now+timedelta(seconds=10))  # The budget is checked as a slot opens.
     assert list(pace_intervals.PAIR_SLOTS)==['b']  # 'a' was least recently used; 49+29 intervals exceed 60.
+
+
+@pytest.mark.parametrize('seed',range(6))
+def test_persistent_window_index_matches_the_walk_across_rebuilds(monkeypatch,seed):
+    """Readings leave the front, arrive at the back, change at the tail (pencil verdicts) and rarely mid-way."""
+    from exp_tracker import pace_intervals
+    monkeypatch.setattr(pace_intervals,'PAIR_SLOTS',pace_intervals.OrderedDict())
+    monkeypatch.setattr(pace_intervals,'INDEX_MIN_PAIRS',8);monkeypatch.setattr(pace_intervals,'COMPACT_HEAD',20)
+    rng=random.Random(seed);serial=[0];seconds=[0]
+    def reading():
+        i=serial[0];serial[0]+=1;seconds[0]+=rng.choice((20,20,20,21,40,0,900))
+        exp=None if rng.random()<.05 else (1000*i if rng.random()>.05 else 10)  # Percentage-only, decreases.
+        return point(i,seconds[0],64 if (i//150)%2==0 else 65 if rng.random()>.02 else None,exp)
+    points=[reading() for _ in range(300)]
+    for rebuild in range(40):
+        del points[:rng.choice((0,0,1,3,25))]  # Older than the window.
+        for k in range(rng.choice((0,1,2,3)) if points else 0):  # Tail verdicts change.
+            j=len(points)-1-k;points[j]=dict(points[j],exp=None if points[j]['exp'] is None else int(points[j]['exp'])+1)
+        if rng.random()<.1 and len(points)>20:j=rng.randrange(len(points)//2);points[j]=dict(points[j],bp=points[j]['bp']+1)
+        if rng.random()<.08 and points:points[0]=dict(points[0],bp=points[0]['bp']+1)  # The oldest reading itself changed.
+        points+=[reading() for _ in range(rng.choice((0,1,1,2,5)))]
+        shuffled=list(points);rng.shuffle(shuffled)
+        now=START+timedelta(seconds=seconds[0]+5)
+        memo=pace_intervals.window_memo(('pairs','alpha',1),now+timedelta(microseconds=rebuild),sequence='tracked')
+        for minutes in (5,60,240,1440):
+            for level in (None,64,65):
+                for back in (0,300,3000):
+                    kwargs=dict(start=now-timedelta(seconds=back)-timedelta(minutes=minutes),end=now-timedelta(seconds=back),level=level)
+                    indexed=window_endpoints(shuffled,memo=memo,**kwargs)
+                    with monkeypatch.context() as walk:
+                        walk.setattr(pace_intervals,'INDEX_MIN_PAIRS',10**9)
+                        walked=window_endpoints(shuffled,**kwargs)
+                    assert indexed==walked and [id(p) for p in indexed[0]]==[id(p) for p in walked[0]],(seed,rebuild,minutes,level,back)
+    sequence=next(iter(pace_intervals.PAIR_SLOTS.values()))['sequences']
+    assert any(index['picked'] for s in sequence.values() for index in s['indexes'].values() if index)

@@ -100,7 +100,13 @@ def conditional_percent(row, support, previous):
     return result
 
 
-def window_memo(slot,now):
+def slot_bytes(store):
+    """Estimated size: remembered intervals plus the window indexes' entries (~150 B each)."""
+    return (len(store['new'])+len(store['old']))*PAIR_BYTES+150*sum(len(index['picked'])+len(sequence['keys'])//8
+        for sequence in store['sequences'].values() for index in sequence['indexes'].values() if index)
+
+
+def window_memo(slot,now,sequence=None):
     """A fresh window_endpoints memo that reuses this slot's intervals from earlier rebuilds.
 
     An interval is a pure function of its two readings' fields (point_key), so a pair whose readings
@@ -111,12 +117,137 @@ def window_memo(slot,now):
     """
     with PAIR_LOCK:
         store=PAIR_SLOTS.pop(slot,None)
-        if store is None or store['now']!=now:store=dict(now=now,old=store['new'] if store else {},new={})
+        if store is None or store['now']!=now:
+            store=dict(now=now,old=store['new'] if store else {},new={},sequences=store['sequences'] if store else {})
         PAIR_SLOTS[slot]=store
-        total=sum(len(s['new'])+len(s['old']) for s in PAIR_SLOTS.values())*PAIR_BYTES
+        total=sum(slot_bytes(s) for s in PAIR_SLOTS.values())
         while total>PAIR_BUDGET_BYTES and len(PAIR_SLOTS)>1:
-            _,dropped=PAIR_SLOTS.popitem(last=False);total-=(len(dropped['new'])+len(dropped['old']))*PAIR_BYTES
-    return dict(store=store,keys={})
+            _,dropped=PAIR_SLOTS.popitem(last=False);total-=slot_bytes(dropped)
+    # sequence names this memo's point list (the card's or the tracked totals') for its persistent window index.
+    return dict(store=store,keys={},sequence=(sequence,threading.get_ident()) if sequence else None)
+
+
+COMPACT_HEAD=4096  # Entries before an index's head are dropped once this many accumulate.
+INDEX_MIN_PAIRS=256  # Longer windows (a full day) answer from a running-total index; shorter ones walk their pairs.
+
+
+def synced(memo):
+    """The slot's stored window indexes, moved onto this memo's ordered points (None: no persistence).
+
+    Readings are matched by point_key. Indexed pairs whose readings left the front are skipped, pairs
+    touching a changed or new reading are cut, and the walk's rules then extend each index over the new
+    pairs, so an index always equals one built from scratch over these points.
+    """
+    if 'synced' in memo:return memo['synced']
+    memo['synced']=None
+    store,name=memo.get('store'),memo.get('sequence')
+    if store is None or name is None:return None
+    keys=memo['keys']
+    try:
+        positional=[keys[id(p)] if id(p) in keys else keys.setdefault(id(p),point_key(p)) for _,p in memo['ordered']]
+    except (KeyError,TypeError):return None  # A malformed reading: the walk answers, as before.
+    old=store['sequences'].pop(name,None);base=0;indexes={}
+    if old and positional:
+        try:start=old['keys'].index(positional[0])  # Near the front: only readings older than the day left.
+        except ValueError:start=None
+        if start is not None:
+            remaining=len(old['keys'])-start;matched=min(remaining,len(positional))
+            if old['keys'][start:start+matched]!=positional[:matched]:
+                low,high=0,matched  # Longest common prefix: equality of a prefix is monotone.
+                while low<high:
+                    middle=(low+high+1)//2
+                    if old['keys'][start:start+middle]==positional[:middle]:low=middle
+                    else:high=middle-1
+                matched=low
+            base=old['base']+start
+            for key,index in old['indexes'].items():
+                if index is False or key not in old['used']:continue
+                head=bisect_left(index['picked'],base,index['head'])
+                cut=bisect_right(index['picked'],base+matched-2,head)
+                if cut<=head:
+                    # No included pair remains among the unchanged readings: resume empty after them.
+                    indexes[key]=dict(fresh_index(),examined=base+matched-2);continue
+                del index['chain'][index['pos'][cut-1]+1:]
+                for field in ('picked','ends','gains','pos'):del index[field][cut:]
+                for field in ('value','cover','breaks','changes','transitions'):del index[field][cut+1:]
+                index['requirements']=[k for k in index['requirements'] if k<cut]
+                index.update(head=head,examined=base+matched-2)
+                indexes[key]=index
+        else:base=old['base']+len(old['keys'])
+    sequence=dict(keys=positional,base=base,indexes=indexes,used=set())
+    store['sequences'][name]=sequence
+    memo['synced']=sequence
+    return sequence
+
+
+def fresh_index():
+    return dict(head=0,examined=-1,picked=[],ends=[],gains=[],chain=[],pos=[],value=[0],cover=[0],
+        breaks=[0],changes=[0],transitions=[0],requirements=[])
+
+
+def window_index(memo,sequence,width,level):
+    """Extend (or start) the index of one window width and level filter over the memo's new pairs."""
+    key=(width,level);index=sequence['indexes'].get(key)
+    if index is None:
+        index=dict(fresh_index(),examined=sequence['base']-1);sequence['indexes'][key]=index
+    sequence['used'].add(key)
+    if index is False:return False
+    ordered,pairs,base=memo['ordered'],memo['pairs'],sequence['base']
+    for i in range(max(0,index['examined']+1-base),len(ordered)-1):
+        index['examined']=base+i
+        (a,before),(b,after)=ordered[i],ordered[i+1]
+        if b<=a or b-a>width:continue
+        if level is not None and (before['level']['value']!=level or after['level']['value']!=level):continue
+        if i not in pairs:pairs[i]=remembered_interval(memo,before,after)
+        gain,_=pairs[i]
+        if gain is None or gain['value']['numerator']<0:continue
+        if gain['value']['denominator']!=1:
+            sequence['indexes'][key]=False;return False  # Not whole EXP: the walk answers.
+        gains=index['gains'];k=len(gains);chain=index['chain']
+        if not chain or ordered[chain[-1]-base][1]['event_id']!=before['event_id']:chain.append(base+i)
+        chain.append(base+i+1);index['pos'].append(len(chain)-1)
+        delta=b-a;index['picked'].append(base+i);index['ends'].append(b);gains.append(gain)
+        index['value'].append(index['value'][-1]+gain['value']['numerator'])
+        index['cover'].append(index['cover'][-1]+(delta.days*86400+delta.seconds)*1000000+delta.microseconds)
+        previous=gains[k-1] if k>0 else None
+        index['breaks'].append(index['breaks'][-1]+bool(previous and previous['last_event_id']!=gain['first_event_id']))
+        index['changes'].append(index['changes'][-1]+bool(previous and previous['basis']!=gain['basis']))
+        index['transitions'].append(index['transitions'][-1]+bool(gain['transition_gain_included']))
+        if gain['requirements']:index['requirements'].append(k)
+    if index['head']>COMPACT_HEAD and index['head']*2>len(index['picked']):compact(index)
+    return index
+
+
+def compact(index):
+    """Drop entries before head; chain positions and running totals stay valid as differences."""
+    head=index['head'];shift=index['pos'][head]
+    index['chain']=index['chain'][shift:]
+    index['pos']=[p-shift for p in index['pos'][head:]]
+    for field in ('picked','ends','gains','value','cover','breaks','changes','transitions'):index[field]=index[field][head:]
+    index['requirements']=[k-head for k in index['requirements'] if k>=head]
+    index['head']=0
+
+
+def indexed_window(memo,start,end,level):
+    """window_endpoints' result from the persistent index, or None when the walk must answer."""
+    sequence=synced(memo)
+    if sequence is None:return None
+    index=window_index(memo,sequence,end-start,level)
+    if index is False:return None
+    lo=bisect_left(index['ends'],start,index['head']);hi=bisect_right(index['ends'],end,index['head'])
+    if hi<=lo:return None
+    ordered,base=memo['ordered'],sequence['base'];gains=index['gains'][lo:hi]
+    # The walk starts each window with the earlier reading of its first pair, then appends as it did here.
+    used=[ordered[index['picked'][lo]-base][1]]+[ordered[i-base][1] for i in index['chain'][index['pos'][lo]:index['pos'][hi-1]+1]]
+    reqs=index['requirements']
+    requirements=[r for k in reqs[bisect_left(reqs,lo):bisect_left(reqs,hi)] for r in index['gains'][k]['requirements']]
+    return used,dict(gains[-1],start=used[0]['timestamp'],first_event_id=used[0]['event_id'],
+        value=rational(index['value'][hi]-index['value'][lo]),
+        coverage_seconds=rational(Fraction(index['cover'][hi]-index['cover'][lo],1000000)),intervals=gains,
+        manual_boundaries=index['breaks'][hi]-index['breaks'][lo+1]>0,
+        requirements=requirements,
+        transition_gain_included=index['transitions'][hi]-index['transitions'][lo]>0,
+        basis=gains[0]['basis'] if index['changes'][hi]-index['changes'][lo+1]==0 else 'mixed_exp_and_percentage_endpoints'),None
 
 
 def point_key(point):
@@ -198,6 +329,9 @@ def window_endpoints(points,*,start,end,level=None,memo=None):
         memo['ordered']=sorted(((datetime.fromisoformat(p['timestamp']),p) for p in points if usable_endpoint(p)),key=lambda t:t[0])
         memo['times']=[t for t,_ in memo['ordered']];memo['pairs']={}
     ordered,times,pairs=memo['ordered'],memo['times'],memo['pairs']
+    if memo.get('sequence') and bisect_right(times,end)-max(0,bisect_left(times,start)-1)>INDEX_MIN_PAIRS:
+        found=indexed_window(memo,start,end,level)
+        if found is not None:return found
     used=[];gains=[];coverage=0;reason='two_distinct_observation_times_required'  # Whole microseconds, exact.
     # Sorted, so the skipped pairs are exactly those ending before start or after end.
     for i in range(max(0,bisect_left(times,start)-1),bisect_right(times,end)-1):

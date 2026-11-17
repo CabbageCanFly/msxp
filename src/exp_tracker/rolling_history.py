@@ -386,7 +386,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
     if transition.get('phase')=='possible' and not transition.get('evidence_exhausted'):level=transition['to_level']
     gains=[];coverage_us=0;versions=set();amounts=[None]*48;charted=[None]*48;covered=[0]*48
     from .pace_intervals import window_memo,remembered_interval
-    memo=window_memo(('pairs',channel,character),now)  # Shared with this rebuild's card: same readings, same intervals.
+    memo=window_memo(('pairs',channel,character),now,sequence='tracked')  # Intervals shared with this rebuild's card.
     points=sorted((r for r in state['rows'] if usable_endpoint(r)),key=lambda r:datetime.fromisoformat(r['timestamp']))
     for before,after in zip(points,points[1:]):
         if before['timestamp']==after['timestamp']:continue
