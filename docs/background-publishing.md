@@ -38,10 +38,11 @@ store, card cache and historical-ETA cache are now used only by the refresher.
 3. changed revisions, and entries at least 30 s old, together, oldest publication first;
 4. other time-only expiries, oldest publication first.
 
-An entry expires on the unchanged `Diagnostics.due` rule: rolling windows that can still
-age, rebuilt after 10 s. Tracked windows are refreshed every 30 s, as the former request
-cache did. With many live channels something is always expiring. Ranking new captures
-ahead of those 10 s expiries keeps a new reading from queueing behind them; before, viewers
+An entry expires on the `Diagnostics.due` rule: rolling windows that can still age are
+rebuilt after `HISTORY_REFRESH_SECONDS` (30 s since 2026-11-17, was 10 s; a new capture or an
+expiring pace still rebuilds at once). Tracked windows are refreshed every 30 s, as the former
+request cache did. With many live channels something is always expiring. Ranking new captures
+ahead of those time-only expiries keeps a new reading from queueing behind them; before, viewers
 received two or three captures at once. An expired entry joins the new captures once it is
 30 s old, so a continuously changing channel cannot repeatedly outrank an older due
 publication. Cold-start work grows with the visible roster; there is no fixed

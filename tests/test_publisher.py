@@ -180,7 +180,8 @@ def test_background_publication_matches_reference_through_rotation_restart_loss_
                 server.publisher.wake.set();wait_for(lambda:current(server,store,'alpha'))
                 assert published(server,'alpha')==reference(store,server,'alpha',clock.at);compared+=1
         last=clock.at;rebuilt=set()
-        for delta in (11,31,3901,90001):  # Time-only expiry without new captures.
+        from exp_tracker.diagnostics import HISTORY_REFRESH_SECONDS as refresh
+        for delta in (refresh+1,2*refresh+2,3901,90001):  # Time-only expiry without new captures.
             clock.at=last+timedelta(seconds=delta);server.publisher.wake.set()
             wait_for(lambda:server.publisher.entry('alpha')['built_at']==clock.at.isoformat())
             rebuilt.add(server.publisher.entry('alpha')['card']['recent_as_of'])

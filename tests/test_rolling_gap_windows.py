@@ -134,7 +134,10 @@ def test_boundary_crossing_gain_does_not_force_continuous_card_rebuilds():
     pace=dict(start=(NOW+timedelta(minutes=20)).isoformat(),end=built.isoformat(),trend_seconds=1800)
     packet=dict(responsive_pace=pace,recent_windows={'30':dict(pace=pace,available=True)})
     assert not due(packet,built.isoformat(),built+timedelta(seconds=1))
-    assert due(packet,built.isoformat(),built+timedelta(seconds=10))
+    assert not due(packet,built.isoformat(),built+timedelta(seconds=29))  # Clock-only refresh: at most every 30 s.
+    assert due(packet,built.isoformat(),built+timedelta(seconds=30))
+    expiring=dict(packet,responsive_pace=dict(pace,end=(built-timedelta(seconds=1795)).isoformat()))
+    assert due(expiring,built.isoformat(),built+timedelta(seconds=6))  # An expiring pace still rebuilds at once.
 
 
 def test_duplicate_old_frame_and_invalid_evidence_cannot_create_extra_gain():
