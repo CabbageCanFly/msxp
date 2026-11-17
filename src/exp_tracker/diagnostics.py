@@ -52,6 +52,28 @@ def decoded(payload_json):
     return result
 
 
+LEDGER_LIMIT_BYTES = 256 * 1024 * 1024  # Packed judged rows of every channel's card window.
+LEDGERS = OrderedDict()  # (database, channel) -> the card window's judged rows and resumable fold state.
+LEDGER_STATE = dict(bytes=0)
+
+
+def take_ledger(key):
+    """The channel's ledger if it was built under exactly this key; the caller owns it until put_ledger."""
+    with DECODED_LOCK:
+        entry=LEDGERS.pop(key[:2],None)
+        if entry is not None:LEDGER_STATE['bytes']-=entry['bytes']
+    return entry if entry is not None and entry['key']==key else None
+
+
+def put_ledger(key,entry):
+    entry.update(key=key,bytes=sum(map(len,entry['packed'])))
+    with DECODED_LOCK:
+        old=LEDGERS.pop(key[:2],None)
+        if old is not None:LEDGER_STATE['bytes']-=old['bytes']
+        LEDGERS[key[:2]]=entry;LEDGER_STATE['bytes']+=entry['bytes']
+        while LEDGER_STATE['bytes']>LEDGER_LIMIT_BYTES and len(LEDGERS)>1:LEDGER_STATE['bytes']-=LEDGERS.popitem(last=False)[1]['bytes']
+
+
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
 
 
@@ -373,6 +395,17 @@ class Diagnostics:
         with self.store._transaction():
             return self._snapshot(channel, now=now, active_runs=active_runs,session_id=session_id,run_id=run_id,before=before,start=start,end=end,limit=limit)
 
+    def ledger_key(self,state,selected,session,result,frozen,floor,proof,limit):
+        """Everything that can change a judged row other than new attempts; any change rebuilds the window."""
+        if not selected or not session:return None
+        from .manual import revision as manual_revision
+        interrupted=tuple(run for run,summary in self.db.execute('SELECT run_id,summary_json FROM diagnostic_runs '
+            'WHERE session_id=? AND summary_json IS NOT NULL ORDER BY rowid',(session['id'],)) if json.loads(summary).get('interrupted'))
+        retention=self.db.execute('SELECT revision FROM retention_meta WHERE id=1').fetchone() if self.store.schema_version>=8 else None
+        return (self.db.execute('PRAGMA database_list').fetchone()[2],state['channel'],selected['id'],session['id'],limit,
+            manual_revision(result['manual_corrections']),result['invalidation_revision'],retention[0] if retention else None,
+            frozen.get('through_run'),(floor['level'],proof['received_at']) if proof else None,interrupted)
+
     def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS,_rows_only=False,character=None):
         if type(limit) is not int or not 1<=limit<=PRODUCT_ROWS:raise ValueError('Invalid history limit')
         state = self.store._state(channel, as_of=now)
@@ -453,69 +486,118 @@ class Diagnostics:
         values=[session['id']]
         for condition,value in [('a.run_id=?',run_id),('a.id<?',before),('a.attempted_at>=?',start),('a.attempted_at<?',end)]:
             if value is not None: where.append(condition);values.append(value)
-        rows = list(self.db.execute('SELECT a.*,r.configuration_json,r.summary_json FROM diagnostic_attempts a '
-            'JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE '+' AND '.join(where)+' ORDER BY a.id DESC LIMIT ?',(*values,limit+1)))
-        result['truncated'] = len(rows) > limit
-        if result['truncated']: result['history']['next_before']=rows[limit-1]['id']
-        rows = list(reversed(rows[:limit]))
-        observations = []
-        previous = None
-        links={};runs={}  # A run's settings and summary are shared by its ~60 rows: decoded once each.
-        for row in rows:
-            value,hud_count = decoded(row['payload_json'])  # Same HTTP allowlist as the log viewer.
-            value['grammar_recovery'] = propose_full_exp(value['raw_text'])
-            value['interpretations'] = interpret_exp(value['raw_text'])
-            if row['run_id'] not in runs:
-                runs[row['run_id']]=(json.loads(row['configuration_json']),bool(row['summary_json'] and json.loads(row['summary_json']).get('interrupted')))
-            config,interrupted=runs[row['run_id']]
-            if config.get('timing_mode')=='simulated': value['timing_mode']='simulated'
-            value['interval_seconds'] = config['interval']
-            value['rotation_from']=None
-            if config.get('start_reason')=='scheduled_rotation':
-                if row['run_id'] not in links:
-                    prior=self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?',(config.get('previous_run_id'),)).fetchone()
-                    current_run=self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?',(row['run_id'],)).fetchone()
-                    links[row['run_id']]=prior['run_id'] if rotation_link(prior,current_run) else None
-                value['rotation_from']=links[row['run_id']]
-            value['source_identity']=config.get('source_identity') if re.fullmatch(r'[0-9a-f]{64}',str(config.get('source_identity'))) else None
-            value['coordinator_instance']=config.get('coordinator_instance') if re.fullmatch(r'[0-9a-f]{32}',str(config.get('coordinator_instance'))) else None
-            value.update(assigned_channel=state['channel'], character_id=selected['id'], session_id=session['id'],
-                         run_start_reason=config.get('start_reason') if config.get('start_reason') in ('process_start','scheduled_rotation','automatic_character_switch') else None,
-                         run_interrupted=interrupted)
-            value['hud_count'] = hud_count
-            value['capture_acquired'] = False if value['status'] == 'capture_failed' else (
-                True if value['received_at'] is not None else None)
-            value['requirements'] = dict(visual=requirement(value['visual_level']),
-                neural=requirement((value['neural_level'] or {}).get('level')))
-            when = value['received_at'] or value['attempted_at']
-            # Only the stored guard supplies this context, never an incoming payload or a future proof.
-            if proof and value['received_at'] and proof['received_at']<=value['received_at']:
-                value['validated_level_floor']=floor['level']
-            value.update(event_id=f"{row['run_id']}:{row['attempt_index']}", run_id=row['run_id'],
-                         timestamp_ordered=previous is None or when > previous)
-            excluded=validity.get(('diagnostic',row['id']))
-            if excluded and excluded['action']=='invalidate':mask(value,excluded)
-            else:previous = max(previous, when) if previous else when
-            observations.append(value)
-        annotate(observations,result['manual_corrections'])
-        if _rows_only:
-            return observations  # Internal streaming history: reuse the exact sanitized decoder.
-        total = self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE session_id=?' if self.store.schema_version>=4 else
-            'SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?', (session['id'],)).fetchone()[0]
-        seed=None
-        if frozen.get('tracked') and rows:
-            first=self.db.execute('SELECT rowid,* FROM diagnostic_runs WHERE run_id=?',(rows[0]['run_id'],)).fetchone()
-            earlier=self.db.execute('''SELECT 1 FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id
-                WHERE r.character_id=? AND r.rowid>? AND a.id<? LIMIT 1''',(selected['id'],frozen['through_run'],rows[0]['id'])).fetchone()
-            if not earlier and rotation_link(frozen['tracked']['previous_run'],first):
-                seed=deepcopy(frozen['tracked'])
-        barriers(observations,seed['barrier_state'] if seed else None)
+        def enrich(rows,previous,links,runs):
+            """The per-attempt decode and context, unchanged; previous is the running latest capture time."""
+            observations=[]
+            for row in rows:
+                value,hud_count = decoded(row['payload_json'])  # Same HTTP allowlist as the log viewer.
+                value['grammar_recovery'] = propose_full_exp(value['raw_text'])
+                value['interpretations'] = interpret_exp(value['raw_text'])
+                if row['run_id'] not in runs:
+                    runs[row['run_id']]=(json.loads(row['configuration_json']),bool(row['summary_json'] and json.loads(row['summary_json']).get('interrupted')))
+                config,interrupted=runs[row['run_id']]
+                if config.get('timing_mode')=='simulated': value['timing_mode']='simulated'
+                value['interval_seconds'] = config['interval']
+                value['rotation_from']=None
+                if config.get('start_reason')=='scheduled_rotation':
+                    if row['run_id'] not in links:
+                        prior=self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?',(config.get('previous_run_id'),)).fetchone()
+                        current_run=self.db.execute('SELECT * FROM diagnostic_runs WHERE run_id=?',(row['run_id'],)).fetchone()
+                        links[row['run_id']]=prior['run_id'] if rotation_link(prior,current_run) else None
+                    value['rotation_from']=links[row['run_id']]
+                value['source_identity']=config.get('source_identity') if re.fullmatch(r'[0-9a-f]{64}',str(config.get('source_identity'))) else None
+                value['coordinator_instance']=config.get('coordinator_instance') if re.fullmatch(r'[0-9a-f]{32}',str(config.get('coordinator_instance'))) else None
+                value.update(assigned_channel=state['channel'], character_id=selected['id'], session_id=session['id'],
+                             run_start_reason=config.get('start_reason') if config.get('start_reason') in ('process_start','scheduled_rotation','automatic_character_switch') else None,
+                             run_interrupted=interrupted)
+                value['hud_count'] = hud_count
+                value['capture_acquired'] = False if value['status'] == 'capture_failed' else (
+                    True if value['received_at'] is not None else None)
+                value['requirements'] = dict(visual=requirement(value['visual_level']),
+                    neural=requirement((value['neural_level'] or {}).get('level')))
+                when = value['received_at'] or value['attempted_at']
+                # Only the stored guard supplies this context, never an incoming payload or a future proof.
+                if proof and value['received_at'] and proof['received_at']<=value['received_at']:
+                    value['validated_level_floor']=floor['level']
+                value.update(event_id=f"{row['run_id']}:{row['attempt_index']}", run_id=row['run_id'],
+                             timestamp_ordered=previous is None or when > previous)
+                excluded=validity.get(('diagnostic',row['id']))
+                if excluded and excluded['action']=='invalidate':mask(value,excluded)
+                else:previous = max(previous, when) if previous else when
+                observations.append(value)
+            return observations,previous
         from .diagnostic_evidence import Projected
-        observations=Projected(project(observations,state=seed['level_state'])) if seed else project(observations)
-        for row in observations:
-            if row.get('manual_point'):
-                row['manual_presentation']=corrected_reading(row['manual_point'],event_id=row['event_id'],
-                    timestamp=row.get('received_at') or row['attempted_at'],epoch=row['manual_epoch'])
+        def present(rows):
+            for row in rows:
+                if row.get('manual_point'):
+                    row['manual_presentation']=corrected_reading(row['manual_point'],event_id=row['event_id'],
+                        timestamp=row.get('received_at') or row['attempted_at'],epoch=row['manual_epoch'])
+            return rows
+        # Only the card's window: recent_snapshot's one-row reads must not replace its ledger.
+        key=None if historical or _rows_only or limit!=PRODUCT_ROWS or self.store.schema_version<4 else self.ledger_key(
+            state,selected,session,result,frozen,floor,proof,limit)
+        entry=take_ledger(key) if key else None
+        if entry is not None:
+            # A ledger advanced by a newer snapshot must not show this transaction captures it cannot see.
+            visible=self.db.execute('SELECT COALESCE(MAX(id),0) FROM diagnostic_attempts WHERE session_id=?',(session['id'],)).fetchone()[0]
+            fresh=list(self.db.execute('SELECT a.*,r.configuration_json,r.summary_json FROM diagnostic_attempts a '
+                'JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE a.session_id=? AND a.id>? ORDER BY a.id',(session['id'],entry['cursor'])))
+            anchor=self.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE id=? AND session_id=?',(entry['cursor'],session['id'])).fetchone()
+            # The same file path can hold a replaced database with reused IDs: resume only from the same last attempt.
+            if (entry['cursor']>visible or len(fresh)>limit or (entry['cursor'] and (anchor is None or
+                    hashlib.blake2b(anchor[0].encode(),digest_size=16).digest()!=entry['anchor']))):entry=None
+        if entry is not None:
+            # Continuous judging: only new attempts are decoded and judged, resuming the saved fold.
+            added,entry['previous']=enrich(fresh,entry['previous'],entry['links'],entry['runs'])
+            annotate(added,result['manual_corrections'])
+            barriers(added,entry['barrier_state'])
+            added=present(project(added,state=entry['level_state']))
+            try:entry['packed']+=[marshal.dumps(row) for row in added]
+            except ValueError:entry=None
+        if entry is not None:
+            for row in fresh:entry['ids'].append(row['id']);entry['run_ids'].append(row['run_id'])
+            if fresh:entry.update(cursor=fresh[-1]['id'],anchor=hashlib.blake2b(fresh[-1]['payload_json'].encode(),digest_size=16).digest())
+            for name in ('packed','ids','run_ids'):entry[name]=entry[name][-limit:]
+            first=dict(id=entry['ids'][0],run_id=entry['run_ids'][0]) if entry['ids'] else None
+            observations=Projected(marshal.loads(row) for row in entry['packed'])
+            total=self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE session_id=?',(session['id'],)).fetchone()[0]
+            result['truncated']=total>limit
+            if result['truncated']:result['history']['next_before']=first['id']
+            put_ledger(key,entry)
+        else:
+            rows = list(self.db.execute('SELECT a.*,r.configuration_json,r.summary_json FROM diagnostic_attempts a '
+                'JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE '+' AND '.join(where)+' ORDER BY a.id DESC LIMIT ?',(*values,limit+1)))
+            result['truncated'] = len(rows) > limit
+            if result['truncated']: result['history']['next_before']=rows[limit-1]['id']
+            rows = list(reversed(rows[:limit]))
+            links={};runs={}  # A run's settings and summary are shared by its ~60 rows: decoded once each.
+            observations,previous=enrich(rows,None,links,runs)
+            annotate(observations,result['manual_corrections'])
+            if _rows_only:
+                return observations  # Internal streaming history: reuse the exact sanitized decoder.
+            total = self.db.execute('SELECT COUNT(*) FROM diagnostic_attempts WHERE session_id=?' if self.store.schema_version>=4 else
+                'SELECT COUNT(*) FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.session_id=?', (session['id'],)).fetchone()[0]
+            first=rows[0] if rows else None
+        seed=None
+        if frozen.get('tracked') and first:
+            run_row=self.db.execute('SELECT rowid,* FROM diagnostic_runs WHERE run_id=?',(first['run_id'],)).fetchone()
+            earlier=self.db.execute('''SELECT 1 FROM diagnostic_attempts a JOIN diagnostic_runs r ON r.run_id=a.run_id
+                WHERE r.character_id=? AND r.rowid>? AND a.id<? LIMIT 1''',(selected['id'],frozen['through_run'],first['id'])).fetchone()
+            if not earlier and rotation_link(frozen['tracked']['previous_run'],run_row):
+                seed=deepcopy(frozen['tracked'])
+        if entry is None:
+            barrier_state=seed['barrier_state'] if seed else {};level_state=seed['level_state'] if seed else {}
+            barriers(observations,barrier_state)
+            observations=present(Projected(project(observations,state=level_state)))
+            if key:
+                try:packed=[marshal.dumps(row) for row in observations]
+                except ValueError:packed=None  # An unexpected type: judged from scratch every time, as before.
+                if packed is not None:
+                    put_ledger(key,dict(cursor=rows[-1]['id'] if rows else 0,ids=[r['id'] for r in rows],run_ids=[r['run_id'] for r in rows],
+                        anchor=hashlib.blake2b(rows[-1]['payload_json'].encode(),digest_size=16).digest() if rows else None,
+                        packed=packed,previous=previous,links=links,runs=runs,barrier_state=barrier_state,level_state=level_state))
+                    # Callers mutate these rows (percentage reviews); the ledger keeps its own packed copies.
+                    observations=Projected(marshal.loads(row) for row in packed)
         result['coverage'] = coverage(observations, total)
         result['coverage']['history_limit']=limit
         if result['historical']: result['coverage']['scope']='selected_history_page'

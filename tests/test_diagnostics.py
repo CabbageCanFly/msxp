@@ -393,3 +393,67 @@ def test_decoded_attempts_stay_within_the_byte_limit(monkeypatch):
     for i in range(50):module.decoded(json.dumps(dict(index=i+1,status='unavailable')))
     assert 0<module.DECODED_STATE['bytes']<=3000 and module.DECODED_STATE['bytes']==sum(map(len,module.DECODED.values()))
     assert len(module.DECODED)<50
+
+
+def test_card_ledger_matches_a_cold_window_through_rotation_restart_and_level_up(monkeypatch):
+    """Continuous judging resumes the fold; with a sliding 64-row window it must equal a cold rebuild."""
+    import exp_tracker.diagnostics as module
+    from tests.test_product import NOW
+    from tests.test_incremental_history import scenario
+    from tests.test_diagnostic_history import config
+    from tests.test_tracked_exp_totals import save
+    import tempfile, pathlib
+    monkeypatch.setattr(module,'PRODUCT_ROWS',64)  # run_rows reads up to 60.
+    monkeypatch.setattr(module,'LEDGERS',module.OrderedDict());monkeypatch.setattr(module,'LEDGER_STATE',dict(bytes=0))
+    hits=[];take=module.take_ledger
+    monkeypatch.setattr(module,'take_ledger',lambda key:(lambda e:hits.append(e is not None) or e)(take(key)))
+    with tempfile.TemporaryDirectory() as folder, Store(pathlib.Path(folder)/'t.sqlite3') as store:
+        store.add_channel('alpha');char=store.add_character('alpha','Test character')
+        store.select_character('alpha',char);store.start_session('alpha',at=NOW);d=Diagnostics(store)
+        def card(now):
+            with store._transaction():
+                head=d.heads('alpha')[0]
+                return json.dumps(d.card({},head,now=now)[1:],default=str,sort_keys=True)
+        for run,index,seconds,bp,changes in scenario(store,d):
+            if run=='rotate':
+                d.rotate('a','b','alpha',dict(type='summary',trusted=False,attempts=60,interrupted=False,
+                    completion_reason='scheduled_rotation',next_run_id='b'),config('b','a',interval=20));continue
+            if run=='restart':
+                d.append('b',dict(type='summary',trusted=False,attempts=30,interrupted=True));d.begin('c','alpha',config('c',interval=20));continue
+            save(d,run,index,seconds,bp,**changes);now=NOW+timedelta(seconds=seconds+2)
+            continued=card(now)
+            with monkeypatch.context() as cold:
+                cold.setattr(module,'take_ledger',lambda key:None);cold.setattr(module,'put_ledger',lambda key,entry:None)
+                assert continued==card(now),(run,index)
+    assert sum(hits)>90  # The ledger was resumed for nearly every capture, not rebuilt.
+
+
+def test_card_ledger_is_rebuilt_after_a_correction_or_invalidation(monkeypatch):
+    """History changes that can alter earlier verdicts discard the ledger; the result equals a cold window."""
+    import exp_tracker.diagnostics as module
+    from tests.test_product import NOW
+    from tests.test_tracked_exp_totals import save
+    from tests.test_invalidations import single,apply
+    import tempfile, pathlib
+    monkeypatch.setattr(module,'LEDGERS',module.OrderedDict());monkeypatch.setattr(module,'LEDGER_STATE',dict(bytes=0))
+    hits=[];take=module.take_ledger
+    monkeypatch.setattr(module,'take_ledger',lambda key:(lambda e:hits.append(e is not None) or e)(take(key)))
+    with tempfile.TemporaryDirectory() as folder, Store(pathlib.Path(folder)/'t.sqlite3') as store:
+        store.add_channel('alpha');cid=store.add_character('alpha','Test character')
+        store.select_character('alpha',cid);store.start_session('alpha',at=NOW);d=Diagnostics(store)
+        d.begin('run','alpha',dict(type='configuration',trusted=False,interval=15,source_kind='twitch'))
+        def card(now):
+            with store._transaction():return json.dumps(d.card({},d.heads('alpha')[0],now=now)[1:],default=str,sort_keys=True)
+        def cold(now):
+            with monkeypatch.context() as patch:
+                patch.setattr(module,'take_ledger',lambda key:None);patch.setattr(module,'put_ledger',lambda key,entry:None)
+                return card(now)
+        for i in range(1,9):save(d,'run',i,i*20,3300+i*7)
+        now=NOW+timedelta(seconds=200);card(now);card(now)
+        assert hits==[False,True]
+        store.correct_manual('alpha','baseline',cid,level=64,current_exp=1000,effective_at=NOW+timedelta(seconds=90))
+        assert card(now)==cold(now) and hits[-1] is False
+        apply(store,single(store,'run:5'))
+        assert card(now)==cold(now) and hits[-1] is False
+        save(d,'run',9,180,3370)
+        assert card(now)==cold(now) and hits[-1] is True
