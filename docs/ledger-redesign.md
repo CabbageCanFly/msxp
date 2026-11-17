@@ -86,6 +86,37 @@ by callers, so a memo must hand out copies); the 640-row point collection for th
 outputs cover the whole window, and `percentage_review` of the newest rows is clock-dependent); an
 indexed `window_endpoints` (prefix sums per window width and level filter).
 
+## Phase 2 deployed 2026-11-17 10:17 UTC (main `f680513`)
+
+15 live, measured 10:20–10:32 UTC: publisher 49–58% (was 60–78% after the first round, 95–98% before),
+live rebuild 0.49 s median (0.66 s p90), live rebuild gap 21 s, warm-up ~2 min (was ~4), API memory
+~975 MB (lower than after round one: the card no longer decodes its window), 0 errors. The idle wave
+(106 refreshes, 0.04 s each) cost ~1% of a core.
+
+## Phase 3 (branch `ledger-phase3`, worktree `H:/Desktop/codex/msxp-ledger-phase3`, not merged)
+
+| Commit | Change | Output |
+|---|---|---|
+| `1be7a93` | Restart cache written at most once a minute per channel (always on its first build); `Publisher.close()` writes the rest on a clean stop, never under a changed character | Restore tests: a newer entry written at clean stop is restored; a character switch is never stored under the new character (verified to fail without the guard) |
+| `0fddacc` | `percentage_point` computed once per row per card or 24h build (`remembered_points()`); leading-bracket points, which read `percentage_review`, are never remembered; callers get copies | Identical; test covers the late review and copies |
+| `8b09e32` | Sampling-gap threshold cached per capture interval | Identical |
+| `01161b1` | `responsive_pace` counts evidence kinds in one pass | Identical |
+| `47ca680` | `reading()` remembered per row while the row holds the same `percentage_review` object; copies include the fresh EXP estimate | Identical; test covers a review attached later |
+| `d2b5faf` | Long windows (> 256 pairs, i.e. 24h) answer from a running-total index kept between rebuilds per channel, sequence (card or tracked) and thread; readings matched by `point_key`, the index cut where readings changed and extended by the walk's rules | Identical; randomized 40-rebuild test (6 seeds: front drops, appends, tail and first-reading changes, compaction) equals the walk, including returned reading objects |
+
+Live-style stream, CPU per rebuild: 359 ms → 266 ms (−26%; −55% against the pre-redesign 594 ms).
+A per-rebuild (non-persistent) index was tried first: exact, but no gain (built four times, used twice
+per rebuild), so it was replaced by the persistent one. Index memory counts toward `PAIR_BUDGET_BYTES`.
+
+Not done, with reasons: partial checkpoints inside the open run (replays, ~15%): every replay step
+assumes whole runs (it resets judging state unless the run continues the previous one) and the
+history-limit receipt counts each run once; `progress()`, chart history, window comparisons and the
+640-row point collection (~10%, 9%, 7%, 16%) need the newest rows' clock-dependent reviews recomputed
+while older per-row work is kept. Each is a larger rewrite of the replay or presentation code.
+
+One full-suite run failed once while the synthetic database was being generated in parallel (CPU
+contention; not reproduced in four further runs, output not captured).
+
 ## Remaining plan (if the measurement says it is worth it)
 
 **Phase 2: continuous card judging.** The card re-judges its 640-capture window from scratch
