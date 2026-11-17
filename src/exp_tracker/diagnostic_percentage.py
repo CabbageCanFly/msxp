@@ -1,6 +1,7 @@
 """Causal experimental percentage quarantine. Never changes capture evidence or Store state."""
 from datetime import datetime,timedelta
 from fractions import Fraction
+from functools import lru_cache
 import re
 
 from .diagnostic_evidence import consistency,full_reading
@@ -21,6 +22,12 @@ def _context_capture(row):
     return capture
 
 
+@lru_cache(maxsize=64)
+def gap_limit(interval):
+    """A sampling gap is longer than 1.5 intervals, at most 120 s (exact; one value per capture interval)."""
+    return min(120,Fraction(str(interval))*Fraction(3,2))
+
+
 def boundary(before,point,row):
     elapsed=(datetime.fromisoformat(point['timestamp'])-datetime.fromisoformat(before['timestamp'])).total_seconds()
     rotated=(point['run_id']!=before['run_id'] and row.get('rotation_from')==before['run_id']
@@ -34,7 +41,7 @@ def boundary(before,point,row):
         'level_changed' if point['level']!=before['level'] else
         'nonincreasing_timestamp' if elapsed<=0 else
         'missing_attempt' if not rotated and point['index']!=before['index']+1 else
-        'sampling_gap' if elapsed>min(120,Fraction(str(before['interval_seconds']))*Fraction(3,2)) else None)
+        'sampling_gap' if elapsed>gap_limit(before['interval_seconds']) else None)
 
 
 def recovery_capture(point,row):
