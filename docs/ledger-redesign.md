@@ -117,6 +117,37 @@ while older per-row work is kept. Each is a larger rewrite of the replay or pres
 One full-suite run failed once while the synthetic database was being generated in parallel (CPU
 contention; not reproduced in four further runs, output not captured).
 
+## Phase 3 deployed 2026-11-17 17:49 UTC (main `bdfaa50`)
+
+15 live: publisher 34–43% (was 49–58%), live rebuild 0.50 s, live updates every ~20 s (measured as a
+viewer: 4 streamers, median gap 20–23 s, max 25–34 s), 0 errors. A clean stop wrote the restart cache
+(saved entries 84 s → 37 s old) in 6.8 s; the next start restored 123 channels. API memory settled at
+~1,350 MB after a restart that restored the cache; in-process reading: decode cache 38 MB, ledgers 93 MB
+(122 channels), intervals and indexes ~64 MB. A 30 s live profile showed the publisher idle 68% of
+the time and real-stream shares far below the synthetic ones (progress 2%, chart history 0.7%).
+
+## Phase 4 (branch `ledger-phase4`, worktree `H:/Desktop/codex/msxp-ledger-phase4`, not merged)
+
+Measured on a 25-streamer synthetic database (1,825 runs, 108k attempts) streaming one streamer's own
+captures. An earlier harness held back captures by ID across the whole database, so the streamer it
+rebuilt never received any; those timings measured no-change rebuilds and are superseded here.
+
+| Commit | Change | Output |
+|---|---|---|
+| `9338cbd` | The publisher keeps its read-only connection across steps (SQLite's page cache survives); reopened when the database file's identity changes, after errors, and closed on its own thread | Identical; test covers reuse, a replaced file and an error |
+| `1fb3734` | Replay run selection reuses predecessor runs it already read (~144 fewer queries per build) | Identical |
+| `e3ba7cf` | The card window covers 90 minutes at the run's capture interval (`card_rows`: 270 at 20 s, 360 at 15 s, 540 at 10 s, at most 640) | Only fields no page shows differ: the card's own 1440 comparison, the current stretch summary (`segment`, legacy view only), `early_pace` beyond 90 min, `history_limit` |
+| `453b412` | Replays resume inside the open run from a saved settled prefix (ending on a decision without a verification deadline, which review() never relabels), saved every 12 settled captures; validated against the run's attempts before any state is restored | Identical; the incremental-history tests resume a prefix 431 times and match a full replay after every capture |
+| `85bd62c` | `exp_change` cached by its whole-number inputs (each caller gets a copy) | Identical; chart history 3× faster |
+
+CPU per streamed rebuild: main 281 ms → 203 ms (−28%). A faster general copier for replay state and a
+per-rebuild partial checkpoint were measured and dropped (≤20% faster copies; saving every rebuild cost
+as much as it saved).
+
+What remains is spread thin: the 24h aggregate's own loop over a day of pairs, `usable_endpoint` and
+`boundary` checks repeated per reading, state copies, and the card window's point collection and
+`progress()` (each a few percent).
+
 ## Remaining plan (if the measurement says it is worth it)
 
 **Phase 2: continuous card judging.** The card re-judges its 640-capture window from scratch
