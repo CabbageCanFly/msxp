@@ -1,14 +1,17 @@
 """Experimental shadow persistence. This module never calls trusted ingestion."""
 
 import argparse
+from collections import OrderedDict
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import marshal
 from pathlib import Path
 import re
 import sqlite3
 import sys
+import threading
 
 from .shadow_view import MAX_LINE, MAX_ROWS, ShadowLog, observation, timestamp
 from .store import Store, utc
@@ -18,6 +21,36 @@ from .diagnostic_progress import progress
 from .product import player,refresh,history,PRODUCT_ROWS
 from .diagnostic_evidence import project
 from .manual import annotate,active,corrected_reading
+
+DECODED_LIMIT_BYTES = 128 * 1024 * 1024  # Packed size; roughly 60 live channels' recent rows.
+DECODED = OrderedDict()  # Payload digest -> marshal bytes, least recently used first.
+DECODED_STATE = dict(bytes=0)
+DECODED_LOCK = threading.Lock()
+
+
+def decoded(payload_json):
+    """observation() of one stored attempt and its HUD count, as new objects on every call.
+
+    observation() reads only the payload, and payloads are never rewritten, so the result is kept by content
+    (a digest), not by row or database. The cache holds marshal bytes: callers always mutate their own copy.
+    """
+    raw=payload_json.encode();key=hashlib.blake2b(raw,digest_size=16).digest()
+    with DECODED_LOCK:
+        packed=DECODED.get(key)
+        if packed is not None:DECODED.move_to_end(key)
+    if packed is not None:return marshal.loads(packed)
+    payload=json.loads(payload_json)
+    localization=payload.get('localization')
+    count=localization.get('count') if isinstance(localization,dict) else None
+    result=(observation(payload),count if type(count) is int and 0<=count<=200 else None)
+    try:packed=marshal.dumps(result)
+    except ValueError:return result  # An unexpected type: decoded on every call, as before.
+    with DECODED_LOCK:
+        if key not in DECODED:
+            DECODED[key]=packed;DECODED_STATE['bytes']+=len(packed)
+            while DECODED_STATE['bytes']>DECODED_LIMIT_BYTES:DECODED_STATE['bytes']-=len(DECODED.popitem(last=False)[1])
+    return result
+
 
 MAX_REPLAY_BYTES = 4 * 1024 * 1024
 
@@ -426,8 +459,7 @@ class Diagnostics:
         previous = None
         links={};runs={}  # A run's settings and summary are shared by its ~60 rows: decoded once each.
         for row in rows:
-            payload = json.loads(row['payload_json'])
-            value = observation(payload)  # Same HTTP allowlist as the log viewer.
+            value,hud_count = decoded(row['payload_json'])  # Same HTTP allowlist as the log viewer.
             value['grammar_recovery'] = propose_full_exp(value['raw_text'])
             value['interpretations'] = interpret_exp(value['raw_text'])
             if row['run_id'] not in runs:
@@ -447,9 +479,7 @@ class Diagnostics:
             value.update(assigned_channel=state['channel'], character_id=selected['id'], session_id=session['id'],
                          run_start_reason=config.get('start_reason') if config.get('start_reason') in ('process_start','scheduled_rotation','automatic_character_switch') else None,
                          run_interrupted=interrupted)
-            localization = payload.get('localization')
-            count = localization.get('count') if isinstance(localization, dict) else None
-            value['hud_count'] = count if type(count) is int and 0 <= count <= 200 else None
+            value['hud_count'] = hud_count
             value['capture_acquired'] = False if value['status'] == 'capture_failed' else (
                 True if value['received_at'] is not None else None)
             value['requirements'] = dict(visual=requirement(value['visual_level']),

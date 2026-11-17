@@ -369,3 +369,27 @@ def test_directory_cache_keeps_newer_values_and_recomputes_age_without_loading_h
         later=d.directory(cache,now=NOW+timedelta(seconds=116))['streams'][0]
         assert later['percentage_age_seconds']==101 and later['percentage_stale']
         assert later['pace'] is None
+
+
+def test_decoded_attempts_match_a_fresh_decode_and_are_never_shared(monkeypatch):
+    import exp_tracker.diagnostics as module
+    from exp_tracker.shadow_view import observation
+    monkeypatch.setattr(module,'DECODED',module.OrderedDict());monkeypatch.setattr(module,'DECODED_STATE',dict(bytes=0))
+    payload=json.dumps(dict(attempted_at='2026-11-16T12:00:00+00:00',received_at='2026-11-16T12:00:01+00:00',status='diagnostic_full_exp',
+        candidate=[123456,'45.67'],reasons=['ok'],visual_level=54,neural=dict(text='EXP 123456 [45.67%]'),
+        localization=dict(count=1,candidates=[dict(anchors=[],anchor_step=4)]),current=True))
+    expected=(observation(json.loads(payload)),1)
+    first=module.decoded(payload)
+    assert first==expected and len(module.DECODED)==1
+    first[0]['raw_text']='changed';first[0]['reasons'].append('changed')  # Callers mutate their copy, as mask() does.
+    second=module.decoded(payload)
+    assert second==expected and second[0] is not first[0] and second[0]['reasons'] is not first[0]['reasons']
+
+
+def test_decoded_attempts_stay_within_the_byte_limit(monkeypatch):
+    import exp_tracker.diagnostics as module
+    monkeypatch.setattr(module,'DECODED',module.OrderedDict());monkeypatch.setattr(module,'DECODED_STATE',dict(bytes=0))
+    monkeypatch.setattr(module,'DECODED_LIMIT_BYTES',3000)
+    for i in range(50):module.decoded(json.dumps(dict(index=i+1,status='unavailable')))
+    assert 0<module.DECODED_STATE['bytes']<=3000 and module.DECODED_STATE['bytes']==sum(map(len,module.DECODED.values()))
+    assert len(module.DECODED)<50
