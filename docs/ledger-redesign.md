@@ -148,6 +148,15 @@ What remains is spread thin: the 24h aggregate's own loop over a day of pairs, `
 `boundary` checks repeated per reading, state copies, and the card window's point collection and
 `progress()` (each a few percent).
 
+## Phase 4 deployed 2026-11-17 21:34 UTC (main `59e8bbc`)
+
+18 capturing (15 at the phase 3 check): live rebuild 0.35 s median, 0.46 s p90 (was 0.50 s); publisher
+42–49% busy because there were more streamers and so more rebuilds, idle 64% of a 30 s profile; viewers
+saw each capture (median 20–24 s, or ~40 s for the three streamers the tracker captured every ~40 s);
+warm-up 3 min from cold (a code change invalidates the restart cache); 0 errors. Caches: decode 88 MB
+(70k entries after the cold start), ledgers 51 MB (smaller with the 90-minute window), intervals and
+indexes ~82 MB. API memory ~1.2 GB.
+
 ## Remaining plan (if the measurement says it is worth it)
 
 **Phase 2: continuous card judging.** The card re-judges its 640-capture window from scratch
