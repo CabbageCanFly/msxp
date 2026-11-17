@@ -15,6 +15,13 @@ WINDOWS=(5,10,15,30,60,1440)
 # Public level provenance: readers first, then labeled EXP-derived/retained/provisional context.
 DISPLAY_LEVEL_STATUSES=('agreement','provisional_neural','exp_derived','retained_level','provisional_level_up','manual_admin')
 PRODUCT_ROWS=640  # 30 minutes at the explicit offline 3s floor, plus level-context/boundary evidence.
+CARD_SECONDS=5400  # The card judges 90 minutes of captures: the 60-minute window with margin at any capture rate.
+
+
+def card_rows(interval):
+    """Captures in the card's window at this capture interval, at most PRODUCT_ROWS."""
+    if type(interval) not in (int,float) or not interval>0:return PRODUCT_ROWS
+    return max(1,min(PRODUCT_ROWS,-(-CARD_SECONDS//interval)))
 PACE_MIN_SECONDS=5
 PACE_TREND_SECONDS=300
 PACE_HISTORY_SECONDS=1800

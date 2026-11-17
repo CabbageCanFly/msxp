@@ -18,7 +18,7 @@ from .store import Store, utc
 from .shadow_grammar import interpret_exp, propose_full_exp
 from .exp_requirements import community_table, requirement
 from .diagnostic_progress import progress
-from .product import player,refresh,history,PRODUCT_ROWS
+from .product import player,refresh,history,card_rows,PRODUCT_ROWS
 from .diagnostic_evidence import project
 from .manual import annotate,active,corrected_reading
 
@@ -407,7 +407,9 @@ class Diagnostics:
             frozen.get('through_run'),(floor['level'],proof['received_at']) if proof else None,interrupted)
 
     def _snapshot(self, channel, *, now, active_runs=None,session_id=None,run_id=None,before=None,start=None,end=None,limit=MAX_ROWS,_rows_only=False,character=None):
-        if type(limit) is not int or not 1<=limit<=PRODUCT_ROWS:raise ValueError('Invalid history limit')
+        """limit=None: the card's window, sized from the run's capture interval (card_rows)."""
+        card=limit is None
+        if not card and (type(limit) is not int or not 1<=limit<=PRODUCT_ROWS):raise ValueError('Invalid history limit')
         state = self.store._state(channel, as_of=now)
         selected = next((c for c in state['characters'] if c['id'] == state['selected_character_id']), None)
         session = state['session']
@@ -482,6 +484,7 @@ class Diagnostics:
             result['percentage_progress'] = progress([],now=now)
             return result
         configuration = json.loads(run['configuration_json'])
+        if card:limit=int(card_rows(configuration.get('interval')))
         where=['a.session_id=?' if self.store.schema_version>=4 else 'r.session_id=?']
         values=[session['id']]
         for condition,value in [('a.run_id=?',run_id),('a.id<?',before),('a.attempted_at>=?',start),('a.attempted_at<?',end)]:
@@ -534,7 +537,7 @@ class Diagnostics:
                         timestamp=row.get('received_at') or row['attempted_at'],epoch=row['manual_epoch'])
             return rows
         # Only the card's window: recent_snapshot's one-row reads must not replace its ledger.
-        key=None if historical or _rows_only or limit!=PRODUCT_ROWS or self.store.schema_version<4 else self.ledger_key(
+        key=None if historical or _rows_only or not card or self.store.schema_version<4 else self.ledger_key(
             state,selected,session,result,frozen,floor,proof,limit)
         entry=take_ledger(key) if key else None
         if entry is not None:
@@ -727,7 +730,7 @@ class Diagnostics:
         """
         key=tuple(head);cached=cache.get(head['login'])
         if cached is None or cached[0]!=key or due(cached[1]['player'],cached[1]['recent_as_of'],now):
-            snap = self._snapshot(head['login'],now=now,limit=PRODUCT_ROWS,character=character)
+            snap = self._snapshot(head['login'],now=now,limit=None,character=character)
             recent=self.recent_snapshot(head['login'],now=now,eta_cache=eta_cache,checkpoints=checkpoints,character=character)
             p = snap['percentage_progress']
             last = snap['observations'][-1] if snap['observations'] else {}
@@ -757,7 +760,7 @@ class Diagnostics:
                 percentage={k:point[k] for k in ('percentage','evidence','timestamp','event_id')} if point else None,
                 full_exp=full,visual_level=last.get('visual_level'),neural_level=(last.get('neural_level') or {}).get('level'),
                 movement=p['latest_movement'],progress_reason=p['reason'],pace=p['current_pace'],
-                stale_after_seconds=snap['stale_after_seconds'],history_limit=PRODUCT_ROWS,
+                stale_after_seconds=snap['stale_after_seconds'],history_limit=snap['coverage'].get('history_limit',PRODUCT_ROWS),
                 history_truncated=snap['truncated'],trusted=False)
             card['player']=player(snap,now=now,recent_snapshot=recent)
             card['recent_as_of']=now.isoformat()

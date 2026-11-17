@@ -285,3 +285,11 @@ def test_raw_exp_priority_and_unresolved_level_never_become_computed_readings(tr
 def test_estimate_abstains_when_neither_hypothesis_has_a_compatible_integer():
     from exp_tracker.product import percentage_exp
     assert percentage_exp(5000,dict(value=1,status='agreement')) is None  # 15 EXP requirement cannot display 50.00%.
+
+
+def test_card_window_covers_ninety_minutes_at_any_capture_interval():
+    from exp_tracker.product import card_rows,PRODUCT_ROWS
+    assert [card_rows(i) for i in (20,15,10,20.0)]==[270,360,540,270]
+    assert card_rows(3)==PRODUCT_ROWS and card_rows(7)==PRODUCT_ROWS  # Capped: the window never grows past 640.
+    assert all(card_rows(i)*i>=5400 for i in (9,10,15,20,30,60))  # Always at least 90 minutes when uncapped.
+    assert card_rows(None)==card_rows(0)==card_rows('20')==PRODUCT_ROWS  # Unusable interval: the former window.
