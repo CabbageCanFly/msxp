@@ -33,6 +33,7 @@ TRACKED_SECONDS = 30  # Tracked windows age even without a new capture, as befor
 IDLE_AFTER_SECONDS = 3600  # No capture for this long: the channel is idle.
 IDLE_REFRESH_SECONDS = 600  # An idle channel's 24h windows still age, so it is refreshed this often.
 IDLE_EVERY = 4  # While other channels are due, at most every IDLE_EVERY-th build refreshes an idle one.
+SAVE_SECONDS = 60  # Restart-cache write per channel at most this often; close() writes the rest.
 SUMMARY_SECONDS = 5  # Idle refresher: at most one inactive character's Characters-list summary per this many seconds.
 RETRY_SECONDS = (5, 60)  # Failed channel refresh: exponential backoff bounds.
 # Never in public responses, at any depth: internal identities, capture scheduling, and
@@ -152,6 +153,7 @@ class Publisher:
             last_error=None, presentations=0, present_seconds=0.0, ready_at=None, started_at=None)
         self.stop = threading.Event(); self.wake = threading.Event(); self.thread = None
         self.checkpoints_restored=set()
+        self.saved={}  # Channel -> monotonic time of its last restart-cache write.
         self.stats.update(restored=0,cache_error=getattr(server,'publication_cache_error',None))
 
     # Refresher ---------------------------------------------------------------
@@ -181,6 +183,25 @@ class Publisher:
     def close(self, timeout=30):
         self.stop.set(); self.wake.set()
         if self.thread:self.thread.join(timeout)
+        if not self.thread or not self.thread.is_alive():self.flush()
+
+    def flush(self):
+        """Write entries newer than their last restart-cache write (a clean stop, e.g. systemd's SIGINT)."""
+        cache=getattr(self.server,'publication_cache',None)
+        unsaved=[(login,entry) for login,entry in self.entries.items()
+            if not entry.get('restored') and self.saved.get(login,(None,))[-1]!=entry['built_at']]
+        if not cache or not unsaved:return
+        try:
+            with Store(self.server.database, read_only=True) as store:
+                diagnostics=Diagnostics(store)
+                with store._transaction():
+                    heads={h['login']:h for h in diagnostics.heads()}
+                    for login,entry in unsaved:
+                        head=heads.get(login)
+                        # The same selection and session only: a summary is stored under the head's character.
+                        if head is not None and cache.compatible(entry['key'],head):
+                            cache.save(store,diagnostics,head,entry,self.server.checkpoints)
+        except (ValueError,TypeError,KeyError,sqlite3.Error,OSError):self.stats['cache_error']='save_failed'
 
     def run(self):
         while not self.stop.is_set():
@@ -411,7 +432,9 @@ class Publisher:
             try:
                 with store._transaction():
                     if view:cache.save_view(store,diagnostics,login,view[0][2],entry)
-                    else:cache.save(store,diagnostics,head,entry,self.server.checkpoints)
+                    elif time.monotonic()-self.saved.get(login,(-SAVE_SECONDS,))[0]>=SAVE_SECONDS:
+                        cache.save(store,diagnostics,head,entry,self.server.checkpoints)
+                        self.saved[login]=(time.monotonic(),entry['built_at'])
             except (ValueError,TypeError,KeyError,sqlite3.Error,OSError):self.stats['cache_error']='save_failed'
         with self.lock:
             if not view:

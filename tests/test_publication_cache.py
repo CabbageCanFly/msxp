@@ -175,3 +175,32 @@ def test_open_run_signature_tracks_exact_payload_bytes_and_covered_prefix(tracki
         store.db.execute('UPDATE diagnostic_attempts SET payload_json=? WHERE id=?',(payload,through))
         assert cache.signature(store,['open'],through)==original
     finally:cache.close()
+
+
+def test_rebuilds_within_a_minute_are_written_on_clean_stop(tracking,clock,tmp_path):
+    path,store,d=tracking;cache=tmp_path/'warm.sqlite3'
+    for i in range(1,4):save(d,'run',i,(i-1)*20,3300+i*5)
+    clock.at=NOW+timedelta(seconds=40)
+    with create_server(path,port=0,public_only=True,publication_cache=cache) as server:
+        server.publisher.settle()
+        first=server.publisher.entry('alpha')['built_at']
+        save(d,'run',4,60,3320);clock.at=NOW+timedelta(seconds=61);server.publisher.settle()
+        latest=server.publisher.entry('alpha')['built_at']
+        with Store(path,read_only=True) as reader:  # Not yet written: the first write was under a minute ago.
+            assert server.publication_cache.restore_entry(reader,server.publisher.heads[0],clock.at)['built_at']==first
+    with create_server(path,port=0,public_only=True,publication_cache=cache) as server:
+        assert server.publisher.entry('alpha')['restored'] and server.publisher.entry('alpha')['built_at']==latest!=first
+
+
+def test_clean_stop_never_writes_an_entry_under_a_changed_character(tracking,clock,tmp_path):
+    path,store,d=tracking;cache=tmp_path/'warm.sqlite3'
+    for i in range(1,4):save(d,'run',i,(i-1)*20,3300+i*5)
+    clock.at=NOW+timedelta(seconds=40)
+    with create_server(path,port=0,public_only=True,publication_cache=cache) as server:
+        server.publisher.settle()
+        save(d,'run',4,60,3320);clock.at=NOW+timedelta(seconds=61);server.publisher.settle()
+        other=store.add_character('alpha','Other');store.end_session('alpha',at=clock.at)
+        store.select_character('alpha',other);store.start_session('alpha',at=clock.at)
+    with Store(path,read_only=True) as reader, create_server(path,port=0,public_only=True,publication_cache=cache) as server:
+        summary=server.publication_cache.read('summaries',reader,f'alpha#{other}')
+        assert summary is None  # The old character's numbers were not stored under the new one.
