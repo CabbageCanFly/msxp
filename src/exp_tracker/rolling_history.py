@@ -384,7 +384,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
             manual is None or point['effective_at']>=manual['effective_at']):
         level=point['level'];transition={}
     if transition.get('phase')=='possible' and not transition.get('evidence_exhausted'):level=transition['to_level']
-    gains=[];coverage=Fraction(0);versions=set()
+    gains=[];coverage_us=0;versions=set();amounts=[None]*48;charted=[None]*48;covered=[0]*48
     from .pace_intervals import window_memo,remembered_interval
     memo=window_memo(('pairs',channel,character),now)  # Shared with this rebuild's card: same readings, same intervals.
     points=sorted((r for r in state['rows'] if usable_endpoint(r)),key=lambda r:datetime.fromisoformat(r['timestamp']))
@@ -398,17 +398,24 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
         if gain['value']['numerator']<0:continue
         if start<=b<=now and timedelta(0)<b-a<=timedelta(hours=24):
             gains.append(gain)
-            amount=fraction(gain['value']);duration=elapsed_seconds(a,b)
-            coverage+=duration;result['intervals']+=1
+            # Whole EXP and whole microseconds, exact; converted to Fractions once below.
+            value=gain['value'];amount=value['numerator'] if value['denominator']==1 else fraction(value)
+            delta=b-a;duration=(delta.days*86400+delta.seconds)*1000000+delta.microseconds
+            coverage_us+=duration;result['intervals']+=1
             basis=gain['basis'];result['basis_counts'][basis]=result['basis_counts'].get(basis,0)+1
             versions.add(gain['requirement']['version'])
             # Recognized at the later endpoint; no invented distribution through gaps.
-            bucket=bins[min(47,(b-start)//timedelta(minutes=30))]
-            bucket['amount']=(bucket['amount'] or Fraction(0))+amount
+            i=min(47,(b-start)//timedelta(minutes=30));bucket=bins[i]
+            amounts[i]=(amounts[i] or 0)+amount
             # Chart bars cannot place gains across long unobserved gaps; totals still retain them.
-            if b-a<=timedelta(minutes=60):bucket['chart_amount']=(bucket['chart_amount'] or Fraction(0))+amount
-            bucket['coverage']=min(Fraction(1800),bucket['coverage']+duration)
+            if b-a<=timedelta(minutes=60):charted[i]=(charted[i] or 0)+amount
+            covered[i]=min(1800000000,covered[i]+duration)
             bucket['intervals']+=1;bucket['gap']=True
+    coverage=Fraction(coverage_us,1000000)
+    for bucket,amount,chart,cover in zip(bins,amounts,charted,covered):
+        if amount is not None:bucket['amount']=Fraction(amount)
+        if chart is not None:bucket['chart_amount']=Fraction(chart)
+        bucket['coverage']=Fraction(cover,1000000)
     if limited:
         # Incomplete causal replay must not masquerade as a complete query or zero.
         result.update(status='history_limit',tracked_exp=None,basis_counts={});versions.clear()
