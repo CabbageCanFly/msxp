@@ -1,8 +1,10 @@
 """Shared experimental endpoint evidence. Never supplies trusted Store gains."""
 from bisect import bisect_left,bisect_right
+from collections import OrderedDict
 from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
+import threading
 
 from .diagnostic_evidence import consistency,full_reading,supported_exp,CONTEXT_SECONDS
 from .diagnostic_percentage import boundary,LARGE_CHANGE_BP
@@ -16,6 +18,10 @@ TRACKED_POLICY='tracked_endpoint_exp_v5'
 PUBLIC_POLICY='public_endpoint_window_v2'
 # Longest live window plus causal warmup; age by replay time, never query time.
 FRAME_HISTORY_SECONDS=24*60*60+5*60
+PAIR_BUDGET_BYTES=96*1024*1024  # About 25 full-day channels; beyond it the least recent channel recomputes.
+PAIR_BYTES=1300  # Measured size of one interval result, ~1.2 KB.
+PAIR_SLOTS=OrderedDict()  # Channel slot -> intervals by the content of their two readings.
+PAIR_LOCK=threading.Lock()
 
 
 def exp_interval(edge):
@@ -94,6 +100,49 @@ def conditional_percent(row, support, previous):
     return result
 
 
+def window_memo(slot,now):
+    """A fresh window_endpoints memo that reuses this slot's intervals from earlier rebuilds.
+
+    An interval is a pure function of its two readings' fields (point_key), so a pair whose readings
+    are unchanged keeps its result; anything else is computed as before. Calls at the same `now`
+    (a card and its tracked totals) share one generation; an interval unused by a rebuild is dropped.
+    Results are shared between calls and rebuilds and must never be mutated, as within one memo.
+    PAIR_BUDGET_BYTES is checked as a slot opens: memory stays within it plus one rebuild's intervals.
+    """
+    with PAIR_LOCK:
+        store=PAIR_SLOTS.pop(slot,None)
+        if store is None or store['now']!=now:store=dict(now=now,old=store['new'] if store else {},new={})
+        PAIR_SLOTS[slot]=store
+        total=sum(len(s['new'])+len(s['old']) for s in PAIR_SLOTS.values())*PAIR_BYTES
+        while total>PAIR_BUDGET_BYTES and len(PAIR_SLOTS)>1:
+            _,dropped=PAIR_SLOTS.popitem(last=False);total-=(len(dropped['new'])+len(dropped['old']))*PAIR_BYTES
+    return dict(store=store,keys={})
+
+
+def point_key(point):
+    """Every field endpoint_interval and usable_endpoint read."""
+    validity=point.get('exp_validity',{})
+    return (point['timestamp'],point['event_id'],point['level']['value'],point['exp'],point['bp'],
+        validity.get('status'),validity.get('level'),bool(point.get('recovery_baseline')),
+        point.get('manual_epoch'),point.get('accounting_scope'),point['evidence'])
+
+
+def remembered_interval(memo,before,after):
+    store=memo.get('store')
+    if store is None:return endpoint_interval(before,after)
+    keys=memo['keys']
+    for point in (before,after):
+        if id(point) not in keys:keys[id(point)]=point_key(point)
+    key=(keys[id(before)],keys[id(after)])
+    try:found=store['new'].get(key)
+    except TypeError:return endpoint_interval(before,after)  # An unhashable field: computed every time, as before.
+    if found is None:
+        found=store['old'].pop(key,None)
+        if found is None:found=endpoint_interval(before,after)
+        store['new'][key]=found
+    return found
+
+
 def endpoint_interval(before,after):
     """Net EXP in level/EXP coordinates; no capture-connection eligibility."""
     if after.get('recovery_baseline'):
@@ -157,7 +206,7 @@ def window_endpoints(points,*,start,end,level=None,memo=None):
         if b-a>end-start:
             reason='gap_exceeds_window';continue
         if level is not None and (before['level']['value']!=level or after['level']['value']!=level):continue
-        if i not in pairs:pairs[i]=endpoint_interval(before,after)
+        if i not in pairs:pairs[i]=remembered_interval(memo,before,after)
         gain,why=pairs[i]
         if gain is None:
             reason=why;continue

@@ -46,3 +46,43 @@ def test_tracked_packet_matches_fresh_window_calculations_as_time_advances(track
             patch.setattr(rolling_history,'window_endpoints',independent)
             patch.setattr(pace_intervals,'window_endpoints',independent)
             assert actual==diagnostic.rolling_history('alpha',now=now)
+
+
+def test_remembered_intervals_match_fresh_ones_across_rebuilds(monkeypatch):
+    from exp_tracker import pace_intervals
+    monkeypatch.setattr(pace_intervals,'PAIR_SLOTS',pace_intervals.OrderedDict())
+    computed=[];real=pace_intervals.endpoint_interval
+    monkeypatch.setattr(pace_intervals,'endpoint_interval',lambda a,b:computed.append(1) or real(a,b))
+    def readings(count,changed=None):
+        points=[point(i,20*i,64,1000*i) for i in range(count)]
+        if changed is not None:points[changed]=dict(points[changed],exp=1000*changed+7)  # Same reading, corrected EXP.
+        return points
+    def rebuild(points,now):
+        """Fresh reference results, then the remembered ones; returns how many intervals the remembered path computed."""
+        expected=[window_endpoints(points,start=now-timedelta(minutes=m),end=now) for m in (5,60,1440)]
+        computed.clear();memo=pace_intervals.window_memo(('pairs','alpha',1),now)
+        assert [window_endpoints(points,start=now-timedelta(minutes=m),end=now,memo=memo) for m in (5,60,1440)]==expected
+        return len(computed)
+    now=START+timedelta(seconds=20*60)
+    assert rebuild(readings(60),now)==59
+    assert rebuild(readings(61),now+timedelta(seconds=20))==1  # Only the new capture's pair.
+    assert rebuild(readings(61,changed=30),now+timedelta(seconds=40))==2  # Only the two pairs touching the corrected reading.
+    assert rebuild(readings(61,changed=30),now+timedelta(seconds=50))==0
+
+
+def test_remembered_intervals_drop_unused_pairs_and_stay_within_budget(monkeypatch):
+    from exp_tracker import pace_intervals
+    monkeypatch.setattr(pace_intervals,'PAIR_SLOTS',pace_intervals.OrderedDict())
+    def rebuild(slot,points,now):
+        memo=pace_intervals.window_memo(slot,now)
+        window_endpoints(points,start=now-timedelta(days=1),end=now,memo=memo)
+    now=START+timedelta(hours=2)
+    rebuild('a',[point(i,20*i,64,1000*i) for i in range(100)],now)
+    rebuild('a',[point(i,20*i,64,1000*i) for i in range(50,100)],now+timedelta(seconds=10))  # The first half left the window.
+    rebuild('a',[point(i,20*i,64,1000*i) for i in range(50,100)],now+timedelta(seconds=20))
+    store=pace_intervals.PAIR_SLOTS['a']
+    assert len(store['new'])==49 and not store['old']
+    monkeypatch.setattr(pace_intervals,'PAIR_BUDGET_BYTES',60*pace_intervals.PAIR_BYTES)
+    rebuild('b',[point(i,20*i,64,1000*i) for i in range(30)],now)
+    rebuild('b',[point(i,20*i,64,1000*i) for i in range(30)],now+timedelta(seconds=10))  # The budget is checked as a slot opens.
+    assert list(pace_intervals.PAIR_SLOTS)==['b']  # 'a' was least recently used; 49+29 intervals exceed 60.

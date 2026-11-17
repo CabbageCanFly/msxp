@@ -576,7 +576,8 @@ def player(snapshot,*,now=None,recent_snapshot=None):
     from .pace_intervals import collect_observed as collect
     # Both scopes use the same public observations, clock and limit.
     collected=collect(recent_snapshot or snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
-    memo={}
+    from .pace_intervals import window_memo
+    memo=window_memo(('pairs',snapshot['channel'],(snapshot.get('selected_character') or {}).get('id')),now)
     result['recent_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now,collected=collected,memo=memo)
     transition=(result.get('level_context') or {}).get('transition') or {}
     filter_level=dict(value=transition['to_level']) if transition.get('phase')=='possible' and not transition.get('evidence_exhausted') else display_level

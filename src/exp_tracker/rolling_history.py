@@ -383,10 +383,12 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
         level=point['level'];transition={}
     if transition.get('phase')=='possible' and not transition.get('evidence_exhausted'):level=transition['to_level']
     gains=[];coverage=Fraction(0);versions=set()
+    from .pace_intervals import window_memo,remembered_interval
+    memo=window_memo(('pairs',channel,character),now)  # Shared with this rebuild's card: same readings, same intervals.
     points=sorted((r for r in state['rows'] if usable_endpoint(r)),key=lambda r:datetime.fromisoformat(r['timestamp']))
     for before,after in zip(points,points[1:]):
         if before['timestamp']==after['timestamp']:continue
-        gain,reason=endpoint_interval(before,after)
+        gain,reason=remembered_interval(memo,before,after)
         if gain is None:
             result['exclusion_counts'][reason]=result['exclusion_counts'].get(reason,0)+1
             continue
@@ -417,7 +419,6 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
             run_id=last['run_id'] if last else None,percentage_progress=dict(reason='public_endpoint_window'))
         collected=dict(points=state['rows'],latest=state['rows'][-1] if state['rows'] else None,
             excluded=[],recoveries=[])
-        memo={}
         result['windows']=recent_windows(head,dict(value=level),now=now,collected=collected,memo=memo)
         daily=result['windows']['1440']['gain']
         result['tracked_exp']=dict(daily) if daily is not None else None
@@ -434,8 +435,9 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
             for g in gains if now-timedelta(minutes=60)<=datetime.fromisoformat(g['end'])<=now
             and datetime.fromisoformat(g['end'])-datetime.fromisoformat(g['start'])<=timedelta(minutes=60)])
         _,current,_=window_endpoints(state['rows'],start=now-timedelta(minutes=60),end=now,level=level,memo=memo)
-        result['current_level_chart_intervals']=[{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
-            for g in current['intervals']] if current else []
+        # Copied: remembered intervals are shared with later rebuilds and must never be reachable from a response.
+        result['current_level_chart_intervals']=deepcopy([{k:g[k] for k in ('start','end','level','value','basis','kind','policy','evidence_types')}
+            for g in current['intervals']]) if current else []
         result['chart_status']='ready' if max(len(result['chart_intervals']),len(result['current_level_chart_intervals']))<=4096 else 'history_limit'
         if result['chart_status']=='history_limit':result['chart_intervals']=[];result['current_level_chart_intervals']=[]
     result.update(coverage_seconds=rational(coverage),unknown_seconds=rational(max(Fraction(0),Fraction(86400)-coverage)),requirement_versions=sorted(versions),
