@@ -288,7 +288,9 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     if not _historical:
         # Module-level collect/PACE_TREND_SECONDS: re-importing them here made step()'s copies unbound.
         from .product import recent_windows
-        if not collect(result,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)['intervals']:
+        collected=collect(result,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
+        result['_collected']=(now,collected)  # player() collects exactly this again (same rows and clock) and takes it instead.
+        if not collected['intervals']:
             # Cold-server restoration is bounded like other history queries.
             # Cache only compact static estimates, invalidated by any new event.
             attempt_revision=diagnostic.db.execute('SELECT MAX(id) FROM diagnostic_attempts WHERE '+owner+' AND attempted_at<=?',

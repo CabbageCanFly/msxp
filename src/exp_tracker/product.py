@@ -575,7 +575,9 @@ def player(snapshot,*,now=None,recent_snapshot=None):
     if result['responsive_pace'] is None:result['responsive_pace']=deepcopy(saved.get('responsive_pace'))
     from .pace_intervals import collect_observed as collect
     # Both scopes use the same public observations, clock and limit.
-    collected=collect(recent_snapshot or snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS)
+    reused=recent_snapshot.pop('_collected',None) if recent_snapshot is not None else None
+    collected=(reused[1] if reused and reused[0]==now else
+        collect(recent_snapshot or snapshot,now=now,read=reading,max_interval_seconds=PACE_TREND_SECONDS))
     from .pace_intervals import window_memo
     memo=window_memo(('pairs',snapshot['channel'],(snapshot.get('selected_character') or {}).get('id')),now)
     result['recent_windows']=recent_windows(recent_snapshot or snapshot,display_level,now=now,collected=collected,memo=memo)
