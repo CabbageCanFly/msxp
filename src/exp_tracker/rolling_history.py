@@ -120,15 +120,15 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
             older=[k for k in checkpoints if k[:-1]==key[:-1] and k[-1]<key[-1]]
             if older:source=max(older,key=lambda k:k[-1]);saved=checkpoints[source]
     skip=folded(diagnostic,saved,runs,frozen['through_run']) if saved and frozen else 0
-    covered=0
+    covered=0;resumed=False  # A partial checkpoint may cover no complete run.
     if saved and skip is not None and now>=saved['now'] and len(saved['runs'])-skip<=len(runs) and all(
             (r['run_id'],r['configuration_json'],r['summary_json'])==f[:3] for r,f in zip(runs,saved['runs'][skip:])):
         kept=saved['runs'][skip:];ids=[f[0] for f in kept]
         counts={row[0]:(row[1],row[2]) for row in diagnostic.db.execute('SELECT run_id,COUNT(*),MAX(id) FROM diagnostic_attempts WHERE run_id IN ('
             +','.join('?'*len(ids))+') GROUP BY run_id',ids)} if ids else {}
-        if all(counts.get(f[0],(0,None))==f[3:5] for f in kept):
+        if all(counts.get(f[0],(0,None))==f[3:5] for f in kept) and partial_holds(diagnostic,saved.get('partial'),runs,len(ids),now):
             # In place: a later HistoryLimit leaves the caller with the progress made so far.
-            state.clear();state.update(thaw(saved['state']));receipt.update({k:saved['receipt'][k] for k in RECEIPT});covered=len(ids)
+            state.clear();state.update(thaw(saved['state']));receipt.update({k:saved['receipt'][k] for k in RECEIPT});covered=len(ids);resumed=True
             if skip:
                 # The folded runs now count toward the frozen state, as in a full replay from the new floor.
                 for f in saved['runs'][:skip]:receipt['run_count']-=1;receipt['context_attempts']-=f[3];receipt['source_bytes']-=f[5]
@@ -138,12 +138,26 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
                 with LOCK:
                     checkpoints.pop(source,None)
                     checkpoints[key]=dict(saved,runs=list(kept),receipt={k:receipt[k] for k in RECEIPT},state=thaw(state))
-    if not covered and checkpoints is not None:
+    if not resumed and checkpoints is not None:
         with LOCK:checkpoints.pop(key,None);checkpoints.pop(source,None)
-    fingerprints=list(saved['runs'][skip:skip+covered]) if covered else []
+    fingerprints=list(saved['runs'][skip:skip+covered]) if resumed else []
+    # The open run's settled prefix (see save_partial), already checked by partial_holds().
+    partial=saved.get('partial') if resumed else None
     for i,run in enumerate(runs[covered:],covered):
+        if partial is not None and i==covered:
+            # Its share of the receipt is replaced by run_rows' count of the whole run, as in a full replay.
+            receipt['run_count']-=1;receipt['context_attempts']-=partial['counts'][0];receipt['source_bytes']-=partial['counts'][1]
         fingerprint,rows=run_rows(diagnostic,channel,run,now=now,receipt=receipt)
-        decisions=step(state,run,rows)
+        done=len(partial['events']) if partial is not None and i==covered else 0
+        split=SPLITS.get(key) if checkpoints is not None and i==len(runs)-1 else None
+        decisions=[]
+        if split and split['run']==run['run_id'] and done+PARTIAL_STEP<=split['rows']<=len(rows) and (
+                [r['event_id'] for r in rows[:split['rows']]]==split['events']):
+            # A prefix ending on a decision without a deadline: review() relabels nothing there, so
+            # stepping it alone and then the rest equals one step over the whole run.
+            decisions+=step(state,run,rows[done:split['rows']]);done=split['rows']
+            save_partial(checkpoints,key,now,fingerprints,receipt,state,keep,run,rows[:done],fingerprint)
+        decisions+=step(state,run,rows[done:])
         # Only a complete, closed (or superseded) run whose last quarantine deadline has
         # passed is final: review() re-labels an unexpired final row from the clock.
         settled=(len(rows)==fingerprint[3] and (i<len(runs)-1 or run['summary_json'] is not None)
@@ -155,9 +169,53 @@ def replay(diagnostic,channel,*,start,now,receipt,state,step,checkpoints=None,ke
             with LOCK:
                 if key not in checkpoints and len(checkpoints)>=MAX_CHECKPOINTS:checkpoints.pop(next(iter(checkpoints)))
                 checkpoints[key]=value
+        elif checkpoints is not None and len(fingerprints)==i and i==len(runs)-1:
+            remember_split(key,run,rows,decisions,done)
     if getattr(diagnostic,'_retention_prefix',None) is not None:
         diagnostic._retention_states[mode]=thaw(state)
     return state
+
+
+PARTIAL_STEP=12  # A partial checkpoint copies the replay state: saved only once the settled prefix grew this much.
+SPLITS={}  # Checkpoint key -> the open run's settled prefix seen by the previous replay (bounded with checkpoints).
+
+
+def remember_split(key,run,rows,decisions,done):
+    """The longest prefix of the open run ending on a decision without a verification deadline.
+
+    review() relabels only a batch's final decision, and only when its deadline has passed, so a prefix
+    ending on a decision with no deadline can be stepped as its own batch without changing anything.
+    """
+    end=next((j+1 for j in range(len(decisions)-1,-1,-1) if not decisions[j]['verification_deadline']),0)+done
+    with LOCK:
+        if end>done:
+            if key not in SPLITS and len(SPLITS)>=MAX_CHECKPOINTS:SPLITS.pop(next(iter(SPLITS)))
+            SPLITS[key]=dict(run=run['run_id'],rows=end,events=[r['event_id'] for r in rows[:end]])
+        else:SPLITS.pop(key,None)
+
+
+def save_partial(checkpoints,key,now,fingerprints,receipt,state,keep,run,prefix,fingerprint):
+    """Checkpoint the settled prefix of the open run, after its complete runs."""
+    value=dict(now=now,runs=list(fingerprints),receipt={k:receipt[k] for k in RECEIPT},state=thaw(keep(state)),
+        partial=dict(run=[run['run_id'],run['configuration_json'],run['summary_json']],events=[r['event_id'] for r in prefix],
+            counts=[fingerprint[3],fingerprint[5]]))
+    with LOCK:
+        if key not in checkpoints and len(checkpoints)>=MAX_CHECKPOINTS:checkpoints.pop(next(iter(checkpoints)))
+        checkpoints[key]=value
+
+
+def partial_holds(diagnostic,partial,runs,covered,now):
+    """No saved prefix, or one that still begins runs[covered] with the same attempts (as run_rows reads them)."""
+    if not partial:return True
+    if covered>=len(runs):return False
+    run=runs[covered];run_id,configuration,summary=partial['run']
+    if run['run_id']!=run_id or run['configuration_json']!=configuration:return False
+    # A summary written since may mark the run interrupted, which every row of it carries: then replay.
+    if run['summary_json']!=summary and (summary is not None or json.loads(run['summary_json']).get('interrupted')):return False
+    events=[f"{run_id}:{index}" for index,when in diagnostic.db.execute(
+        'SELECT attempt_index,COALESCE(received_at,attempted_at) FROM diagnostic_attempts WHERE run_id=? ORDER BY id',(run_id,))
+        if datetime.fromisoformat(when)<=now]
+    return events[:len(partial['events'])]==list(partial['events'])
 
 
 MAX_CHECKPOINTS=256  # Two per channel, three without current pace (historical ETA): room for 80+ channels plus on-demand views.
@@ -216,7 +274,7 @@ def recent_snapshot(diagnostic,channel,*,now,_historical=False,eta_cache=None,ch
     def step(state,run,batch):
         barriers(batch,state['barrier_state'])
         # select_runs already limits every independently bounded session to the selected character.
-        if not rotation_link(state['previous_run'],run):state['level_state']={};state['percentage_state']={}
+        if (state['previous_run'] or {}).get('run_id')!=run['run_id'] and not rotation_link(state['previous_run'],run):state['level_state']={};state['percentage_state']={}
         for row in batch:
             if row.get('reading_invalidated'):continue
             when=row.get('received_at') or row['attempted_at']
@@ -337,7 +395,7 @@ def aggregate(diagnostic,channel,*,now,checkpoints=None,character=None):
     limited=False
     def step(state,run,rows):
         barriers(rows,state['barrier_state'])
-        if not rotation_link(state['previous_run'],run):
+        if (state['previous_run'] or {}).get('run_id')!=run['run_id'] and not rotation_link(state['previous_run'],run):
             state['level_state']={};state['percentage_state']={}
         for row in rows:
             if row.get('reading_invalidated'):continue
