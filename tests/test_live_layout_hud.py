@@ -165,13 +165,56 @@ def test_coordinator_default_and_rollback_are_explicit_in_preflight_and_run_head
     assert all(h.get('layout_first_hud',False) is (not disabled) for h in found)
 
 
-def test_cached_hud_search_keeps_its_existing_locator(multi,monkeypatch):
+def test_cached_hud_search_combines_with_layout_first_full_scans(multi,monkeypatch):
     made=fake_pools(monkeypatch);seen=[]
     from tests.test_multi_alpha import record
     def capture(args,*rest,**kwargs):
-        seen.append(args.layout_first_hud)
-        assert 'analyze_frame' in kwargs
+        seen.append((args.layout_first_hud,kwargs['hud_cache'].refresh_seconds))
+        assert 'analyze_frame' not in kwargs
         return record(rest[-1])
     monkeypatch.setattr(multi[0].shadow,'capture_attempt',capture)
     assert run_main(multi,'--resident-tesseract','--hud-cache-seconds','60')==0
-    assert made[0].layout_checked is False and seen==[False]*4
+    assert made[0].layout_checked is True and seen==[(True,60)]*4
+
+
+def test_cache_doubt_and_identity_events_force_full_frame_scans():
+    import adaptive_hud
+    seed=dict(anchor_step=100,anchors=dict(hp=dict(x=500,y=900)),regions=dict(exp=None,level=None))
+    calls=[]
+    def scan(image,box=None):calls.append('region' if box else 'scan');return [seed]
+    cache=adaptive_hud.CachedLocator(300,clock=lambda:0,scan=scan)
+    full=lambda image:calls.append('full') or [seed]
+    image=Image.new('RGB',(1920,1080))
+    cache(image,full=full);cache(image,full=full)
+    cache.doubt=True;cache(image,full=full);cache(image,full=full)
+    assert calls==['full','region','full','region'] and cache.doubt is False
+    assert not shadow.identity_doubt(None) and not shadow.identity_doubt(dict(numeric_check=dict(classification='accepted')))
+    assert shadow.identity_doubt(dict(reading_hold_recommended=True))
+    assert shadow.identity_doubt(dict(numeric_check=dict(classification='possible_normal_level_up')))
+
+
+@pytest.mark.ocr
+def test_cached_capture_reads_the_seeded_region_without_a_layout_lease(real_pool,tmp_path,monkeypatch):
+    import adaptive_hud
+    image=hud_frame([60]);buffer=BytesIO();image.save(buffer,'PNG')
+    class Session:
+        source_bytes=0
+        def __init__(self,*args,**kwargs):pass
+        def frame(self,**kwargs):
+            import time
+            return Frame(buffer.getvalue(),1,time.monotonic(),'2026-10-25T00:00:00+00:00')
+        def close(self):pass
+    monkeypatch.setattr(shadow,'neural_line',lambda crop,*a,**kw:dict(text='12,345[6.78%]'))
+    analyze=lambda *a,**kw:shadow.analyze(*a,**kw,read_level=lambda crop:(42,[]))
+    args=SimpleNamespace(timeout=2,max_age=600,ocr_timeout=10,ocr_python=None,save_crops=False,
+        output=tmp_path/'capture.jsonl',layout_first_hud=True)
+    cache=adaptive_hud.CachedLocator(300)
+    attempt=lambda n:shadow.capture_attempt(args,Source('file','unused'),{42:200000},n,
+        session_factory=Session,analyze_frame=analyze,tesseract=real_pool,hud_cache=cache)
+    first,second=attempt(1),attempt(2)
+    assert first['hud_layout']['path'] in ('selective','full') and first['timings']['tesseract_layout_requests']>=2
+    assert second['hud_layout']['path']=='cached_region' and 'tesseract_layout_requests' not in second['timings']
+    assert second['localization']['candidates'][0]['search']=='cached_region'
+    assert first['candidate']==second['candidate']==[12345,6.78] and real_pool.idle.qsize()==1
+    cache.doubt=True
+    assert attempt(3)['hud_layout']['path'] in ('selective','full')

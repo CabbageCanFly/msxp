@@ -341,12 +341,33 @@ def parser():
     return cli
 
 
+class LazyPages:
+    """Layout pages leased on the first start(); a frame read from a cached region never leases."""
+    def __init__(self,lease):self.lease,self.pages=lease,None
+    def start(self,image):
+        self.pages=self.pages or self.lease()
+        return self.pages.start(image)
+    def full(self):return self.pages.full()
+    def clear(self):
+        if self.pages is not None:self.pages.clear()
+
+
+def identity_doubt(name):
+    """Identity work that must see the whole frame next time: holds and level changes."""
+    from character_identity import OWNERSHIP_RISK
+    name=name or {}
+    return bool(name.get('reading_hold_recommended') or (name.get('numeric_check') or {}).get('classification')
+                in OWNERSHIP_RISK|{'possible_normal_level_up','possible_bad_ocr'})
+
+
 def capture_attempt(args, source, requirements, index, *, seek=None, session_factory=ShadowSession,
-                    analyze_frame=analyze, clock=time.monotonic, resident=None, identity=None, tesseract=None, streamlink=None):
+                    analyze_frame=analyze, clock=time.monotonic, resident=None, identity=None, tesseract=None, streamlink=None,
+                    hud_cache=None):
     """One bounded acquisition/OCR operation, shared by coordinators; resident reuses a neural worker.
 
     tesseract (a resident_tesseract.TesseractPool) serves this attempt's Tesseract calls, on this
-    thread only; without it each call runs the Tesseract CLI.
+    thread only; without it each call runs the Tesseract CLI. hud_cache (a per-channel
+    adaptive_hud.CachedLocator) reads near the last full-frame HUD; doubt rescans the whole frame.
     """
     attempt_started = clock()
     record = dict(type='attempt', index=index, trusted=False, current=False,
@@ -401,13 +422,25 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
                 layout=None
                 if tesseract is not None and getattr(args,'layout_first_hud',False):
                     from layout_first_hud import LayoutLocator
-                    pages=stack.enter_context(tesseract.layout_pages(metrics=ocr))
+                    # Leased only when a full layout scan starts: a cached region scan takes pool
+                    # workers call by call and must never wait while holding its own lease.
+                    pages=LazyPages(lambda:stack.enter_context(tesseract.layout_pages(metrics=ocr)))
                     layout=LayoutLocator(None,None,reader,experimental=experimental,pages=pages)
                     options['locator']=layout;reader=layout.read
-                analyzed = analyze_frame(frame, requirements, reader,
-                    max_age=args.max_age,
-                    crop_dir=args.output.with_suffix('') / f'{index:04d}' if args.save_crops else None,**options)
-                if layout is not None:analyzed['hud_layout']=layout.info
+                if hud_cache is not None:
+                    if identity is not None and identity.needs_confirmation():hud_cache.doubt=True
+                    options['locator']=lambda image:hud_cache(image,full=layout)
+                try:
+                    analyzed = analyze_frame(frame, requirements, reader,
+                        max_age=args.max_age,
+                        crop_dir=args.output.with_suffix('') / f'{index:04d}' if args.save_crops else None,**options)
+                except BaseException:
+                    if hud_cache is not None:hud_cache.doubt=True
+                    raise
+                if layout is not None:
+                    analyzed['hud_layout']=(layout.info if layout.info['reason']!='not_run' else
+                                            dict(path='cached_region',reason='seed_confirmed',pages=[]))
+                if hud_cache is not None:hud_cache.doubt=identity_doubt(analyzed.get('character_name'))
             record['timings'].update(analyzed.pop('timings'))
             record.update(analyzed)
         except (OSError, RuntimeError, ValueError) as error:

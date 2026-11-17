@@ -245,21 +245,22 @@ class CachedLocator:
     """Search a recent unique full-frame HUD's neighbourhood first; any doubt rescans the full frame.
 
     Only a unique full-frame result seeds, and reuse never extends the seed. Within
-    refresh_seconds a competing HUD elsewhere in the frame is NOT detected.
+    refresh_seconds a competing HUD elsewhere in the frame is NOT detected. Setting doubt
+    makes the next call scan the full frame (`full`, default `scan`), as does any mismatch.
     """
 
     def __init__(self, refresh_seconds, *, clock=time.monotonic, scan=locate):
         self.refresh_seconds,self.clock,self.scan=refresh_seconds,clock,scan
-        self.seed=None
+        self.seed=None;self.doubt=False
 
-    def __call__(self, image):
+    def __call__(self, image, full=None):
         now=self.clock()
-        seed=self.seed
-        if seed and image.size==seed['size'] and 0<=now-seed['at']<=self.refresh_seconds:
+        seed,doubt,self.doubt=self.seed,self.doubt,False
+        if not doubt and seed and image.size==seed['size'] and 0<=now-seed['at']<=self.refresh_seconds:
             found=self.scan(image,seed['box'])
             if len(found)==1 and same_layout(found[0],seed['candidate'],image.size):
                 return [{**found[0],'search':'cached_region','full_frame_age_seconds':now-seed['at']}]
-        found=self.scan(image)
+        found=(full or self.scan)(image)
         self.seed=dict(at=now,size=image.size,candidate=found[0],box=search_box(found[0],image.size)) if len(found)==1 else None
         return found
 

@@ -196,6 +196,10 @@ class IdentityCapture:
                     reason=transition.reason, classification=classification,
                     transition=asdict(transition), arithmetic=checks)
 
+    def needs_confirmation(self):
+        return self.suggestions.reference is None or bool(self.suggestions.streak and
+            not same_character_name(self.suggestions.streak[-1]['name'], self.suggestions.reference))
+
     def inspect(self, result, frame, image, layouts, read_name, requirements, *, max_age, clock=time.monotonic):
         started = clock()
         digest = hashlib.sha256(str(image.size).encode() + image.tobytes()).hexdigest() if image else None
@@ -205,8 +209,7 @@ class IdentityCapture:
                         provenance=dict(field='own_name_status_panel', layout_count=len(layouts),
                                         frame_sequence=frame.sequence, owner_verified=False))
         numeric = self.numeric_check(result, frame.received_at, requirements)
-        needs_confirmation = self.suggestions.reference is None or bool(self.suggestions.streak and
-            not same_character_name(self.suggestions.streak[-1]['name'], self.suggestions.reference))
+        needs_confirmation = self.needs_confirmation()
         due = (self.last_check is None or started - self.last_check >= self.interval
                or numeric['check_now'] or needs_confirmation)
         evidence['verification_reason'] = ('numeric_event' if numeric['check_now'] else

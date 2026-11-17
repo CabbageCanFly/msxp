@@ -3,7 +3,6 @@
 import argparse
 from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
-import functools
 import importlib.util
 import hashlib
 import json
@@ -562,11 +561,11 @@ def main(argv=None):
             raise ValueError('Existing automatic mode cannot combine with trial/name-only flags, replay or HUD cache')
         if args.automatic_characters:
             args.character_names=True
-            if args.replay or args.hud_cache_seconds:
-                raise ValueError('Automatic testing requires capture with full-frame HUD localization, not replay/cache')
+            if args.replay:
+                raise ValueError('Automatic testing requires capture with HUD localization, not replay')
         if db_mode and (not args.continuous or existing_mode or args.character_names or args.automatic_characters
-                        or args.replay or args.offline_fast_test or args.hud_cache_seconds):
-            raise ValueError('Database roster requires --continuous and fresh full-frame capture; no JSON/trial/automatic-channel/cache flags')
+                        or args.replay or args.offline_fast_test):
+            raise ValueError('Database roster requires --continuous and fresh capture; no JSON/trial/automatic-channel flags')
         if args.retention_24h:
             # Inline cleanup froze capture for 19-41 s per round (docs/retention-capture-interference.md).
             raise ValueError('--retention-24h no longer runs inside the coordinator; run '
@@ -634,7 +633,7 @@ def main(argv=None):
             output=directory/row['channel']/uuid.uuid4().hex/'capture.jsonl' if db_mode else directory/row['channel']/'capture.jsonl'
             opts = options(row, database, output)
             if args.ocr_python:opts.ocr_python=args.ocr_python.absolute()  # Never follow a venv's interpreter symlink.
-            opts.layout_first_hud=args.resident_tesseract and args.layout_first_hud and not args.hud_cache_seconds
+            opts.layout_first_hud=args.resident_tesseract and args.layout_first_hud
             if args.continuous: opts.count=60
             if not args.replay:
                 source, table_bytes, table, requirements = shadow.prepare(opts, allow_missing_video=True,offline_fast_test=args.offline_fast_test)
@@ -664,12 +663,14 @@ def main(argv=None):
             if args.resident_tesseract:
                 from resident_tesseract import TesseractPool, worker_command
                 preflight=TesseractPool(worker_command(),1)
-                try:engine=preflight.check(layout=args.layout_first_hud and not args.hud_cache_seconds)
+                try:engine=preflight.check(layout=args.layout_first_hud)
                 finally:preflight.close()
                 native=dict(version=engine['version'],model_sha256=engine['model_sha256'],workers=min(args.workers,4))
                 print(f"Resident Tesseract: libtesseract {native['version']}, model {native['model_sha256'][:12]}, up to {native['workers']} worker(s)",flush=True)
-                if args.layout_first_hud and not args.hud_cache_seconds:
+                if args.layout_first_hud:
                     print('Layout-first HUD: enabled, with full-frame OCR fallback.',flush=True)
+            if args.hud_cache_seconds:
+                print(f'HUD region cache: full-frame scan at least every {args.hud_cache_seconds:g} s and on any doubt.',flush=True)
             if any(row['source']=='twitch' for row in streams) and importlib.util.find_spec('streamlink') is None:
                 raise ValueError('Existing capture extra (Streamlink) is missing')
             for lane in lanes:
@@ -842,8 +843,7 @@ def main(argv=None):
                                 if tesseract:lane['options']['tesseract']=tesseract  # Shared bounded pool; never shares a reply.
                                 if streamlink:lane['options']['streamlink']=streamlink
                                 if args.hud_cache_seconds:  # Per channel; survives rotation, not restarts.
-                                    lane['options']['analyze_frame']=functools.partial(shadow.analyze,
-                                        locator=shadow.CachedLocator(args.hud_cache_seconds))
+                                    lane['options']['hud_cache']=shadow.CachedLocator(args.hud_cache_seconds)
                                 if lane['args'].character_names:  # Per channel; survives rotation, not restarts.
                                     from character_identity import IdentityCapture
                                     lane['options']['identity']=IdentityCapture(lane['channel'],confirmed=lane['character'],
