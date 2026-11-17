@@ -1,5 +1,6 @@
 """Read-only player presentation of existing experimental evidence, never accounting."""
 
+from collections import Counter
 from copy import deepcopy
 from datetime import datetime,timedelta,timezone
 from fractions import Fraction
@@ -56,7 +57,8 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
         transition_gain_included=gain['transition_gain_included'])
     rest=Fraction(req['to_next'])-(Fraction(int(last['exp'])) if last['exp'] is not None else Fraction(last['bp']*req['to_next'],10000)) if req['to_next'] is not None else None
     calculated['eta']=dict(seconds=rational(rest*3600/rate),hypotheses=eta_hypotheses,basis='public_endpoint_rate',trusted=False) if rest is not None and rest>0 and rate>0 else None
-    if any(p['evidence']=='conditional_symbol' for p in selected):calculated['eta']=None
+    evidence_kinds=Counter(p['evidence'] for p in selected)  # One pass: a full day's window holds thousands of readings.
+    if evidence_kinds['conditional_symbol']:calculated['eta']=None
     saved_eta=deepcopy(calculated['eta'])
     active=bool(not retained and rows and rows[-1]['event_id']==last['event_id'] and not rows[-1].get('run_interrupted')
         and snapshot.get('run_status') not in ('completed','interrupted') and snapshot.get('run_id',rows[-1].get('run_id'))==rows[-1].get('run_id'))
@@ -75,7 +77,7 @@ def responsive_pace(snapshot, display_level, *, now=None,minutes=5,pool_history=
         readings=len(selected),last_observed_eta=saved_eta,span_seconds=rational(span),coverage_seconds=rational(elapsed),interruptions=int(bool(gain.get('manual_boundaries'))),
         estimates=calculated,basis=gain['basis'],interval_counts={kind:kinds.count(kind) for kind in ('direct','endpoint_supported')},**({'intervals':details} if intervals else {}),total_gain=gain['value'],
         basis_counts={gain['basis']:1},missing_attempts=len(collected['excluded'])+sum(d.get('unrecorded_attempts',0) for d in found),
-        evidence_counts={kind:sum(p['evidence']==kind for p in selected) for kind in ('strict_full','strict_percentage_only','grammar_recovered','conditional_symbol')},
+        evidence_counts={kind:evidence_kinds[kind] for kind in ('strict_full','strict_percentage_only','grammar_recovered','conditional_symbol')},
         conditional_recoveries=collected['recoveries'],excluded=collected['excluded'],latest_endpoint=collected.get('latest'),
         policy=PUBLIC_POLICY,minimum_seconds=0,trend_seconds=minutes*60,trusted=False,retained_history=retained,recent_pool_expired=retained,
         aging_allowed=False,reason=snapshot['percentage_progress']['reason'],identity_verified=False,denominator='selected_window_duration')
