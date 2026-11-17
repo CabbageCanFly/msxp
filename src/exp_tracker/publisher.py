@@ -14,11 +14,13 @@ Database-managed directories also allow MAX_CHANNEL_VIEWS hidden/historical chan
 on demand, with the same idle expiry. Directory refreshes have priority. Viewing
 never changes the selection.
 """
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import sqlite3
+import os
 import threading
 import time
 
@@ -153,6 +155,7 @@ class Publisher:
             last_error=None, presentations=0, present_seconds=0.0, ready_at=None, started_at=None)
         self.stop = threading.Event(); self.wake = threading.Event(); self.thread = None
         self.checkpoints_restored=set()
+        self.reader=None  # (Store, file identity, thread): kept across steps; see reading().
         self.saved={}  # Channel -> monotonic time of its last restart-cache write.
         self.stats.update(restored=0,cache_error=getattr(server,'publication_cache_error',None))
 
@@ -183,7 +186,9 @@ class Publisher:
     def close(self, timeout=30):
         self.stop.set(); self.wake.set()
         if self.thread:self.thread.join(timeout)
-        if not self.thread or not self.thread.is_alive():self.flush()
+        if not self.thread or not self.thread.is_alive():
+            self.flush()
+            if not self.thread:self.drop_reader()  # Inline mode: steps ran on this thread.
 
     def flush(self):
         """Write entries newer than their last restart-cache write (a clean stop, e.g. systemd's SIGINT)."""
@@ -210,6 +215,29 @@ class Publisher:
                 busy = False; self.stats['failures'] += 1; self.stats['last_error'] = type(error).__name__
             if not busy:
                 self.wake.wait(1); self.wake.clear()
+        self.drop_reader()  # SQLite closes a connection only on the thread that opened it.
+
+    @contextmanager
+    def reading(self):
+        """The read-only connection, kept across steps so SQLite's page cache survives between builds.
+
+        Reopened when the database file is replaced at the same path (a kept connection would read the old
+        file forever), on another thread, and after any error.
+        """
+        try:
+            stat=os.stat(self.server.database);identity=(stat.st_dev,stat.st_ino)
+        except OSError:identity=None
+        if self.reader is not None and self.reader[1:]!=(identity,threading.get_ident()):self.drop_reader()
+        if self.reader is None:self.reader=(Store(self.server.database,read_only=True),identity,threading.get_ident())
+        try:yield self.reader[0]
+        except BaseException:
+            self.drop_reader();raise
+
+    def drop_reader(self):
+        reader,self.reader=self.reader,None
+        if reader is not None:
+            try:reader[0].close()
+            except sqlite3.ProgrammingError:pass  # Opened on another thread; released with the object.
 
     def settle(self):
         """Inline mode: build everything due now, as the former synchronous requests did."""
@@ -235,7 +263,7 @@ class Publisher:
             runtime=getattr(self.server,'runtime_reader',None)
             if runtime:
                 self.server.coordinator_status,self.server.active_run_ids=runtime.read(now)
-            with Store(self.server.database, read_only=True) as store:
+            with self.reading() as store:
                 diagnostics = Diagnostics(store)
                 with store._transaction():
                     directory = diagnostics.heads(public_directory=True)

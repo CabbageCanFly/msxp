@@ -3,6 +3,7 @@ from datetime import datetime,timedelta
 from copy import deepcopy
 import json
 from pathlib import Path
+import sqlite3
 import threading
 import time
 from urllib.request import urlopen
@@ -686,3 +687,25 @@ def test_a_job_change_republishes_a_channel_without_new_captures(tracking, clock
         store.set_character_job(store.state('alpha')['selected_character_id'], 'Cleric', source='manual_admin')
         p.settle()
         assert json.loads(p.character('alpha'))['player']['character']['job'] == 'Cleric'
+
+
+def test_publisher_keeps_its_reader_until_the_file_changes_or_an_error(tracking,clock,monkeypatch):
+    path,store,d=tracking
+    with server_module.create_server(path,port=0,diagnostic_dashboard=True) as server:
+        p=server.publisher;p.settle();first=p.reader[0]
+        p.step();assert p.reader[0] is first  # Kept across steps: SQLite's page cache survives.
+        real=publisher_module.os.stat
+        class Replaced:  # The same path now names another file (e.g. a restored backup).
+            def __init__(self,stat):self.st_dev,self.st_ino=stat.st_dev,stat.st_ino+1
+        with monkeypatch.context() as patch:
+            patch.setattr(publisher_module.os,'stat',lambda target:Replaced(real(target)))
+            p.step();assert p.reader[0] is not first
+            p.step();second=p.reader[0]
+        p.step();assert p.reader[0] is not second  # The real identity again: another reopen.
+        third=p.reader[0]
+        with monkeypatch.context() as patch:
+            patch.setattr(Diagnostics,'heads',lambda *a,**k:(_ for _ in ()).throw(sqlite3.OperationalError('locked')))
+            with pytest.raises(sqlite3.OperationalError):p.step()
+        assert p.reader is None  # Dropped after an error; the next step opens a fresh one.
+        p.step();assert p.reader is not None and p.reader[0] is not third
+    assert server.publisher.reader is None  # Closed with the server (inline mode).
