@@ -21,7 +21,7 @@ OWNERSHIP_RISK = {'reset_loss_or_character_switch', 'level_decrease',
                   'level_change_requires_confirmation', 'possible_offstream_progression'}
 PENDING_TTL_SECONDS = 600
 JOB_RETRY_SECONDS = 60  # Until two job reads agree, or after one disagreed with the known job.
-JOB_RECHECK_SECONDS = 600  # Once the level allows the next job advancement.
+JOB_RECHECK_SECONDS = 120  # Once the level allows the next job advancement.
 
 
 class IdentitySuggestions:

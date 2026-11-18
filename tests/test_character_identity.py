@@ -513,8 +513,10 @@ def test_job_reads_are_rare_and_only_move_up_a_tier():
     assert not state.job_due(None, 59)
     now = 60; assert state.job_due(None, now); read('Magician'); assert state.job == 'Magician'
     assert not state.job_due(29, 10_000)  # Below the second-job level: never re-read.
-    now = 10_000; assert state.job_due(30, now); assert read('Cleric')['tier'] == 2 and state.job == 'Magician'
-    now = 10_060; assert state.job_due(30, now); read('Cleric'); assert state.job == 'Cleric'
+    assert not state.job_due(31, 179)
+    now = 180; assert state.job_due(31, now); assert read('Cleric')['tier'] == 2 and state.job == 'Magician'
+    assert not state.job_due(31, 239)
+    now = 240; assert state.job_due(31, now); read('Cleric'); assert state.job == 'Cleric'
     assert not state.job_due(99, 20_000)  # No further job is known yet.
     for now in (20_000, 20_060):read('Beginner')
     assert state.job == 'Cleric'  # A lower tier is a misread, never a demotion.

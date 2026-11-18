@@ -867,7 +867,7 @@ The job is printed on the line directly above the name. `job_region()` uses the 
 crop's left and right edges and spans `hp.y - 0.065·step` to `hp.y + 0.10·step`. It is read
 with the same worker as the name, on the same eligible frame, only when due
 (`IdentityCapture.job_due`). Unconfirmed jobs and Beginners eligible for advancement
-are checked every minute. Later jobs are checked every 10 minutes once eligible for
+are checked every minute. Later jobs are checked every two minutes once eligible for
 advancement, or every minute after a conflicting read. A due check on a cached HUD
 requests a full-frame scan on the next capture, because the writer needs a qualifying
 name read. The coordinator keeps the capture worker on the saved job until a change
