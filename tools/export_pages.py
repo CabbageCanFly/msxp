@@ -30,7 +30,7 @@ ORIGIN = re.compile(rf"https://{LABEL}(?:\.{LABEL})+(?::[0-9]{{1,5}})?|http://(?
 # Exported path -> source under web/. Anything not listed is never published.
 PAGES = {'index.html': 'tracker.html', 'player.html': 'player.html', 'live-overlay.html': 'live-overlay.html',
          'local.html': 'local.html', 'local-overlay.html': 'local-overlay.html'}
-STATIC = ('product.js', 'product.css', 'leaderboard.css', 'live-overlay.css', 'steely.png', 'sleepywood.webp', 'sleepywood-forest.webp',
+STATIC = ('overlay-stats.js', 'product.js', 'product.css', 'leaderboard.css', 'live-overlay.css', 'steely.png', 'sleepywood.webp', 'sleepywood-forest.webp',
           'kerning.webp', 'kerning-sky.webp',
           'fonts/fredoka-latin.woff2', 'fonts/nunito-latin.woff2', 'fonts/OFL-Fredoka.txt', 'fonts/OFL-Nunito.txt',
           *sorted(f'mobs/{p.name}' for p in WEB.glob('mobs/*.*')),  # Wandering mob sprites; the folder holds only these.

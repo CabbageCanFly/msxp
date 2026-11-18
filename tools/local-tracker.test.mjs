@@ -521,18 +521,22 @@ test('HUD geometry: labels bind to one status bar; brackets are found by colour'
   const bare = words.filter((t) => t.text[0] !== '5');
   assert.ok(H.locate(bare, frame).exp.x1 >= 840);
   assert.equal(H.locate(bare.filter((t) => !t.text.startsWith('MP')), frame).reason, 'exp_digits_not_found');
-  assert.equal(found.level.x0, 315);
+  assert.equal(found.level.x0, 297);
   assert.ok(H.locate(words.filter((t) => t.text !== 'LV.'), frame).level.x1 < 504);  // Orange-tile search left of HP.
   // LV. and a leading digit can be one sparse OCR word; colour must still find both tiles.
   const badgeFrame = {...frame, data: new Uint8ClampedArray(frame.width * frame.height * 4)};
   for (let y = 775; y < 788; y++) for (let x = 329; x < 352; x++) {
     if (x !== 340) badgeFrame.data.set([240, 130, 30, 255], (y * frame.width + x) * 4);
   }
+  for (const x of [333, 345]) badgeFrame.data.set([255, 255, 255, 255], (780 * frame.width + x) * 4);
+  for (const x of [334, 346]) badgeFrame.data.set([255, 255, 255, 255], (781 * frame.width + x) * 4);
   for (const [text, right] of [['LV.', 315], ['LV.2', 340], ['LV.23', 352]]) {
     const labels = [...words.slice(0, -1), w(text, 297, 775, right, 788)];
-    const located = H.locate(labels, frame, {safari: true});
-    assert.deepEqual(H.orangeBox(badgeFrame, located.level), {x0: 329, y0: 775, x1: 352, y1: 788});
-    assert.equal(H.locate(labels, frame).level.x0, right);  // Other browsers retain the original search area.
+    for (const options of [{safari: true}, {safari: false}]) {
+      const located = H.locate(labels, frame, options);
+      assert.deepEqual(H.orangeBox(badgeFrame, located.level), {x0: 329, y0: 775, x1: 352, y1: 788});
+    }
+    assert.equal(H.locate(labels, frame).level.x0, 297);  // Chrome also keeps merged leading digits.
   }
   assert.equal(H.locate(words.filter((t) => t.text !== 'EXP'), frame).reason, 'exp_label_not_found');
   assert.equal(H.locate([...words, ...words.map((t) => ({...t, y0: t.y0 - 300, y1: t.y1 - 300}))], frame).reason, 'multiple_huds');
@@ -779,6 +783,7 @@ test('Safari re-segments past an EXP label fragment before falling back from exa
   // A softened digit pass may read no badge at all; Safari can try the crisp badge without dropping EXP.
   for (let y = 16; y < 23; y++) for (let x = 100; x < 110; x++) paint(x, y, [240, 130, 30]);
   for (let y = 17; y < 23; y++) paint(105, y, [255, 255, 255]);
+  paint(103, 18, [255, 255, 255]); paint(104, 19, [255, 255, 255]);
   let badgeCalls = 0;
   const badge = await R.readHud({read: async () => ({text: ++badgeCalls > 4 ? '1' : ''})}, frame,
     {...regions, level: {x0: 99, y0: 15, x1: 111, y1: 24}}, G.HUD_GLYPHS, {safari: true});
@@ -1082,6 +1087,7 @@ test('panel lines beside the level badge give stable per-line keys', async () =>
   for (let i = 0; i < width * height; i++) data.set([50, 55, 60, 255], i * 4);
   const paint = (x0, y0, x1, y1, rgb) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) data.set([...rgb, 255], (y * width + x) * 4); };
   paint(10, 15, 30, 28, [240, 130, 30]);  // Orange badge.
+  paint(15, 18, 17, 20, [255, 255, 255]);
   for (const x of [40, 44, 48]) paint(x, 9, x + 2, 17, [255, 255, 255]);  // Job line.
   for (const x of [40, 45]) paint(x, 23, x + 3, 33, [255, 255, 255]);  // Name line.
   const frame = {width, height, data};
@@ -1435,4 +1441,106 @@ test('pickup area: the right quarter above the status bar, never narrower than 3
   assert.deepEqual(regionBox(1368, 800), {x: 1026, y: 360, w: 342, h: 352});  // As tuned (768p window).
   assert.equal(regionBox(1920, 1080).x, 1440);  // Stretched 1080p: unchanged.
   assert.deepEqual(regionBox(800, 600), {x: 500, y: 270, w: 300, h: 264});  // 800x600: widened.
+});
+
+
+test('overlay stats validate choices, preserve layout slots and round trip local settings', () => {
+  const query = '?card1=rate:10&bar2=percent:60&rates4=gain:1440&live5=gain:session&card3=mesoRate:30&bar1=mesos:1440';
+  const options = V.overlayOptions(query);
+  assert.equal(options.live5, 'gain:session');
+  assert.equal(options.card3, 'mesoRate:30');
+  assert.equal(V.overlayOptions(V.overlayQuery(options)).rates4, 'gain:1440');
+  const publicOptions = OverlayStats.read(query);
+  assert.equal(publicOptions.card1, 'rate:10');
+  assert.equal(publicOptions.card3, undefined);
+  assert.equal(publicOptions.live5, undefined);
+  for (const value of ['rate:1440', 'eta:session', 'gain:0', 'gain:5:bad', 'bad:15', 'mesos:session']) {
+    assert.deepEqual(OverlayStats.read('?card1=' + value, true), {});
+  }
+  assert.equal(OverlayStats.label('eta', '10'), 'NEXT LEVEL');
+  assert.equal(OverlayStats.label('gain', 'session'), 'This session');
+});
+
+test('custom local overlay stats use accepted intervals, coverage and the latest session', () => {
+  const popout = readFileSync(new URL('popout.js', web), 'utf8');
+  const body = popout.split('OverlayStats.render(options, (metric, period) => {')[1].split('\n  });')[0];
+  const now = at(600), readings = [
+    {...r(0, 20, 100), sessionId: 1, gain: null},
+    {...r(300, 20, 200), sessionId: 1, gain: 100},
+    {...r(360, 20, 200), sessionId: 2, gain: null},
+    {...r(600, 20, 400), sessionId: 2, gain: 200},
+  ];
+  const view = V.summarize(table, {last: readings.at(-1)}, readings, now);
+  const pickups = [{at: at(0), kind: 'mesos', amount: 100}, {at: at(500), kind: 'mesos', amount: 300}];
+  const resolve = vm.runInNewContext(`(metric, period) => {${body}}`, {readings, pickups, now, view, table,
+    windowStats: E.windowStats, sessionStats: E.sessionStats, eta: E.eta, duration: V.duration, expText: V.exp});
+  assert.equal(resolve('gain', 'session'), '200');
+  assert.equal(resolve('gain', '10'), '300');
+  assert.equal(resolve('rate', '5'), '3,000');
+  assert.equal(resolve('rate', '60'), '—');
+  assert.equal(resolve('eta', '60'), '—');
+  assert.equal(resolve('mesos', '5'), '300');
+  assert.equal(resolve('mesoRate', '5'), '3,600');
+});
+
+
+test('level crop excludes orange scenery, preserves all tiles and rejects ambiguous or clipped groups', () => {
+  const width = 130, height = 50, frame = {width, height, data: new Uint8ClampedArray(width * height * 4)};
+  const paint = (x0, y0, x1, y1, rgb) => { for (let y=y0; y<y1; y++) for(let x=x0; x<x1; x++) frame.data.set([...rgb,255], (y*width+x)*4); };
+  const tile = (x, y) => { paint(x,y,x+11,y+13,[240,130,30]);paint(x+3,y+3,x+6,y+9,[255,255,255]); };
+  const region = {x0:0,y0:0,x1:width,y1:height};
+  paint(1,4,20,15,[200,110,50]); paint(12,25,25,33,[240,130,30]);
+  assert.equal(H.orangeBox(frame,region),null); // Scenery has no enclosed digit ink.
+  for (let n=1;n<=3;n++) {
+    tile(60+(n-1)*12,20);
+    assert.deepEqual(H.orangeBox(frame,region),{x0:60,y0:20,x1:60+(n-1)*12+11,y1:33});
+  }
+  assert.equal(H.orangeBox(frame,{...region,x0:64}),null); // First tile cut off.
+  assert.equal(H.orangeBox(frame,{...region,x1:90}),null); // Last tile cut off.
+  assert.equal(H.orangeBox(frame,{...region,y0:23}),null); // Digit tops cut off.
+  tile(35,2);
+  assert.equal(H.orangeBox(frame,region),null); // Two plausible badge groups: never guess.
+});
+
+
+test('an empty local overlay still applies custom stat labels with unavailable values', () => {
+  const popout = readFileSync(new URL('popout.js', web), 'utf8');
+  const render = popout.slice(popout.indexOf('function render() {'), popout.indexOf('// The Live layout mirrors'));
+  const calls = [], characterLabel = {};
+  const context = vm.createContext({table: {}, character: null, options: {layout:'live',live1:'gain:10'}, Date,
+    renderItems() {}, $: () => characterLabel, OverlayStats: {render(options, resolve) { calls.push({options, value:resolve('gain','10')}); }}});
+  vm.runInContext(render + '\nrender();', context);
+  assert.equal(calls.length, 1); assert.equal(calls[0].options.live1,'gain:10'); assert.equal(calls[0].value,'\u2014');
+  assert.equal(characterLabel.textContent,'Start tracking at msxp.pages.dev/local');
+});
+
+
+test('local General level visibility round trips without changing its independent badge color', () => {
+  const options=V.overlayOptions('?showlevel=off&level=abcdef');
+  assert.equal(options.showlevel,'off'); assert.equal(options.level,'abcdef');
+  assert.equal(V.overlayOptions(V.overlayQuery(options)).showlevel,'off');
+  assert.equal(V.overlayOptions('').showlevel,'on');
+});
+
+
+test('empty Items preview updates its filters and slots without a character or EXP table', () => {
+  const popout = readFileSync(new URL('popout.js', web), 'utf8');
+  const render = popout.slice(popout.indexOf('function render() {'), popout.indexOf('// The Live layout mirrors'));
+  const items = popout.slice(popout.indexOf('function renderItems(now) {'), popout.indexOf('// The pop-out window'));
+  const elements = {}, context = vm.createContext({table: null, character: null, Date, Map,
+    options: {layout:'items',kind:'equip',last:'5'}, pickups: [], icons: null, shownCounts: null, bumps: new Map(), GLOW_MS: 1200,
+    summarizePickups: V.summarizePickups, exp: V.exp,
+    $: id => elements[id] ??= {replaceChildren(...children) { this.children=children; }},
+    document: {createElement() { return {setAttribute(key,value) { this[key]=value; }}; }},
+    loadItems() { throw new Error('Empty previews must not load icons'); },
+  });
+  vm.runInContext(render + '\n' + items + '\nrender();', context);
+  assert.equal(elements['items-since'].textContent,'Equip \u00b7 last 5 min');
+  assert.equal(elements['items-total'].textContent,'None yet');
+  assert.equal(elements['items-grid'].children.length,12);
+  assert.ok(elements['items-grid'].children.every(slot=>slot.className==='items-slot' && slot['aria-hidden']==='true'));
+  vm.runInContext("options.kind='use';options.last='30';render();",context);
+  assert.equal(elements['items-since'].textContent,'Use \u00b7 last 30 min');
+  vm.runInContext("options.kind='all';options.last='1440';render();",context);
+  assert.equal(elements['items-since'].textContent,'Items \u00b7 last 24 h');
 });

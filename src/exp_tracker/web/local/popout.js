@@ -6,7 +6,7 @@ import * as store from './store.js';
 import {CHANNEL, OVERLAY_COLORS, THEME_COLORS, duration, exp, headerInk, compactHeader, historyLabel, overlayOptions, overlaySize, percent, summarize, summarizePickups} from './view.js';
 import {drawHourChart, expText} from './charts.js';
 import {liveChart, rateSeries, smooth} from './live-chart.js';
-import {eta, requirement} from './exp.js';
+import {eta, requirement, windowStats, sessionStats} from './exp.js';
 import {loadItems} from './pickup-session.js';
 
 const $ = (id) => document.getElementById(id);
@@ -23,7 +23,7 @@ const LAYOUT_NAMES = {card: 'General', bar: 'EXP bar', rates: 'EXP rates', chart
 function applyOverlay(o) {
   options = o;
   document.title = `${LAYOUT_NAMES[o.layout] ?? 'Overlay'} - msxp overlay · On this device`;
-  Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, title: o.title, focus: o.focus, bg: o.bg, interval: o.interval, range: o.range});
+  Object.assign(document.body.dataset, {layout: o.layout, theme: o.theme, name: o.name, icon: o.icon, job: o.job, showlevel: o.showlevel, title: o.title, focus: o.focus, bg: o.bg, interval: o.interval, range: o.range});
   document.body.dataset.headerInk = headerInk(o.header ?? THEME_COLORS[o.theme].header);
   document.body.dataset.compact = String(compactHeader(o));
   document.body.dataset.panelInk = o.background ? headerInk(o.background) : '';
@@ -62,9 +62,14 @@ function refresh(full = false) {
 }
 
 function render() {
-  if (!table) return;
   const now = Date.now();
-  if (!character) { $('character').textContent = 'Start tracking at msxp.pages.dev/local'; return; }
+  renderItems(now);
+  if (!table) return;
+  if (!character) {
+    $('character').textContent = 'Start tracking at msxp.pages.dev/local';
+    OverlayStats.render(options, () => '\u2014');
+    return;
+  }
   const fresh = character.last && now - character.last.at < 120e3;
   const view = summarize(table, character, readings, now, 15, {live: fresh});
   $('character').textContent = character.name;
@@ -85,7 +90,21 @@ function render() {
   const total = drawHourChart($('overlay-chart'), view.allIntervals, {...chart, labelled: true});
   $('hour-total').textContent = total == null ? '—' : `${expText(total)} EXP`;
   renderLive(view, now);
-  renderItems(now);
+  OverlayStats.render(options, (metric, period) => {
+    const minutes = Number(period), sessionId = readings.at(-1)?.sessionId;
+    const stats = period === 'session' ? sessionStats(view.allIntervals.filter(it => it.sessionId === sessionId)) : windowStats(view.allIntervals, now, minutes * 60);
+    const rate = stats.ok ? stats.perHour : null;
+    if (metric === 'gain') return stats.covered > 0 ? expText(stats.gain) : '—';
+    if (metric === 'rate') return expText(rate);
+    if (metric === 'percent') return rate != null && view.total ? (rate / view.total * 100).toFixed(2) + '%' : '—';
+    if (metric === 'eta') return duration(eta(table, view.last, rate));
+    const rows = pickups.filter(r => r.kind === 'mesos' && r.at <= now), cutoff = now - minutes * 60e3;
+    if (!rows.length) return '—';
+    const gain = rows.filter(r => r.at > cutoff).reduce((sum, r) => sum + r.amount, 0);
+    if (metric === 'mesos') return expText(gain);
+    const elapsed = Math.min(minutes * 60, (now - rows[0].at) / 1000);
+    return elapsed >= 120 ? expText(gain * 3600 / elapsed) : '—';
+  });
 }
 
 // The Live layout mirrors the tracker page's Live rate panel: the big number is the line's latest value,
@@ -116,7 +135,7 @@ function renderLive(view, now) {
   const need = view.last ? requirement(table, view.last.level) : null, gained = readings.filter((r) => r.at > now - window && r.gain != null);
   $('live-percent').textContent = expRate != null && need ? `${(expRate / need * 100).toFixed(2)}%` : '—';
   $('live-exp').textContent = view.last ? exp(gained.reduce((sum, r) => sum + r.gain, 0)) : '—';
-  $('live-exp-label').textContent = `EXP · last ${liveWindow} min`;
+  $('live-exp-label').textContent = `Last ${liveWindow} min`;
   const rows = mesos ? pickups.filter((r) => r.kind === 'mesos') : readings;
   liveView = {series: mesos ? mesoLine : expLine, window, unit: mesos ? 'mesos / h' : 'EXP / h', empty: '', live: rows.some((r) => r.at > now - window)};
 }

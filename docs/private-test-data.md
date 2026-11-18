@@ -182,3 +182,13 @@ OCR experiment** (`private/ocr-evaluation/*glyph-profile*`, half of `private/exp
 live tracker does not use that path. Those 68 tests now skip, saying which folders are missing.
 Restoring them needs a new live capture at that HUD scale: the remaining recordings use
 other scales, which those profiles reject by design.
+
+
+## Local level scenery fixture
+
+`samples/local-hud/level-scenery/` adds a private 121x37 level-preview PNG and manifest.
+It contains orange scenery and a complete badge, with no names or chat. Its provenance
+records lossless reversal of the preview's 3x nearest-neighbor display; the original
+full capture and calibration were not saved. `msxp test-data` restores both through
+the existing checksum manifest. `msxp test` runs the production crop and bundled browser
+OCR regression; without the private manifest this one sample test explicitly skips.

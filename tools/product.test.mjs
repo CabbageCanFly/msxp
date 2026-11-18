@@ -28,6 +28,7 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,
     navigator:{},addEventListener:(name,fn)=>{events[name]=fn;},document:{documentElement:{dataset:api==null?{}:{api}},body:Object.assign(new Element('body'),{dataset:view==='overlay'?{view}:{view,loading:''}}),hidden:false,addEventListener:(name,fn)=>{events[name]=fn;},getElementById:id=>elements[id]??=new Element(),
       querySelectorAll:selector=>selector==='[data-color]'?colorInputs:selector==='[data-option] button'?themeButtons:selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:selector==='[data-character-sort]'?characterSortButtons:[],createElement:tag=>Object.assign(new Element(tag),tag==='img'?{decode(){images.push(this);return decodeImage(this.src);}}:{}),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
+  vm.runInContext(readFileSync(new URL('../src/exp_tracker/web/overlay-stats.js',import.meta.url),'utf8'),context);
   vm.runInContext(source,context);
   // Most cases below were written against the original 5 minute card and chart windows with 1 minute bars.
   if(view==='player' && !search.includes('defaults'))vm.runInContext('windowMinutes=5;lineWindow=5;chartWindow=5;bucketSeconds=60',context);
@@ -1879,8 +1880,8 @@ test('character page defaults: 15 min cards, 24h bar chart and a 15 min line cha
 test('overlay URL options fall back on unknown values and accept only six-digit hex colours',()=>{
   const p=page('overlay');
   assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions("?layout=rates&name=nope&title=tracker&bar=ABCDEF&accent=red&header=%23123456"))')),
-    {layout:'rates',title:'tracker',icon:'off',job:'off',name:'both',theme:'night',interval:'60',range:'60',bar:'abcdef'});
-  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',icon:'off',job:'off',name:'both',theme:'night',interval:'60',range:'60'});
+    {layout:'rates',title:'tracker',icon:'off',job:'off',showlevel:'on',name:'both',theme:'night',interval:'60',range:'60',bar:'abcdef'});
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(overlayOptions(""))')),{layout:'card',title:'site',icon:'off',job:'off',showlevel:'on',name:'both',theme:'night',interval:'60',range:'60'});
   assert.equal(p.run('overlayOptions("?icon=on").icon'),'on');
   assert.equal(p.run('overlayOptions("?job=on").job'),'on');assert.equal(p.run('overlayOptions("?job=yes").job'),'off');
   assert.equal(p.run('overlayOptions("?layout=bar").layout'),'bar');
@@ -2228,4 +2229,79 @@ test('tracked spans read as hours and minutes from an hour up',()=>{
   assert.equal(p.run('spanText(45)'),'45s');
   assert.equal(p.run('spanText(208)'),'3m 28s');
   assert.equal(p.run('spanText(70140)'),'19h 29m');
+});
+
+test('custom public stats select trusted totals and restore the default caption', () => {
+  const p=page('overlay'),cell=new Element('strong'),caption=new Element('span'),parent=new Element();
+  caption.textContent='Last 5 min';parent.querySelector=()=>caption;parent.append(cell);
+  p.context.document.querySelectorAll=selector=>selector==='.general-stats strong'?[cell]:[];
+  p.run("applyOverlay(overlayOptions('?card1=gain:1440'))");
+  p.render(player({tracked_windows:{1440:{available:true,gain:{approximate:1234}}}}));
+  assert.equal(cell.textContent,'1.23K');assert.equal(caption.textContent,'Last 24 h');
+  p.render(player({tracked_windows:{1440:{available:false,gain:{approximate:1234}}}}));
+  assert.equal(cell.textContent,'—');
+  p.run("applyOverlay(overlayOptions(''))");
+  assert.equal(caption.textContent,'Last 5 min');
+});
+
+test('stat editor starts with Default selected and its time control disabled', () => {
+  const p=page('player');
+  p.run("OverlayStats.editor(el('stat-editor-test'), {layout:'bar'}, false, () => {})");
+  const row=p.elements['stat-editor-test'].children[1].children[0];
+  assert.equal(row.children[1].value,'default');
+  assert.equal(row.children[2].disabled,true);
+});
+
+
+test('stat reset clears only the selected layout and preserves other overlay settings', () => {
+  const p=page('player');
+  p.run("globalThis.resetOptions={layout:'live',live1:'rate:5',live5:'gain:session',card1:'gain:10',theme:'blue'};globalThis.resetCalls=0;OverlayStats.editor(el('reset-editor'),resetOptions,true,()=>resetCalls++)");
+  const reset=p.elements['reset-editor'].children[0].children[0];
+  assert.equal(reset.disabled,false);reset.listeners.click();
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(resetOptions)')),{layout:'live',card1:'gain:10',theme:'blue'});
+  assert.equal(p.run('resetCalls'),1);
+});
+
+
+test('stat rows highlight only their preview position on hover or focus and clear on reset/layout change', () => {
+  const p=page('player'), areas=[new Element(),new Element(),new Element(),new Element()],cells=areas.map(area=>{const cell=new Element('strong');area.append(cell);return cell;});
+  const doc={querySelectorAll:selector=>selector==='[data-stat-highlight]'?areas.filter(a=>a.dataset.statHighlight):cells,getElementById:()=>null};
+  p.elements['overlay-preview'].contentDocument=doc;
+  p.run("OverlayStats.editor(el('hover-editor'),{layout:'bar'},false,()=>{})");
+  const row=p.elements['hover-editor'].children[1].children[1];
+  assert.equal(row.children[2].disabled,true);assert.equal(row.children[2].children[0].textContent,'Auto');assert.ok(row.children[2].title.includes('layout default'));
+  row.listeners.mouseenter();assert.equal(areas[1].dataset.statHighlight,'true');
+  row.listeners.focusin();row.listeners.mouseleave();assert.equal(areas[1].dataset.statHighlight,'true');
+  row.listeners.focusout({relatedTarget:null});assert.equal(areas[1].dataset.statHighlight,undefined);
+  row.listeners.mouseenter();p.run("OverlayStats.editor(el('hover-editor'),{layout:'rates'},false,()=>{})");
+  assert.ok(areas.every(a=>!a.dataset.statHighlight));
+  assert.ok(!p.run("JSON.stringify(overlayOptions(''))").includes('highlight'));
+});
+
+
+test('General level visibility defaults to shown and reaches the preview independently of its color', () => {
+  const p=page('overlay');
+  assert.equal(p.run("overlayOptions('?showlevel=bad').showlevel"),'on');
+  p.run("applyOverlay(overlayOptions('?showlevel=off&level=abcdef'))");
+  assert.equal(p.context.document.body.dataset.showlevel,'off');
+  assert.equal(p.context.document.body.style['--level'],'#abcdef');
+});
+
+
+test('selecting ETA starts at five minutes while saved and explicitly chosen windows stay intact', () => {
+  for (const local of [false,true]) {
+    const p=page('player');
+    p.run(`globalThis.etaOptions={layout:'bar',bar1:'rate:60'};OverlayStats.editor(el('eta-editor'),etaOptions,${local},()=>{})`);
+    const row=p.elements['eta-editor'].children[1].children[0],metric=row.children[1],window=row.children[2];
+    metric.value='eta';metric.listeners.change();
+    assert.equal(window.value,'5');assert.equal(p.run('etaOptions.bar1'),'eta:5');
+    assert.equal(row.dataset.metric,'eta');assert.equal(window.children[0].textContent,'5m pace');
+    assert.equal(window.children.at(-1).textContent,'60m pace');assert.equal(row.children.length,3);
+    window.value='30';window.listeners.change();
+    assert.equal(p.run('etaOptions.bar1'),'eta:30');
+    assert.equal(p.run("OverlayStats.label('eta','30')"),'NEXT LEVEL');
+    p.run(`OverlayStats.editor(el('saved-eta-editor'),etaOptions,${local},()=>{})`);
+    assert.equal(p.elements['saved-eta-editor'].children[1].children[0].children[2].value,'30');
+    metric.value='rate';metric.listeners.change();assert.equal(row.dataset.metric,'rate');assert.equal(window.children[0].textContent,'5m');
+  }
 });

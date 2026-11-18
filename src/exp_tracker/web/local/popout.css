@@ -58,3 +58,7 @@ html:has(.local-overlay[data-bg="magenta"]), .local-overlay[data-bg="magenta"] {
   font:600 10px/1 "Fredoka", sans-serif; letter-spacing:.3px; opacity:.85; white-space:nowrap; }
 [data-header-ink="dark"] .local-tag { background:#ffffff4d; }
 [data-title="none"] .local-tag { display:none; }
+
+.live-rate { min-width:0; }
+.live-rate strong[data-size="long"] { font-size:30px; }
+.live-panel span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

@@ -643,3 +643,49 @@ meso total:
 - The `_headers` detach syntax (`! Content-Security-Policy`) on real Cloudflare Pages; the local
   preview implements it the same way.
 - A job advancement on the live client (job detection was verified on Beginner and Swordsman).
+
+## Configurable overlay stats
+
+Under the overlay preview, **Stats** provides one statistic and time-window dropdown per
+position: four for General, EXP bar and EXP rates, plus five for the local Live layout.
+Choose EXP/hour, level %/hour, EXP earned or next-level ETA, with 5, 10, 15, 30 or 60 minutes.
+EXP earned also offers 24 hours; the local tracker adds the latest session (within retained
+reading history). Local layouts also offer mesos/hour and mesos earned; earned mesos can
+use 24 hours. Pickup totals remain approximate, as elsewhere on the local tracker.
+Unavailable or insufficient readings show a dash, using the existing tracker policies.
+
+Each layout keeps its own choices while editing. **Default** restores that position's usual
+behavior. The small Reset button beside Stats restores all positions in the selected layout. Choices travel with the overlay URL (`card1=rate:10`, `rates4=gain:1440`, etc.);
+the local builder also saves them in this browser. Existing URLs keep their original stats.
+Local Live's **Live display** selects the graph's EXP or mesos line independently of the
+five numbers. For Items, **Item types** then **Items from** appear beneath the preview.
+
+
+## Level badge and orange scenery (2026-11-17)
+
+A local Chrome capture at 1368x800 read EXP correctly but included orange map bricks
+in the level crop. The earlier color bounding box combined all orange pixels in a
+broad search area. Badge detection now separates connected orange regions and groups
+aligned neighboring tiles containing bright digit ink. More than one plausible group,
+a candidate touching the search boundary, or an oversized group produces no badge.
+The final OCR crop still keeps a pixel of padding around the full group. Manual
+calibration uses the same check and asks for all tiles plus a small margin.
+
+The search starts at the LV label's left edge in every browser, preserving the recent
+Safari protection against sparse OCR merging LV and leading badge digits. Synthetic
+tests cover one to three tiles, scenery, clipped edges, ambiguity and merged labels.
+The private 121x37 preview reconstruction replays the complete badge and agreeing level
+OCR with both magnifications, crisp and smoothed, using the bundled browser engine.
+This fixture preserves the failing preview, not the full source frame or original
+localization; full-map and additional capture-size coverage remain limited.
+
+Hovering or focusing a Stats row softly highlights its field in the builder preview only.
+The disabled Auto choice means that a Default stat follows its layout; select a statistic to edit its window.
+
+General also has Level Show/Hide pills before Chart; Show is the default.
+Hiding it uses `showlevel=off` and leaves the other layouts unchanged.
+
+Selecting next-level ETA starts with a 5-minute pace. Its overlay caption is always NEXT LEVEL,
+including when a different pace window is selected. Existing saved pace choices are preserved.
+
+ETA time choices read 5m pace, 10m pace, etc., to identify the EXP/hour lookback used.

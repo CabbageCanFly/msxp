@@ -83,3 +83,18 @@ def test_safari_pickup_replay(node, tmp_path, clip):
         assert 0 <= start < start + size <= len(pngs)
         assert rgba(BytesIO(pngs[start:start + size]), path) == (width, height)
     replay(node, tmp_path, {'kind': 'pickups', **clip, 'index': index, 'rgba': str(path), 'width': width, 'height': height})
+
+
+@pytest.mark.samples
+def test_local_level_scenery_replay(node, tmp_path):
+    manifest = ROOT / 'samples/local-hud/level-scenery/manifest.json'
+    if not manifest.is_file():
+        pytest.skip('Run msxp test-data to restore the private level-scenery capture')
+    spec = json.loads(manifest.read_text(encoding='utf-8'))
+    assert spec['version'] == 1 and spec['kind'] == 'level'
+    for case in spec['cases']:
+        source = manifest.parent / case['path']
+        path = tmp_path / (case['id'] + '.rgba')
+        assert rgba(source, path) == (case['width'], case['height'])
+        case['rgba'] = str(path)
+    replay(node, tmp_path, spec)

@@ -63,7 +63,7 @@ let chartWindow=60,longChartWindow=1440,lineWindow=15;
 let dailyDays=30,dailyKey='',dailyData=null,dailyRequested=false,dailyController=null,dailyError=false,dailyDrawKey='';
 const dailyCache=new Map();
 // Overlay options come from the copied overlay URL; anything unknown falls back to the first choice.
-const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker','none'],icon:['off','on'],job:['off','on'],name:['both','character','twitch','none'],theme:['night','day','red','green','blue','purple'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
+const OVERLAY_CHOICES={layout:['card','bar','rates','chart'],title:['site','tracker','none'],icon:['off','on'],job:['off','on'],showlevel:['on','off'],name:['both','character','twitch','none'],theme:['night','day','red','green','blue','purple'],interval:['60','300','1800'],range:['60','15','30','720','1440']};
 const OVERLAY_COLORS=['background','header','graph','bar','text','level','badge','accent'];
 const THEME_COLORS={night:{background:'232c3e',header:'995c2c',graph:'ffc56b',bar:'a6ef2e',text:'ffc56b',level:'ffc56b',badge:'2b354a'},day:{background:'fff9e9',header:'8a6440',graph:'a8520a',bar:'7fcc12',text:'a8520a',level:'ffb534',badge:'6e5139'},
   red:{background:'301f26',header:'8c3547',graph:'ff9b9b',bar:'ef6575',text:'ffb4b4',level:'ffd5bd',badge:'542b38'},
@@ -97,11 +97,13 @@ function overlayOptions(search) {
   if(options.interval==='1800'){if(!['720','1440'].includes(options.range))options.range='1440';}
   else if(['720','1440'].includes(options.range))options.range='60';
   for(const key of OVERLAY_COLORS)if(/^[0-9a-f]{6}$/i.test(q.get(key) ?? ''))options[key]=q.get(key).toLowerCase();
-  return options;
+  return Object.assign(options, OverlayStats.read(search));
 }
 // Also called by the character page's live preview (same origin) as options change.
+let overlayStatsOptions = {};
 function applyOverlay(o) {
-  Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon,job:o.job,title:o.title,interval:o.interval,range:o.range});
+  overlayStatsOptions = o;
+  Object.assign(document.body.dataset,{layout:o.layout,theme:o.theme,name:o.name,icon:o.icon,job:o.job,showlevel:o.showlevel,title:o.title,interval:o.interval,range:o.range});
   document.body.dataset.headerInk=headerInk(o.header ?? THEME_COLORS[o.theme].header);
   document.body.dataset.panelInk=o.background?headerInk(o.background):'';
   const historyLabel=`${Number(o.interval)/60} min · ${o.range==='1440'?'24h':o.range==='720'?'12h':o.range==='60'?'last hour':`last ${o.range} min`}`;
@@ -661,6 +663,14 @@ function renderPlayer() {
       const windowPace=publicPace(p,Number(n.dataset.rateWindow)),rate=windowPace?.estimates.exp_per_hour;
       n.textContent=rate?`${expText(rate.value.approximate)}`:'—';n.dataset.paused=String(!!windowPace && !windowPace.active && faded(windowPace.age));
     }
+    OverlayStats.render(overlayStatsOptions, (metric, minutes) => {
+      const pace=publicPace(p,Number(minutes)), estimates=pace?.estimates;
+      if(metric==='rate')return expText(estimates?.exp_per_hour?.value.approximate);
+      if(metric==='percent'){const value=estimates?.percentage_per_hour?.value.approximate;return value==null?'—':value.toFixed(2)+'%';}
+      if(metric==='eta')return etaText(publicETA(p,Number(minutes))?.estimate);
+      const total=p.tracked_windows?.[minutes];
+      return total?.available?expText(total.gain?.approximate):'—';
+    });
     if(document.body.dataset.layout==='card')drawHourChart(el('general-chart'),Number(document.body.dataset.interval),Number(document.body.dataset.range)*60);
     else if(document.body.dataset.layout==='chart')drawHourChart(el('overlay-chart'),Number(document.body.dataset.interval),Number(document.body.dataset.range)*60);
   }
@@ -1244,6 +1254,7 @@ if(view==='player') {
     const q=new URLSearchParams();
     for(const [key,allowed] of Object.entries(OVERLAY_CHOICES))if(builder[key]!==allowed[0])q.set(key,builder[key]);
     for(const key of OVERLAY_COLORS)if(builder[key])q.set(key,builder[key]);
+    OverlayStats.query(q,builder);
     if(el('overlay-character').value)q.set('character',el('overlay-character').value);
     return `${location.origin}/live/overlay/${encodeURIComponent(channel)}${String(q)?'?'+q:''}`;
   };
@@ -1253,6 +1264,7 @@ if(view==='player') {
   }
   function updateBuilder() {
     builder.interval=String(bucketSeconds);builder.range=String(bucketSeconds===1800?longChartWindow:chartWindow);
+    OverlayStats.editor(el('overlay-stat-controls'),builder,false,updateBuilder);
     const url=overlayURL(),[width,height]=SIZES[builder.layout];
     el('overlay-url').value=url;el('overlay-link').href=url;el('overlay-size').textContent=`OBS size · ${width} × ${height}`;el('copy-status').textContent='';
     document.querySelectorAll('[data-option] button').forEach(b=>{

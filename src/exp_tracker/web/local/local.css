@@ -13,8 +13,8 @@
 /* The controls row: a little more air above and below, so it, the EXP bar and the time pills sit evenly. */
 .player-board .local-controls { margin:16px 25px 0; }
 /* Buttons with shared styles, including the level planner, keep their own styling. */
-.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab, .eta-plan, .planner-reset) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
-.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab, .eta-plan, .planner-reset):hover:not(:disabled) { border-color:var(--gold); }
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab, .eta-plan, .planner-reset, .stat-reset) { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface-raised); color:var(--text); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+.local-page button:not(.windows button, .chart-modes button, .about-tab, .about-icon, .scenery-tab, .about-close, .text-tab, .eta-plan, .planner-reset, .stat-reset):hover:not(:disabled) { border-color:var(--gold); }
 .local-page button:disabled, .local-page select:disabled { opacity:.45; cursor:default; }
 /* The one main action: gold like the site's selected buttons (by id, over the general button rule, which had
    made it a plain grey pill). */

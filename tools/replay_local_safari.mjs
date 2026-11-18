@@ -7,7 +7,8 @@ import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {gunzipSync} from 'node:zlib';
 import {HUD_GLYPHS, displayed, learn, safariGlyphs} from '../src/exp_tracker/web/local/glyphs.js';
-import {PARAMS, readHud, readIdentity} from '../src/exp_tracker/web/local/reader.js';
+import {pgm} from '../src/exp_tracker/web/local/hud.js';
+import {PARAMS, readHud, readIdentity, fieldBoxes, variants} from '../src/exp_tracker/web/local/reader.js';
 import {messageLines, stackTracker} from '../src/exp_tracker/web/local/pickups.js';
 import {readMessage} from '../src/exp_tracker/web/local/pickup-session.js';
 import {readLine, seedFont} from '../src/exp_tracker/web/local/message-font.js';
@@ -33,7 +34,18 @@ const engine = {exclusive: (fn) => fn(), async read(bytes, field) {
 // Measured on the browser engine (2026-11-15): c05 misses one item; HUD captures must all read correctly.
 const ITEM_MISSES = 1;
 
-if (spec.kind === 'hud') {
+if (spec.kind === 'level') {
+  for (const c of spec.cases) {
+    const frame = {width: c.width, height: c.height, data: new Uint8ClampedArray(readFileSync(c.rgba))};
+    const box = fieldBoxes(frame, c.regions).level, badge = c.expected.badge;
+    assert.deepEqual(box, {x0: badge.x0 - 1, y0: badge.y0 - 1, x1: badge.x1 + 1, y1: badge.y1 + 1}, c.id);
+    for (const smooth of [false, true]) for (const {image} of variants(frame, box, 'level', smooth)) {
+      const {text} = await engine.read(pgm(image), 'level');
+      assert.equal(text.trim(), String(c.expected.level), `${c.id}, smooth=${smooth}`);
+    }
+    console.log(`Passed ${c.id}: complete badge and agreeing level OCR at both magnifications and preprocessing modes.`);
+  }
+} else if (spec.kind === 'hud') {
   for (const learning of [false, true]) {
     const templates = {...HUD_GLYPHS}, reads = {first: 0, continuing: 0};
     for (const c of spec.cases) {

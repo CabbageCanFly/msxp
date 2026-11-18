@@ -456,16 +456,16 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 #overlay-url:focus-visible { outline:2px solid var(--gold); outline-offset:1px; }
 /* The overlay's chart pills, under the preview: copies of the chart panel's (same data attributes, so either set
    moves both), for the layouts with a chart. The options column spans both rows so they sit right below it. */
-.overlay-builder:has(.overlay-chart-controls) { grid-template-rows:auto 1fr; }
-.overlay-builder:has(.overlay-chart-controls) .overlay-options { grid-row:span 2; }
-.overlay-chart-controls { align-self:start; justify-self:start; width:max-content; max-width:100%; grid-template-columns:minmax(0,1fr); gap:8px; }
-.overlay-chart-controls > span { display:flex; align-items:center; gap:10px; text-align:left; }  /* CHART on its own line above the pills, */
-.overlay-chart-controls > span::after { content:""; flex:1; height:1px; background:var(--line); }  /* with a rule ending where the widest pill row ends. */
+.overlay-builder:has(.overlay-layout-controls) { grid-template-rows:auto 1fr; }
+.overlay-builder:has(.overlay-layout-controls) .overlay-options { grid-row:span 2; }
+.overlay-chart-controls { align-self:start; justify-self:stretch; width:100%; max-width:100%; grid-template-columns:minmax(0,1fr); gap:8px; }
+:is(.overlay-chart-controls, .overlay-stat-controls) > span { display:flex; align-items:center; gap:10px; text-align:left; }  /* CHART on its own line above the pills, */
+:is(.overlay-chart-controls, .overlay-stat-controls) > span::after { content:""; flex:1; height:1px; background:var(--line); }  /* with a rule ending where the widest pill row ends. */
 .chart-pill-rows { display:grid; gap:8px; }
 /* The panel's grey labels, right-aligned to one width so both rows of pills start together. */
 .chart-pill-rows .windows > span { min-width:46px; text-align:right; }
 .overlay-chart-controls[hidden] { display:none; }
-@media(max-width:1100px) { .overlay-builder { grid-template-columns:minmax(0,1fr); grid-template-rows:none; } .overlay-builder:has(.overlay-chart-controls) .overlay-options { grid-row:auto; } }
+@media(max-width:1100px) { .overlay-builder { grid-template-columns:minmax(0,1fr); grid-template-rows:none; } .overlay-builder:has(.overlay-layout-controls) .overlay-options { grid-row:auto; } }
 @media(max-width:650px) { .overlay-builder { padding:16px 14px 18px; } .option-row { grid-template-columns:minmax(0,1fr); gap:6px; } .option-row > span, .option-row > label { text-align:left; } }
 /* Decorative wandering mobs (product.js). The lane has no height, so feet rest on the card's top border. */
 /* Clip on html too, so body clips falling mobs itself rather than handing a scrollable "hidden" to the viewport. */
@@ -646,3 +646,32 @@ html, body.product { overflow-x:clip; }
 .history-chart circle.sample.level-up { fill:var(--gold); }
 .history-chart .level-mark { fill:var(--gold); font-size:11px; font-weight:800; }
 @media(max-width:480px) { .planner-inputs { grid-template-columns:1fr 1fr; } .planner-inputs label:first-child { grid-column:1 / -1; } }
+
+.overlay-stat-controls { align-items:start; }
+.stat-edit-rows { display:grid; grid-template-columns:max-content minmax(0,1fr) 68px; gap:8px 0; }
+.stat-edit-row { display:grid; grid-column:1 / -1; grid-template-columns:subgrid; align-items:center; border:1px solid var(--line); border-radius:8px; background:var(--surface-sunken); }
+.stat-edit-row label { padding:0 10px; font-size:12px; color:var(--text-muted); white-space:nowrap; text-align:right; }
+.stat-edit-row select { min-width:0; width:100%; padding:9px 24px 9px 8px; border:0; border-left:1px solid var(--line); border-radius:0; background:var(--surface-sunken); color:var(--text); font:inherit; font-size:13px; }
+.stat-edit-row select:disabled { opacity:.4; }
+
+.overlay-layout-controls { display:grid; gap:12px; align-content:start; min-width:0; }
+.overlay-stat-controls { grid-template-columns:minmax(0,1fr); gap:8px; }
+.overlay-stat-controls > span { text-align:left; }
+.overlay-layout-controls [hidden] { display:none; }
+.stat-edit-row select:focus-visible { position:relative; z-index:1; outline:2px solid var(--gold); outline-offset:-2px; }
+
+.overlay-layout-controls > .option-row[data-for-layout]:not(.overlay-chart-controls) { grid-template-columns:max-content minmax(0,1fr); }
+.overlay-layout-controls > .option-row[data-for-layout]:not(.overlay-chart-controls) > span { white-space:nowrap; }
+
+.overlay-stat-controls > span::after { order:1; }
+.overlay-stat-controls .stat-reset { order:2; padding:2px 6px; min-height:24px; border:0; border-radius:4px; background:none; color:var(--text-muted); font:600 11px var(--font-ui); text-transform:none; letter-spacing:0; }
+.overlay-stat-controls .stat-reset:hover:not(:disabled) { color:var(--gold); background:var(--surface-sunken); }
+
+.stat-edit-row option { background:var(--surface-sunken); color:var(--text); }
+
+
+.stat-edit-row select { appearance:none; background-image:linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%); background-position:calc(100% - 13px) center, calc(100% - 9px) center; background-size:4px 4px; background-repeat:no-repeat; }
+.stat-edit-row select:nth-of-type(2) { font-size:12px; padding-left:6px; padding-right:18px; }
+
+
+.stat-edit-rows:has([data-metric="eta"]) { grid-template-columns:max-content minmax(0,1fr) 84px; }

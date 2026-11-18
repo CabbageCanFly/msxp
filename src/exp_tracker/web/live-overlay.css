@@ -102,3 +102,8 @@ progress::-moz-progress-bar { background: var(--bar); }
 footer { display: flex; align-items: center; gap: 10px; margin-top: auto; padding: 0 12px 5px; height: 21px; color: var(--muted); font-size: 10px; font-weight: 700; }
 #age { flex: 1; min-width: 0; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; opacity: .85; }
 #age:empty { display: none; }
+
+/* Only the builder preview receives this marker; pop-outs and OBS URLs stay clean. */
+.live-overlay [data-stat-highlight] { outline:1px solid color-mix(in srgb, var(--text) 45%, transparent); outline-offset:2px; border-radius:3px; background:color-mix(in srgb, var(--text) 7%, transparent); }
+
+[data-layout="card"][data-showlevel="off"] #level { display:none; }

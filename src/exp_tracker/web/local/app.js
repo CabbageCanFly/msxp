@@ -897,7 +897,7 @@ function setupDrawing() {
     if (!isFull(frame)) return setStatus('The preview was still updating; try again', 'warn');
     const box = {x0: Math.min(from.x, to.x), y0: Math.min(from.y, to.y), x1: Math.max(from.x, to.x), y1: Math.max(from.y, to.y)};
     if (box.x1 - box.x0 < 6 || box.y1 - box.y0 < 4) return setStatus('That box was too small; try again', 'warn');
-    if (kind === 'level' && !orangeBox(frame, box)) return setStatus('No orange level badge inside that box; try again', 'warn');
+    if (kind === 'level' && !orangeBox(frame, box)) return setStatus('No complete, unambiguous level badge inside that box; include every orange tile with a small margin', 'warn');
     const old = settings.calibration && regionsFor(frame.full) ? settings.calibration : {};
     await saveCalibration({source: 'manual', width: frame.width, height: frame.height, exp: old.exp ?? null, level: old.level ?? null, [kind]: normalize(box, frame)});
     setStatus(kind === 'exp' && !settings.calibration.level ? 'EXP box saved. Now draw the level box (optional but recommended).' : 'HUD boxes saved', 'ok');
@@ -1111,6 +1111,7 @@ function setupCharts() {
 function overlayURL() { const query = overlayQuery(builder); return `/local/overlay${query ? '?' + query : ''}`; }
 function updateBuilder() {
   builder.interval = String(charts.bucket); builder.range = String(charts.bucket === 1800 ? charts.longWindow : charts.chartWindow);
+  OverlayStats.editor($('overlay-stat-controls'), builder, true, () => { saveBuilder(); updateBuilder(); });
   const url = overlayURL(), [width, height] = overlaySize(builder), frame = $('overlay-preview');
   $('overlay-url').value = location.origin + url; $('overlay-link').href = url; $('overlay-size').textContent = `Window · ${width} × ${height}`;
   for (const button of document.querySelectorAll('[data-option] button')) {

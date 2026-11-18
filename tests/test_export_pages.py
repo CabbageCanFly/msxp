@@ -21,7 +21,7 @@ API = 'https://api.example.org'  # Illustrative; the real API hostname is suppli
 EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'index.html', 'live-overlay.html', 'player.html',
             'static/fonts/OFL-Fredoka.txt', 'static/fonts/OFL-Nunito.txt', 'static/fonts/fredoka-latin.woff2',
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
-            'static/product.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp',
+            'static/product.js', 'static/overlay-stats.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp',
             'static/kerning.webp', 'static/kerning-sky.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')} \
     | {f'static/jobs/{p.name}' for p in (export_pages.WEB / 'jobs').glob('*.png')}     | {f'static/classes/{p.name}' for p in (export_pages.WEB / 'classes').glob('*.gif')}     | {'local.html', 'local-overlay.html', 'static/local/community-exp.json'}     | {f'static/local/{p.relative_to(export_pages.WEB / "local").as_posix()}' for p in (export_pages.WEB / 'local').rglob('*.*')}
 ROUTES = ['/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',

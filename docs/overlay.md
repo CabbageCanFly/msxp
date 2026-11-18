@@ -255,3 +255,30 @@ The standard-library server is for local use only. No frontend configuration UI,
 write API, account system, leaderboard, production scheduler, remote exposure,
 new capture or accounting policy change is included. Databases and all preview/
 diagnostic artifacts remain ignored. No commits or pushes were made.
+
+## Configurable overlay stats
+
+Under the overlay preview, **Stats** provides one statistic and time-window dropdown per
+position: four for General, EXP bar and EXP rates, plus five for the local Live layout.
+Choose EXP/hour, level %/hour, EXP earned or next-level ETA, with 5, 10, 15, 30 or 60 minutes.
+EXP earned also offers 24 hours; the local tracker adds the latest session (within retained
+reading history). Local layouts also offer mesos/hour and mesos earned; earned mesos can
+use 24 hours. Pickup totals remain approximate, as elsewhere on the local tracker.
+Unavailable or insufficient readings show a dash, using the existing tracker policies.
+
+Each layout keeps its own choices while editing. **Default** restores that position's usual
+behavior. The small Reset button beside Stats restores all positions in the selected layout. Choices travel with the overlay URL (`card1=rate:10`, `rates4=gain:1440`, etc.);
+the local builder also saves them in this browser. Existing URLs keep their original stats.
+Local Live's **Live display** selects the graph's EXP or mesos line independently of the
+five numbers. For Items, **Item types** then **Items from** appear beneath the preview.
+
+Hovering or focusing a Stats row softly highlights its field in the builder preview only.
+The disabled Auto choice means that a Default stat follows its layout; select a statistic to edit its window.
+
+General also has Level Show/Hide pills before Chart; Show is the default.
+Hiding it uses `showlevel=off` and leaves the other layouts unchanged.
+
+Selecting next-level ETA starts with a 5-minute pace. Its overlay caption is always NEXT LEVEL,
+including when a different pace window is selected. Existing saved pace choices are preserved.
+
+ETA time choices read 5m pace, 10m pace, etc., to identify the EXP/hour lookback used.

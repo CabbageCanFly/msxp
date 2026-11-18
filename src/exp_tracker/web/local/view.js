@@ -1,3 +1,4 @@
+import '../overlay-stats.js';
 // View model and overlay options shared by the local dashboard and the pop-out overlay.
 import {eta, intervals, requirement, sessionStats, windowStats} from './exp.js';
 
@@ -87,7 +88,7 @@ export function trackedBetween(readings, pickups, from, to, days = [], detailSin
 // opaque window colour around the card (OBS Window Capture cannot see transparency).
 // 'live', 'items', 'focus', 'last' and 'kind' exist only here (the local pop-out): a live EXP or mesos line, and
 // the items picked up over the last N minutes, of one category or all. title 'none' leaves the header to the name, as on the site's overlay.
-export const OVERLAY_CHOICES = {layout: ['card', 'bar', 'rates', 'chart', 'live', 'items'], title: ['site', 'tracker', 'none'], icon: ['off', 'on'], job: ['off', 'on'], focus: ['exp', 'mesos'],
+export const OVERLAY_CHOICES = {layout: ['card', 'bar', 'rates', 'chart', 'live', 'items'], title: ['site', 'tracker', 'none'], icon: ['off', 'on'], job: ['off', 'on'], showlevel: ['on', 'off'], focus: ['exp', 'mesos'],
   last: ['1440', '5', '10', '15', '30', '60'], kind: ['all', 'equip', 'use', 'etc'],
   name: ['none', 'character'], theme: ['night', 'day', 'red', 'green', 'blue', 'purple'], bg: ['dark', 'green', 'magenta', 'none'],
   interval: ['60', '300', '1800'], range: ['60', '15', '30', '720', '1440']};
@@ -115,13 +116,14 @@ export function overlayOptions(search) {
   if (options.interval === '1800') { if (!['720', '1440'].includes(options.range)) options.range = '1440'; }
   else if (['720', '1440'].includes(options.range)) options.range = '60';
   for (const key of OVERLAY_COLORS) if (/^[0-9a-f]{6}$/i.test(q.get(key) ?? '')) options[key] = q.get(key).toLowerCase();
-  return options;
+  return Object.assign(options, OverlayStats.read(search, true));
 }
 
 export function overlayQuery(options) {
   const q = new URLSearchParams();
   for (const [key, allowed] of Object.entries(OVERLAY_CHOICES)) if (options[key] !== allowed[0]) q.set(key, options[key]);
   for (const key of OVERLAY_COLORS) if (options[key]) q.set(key, options[key]);
+  OverlayStats.query(q, options, true);
   return String(q);
 }
 

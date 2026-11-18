@@ -73,19 +73,47 @@ export function pgm(image) {
 // Integer magnification giving Tesseract roughly 40 px tall text.
 export const magnification = (textHeight) => Math.max(3, Math.min(5, Math.round(36 / Math.max(1, textHeight))));
 
-// Orange level tiles: strongly red-over-blue pixels. Returns their bounding box inside frame coordinates.
+// Separate orange tiles from scenery; only one complete, aligned group containing digit ink is safe.
 export function orangeBox(frame, box) {
-  const part = crop(frame, box), d = part.data;
-  let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1, count = 0;
-  for (let y = 0; y < part.height; y++) for (let x = 0; x < part.width; x++) {
-    const i = (y * part.width + x) * 4, r = d[i], g = d[i + 1], b = d[i + 2];
-    if (r > 170 && r - b > 110 && g > 60 && g < r - 30) {
-      count++; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
-    }
+  const part = crop(frame, box), {width, height, data} = part, mask = new Uint8Array(width * height);
+  for (let i = 0; i < mask.length; i++) {
+    const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+    mask[i] = r > 170 && r - b > 110 && g > 60 && g < r - 30 ? 1 : 0;
   }
-  if (count < 12 || y1 - y0 < 4) return null;
-  const bx = Math.floor(box.x0), by = Math.floor(box.y0);
-  return {x0: bx + x0, y0: by + y0, x1: bx + x1 + 1, y1: by + y1 + 1};
+  const tiles = [];
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i]) continue;
+    const queue = [i]; mask[i] = 0;
+    let x0 = width, y0 = height, x1 = 0, y1 = 0, count = 0;
+    while (queue.length) {
+      const pixel = queue.pop(), x = pixel % width, y = Math.floor(pixel / width);
+      count++; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1);
+      for (const next of [x > 0 ? pixel - 1 : -1, x + 1 < width ? pixel + 1 : -1, pixel - width, pixel + width]) {
+        if (next >= 0 && next < mask.length && mask[next]) { mask[next] = 0; queue.push(next); }
+      }
+    }
+    const w = x1 - x0, h = y1 - y0;
+    if (count < 12 || h < 5 || w < .25 * h || w > 3 * h || count < w * h * .3) continue;
+    let ink = 0;
+    for (let y = y0 + 1; y < y1 - 1; y++) for (let x = x0 + 1; x < x1 - 1; x++) {
+      const offset = (y * width + x) * 4;
+      if (Math.min(data[offset], data[offset + 1], data[offset + 2]) > 170) ink++;
+    }
+    tiles.push({x0, y0, x1, y1, ink});
+  }
+  const groups = [];
+  for (const tile of tiles.sort((a, b) => a.x0 - b.x0)) {
+    const group = groups.find(g => Math.abs(g.y0 - tile.y0) <= 1 && Math.abs(g.y1 - tile.y1) <= 1
+      && tile.x0 - g.x1 >= 0 && tile.x0 - g.x1 <= .5 * (tile.y1 - tile.y0));
+    if (group) { group.x1 = tile.x1; group.ink = Math.min(group.ink, tile.ink); }
+    else groups.push({...tile});
+  }
+  const badges = groups.filter(g => g.ink >= 2);
+  if (badges.length !== 1) return null;
+  const badge = badges[0];
+  if (badge.x1 - badge.x0 > 3 * (badge.y1 - badge.y0) || badge.x0 <= 0 || badge.y0 <= 0 || badge.x1 >= width || badge.y1 >= height) return null;
+  const {x0, y0, x1, y1} = badges[0], bx = Math.max(0, Math.floor(box.x0)), by = Math.max(0, Math.floor(box.y0));
+  return {x0: bx + x0, y0: by + y0, x1: bx + x1, y1: by + y1};
 }
 
 // The job (top) and name (bottom) lines beside the orange level badge, found in pixels. Rows that are
@@ -194,7 +222,7 @@ const label = (t) => t.text.toUpperCase().replace(/[^A-Z]/g, '');
  * Bind EXP/LV labels to one status bar (the Python discover_regions geometry, simplified).
  * Words are in frame pixels. Returns {exp, level} boxes or a reason; ambiguity is a failure.
  */
-export function locate(found, frame, {safari = false} = {}) {
+export function locate(found, frame) {
   const exps = found.filter((t) => /^EXP/.test(label(t)) && label(t).length <= 4);
   const hps = found.filter((t) => label(t).startsWith('HP')), mps = found.filter((t) => label(t).startsWith('MP'));
   const lvs = found.filter((t) => label(t) === 'LV');
@@ -231,9 +259,9 @@ export function locate(found, frame, {safari = false} = {}) {
   // "217 [12.65%]" made a box that ended before the percentage, and every scan failed).
   const lastDigit = Math.max(...band.map((t) => t.x1));
   const expBox = {x0: exp.x0 - .2 * h, y0: top - .3 * th, x1: Math.min(frame.width, exp.x0 + 1.15 * span, step === null ? lastDigit + 3 * th : Infinity), y1: bottom + .3 * th};
-  // Safari's sparse OCR can group a leading badge digit into the LV. label box.
+  // Sparse OCR can group leading badge digits into LV.; keep them inside the search in every browser.
   const lh = level ? level.y1 - level.y0 : h;
-  const levelBox = level ? {x0: safari ? level.x0 : level.x1, y0: level.y0 - .6 * lh, x1: level.x1 + 4 * lh, y1: level.y1 + .6 * lh}
+  const levelBox = level ? {x0: level.x0, y0: level.y0 - .6 * lh, x1: level.x1 + 4 * lh, y1: level.y1 + .6 * lh}
     : {x0: Math.max(0, exp.x0 - 4.5 * span), y0: exp.y0 - 1.2 * h, x1: Math.max(0, exp.x0 - 2.1 * span), y1: Math.min(frame.height, exp.y1 + 1.6 * h)};
   return {exp: expBox, level: levelBox};
 }
