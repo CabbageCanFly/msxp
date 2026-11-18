@@ -141,12 +141,20 @@ export function drawPercentChart(svg, readings, {anchor, minutes}) {
     shape('text', {x: 52, y: y(value) + 4, 'text-anchor': 'end'}).textContent = value.toFixed(2) + '%';
   }
   shape('line', {x1: 60, x2: 60, y1: 20, y2: 190, class: 'chart-axis'});
-  // A new session or baseline starts a new line: unobserved time is never drawn as progress.
+  // Keep the full trace in one path and limit tooltip targets to visible spacing in dense views.
+  const spacing = points.length > 300 ? (last - first) * 5 / plotWidth : 0;
+  const trace = [], samples = [];
   points.forEach((p, i) => {
-    const previous = points[i - 1];
-    if (previous && p.gain != null && p.sessionId === previous.sessionId) shape('line', {x1: x(previous.at), y1: y(previous.bp / 100), x2: x(p.at), y2: y(p.bp / 100), class: 'trend'});
-    shape('circle', {cx: x(p.at), cy: y(p.bp / 100), r: 4, class: 'sample'});
+    const previous = points[i - 1], next = points[i + 1];
+    const connected = previous && p.gain != null && p.sessionId === previous.sessionId;
+    // A new session or baseline starts a new subpath, leaving unobserved time blank.
+    trace.push(`${connected ? 'L' : 'M'}${x(p.at).toFixed(2)} ${y(p.bp / 100).toFixed(2)}`);
+    const edge = !connected || !next || next.gain == null || p.sessionId !== next.sessionId
+      || p.level !== previous.level || p.level !== next.level;
+    if (edge || p.at - samples.at(-1).at >= spacing) samples.push(p);
+    if (!spacing || edge) shape('circle', {cx: x(p.at), cy: y(p.bp / 100), r: 4, class: 'sample'});
   });
+  if (trace.length) shape('path', {d: trace.join(' '), fill: 'none', class: 'trend'});
   points.forEach((p, i) => {
     if (i && p.level !== points[i - 1].level) {
       shape('line', {x1: x(p.at), x2: x(p.at), y1: 20, y2: 190, class: 'level-transition'});
@@ -158,8 +166,8 @@ export function drawPercentChart(svg, readings, {anchor, minutes}) {
     shape('line', {x1: x(time), x2: x(time), y1: 190, y2: 195, class: 'chart-tick'});
     shape('text', {x: 60 + plotWidth * i / (ticks - 1), y: 218, 'text-anchor': i === 0 ? 'start' : i === ticks - 1 ? 'end' : 'middle'}).textContent = clockSeconds.format(new Date(time));
   }
-  points.forEach((p, i) => {
-    const left = i ? (x(points[i - 1].at) + x(p.at)) / 2 : 60, right = i + 1 < points.length ? (x(p.at) + x(points[i + 1].at)) / 2 : width - 40;
+  samples.forEach((p, i) => {
+    const left = i ? (x(samples[i - 1].at) + x(p.at)) / 2 : 60, right = i + 1 < samples.length ? (x(p.at) + x(samples[i + 1].at)) / 2 : width - 40;
     inspect(shape('rect', {x: left, y: 20, width: right - left, height: 182, fill: 'transparent', class: 'point-hit'}), `point:${p.at}`,
       `${localTime(p.at)}\nLv. ${p.level} · ${(p.bp / 100).toFixed(2)}%\n${expText(p.exp, true)} EXP`);
     shape('line', {x1: x(p.at), x2: x(p.at), y1: 20, y2: 202, class: 'point-guide', 'aria-hidden': 'true'});

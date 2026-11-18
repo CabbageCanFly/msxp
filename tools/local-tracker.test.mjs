@@ -507,6 +507,39 @@ test('rates use observed time only and need coverage; gaps are not zeros', async
   assert.equal(Math.round(V.summarize(table, character, readings, at(600), 30, {live: true}).perHour), 3600);
 });
 
+test('the local Level % chart keeps the full hour trace with fewer inspection targets', async () => {
+  const {drawPercentChart} = await import(new URL('charts.js', web));
+  const element = (tag) => ({tag, attrs: {}, dataset: {}, children: [],
+    setAttribute(key, value) { this.attrs[key] = value; },
+    append(child) { this.children.push(child); },
+    replaceChildren() { this.children = []; },
+    addEventListener() {},
+  });
+  const svg = Object.assign(element('svg'), {clientWidth: 960});
+  const priorDocument = globalThis.document;
+  globalThis.document = {createElementNS: (_, tag) => element(tag)};
+  try {
+    const points = Array.from({length: 3601}, (_, i) => ({
+      ...r(i, i < 3005 ? 20 : 21, i < 3005 ? 5000 + i : i - 3005),
+      gain: i === 0 || i === 3203 ? null : 1, sessionId: i < 3307 ? 1 : 2,
+    }));
+    const targets = () => svg.children.filter((node) => node.attrs.class === 'point-hit');
+    drawPercentChart(svg, points, {anchor: at(3600), minutes: 60});
+    const path = svg.children.find((node) => node.tag === 'path');
+    assert.equal(path.attrs.d.match(/M/g).length, 3);
+    assert.equal(path.attrs.d.match(/L/g).length, 3598);
+    assert.ok(targets().length < 200);
+    const keys = new Set(targets().map((node) => node.dataset.tipKey));
+    for (const i of [0, 3004, 3005, 3202, 3203, 3306, 3307, 3600]) assert.ok(keys.has(`point:${at(i)}`));
+    assert.ok(svg.children.some((node) => node.attrs.class === 'level-transition-label' && node.textContent === 'Level 21!'));
+
+    drawPercentChart(svg, points.filter((_, i) => i % 20 === 0), {anchor: at(3600), minutes: 60});
+    assert.equal(targets().length, 181);
+  } finally {
+    globalThis.document = priorDocument;
+  }
+});
+
 test('HUD geometry: labels bind to one status bar; brackets are found by colour', () => {
   const frame = {width: 1368, height: 800};
   const w = (text, x0, y0, x1, y1) => ({text, x0, y0, x1, y1});
