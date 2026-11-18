@@ -167,6 +167,15 @@ the API too so it uses the new code. `sudo systemctl restart msxp-api` does not
 restart capture. Stage dependencies before stopping services. All writers remain
 serialized through the existing capture lease and Store transactions.
 
+After a tracker restart, viewers see new readings within about 3 minutes (the API replays each
+channel's new run). Before `29cee14` (2026-11-18), a database-roster tracker started capturing before
+its first Twitch status check covered any channel: every offline roster channel got one failed
+capture (113 channels at 09:55 UTC), and the API, which treats any attempt in the last hour as
+activity, then refreshed all ~124 channels every 30 s for an hour (259 rebuilds a minute, publisher
+~0.66 cores; 0.34 once those attempts aged out). With the roster primed, the 11:06 UTC restart
+attempted only the 14 live channels (4 failed captures, all cut off by the stop itself); 20 minutes
+later the API still counted 14 active channels and the publisher used 0.47 cores.
+
 ## Rollback and recovery
 
 To return to the previously reviewed bundled roster configuration, stop **both**
