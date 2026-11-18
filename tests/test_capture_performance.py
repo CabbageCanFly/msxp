@@ -594,3 +594,22 @@ def test_startup_gate_has_one_bounded_wait_and_accepts_late_results(schedule,mon
     with pytest.raises(InterruptedError):callbacks[0]()
     assert completed==[True]
     assert gate(group[0]) is (failure is None)
+
+
+def test_startup_gate_primes_a_database_roster_whose_lanes_come_later(schedule,monkeypatch):
+    from datetime import datetime,timedelta,timezone
+    multi=importlib.import_module('multi_alpha');calls=[]
+    def sleep(_):raise InterruptedError('end refresh')
+    def start(target):
+        with pytest.raises(InterruptedError):target()
+    monkeypatch.setattr(multi.time,'sleep',sleep)
+    monkeypatch.setattr(multi.threading,'Thread',lambda **kwargs:SimpleNamespace(start=lambda:start(kwargs['target'])))
+    def snapshot(channels):
+        calls.append(channels);now=datetime.now(timezone.utc)
+        return {c:dict(status='offline',checked_at=now.isoformat(),valid_until=(now+timedelta(seconds=60)).isoformat()) for c in channels}
+    group=[]  # The reconciler adds lanes after the gate exists.
+    gate=multi.category_gate(group,SimpleNamespace(snapshot=snapshot),channels=['beta','alpha'])
+    assert calls==[['alpha','beta']]
+    group.extend(lanes('alpha','beta'))
+    for lane in group:lane['source']=Source('twitch',lane['channel'])
+    assert all(map(gate,group))  # Offline from the first capture, not after the next refresh.
