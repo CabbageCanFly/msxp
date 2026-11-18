@@ -1,6 +1,8 @@
 """Bounded Streamlink -> FFmpeg -> latest frame pipeline. No image files or credentials."""
 
 from dataclasses import dataclass
+from functools import cached_property
+import hashlib
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -127,6 +129,11 @@ class Frame:
     sequence: int
     arrived_monotonic: float
     received_at: str
+
+    @cached_property
+    def sha256(self):
+        """Hex digest of the frame bytes, computed once per frame however many records cite it."""
+        return hashlib.sha256(self.data).hexdigest()
 
     def image(self):
         with Image.open(BytesIO(self.data)) as image:

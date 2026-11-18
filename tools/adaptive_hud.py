@@ -23,7 +23,7 @@ from pytesseract import Output
 from exp_tracker.glyphs import GlyphProfile, match_exp
 from exp_tracker.models import Reading, Recognition, Region, reading_errors
 from exp_tracker.parsing import parse_exp, parse_level
-from exp_tracker.recognition import _ocr, _read_field, _tokens, configure_tesseract
+from exp_tracker.recognition import _ocr, _read_field, _tokens, configure_tesseract, ocr_engine
 from exp_tracker.trust import guard_unverified_exp
 from exp_tracker.diagnostic_geometry import exp_vertical_origin, level_tile_box
 
@@ -185,7 +185,7 @@ def scan(image, box=None, *, batched=False):
     """
     if image.width * image.height > 4096 * 2160:
         return []
-    configure_tesseract()
+    if ocr_engine.get() is None:configure_tesseract()  # The CLI path only; a PATH search per call adds up.
     left,top=box[:2] if box else (0,0)
     crop=image.crop(box) if box else image
     scales=[min(magnification, math.sqrt(1920 * 1080 * magnification**2 / (image.width * image.height)))
@@ -247,19 +247,23 @@ class CachedLocator:
     Only a unique full-frame result seeds, and reuse never extends the seed. Within
     refresh_seconds a competing HUD elsewhere in the frame is NOT detected. Setting doubt
     makes the next call scan the full frame (`full`, default `scan`), as does any mismatch.
+    `region` (image, box) is tried before `scan` on the box; either may confirm the seed.
     """
 
     def __init__(self, refresh_seconds, *, clock=time.monotonic, scan=locate):
         self.refresh_seconds,self.clock,self.scan=refresh_seconds,clock,scan
         self.seed=None;self.doubt=False
 
-    def __call__(self, image, full=None):
+    def __call__(self, image, full=None, region=None):
         now=self.clock()
         seed,doubt,self.doubt=self.seed,self.doubt,False
         if not doubt and seed and image.size==seed['size'] and 0<=now-seed['at']<=self.refresh_seconds:
-            found=self.scan(image,seed['box'])
-            if len(found)==1 and same_layout(found[0],seed['candidate'],image.size):
-                return [{**found[0],'search':'cached_region','full_frame_age_seconds':now-seed['at']}]
+            # Each method misses some frames the other reads (docs/capture-performance.md).
+            for method,check in (('layout',region),('tokens',self.scan)):
+                found=check(image,seed['box']) if check else []
+                if len(found)==1 and same_layout(found[0],seed['candidate'],image.size):
+                    return [{**found[0],'search':'cached_region','region_method':method,
+                             'full_frame_age_seconds':now-seed['at']}]
         found=(full or self.scan)(image)
         self.seed=dict(at=now,size=image.size,candidate=found[0],box=search_box(found[0],image.size)) if len(found)==1 else None
         return found

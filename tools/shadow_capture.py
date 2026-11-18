@@ -344,12 +344,20 @@ def parser():
 class LazyPages:
     """Layout pages leased on the first start(); a frame read from a cached region never leases."""
     def __init__(self,lease):self.lease,self.pages=lease,None
-    def start(self,image):
+    def start(self,image,**options):
         self.pages=self.pages or self.lease()
-        return self.pages.start(image)
+        return self.pages.start(image,**options)
     def full(self):return self.pages.full()
     def clear(self):
         if self.pages is not None:self.pages.clear()
+
+
+def layout_region(tesseract, image, box, metrics):
+    """Layout-first labels on the cached HUD box only, in full-frame pixels; the lease ends before returning."""
+    from adaptive_hud import locate_from_tokens
+    with tesseract.layout_pages(metrics=metrics) as pages:
+        tokens,_=pages.start(image.crop(box))
+    return locate_from_tokens(image,[[{**t,'x':t['x']+box[0],'y':t['y']+box[1]} for t in page] for page in tokens])
 
 
 def identity_doubt(name):
@@ -362,7 +370,7 @@ def identity_doubt(name):
 
 def capture_attempt(args, source, requirements, index, *, seek=None, session_factory=ShadowSession,
                     analyze_frame=analyze, clock=time.monotonic, resident=None, identity=None, tesseract=None, streamlink=None,
-                    hud_cache=None):
+                    hud_cache=None, selective_only=False):
     """One bounded acquisition/OCR operation, shared by coordinators; resident reuses a neural worker.
 
     tesseract (a resident_tesseract.TesseractPool) serves this attempt's Tesseract calls, on this
@@ -390,7 +398,7 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
             **({'producer_factory':streamlink} if streamlink is not None and source.kind!='file' else {}))
         frame = session.frame(timeout=args.timeout, max_age=min(5, args.max_age))
         record['received_at'] = frame.received_at
-        record['frame_sha256'] = hashlib.sha256(frame.data).hexdigest()
+        record['frame_sha256'] = frame.sha256
         record['timings']['capture_wait_seconds'] = clock() - tick
     except CaptureError as error:
         record.update(status='capture_failed', reasons=[str(error)])
@@ -426,10 +434,12 @@ def capture_attempt(args, source, requirements, index, *, seek=None, session_fac
                     # workers call by call and must never wait while holding its own lease.
                     pages=LazyPages(lambda:stack.enter_context(tesseract.layout_pages(metrics=ocr)))
                     layout=LayoutLocator(None,None,reader,experimental=experimental,pages=pages)
+                    layout.fallback=not selective_only  # Coordinator: missing-HUD backoff between full checks.
                     options['locator']=layout;reader=layout.read
                 if hud_cache is not None:
                     if identity is not None and identity.needs_confirmation():hud_cache.doubt=True
-                    options['locator']=lambda image:hud_cache(image,full=layout)
+                    region=(lambda image,box:layout_region(tesseract,image,box,ocr)) if layout is not None else None
+                    options['locator']=lambda image:hud_cache(image,full=layout,region=region)
                 try:
                     analyzed = analyze_frame(frame, requirements, reader,
                         max_age=args.max_age,

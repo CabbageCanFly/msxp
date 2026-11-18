@@ -42,7 +42,7 @@ HEADER = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twi
 MAX_PIXELS = 20_000_000       # scan() caps at 1080p-equivalent x 3 per side = 18.7 MP.
 MAX_REPLY = 8 * 1024 * 1024
 REQUEST = struct.Struct('!IIII')  # psm, whitelist bytes, width, height; then whitelist, pixels.
-LAYOUT_START, LAYOUT_FULL, LAYOUT_CLEAR = 100, 101, 102
+LAYOUT_START, LAYOUT_FULL, LAYOUT_CLEAR, LAYOUT_START_SELECTIVE = 100, 101, 102, 103
 
 
 def installation(command):
@@ -182,14 +182,14 @@ def serve(command):
         pixels = stdin.read(width * height)
         if len(pixels) != width * height:
             raise EOFError
-        if psm in (LAYOUT_START, LAYOUT_FULL, LAYOUT_CLEAR):
+        if psm in (LAYOUT_START, LAYOUT_FULL, LAYOUT_CLEAR, LAYOUT_START_SELECTIVE):
             if whitelist:raise ValueError('Layout does not accept a whitelist')
             if layout is None:
                 from layout_first_hud import LayoutEngine,LayoutPages
                 layout=LayoutPages([LayoutEngine(info),LayoutEngine(info)],engine)
-            if psm==LAYOUT_START:
+            if psm in (LAYOUT_START,LAYOUT_START_SELECTIVE):
                 from PIL import Image
-                pages,details=layout.start(Image.frombytes('L',(width,height),pixels))
+                pages,details=layout.start(Image.frombytes('L',(width,height),pixels),fallback=psm==LAYOUT_START)
                 reply=dict(pages=pages,details=details)
             elif psm==LAYOUT_FULL:reply=dict(pages=layout.full())
             else:layout.clear();reply=dict(cleared=True)
@@ -384,7 +384,7 @@ class RemoteLayoutPages:
 
     def request(self,operation,image=None):
         if self.released:raise CaptureError('tesseract_worker_closed')
-        if operation!=LAYOUT_START and (self.process is None or self.worker.process is not self.process):
+        if operation not in (LAYOUT_START,LAYOUT_START_SELECTIVE) and (self.process is None or self.worker.process is not self.process):
             raise CaptureError('tesseract_worker_failed')
         from PIL import Image
         image=image if image is not None else Image.new('L',(1,1))
@@ -405,7 +405,7 @@ class RemoteLayoutPages:
                        or any(type(t.get(k)) not in (int,float) or not math.isfinite(t[k])
                               for k in ('x','y','width','height','confidence')) for page in pages for t in page):
                     raise ValueError('Invalid layout tokens')
-                if operation==LAYOUT_START:
+                if operation in (LAYOUT_START,LAYOUT_START_SELECTIVE):
                     details=reply['details']
                     if (not isinstance(details,list) or len(details)!=2
                             or any(not isinstance(d,dict) or type(d.get('fallback')) is not bool for d in details)):
@@ -418,9 +418,9 @@ class RemoteLayoutPages:
             self.worker._stop()
             raise CaptureError('tesseract_worker_invalid_layout_reply') from None
 
-    def start(self,image):
+    def start(self,image,fallback=True):
         if image.width*image.height>4096*2160:raise ValueError('Frame exceeds pixel limit')
-        reply=self.request(LAYOUT_START,image.convert('L'))
+        reply=self.request(LAYOUT_START if fallback else LAYOUT_START_SELECTIVE,image.convert('L'))
         return reply['pages'],reply['details']
 
     def full(self):return self.request(LAYOUT_FULL)['pages']
