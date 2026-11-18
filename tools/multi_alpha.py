@@ -33,6 +33,7 @@ APP = 'multi_alpha_v1'
 LIVE_TRIAL_INTERVAL = (15, CONFIRM_GAP_SECONDS/2)
 MISSING_HUD_GRACE_SECONDS = 120
 MISSING_HUD_RECHECK_SECONDS = 60
+MISSING_HUD_FULL_CHECK_SECONDS = 120  # Bounds a returning HUD missed by label probes to ~2 minutes.
 
 
 def private(path):
@@ -393,6 +394,13 @@ def schedule(lanes, perform, emit, *, clock=time.monotonic, sleep=time.sleep,
             missing_seconds=attempt_start-lane['hud_missing_since'] if missing else 0
             slow=lane['hud_missing_count']>=3 and missing_seconds>=MISSING_HUD_GRACE_SECONDS
             lane['effective_interval']=max(lane['args'].interval,MISSING_HUD_RECHECK_SECONDS) if slow else lane['args'].interval
+            # In backoff, skip full-page OCR of label-less frames except once per MISSING_HUD_FULL_CHECK_SECONDS.
+            pages=(record.get('hud_layout') or {}).get('pages') or []
+            if not slow or not any(page.get('reason')=='no_labels_skipped' for page in pages):
+                lane['full_check_at']=attempt_start
+            if 'options' in lane:
+                lane['options']['selective_only']=(slow and attempt_start+lane['effective_interval']-lane['full_check_at']
+                    <MISSING_HUD_FULL_CHECK_SECONDS)  # Judged at the next attempt's start.
             if missing or previous_interval!=lane['effective_interval']:
                 record['hud_backoff']=dict(active=lane['effective_interval']>lane['args'].interval,
                     missing_seconds=missing_seconds,next_interval_seconds=lane['effective_interval'])

@@ -92,7 +92,7 @@ def exp_options(words):
     return options
 
 
-def recognize_page(engine,crop_engine,binary):
+def recognize_page(engine,crop_engine,binary,fallback=True):
     words=engine.words(binary);options=exp_options(words)
     if not options or len(options)>240:
         return engine.finish(),dict(fallback=True,reason='proposal_budget',probes=0)
@@ -114,6 +114,7 @@ def recognize_page(engine,crop_engine,binary):
     except (OSError,RuntimeError,ValueError):
         return engine.finish(),dict(fallback=True,reason='crop_failed',probes=len(cache))
     if not any(t['text'].upper().startswith(('HP','MP','EXP')) for t in tokens):
+        if not fallback:return [],dict(fallback=True,reason='no_labels_skipped',probes=len(cache))
         return engine.finish(),dict(fallback=True,reason='no_labels',probes=len(cache))
     return tokens,dict(fallback=False,reason='selective',probes=len(cache))
 
@@ -184,11 +185,12 @@ class LayoutPages:
         self.engines,self.crop_engine=engines,crop_engine
         self.states=[];self.image=None
 
-    def start(self,image):
+    def start(self,image,fallback=True):
+        """fallback=False skips full recognition of a page whose probes found no HUD label."""
         self.states=[];self.image=image;pages=[];details=[];original=[]
         prepared=list(prepared_pages(image))
         for engine,(binary,scale) in zip(self.engines,prepared):
-            tokens,detail=recognize_page(engine,self.crop_engine,binary)
+            tokens,detail=recognize_page(engine,self.crop_engine,binary,fallback)
             original.append(tokens);pages.append(mapped(tokens,scale));details.append(detail)
         # Preserve successful or competing geometry before trying to recover a missing HUD.
         if not locate_from_tokens(image,pages):
@@ -222,7 +224,7 @@ class LayoutLocator:
     def __init__(self,engines,crop_engine,reader,*,experimental=False,pages=None):
         self.pages=pages if pages is not None else LayoutPages(engines,crop_engine)
         self.reader=reader
-        self.experimental=experimental;self.cached=None
+        self.experimental=experimental;self.cached=None;self.fallback=True
         self.info=dict(path='full',reason='not_run',pages=[])
 
     @staticmethod
@@ -240,7 +242,7 @@ class LayoutLocator:
     def __call__(self,image):
         self.cached=None;self.info=dict(path='full',reason='not_run',pages=[])
         try:
-            pages,details=self.pages.start(image);self.info['pages']=details
+            pages,details=self.pages.start(image,**({} if self.fallback else {'fallback':False}));self.info['pages']=details
             found=locate_from_tokens(image,pages)
             if all(detail['fallback'] for detail in details):
                 self.info.update(path='full',reason='page_fallback');return found

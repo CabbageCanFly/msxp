@@ -116,8 +116,52 @@ under 0.02 % and both confirmed correct in their saved crops (the production fra
 second or two older). 3 pairs failed the EXP-table check, all from one streamer's misread
 level badge, one of them on a full scan.
 
-Not measured yet: whole-tracker CPU per capture with the cache on the VPS, and behaviour over
-hours or across stream restarts.
+**VPS rollout, 2026-11-18** (main `ddfd471`, `MSXP_CAPTURE_LIMITS=--hud-cache-seconds 300` in
+`/etc/msxp/roster.env`, only `msxp-tracker` restarted at 08:48 UTC). Read-only `/proc` samples
+(CPU-seconds per capture, from FFmpeg PIDs started) and read-only database queries:
+
+| Per capture | 08:42 (PNG, no cache) | 09:06–09:09 (PPM + cache) |
+| --- | ---: | ---: |
+| Resident Tesseract workers | 2.62 s | 1.17 s |
+| Coordinator with reaped FFmpeg children | 1.70 s | 0.54 s |
+| Streamlink (forkserver children) | 0.26 s | 0.26 s |
+| RapidOCR worker | 0.10 s | 0.12 s |
+| **Tracker total** | **4.73 s** (2.84 cores at 36/min) | **2.09 s** (1.29 cores at 37/min) |
+
+Capture gaps stayed at a 20 s median. Readings usable (strict or grammar-recovered) per
+unique-HUD frame: 99.3 % in the hour before, 99.8 % after; no EXP-table conflict and no
+backwards reading in either window. After the tracker restart the API took about 2¾ minutes
+to publish new readings (every channel starts a new run). Separately, Ubuntu's 09:00
+`needrestart` upgrade restarted `msxp-api`; it was fully fresh again about 6 minutes later.
+
+Not measured yet: behaviour over many hours, busier rosters, or across stream restarts.
+
+### Phase 2: fewer full scans (2026-11-18)
+
+In production, full scans were about 28 % of captures but most of the remaining Tesseract CPU
+(about 2.8 s each against 0.5 s cached). Two causes, both changed:
+
+- **Region misses on still HUDs.** Two streamers' HUDs never moved (spacing within 0.2 px, EXP box
+  within 1 px), yet about half their captures rescanned. The region read (sparse whole-crop OCR)
+  sometimes missed or misplaced the `HP` label, which also shifts the derived level box. The region
+  is now confirmed first with layout-first labels on the crop, the full scan's own method, then
+  with the token read. On those streams plus four live sequences: 99/102 region hits against 90,
+  0.10 s against 0.14 s CPU per check. Paired replay of 477 frames with the production repair
+  logic (strict or grammar-recovered readings): 471 identical to a full scan, 1 recovered, 2 lost
+  (a doubled opener and two `S` lookalikes, both rejected, none stored), and no differing value.
+  The deployed region read had one differing value on those frames, which the EXP table rejected.
+- **Streams without a Classic HUD.** In the missing-HUD backoff, 110 of 117 captures in 25 minutes
+  found no HUD label and then ran full-page OCR on both pages (5.2 s wall each on the loaded VPS).
+  Within the backoff, a label-less frame now skips that OCR, except once every 120 s
+  (`MISSING_HUD_FULL_CHECK_SECONDS`), so every other one-minute recheck is a full check. On 16
+  local no-HUD frames: 1.71 → 1.01 CPU-s for a skipped check, same result on all 16. A returning
+  HUD that the label probes miss can wait up to about 120 s instead of 60 s.
+
+A frame is also hashed once per capture (`Frame.sha256`), and region scans no longer search
+`PATH` for Tesseract while the resident pool serves OCR.
+
+Production reading quality in the 24 hours before: 82 of 41,965 HUD frames (0.20 %) stayed
+unusable after grammar repair; the largest group is `%` read as `×`. No grammar change was made.
 
 ## Streamlink import preloading (automatic on Linux)
 

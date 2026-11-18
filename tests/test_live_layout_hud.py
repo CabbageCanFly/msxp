@@ -85,7 +85,7 @@ def test_capture_that_never_calls_locator_still_releases_lease(fake_pool,tmp_pat
     class Session:
         source_bytes=0
         def __init__(self,*args,**kwargs):pass
-        def frame(self,**kwargs):return SimpleNamespace(data=b'unused',received_at='x')
+        def frame(self,**kwargs):return SimpleNamespace(data=b'unused',sha256='0'*64,received_at='x')
         def close(self):pass
     args=SimpleNamespace(timeout=1,max_age=1,ocr_timeout=1,ocr_python=None,save_crops=False,
         output=tmp_path/'unused.jsonl',layout_first_hud=True)
@@ -194,7 +194,7 @@ def test_cache_doubt_and_identity_events_force_full_frame_scans():
 
 
 @pytest.mark.ocr
-def test_cached_capture_reads_the_seeded_region_without_a_layout_lease(real_pool,tmp_path,monkeypatch):
+def test_cached_capture_confirms_the_seeded_region_with_a_short_layout_lease(real_pool,tmp_path,monkeypatch):
     import adaptive_hud
     image=hud_frame([60]);buffer=BytesIO();image.save(buffer,'PNG')
     class Session:
@@ -213,8 +213,32 @@ def test_cached_capture_reads_the_seeded_region_without_a_layout_lease(real_pool
         session_factory=Session,analyze_frame=analyze,tesseract=real_pool,hud_cache=cache)
     first,second=attempt(1),attempt(2)
     assert first['hud_layout']['path'] in ('selective','full') and first['timings']['tesseract_layout_requests']>=2
-    assert second['hud_layout']['path']=='cached_region' and 'tesseract_layout_requests' not in second['timings']
+    # One region layout (start + clear), released before field reads: the pool's only worker is idle again.
+    assert second['hud_layout']['path']=='cached_region' and second['timings']['tesseract_layout_requests']==2
     assert second['localization']['candidates'][0]['search']=='cached_region'
+    assert second['localization']['candidates'][0]['region_method'] in ('layout','tokens')
     assert first['candidate']==second['candidate']==[12345,6.78] and real_pool.idle.qsize()==1
     cache.doubt=True
     assert attempt(3)['hud_layout']['path'] in ('selective','full')
+
+
+def test_region_layout_is_tried_first_then_tokens_then_the_full_frame():
+    import adaptive_hud
+    seed=dict(anchor_step=100,anchors=dict(hp=dict(x=500,y=900)),regions=dict(exp=None,level=None))
+    calls=[];answers={'layout':[[seed],[],[]],'tokens':[[seed],[]]}
+    def region(image,box):calls.append('layout');return answers['layout'].pop(0)
+    def scan(image,box=None):calls.append('tokens' if box else 'scan');return answers['tokens'].pop(0) if box else [seed]
+    cache=adaptive_hud.CachedLocator(300,clock=lambda:0,scan=scan)
+    full=lambda image:calls.append('full') or [seed]
+    image=Image.new('RGB',(1920,1080))
+    results=[cache(image,full=full,region=region) for _ in range(4)]
+    assert calls==['full','layout','layout','tokens','layout','tokens','full']
+    assert [r[0].get('region_method') for r in results]==[None,'layout','tokens',None]
+
+
+@pytest.mark.ocr
+def test_selective_only_start_matches_normal_start_when_the_hud_is_visible(real_pool):
+    image=hud_frame([60]);replies=[]
+    for fallback in (True,False):
+        with real_pool.layout_pages() as pages:replies.append(pages.start(image,fallback=fallback))
+    assert replies[0]==replies[1] and not any(d['fallback'] for d in replies[1][1])

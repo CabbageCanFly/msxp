@@ -364,3 +364,19 @@ def test_benchmark_refuses_public_output_and_existing_results(tmp_path,monkeypat
     output=tmp_path/'private/results.json';output.parent.mkdir();output.write_text('original')
     with pytest.raises(SystemExit):benchmark.main(['absent.png','--output',str(output)])
     assert output.read_text()=='original'
+
+
+def test_selective_only_pages_skip_full_ocr_when_probes_find_no_hud_label(monkeypatch):
+    import layout_first_hud as L
+    from PIL import Image
+    finished=[]
+    class Engine:
+        def words(self,binary):return [(0,0,40,10)]
+        def finish(self):finished.append(1);return []
+    class Crop:
+        def tsv(self,*args):return '5\t1\t1\t1\t1\t1\t0\t0\t30\t10\t91\tSTORE\n'
+    monkeypatch.setattr(L,'exp_options',lambda words:{0:{0}})
+    tokens,detail=L.recognize_page(Engine(),Crop(),Image.new('L',(40,10)),fallback=False)
+    assert tokens==[] and detail['reason']=='no_labels_skipped' and detail['fallback'] and not finished
+    tokens,detail=L.recognize_page(Engine(),Crop(),Image.new('L',(40,10)))
+    assert detail['reason']=='no_labels' and finished==[1]
