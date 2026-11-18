@@ -116,8 +116,25 @@ under 0.02 % and both confirmed correct in their saved crops (the production fra
 second or two older). 3 pairs failed the EXP-table check, all from one streamer's misread
 level badge, one of them on a full scan.
 
-Not measured yet: whole-tracker CPU per capture with the cache on the VPS, and behaviour over
-hours or across stream restarts.
+**VPS rollout, 2026-11-18** (main `ddfd471`, `MSXP_CAPTURE_LIMITS=--hud-cache-seconds 300` in
+`/etc/msxp/roster.env`, only `msxp-tracker` restarted at 08:48 UTC). Read-only `/proc` samples
+(CPU-seconds per capture, from FFmpeg PIDs started) and read-only database queries:
+
+| Per capture | 08:42 (PNG, no cache) | 09:06–09:09 (PPM + cache) |
+| --- | ---: | ---: |
+| Resident Tesseract workers | 2.62 s | 1.17 s |
+| Coordinator with reaped FFmpeg children | 1.70 s | 0.54 s |
+| Streamlink (forkserver children) | 0.26 s | 0.26 s |
+| RapidOCR worker | 0.10 s | 0.12 s |
+| **Tracker total** | **4.73 s** (2.84 cores at 36/min) | **2.09 s** (1.29 cores at 37/min) |
+
+Capture gaps stayed at a 20 s median. Readings usable (strict or grammar-recovered) per
+unique-HUD frame: 99.3 % in the hour before, 99.8 % after; no EXP-table conflict and no
+backwards reading in either window. After the tracker restart the API took about 2¾ minutes
+to publish new readings (every channel starts a new run). Separately, Ubuntu's 09:00
+`needrestart` upgrade restarted `msxp-api`; it was fully fresh again about 6 minutes later.
+
+Not measured yet: behaviour over many hours, busier rosters, or across stream restarts.
 
 ## Streamlink import preloading (automatic on Linux)
 
