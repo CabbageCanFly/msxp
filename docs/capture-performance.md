@@ -136,6 +136,32 @@ to publish new readings (every channel starts a new run). Separately, Ubuntu's 0
 
 Not measured yet: behaviour over many hours, busier rosters, or across stream restarts.
 
+### Phase 2: fewer full scans (2026-11-18)
+
+In production, full scans were about 28 % of captures but most of the remaining Tesseract CPU
+(about 2.8 s each against 0.5 s cached). Two causes, both changed:
+
+- **Region misses on still HUDs.** Two streamers' HUDs never moved (spacing within 0.2 px, EXP box
+  within 1 px), yet about half their captures rescanned. The region read (sparse whole-crop OCR)
+  sometimes missed or misplaced the `HP` label, which also shifts the derived level box. The region
+  is now confirmed first with layout-first labels on the crop, the full scan's own method, then
+  with the token read. On those streams plus four live sequences: 99/102 region hits against 90,
+  0.10 s against 0.14 s CPU per check. Paired replay of 477 frames with the production repair
+  logic (strict or grammar-recovered readings): 471 identical to a full scan, 1 recovered, 2 lost
+  (a doubled opener and two `S` lookalikes, both rejected, none stored), and no differing value.
+  The deployed region read had one differing value on those frames, which the EXP table rejected.
+- **Streams without a Classic HUD.** In the missing-HUD backoff, 110 of 117 captures in 25 minutes
+  found no HUD label and then ran full-page OCR on both pages (5.2 s wall each on the loaded VPS).
+  Within the backoff, a label-less frame now skips that OCR, except once every 300 s
+  (`MISSING_HUD_FULL_CHECK_SECONDS`). On 16 local no-HUD frames: 1.71 → 1.01 CPU-s, same result
+  on all 16. A returning HUD that the label probes miss can wait up to 300 s instead of 60 s.
+
+A frame is also hashed once per capture (`Frame.sha256`), and region scans no longer search
+`PATH` for Tesseract while the resident pool serves OCR.
+
+Production reading quality in the 24 hours before: 82 of 41,965 HUD frames (0.20 %) stayed
+unusable after grammar repair; the largest group is `%` read as `×`. No grammar change was made.
+
 ## Streamlink import preloading (automatic on Linux)
 
 Linux network capture enables this automatically (`MSXP_PRELOAD_STREAMLINK=auto`).
