@@ -866,9 +866,12 @@ it. Untested: other fonts, resolutions and names.
 The job is printed on the line directly above the name. `job_region()` uses the name
 crop's left and right edges and spans `hp.y - 0.065·step` to `hp.y + 0.10·step`. It is read
 with the same worker as the name, on the same eligible frame, only when due
-(`IdentityCapture.job_due`): every minute until two reads agree (or after one disagrees
-with the known job), every 10 minutes once the level allows the next advancement, and
-otherwise never. A tracker restart or character switch re-reads it twice.
+(`IdentityCapture.job_due`). Unconfirmed jobs and Beginners eligible for advancement
+are checked every minute. Later jobs are checked every 10 minutes once eligible for
+advancement, or every minute after a conflicting read. A due check on a cached HUD
+requests a full-frame scan on the next capture, because the writer needs a qualifying
+name read. The coordinator keeps the capture worker on the saved job until a change
+commits, so a rejected vote still gets another check.
 
 `exp_tracker.jobs` holds the closed list (`data/jobs.json`: job, tier, parent and the
 advancement levels 8 for first job and 30 for second job). OCR text is matched ignoring
@@ -904,6 +907,12 @@ Rogue, Fighter and "Wizard (Fire,Poison)" (spelling assumed from the Ice,Lightni
 in-game names from Nexon's Classic World class pages, not the class names (Warrior, Bowman, Thief), which only
 label the classes in the homepage job filter. A "Swordman" panel spelling is one edit away and snaps to Swordsman.
 Third and fourth jobs are not in the list yet.
+
+On 2026-11-18, two public profiles still showed Beginner while their live HUDs
+showed Rogue. A PC replay reproduced the missed confirmation when the second
+Rogue read used a cached HUD. With the patch, a disposable live PC trial seeded
+both characters as Beginner and saved Rogue about 101 seconds after each first
+job read. Production recovery with the patch remains untested.
 
 ### Transaction, restart and audit boundaries
 

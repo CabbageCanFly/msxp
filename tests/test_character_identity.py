@@ -522,6 +522,32 @@ def test_job_reads_are_rare_and_only_move_up_a_tier():
     state.select('Other', NOW.isoformat()); assert state.job is None and state.job_due(None, 0)
 
 
+def test_eligible_beginner_waits_for_a_full_frame_to_read_job():
+    from shadow_capture import identity_doubt
+
+    state = IdentityCapture('channel', confirmed='Alpha')
+    state.job = state.job_seen = 'Beginner'
+    state.job_checked = 41
+    assert not state.job_due(7, 101) and not state.job_due(10, 100)
+    seen = []
+
+    def capture(index, layout):
+        frame = make_frame(index)
+        def read(crop):
+            seen.append(crop.size)
+            return response('Rogue' if len(seen) == 3 else 'Alpha')
+        return state.inspect(dict(current=True, visual_level=10), frame, frame.image(), [layout],
+                             read, {}, max_age=15, clock=lambda: 101)
+
+    layout = candidate()[0]
+    cached = capture(0, dict(layout, search='cached_region'))
+    assert len(seen) == 1 and state.job_checked == 41
+    assert identity_doubt(cached)
+    full = capture(1, layout)
+    assert len(seen) == 3 and full['evidence']['job']['job'] == 'Rogue'
+    assert state.job_checked == 101 and not identity_doubt(full)
+
+
 def test_a_failed_job_read_keeps_the_name_read():
     state, reads = IdentityCapture('channel'), []
     def read(crop):

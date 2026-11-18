@@ -361,10 +361,12 @@ def layout_region(tesseract, image, box, metrics):
 
 
 def identity_doubt(name):
-    """Identity work that must see the whole frame next time: holds and level changes."""
+    """Identity work that needs the whole frame on the next capture."""
     from character_identity import OWNERSHIP_RISK
     name=name or {}
-    return bool(name.get('reading_hold_recommended') or (name.get('numeric_check') or {}).get('classification')
+    job = (name.get('evidence') or {}).get('job') or {}
+    return bool(job.get('status') == 'needs_full_frame' or name.get('reading_hold_recommended')
+                or (name.get('numeric_check') or {}).get('classification')
                 in OWNERSHIP_RISK|{'possible_normal_level_up','possible_bad_ocr'})
 
 

@@ -138,12 +138,11 @@ class IdentityCapture:
         self.job = self.job_seen = self.job_checked = None
 
     def job_due(self, level, now):
-        """Rare by design: each minute until two reads agree (or one disagrees with the known job),
-        every 10 minutes once the level allows the next job, otherwise never."""
+        """Check unconfirmed jobs and eligible Beginners each minute. Recheck later jobs less often."""
         if self.job is None or self.job_seen != self.job:
             wait = JOB_RETRY_SECONDS
         elif level is not None and (advance := next_level(self.job)) is not None and level >= advance:
-            wait = JOB_RECHECK_SECONDS
+            wait = JOB_RETRY_SECONDS if self.job == 'Beginner' else JOB_RECHECK_SECONDS
         else:
             return False
         return self.job_checked is None or now - self.job_checked >= wait
@@ -265,10 +264,13 @@ class IdentityCapture:
                 evidence['status'] = 'candidate' if evidence['name'] else 'unreadable_or_conflicting'
                 level = result.get('visual_level') or (result.get('neural_level') or {}).get('level')
                 if self.job_due(level, started):
-                    try:  # The job is a bonus: a failed job read never costs this frame its name read.
-                        evidence['job'] = self.read_job(image, layouts[0], read_name, started)
-                    except (OSError, RuntimeError, ValueError, KeyError) as error:
-                        evidence['job'] = dict(status='failed', error=type(error).__name__)
+                    if evidence['provenance']['search'] == 'cached_region':
+                        evidence['job'] = dict(status='needs_full_frame')
+                    else:
+                        try:  # A failed job read must preserve this frame's name.
+                            evidence['job'] = self.read_job(image, layouts[0], read_name, started)
+                        except (OSError, RuntimeError, ValueError, KeyError) as error:
+                            evidence['job'] = dict(status='failed', error=type(error).__name__)
             except (OSError, RuntimeError, ValueError, KeyError) as error:
                 evidence.update(status='failed', error=type(error).__name__)
         if clock() - frame.arrived_monotonic > max_age:

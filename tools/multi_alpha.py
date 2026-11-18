@@ -796,6 +796,12 @@ def main(argv=None):
                                         lane['options']['identity'].select(receipt['name'],record['received_at'],source='automatic_two_frame')
                                         old.close()
                                         print(f"{lane['channel']}: automatically selected {receipt['name']} / character {receipt['character_id']} / session {receipt['session_id']}",flush=True)
+                                    else:
+                                        evidence = (record.get('character_name') or {}).get('evidence') or {}
+                                        if (evidence.get('job') or {}).get('status') in ('candidate', 'stale_local_frame'):
+                                            # A vote rejected by the writer must leave job checks enabled.
+                                            saved_job = store.character_job(lane['character_id'])
+                                            lane['options']['identity'].job = saved_job['job'] if saved_job else None
                                     lane['commits']+=1
                                     print(report_attempt(receipt['record'],True,database=database,channel=lane['channel'],
                                         neural_enabled=lane['args'].experimental_neural_level).replace('#',f"{lane['channel']} [{lane.get('character')}] #",1),flush=True)
