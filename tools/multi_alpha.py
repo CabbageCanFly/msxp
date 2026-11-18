@@ -256,15 +256,19 @@ def options(row, database, output):
     return shadow.parser().parse_args(argv)
 
 
-def category_gate(lanes, availability=None, *, seconds=60, any_category=False):
-    """Prime batched status before capture, then refresh in the background; uncertainty allows capture."""
+def category_gate(lanes, availability=None, *, seconds=60, any_category=False, channels=()):
+    """Prime batched status before capture, then refresh in the background; uncertainty allows capture.
+
+    channels primes a roster whose lanes are created after the gate (database roster); without it
+    every offline channel got one failed capture at startup, keeping it non-idle for the API an hour.
+    """
     from exp_tracker.twitch_auth import AppTokens
     from exp_tracker.twitch_probe import StreamAvailability, capture_paused
     availability=availability or StreamAvailability(enabled=True,auth=AppTokens(maintain=True))
     statuses={};ready=threading.Event()
     def refresh():
         while True:
-            try:statuses.update(availability.snapshot(sorted({l['channel'] for l in list(lanes) if l['source'].kind=='twitch'})))
+            try:statuses.update(availability.snapshot(sorted({l['channel'] for l in list(lanes) if l['source'].kind=='twitch'} or set(channels))))
             except (OSError,ValueError):pass
             finally:ready.set()
             time.sleep(seconds)
@@ -843,7 +847,8 @@ def main(argv=None):
                             scheduler_options=dict(continuous=True,max_attempts=args.max_attempts,stop_after_seconds=args.stop_after_seconds,rotate=rotate) if args.continuous else {}
                             # Current official status avoids offline/unrelated playback; uncertainty never blocks capture.
                             if args.continuous and (db_mode or any(row['source']=='twitch' for row in streams)):
-                                scheduler_options['gate']=category_gate(lanes,any_category=args.any_category)
+                                scheduler_options['gate']=category_gate(lanes,any_category=args.any_category,
+                                    channels=[row['channel'] for row in streams if row.get('source')=='twitch'])
                                 print('Twitch captures pause while offline'+(' or outside the MapleStory category.' if not args.any_category else '.'),flush=True)
                                 print(f'After {MISSING_HUD_GRACE_SECONDS}s without a Classic HUD, live streams recheck every {MISSING_HUD_RECHECK_SECONDS}s; a detected HUD restores normal checks.',flush=True)
                             def lane_options(lane):
