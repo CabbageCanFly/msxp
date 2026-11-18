@@ -115,8 +115,8 @@ def test_only_automatic_status_name_regions_receive_job_remnant_cleanup(monkeypa
     assert seen==[(230,230,230) if manual else (40,50,60)]
 
 
-@pytest.mark.parametrize('height', [126, 125])
-def test_automatic_name_region_tolerates_one_pixel_bottom_overflow(height):
+@pytest.mark.parametrize('height', [126, 125, 124])
+def test_automatic_name_region_tolerates_two_pixels_of_bottom_overflow(height):
     layout = dict(anchors=dict(hp=dict(x=300, y=100)), anchor_step=100)
     region = names.name_region(layout, (800, height))
     assert region['box'] == [172, 110, 294, height]
@@ -127,7 +127,7 @@ def test_automatic_name_region_tolerates_one_pixel_bottom_overflow(height):
 
 
 @pytest.mark.parametrize('size,hp', [
-    ((800, 124), dict(x=300, y=100)),  # Two pixels below the frame.
+    ((800, 123), dict(x=300, y=100)),  # Three pixels below the frame.
     ((800, 111), dict(x=300, y=100)),  # Substantial truncation.
     ((800, 400), dict(x=127, y=100)),  # One pixel past the left edge.
     ((293, 400), dict(x=300, y=100)),  # One pixel past the right edge.

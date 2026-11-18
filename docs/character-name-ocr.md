@@ -84,6 +84,10 @@ to 1080 reads the name while preserving the level and EXP result. This is a
 single-frame development check, not a confirmed identity or live recovery trial.
 Server deployment, live recovery and capture cadence are untested by this fix.
 
+On 2026-11-18, a 1080p stream repeatedly placed the inferred bottom at 1082
+even though the name was visible. The automatic crop now trims up to two
+bottom pixels. Larger overflows, other edges and manual crops keep strict bounds.
+
 ## Job-line remnants in name crops (2026-10-25)
 
 Faint pixels from the job above the own-name line can turn a final `l` into a

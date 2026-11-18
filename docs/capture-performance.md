@@ -74,6 +74,8 @@ The whole frame is scanned again:
 - while the character has no confirmed name, or its latest name read disagrees with it;
 - after a capture that recommended holding its reading (name mismatch, pending switch,
   unverified numeric anomaly) or saw a level change or contradictory numbers;
+- while the saved level guard is confirming a jump of more than one level. It needs two
+  distinct full-frame name votes even when consecutive captures agree on the new level.
 - after a capture that raised an error.
 
 Name evidence from a cached capture keeps `provenance.search = "cached_region"`, which
@@ -81,6 +83,13 @@ automatic character confirmation already ignores, so switches and discovery stil
 full-frame scans. A cached capture never leases a layout worker; it takes pool workers call
 by call, so 6 capture threads cannot deadlock on 4 native workers. Records carry
 `hud_layout.path = "cached_region"`.
+
+On 2026-11-18, the VPS kept capturing three streams while the level guard held
+their readings. Periodic full scans were often farther apart than the two-minute
+confirmation window, and intervening cached reads could replace a pending vote.
+A disposable PC trial seeded with the last accepted levels confirmed all three
+using consecutive full-frame name reads, then resumed regional scans. The VPS
+logs establish the failure mode. Recovery with this change on the VPS is untested.
 
 **Production evidence for the policy** (read-only query of the VPS database, last 24 hours,
 2026-11-17): 43,620 captures over 42 streamers. 99.90 % of consecutive single-HUD captures

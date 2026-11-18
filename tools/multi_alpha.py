@@ -764,7 +764,7 @@ def main(argv=None):
                         print(f'Capture RUNNING: at most {args.workers} active job(s), one per channel, bounded per-channel attempts, no queued frames'
                               +(', first captures staggered across each interval.' if args.stagger_capture else '.'),flush=True)
                         with OperatorLog(directory) as operator:
-                            def emit(lane, record):
+                            def persist(lane, record):
                                 if lane['args'].automatic_characters and record['type']=='attempt':
                                     record['resources']=monitor.snapshot()
                                     following=uuid.uuid4().hex
@@ -820,6 +820,16 @@ def main(argv=None):
                                     if record['type']=='attempt':
                                         print(report_attempt(record, committed, database=database, channel=lane['channel'],
                                             neural_enabled=lane['args'].experimental_neural_level).replace('#',f"{lane['channel']} [{lane.get('character')}] #",1),flush=True)
+                            def emit(lane, record):
+                                persist(lane, record)
+                                cache = lane['options'].get('hud_cache')
+                                if cache is not None and record.get('current') and store.schema_version >= 10:
+                                    # A skipped level needs two full-frame name votes even after numeric OCR settles.
+                                    pending_jump = store.db.execute('''SELECT 1 FROM character_level_guard
+                                        WHERE character_id=? AND json_extract(pending_json, '$.level') > level+1''',
+                                        (lane['character_id'],)).fetchone()
+                                    if pending_jump:
+                                        cache.doubt = True
                             def rotate(lane):
                                 previous=lane['run_id']; following=uuid.uuid4().hex
                                 summary=dict(type='summary',trusted=False,attempts=60,interrupted=False,

@@ -806,6 +806,49 @@ def test_fixed_capture_reads_names_confirms_level_catchup_and_never_switches(run
     assert all(not automatic for login,_,_,automatic,_ in seen if login=='newcaster')
 
 
+@pytest.mark.parametrize('automatic', [False, True])
+def test_pending_level_jump_requests_full_frames_until_confirmed(running_roster, monkeypatch, automatic):
+    from exp_tracker.character_automation import guard_level
+    from tests.test_autonomous_characters import AT
+
+    legacy = running_roster[0]
+    module, path = legacy[0], legacy[3]
+    change(path, 'newcaster', authorized=True, automatic_characters=automatic)
+    with Store(path) as store:
+        cid = store.add_character('newcaster', 'Alpha')
+    change(path, 'newcaster', selected_character_id=cid, tracking_enabled=True)
+    with Store(path) as store:
+        store.start_session('newcaster', at=AT)
+        for index in (1, 2):
+            guard_level(store, cid, record(index, level=2))
+
+    capture = module.shadow.capture_attempt
+    searches = []
+    now = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+    def reading(args, source, requirements, index, **options):
+        if source.value != 'newcaster':
+            return capture(args, source, requirements, index, **options)
+        cache = options['hud_cache']
+        search = 'full_frame' if not searches or cache.doubt else 'cached_region'
+        searches.append(search)
+        cache.doubt = False  # The locator consumes the flag when it scans.
+        value = record(index, level=2 if index == 1 else 4, bp=4000 + 500 * index,
+                       at=now + timedelta(seconds=20 * index))
+        value['source'] = dict(kind='twitch', channel='newcaster')
+        value['character_name']['evidence']['provenance']['search'] = search
+        return value
+
+    monkeypatch.setattr(module.shadow, 'capture_attempt', reading)
+    assert run_db(running_roster, '--max-attempts', '5', '--hud-cache-seconds', '300') == 0
+    assert searches == ['full_frame', 'cached_region', 'full_frame', 'full_frame', 'cached_region']
+    with Store(path, read_only=True) as store:
+        rows = [json.loads(r[0]) for r in store.db.execute('''SELECT a.payload_json FROM diagnostic_attempts a
+            JOIN diagnostic_runs r ON r.run_id=a.run_id WHERE r.character_id=? ORDER BY a.id''', (cid,))]
+        assert [r['current'] for r in rows] == [True, False, False, True, True]
+        assert store.db.execute('SELECT level FROM character_level_guard WHERE character_id=?', (cid,)).fetchone()[0] == 4
+
+
 def test_bounded_attempt_limit_survives_dynamic_lane_replacement(running_roster,monkeypatch):
     legacy,counters,_,_,_,_=running_roster;module=legacy[0];path=legacy[3]
     capture=module.shadow.capture_attempt;updated=[False]
