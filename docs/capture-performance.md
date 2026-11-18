@@ -152,9 +152,10 @@ In production, full scans were about 28 % of captures but most of the remaining 
   The deployed region read had one differing value on those frames, which the EXP table rejected.
 - **Streams without a Classic HUD.** In the missing-HUD backoff, 110 of 117 captures in 25 minutes
   found no HUD label and then ran full-page OCR on both pages (5.2 s wall each on the loaded VPS).
-  Within the backoff, a label-less frame now skips that OCR, except once every 300 s
-  (`MISSING_HUD_FULL_CHECK_SECONDS`). On 16 local no-HUD frames: 1.71 → 1.01 CPU-s, same result
-  on all 16. A returning HUD that the label probes miss can wait up to 300 s instead of 60 s.
+  Within the backoff, a label-less frame now skips that OCR, except once every 120 s
+  (`MISSING_HUD_FULL_CHECK_SECONDS`), so every other one-minute recheck is a full check. On 16
+  local no-HUD frames: 1.71 → 1.01 CPU-s for a skipped check, same result on all 16. A returning
+  HUD that the label probes miss can wait up to about 120 s instead of 60 s.
 
 A frame is also hashed once per capture (`Frame.sha256`), and region scans no longer search
 `PATH` for Tesseract while the resident pool serves OCR.

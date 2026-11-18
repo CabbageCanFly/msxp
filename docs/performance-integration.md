@@ -79,7 +79,7 @@ Non-continuous runs and local-video replays retain their configured cadence.
 
 Every recheck runs the normal detector on a newly acquired frame. With layout-first HUD
 recognition, a backed-off recheck whose label probes find no HUD label skips full-page OCR,
-except once every 300 seconds ([measurements](capture-performance.md#phase-2-fewer-full-scans-2026-11-18)). A real Classic
+except once every 120 seconds ([measurements](capture-performance.md#phase-2-fewer-full-scans-2026-11-18)). A real Classic
 stream with persistent HUD-detection failures also qualifies, so returning
 gameplay may wait roughly a minute for the next check; ordinary scheduler/load
 delays can add to that. The 60-second cap limits this tradeoff. Pausing/resuming or

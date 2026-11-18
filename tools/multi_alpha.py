@@ -33,7 +33,7 @@ APP = 'multi_alpha_v1'
 LIVE_TRIAL_INTERVAL = (15, CONFIRM_GAP_SECONDS/2)
 MISSING_HUD_GRACE_SECONDS = 120
 MISSING_HUD_RECHECK_SECONDS = 60
-MISSING_HUD_FULL_CHECK_SECONDS = 300
+MISSING_HUD_FULL_CHECK_SECONDS = 120  # Bounds a returning HUD missed by label probes to ~2 minutes.
 
 
 def private(path):

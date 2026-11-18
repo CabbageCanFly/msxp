@@ -104,7 +104,7 @@ def test_recheck_cadence_survives_capture_run_rotation(schedule):
     assert rotated==[60] and starts[-1]-starts[-2]==60
 
 
-def test_backoff_skips_label_less_full_page_ocr_except_every_five_minutes(schedule):
+def test_backoff_skips_label_less_full_page_ocr_except_every_two_minutes(schedule):
     now=[0.];starts=[];group=lanes('channel',count=20,interval=20)
     group[0].update(source=Source('twitch','channel'),options={})
     def perform(lane,index,seek):
@@ -115,5 +115,5 @@ def test_backoff_skips_label_less_full_page_ocr_except_every_five_minutes(schedu
              clock=lambda:now[0],sleep=lambda seconds:now.__setitem__(0,now[0]+seconds))
     full=[t for t,skip in starts if not skip]
     assert full[:7]==[0,20,40,60,80,100,120]   # Normal cadence always runs the full check.
-    assert full[7:]==[420,720]                   # Then once per 300 s while backed off.
+    assert full[7:]==[240,360,480,600,720,840]   # Then once per 120 s while backed off.
     assert all(skip for t,skip in starts if t not in full)
