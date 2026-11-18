@@ -9,7 +9,8 @@ Locally, run `msxp tracker --resident-tesseract`. Append `--no-layout-first-hud`
 to compare with the previous detector. On the VPS, that switch can go in the
 existing `MSXP_CAPTURE_LIMITS` in `/etc/msxp/roster.env`; preserve its other
 options and restart the tracker. Remove the switch to re-enable the faster path.
-Plain CLI Tesseract and explicit HUD-region caching keep their previous behavior.
+Plain CLI Tesseract keeps its previous behavior. `--hud-cache-seconds` now uses layout-first
+for its full-frame scans ([region cache](capture-performance.md#region-cache-with-layout-first-scans-2026-11)).
 
 ## What changes
 

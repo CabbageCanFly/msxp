@@ -82,7 +82,7 @@ def test_capture_failures_preserve_trusted_state_without_gain_cap(tmp_path, monk
             pending = next(events)
             if isinstance(pending, CaptureError):
                 raise pending
-            return SimpleNamespace(sequence=1, png=b'owned-synthetic-frame', received_at='test',
+            return SimpleNamespace(sequence=1, data=b'owned-synthetic-frame', received_at='test',
                                    arrived_monotonic=capture.time.monotonic(),
                                    image=lambda: Image.new('RGB', (100, 20)))
         def close(self):

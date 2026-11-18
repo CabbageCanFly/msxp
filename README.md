@@ -83,6 +83,9 @@ if checks keep failing beyond that, playback checks resume while the display kee
 For lower OCR CPU usage, `msxp tracker --resident-tesseract` uses isolated, reused
 Tesseract workers with layout-first HUD recognition and full-frame OCR fallback.
 Existing VPS roster services already enable it. See [results and rollback](docs/layout-first-hud.md).
+Adding `--hud-cache-seconds 300` reads each stream near its last full-frame HUD and rescans the
+whole frame at least every 300 seconds and on any doubt; it is opt-in
+([measurements](docs/capture-performance.md#region-cache-with-layout-first-scans-2026-11)).
 
 ![Player profile showing recent pace, next-level estimates and EXP history](docs/images/player-profile.png)
 

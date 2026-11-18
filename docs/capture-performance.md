@@ -39,6 +39,86 @@ attempts, but overall CPU remained saturated while more live frames were acquire
 
 The earlier throughput measurements below predate these changes.
 
+## Uncompressed frame transfer (PPM)
+
+FFmpeg now hands capture sessions binary PPM (raw RGB with a 15-byte header) instead of PNG.
+The PNG encode was most of FFmpeg's work per capture. Frames are pixel-identical, so OCR inputs
+are unchanged. `read_ppm` checks the exact header and the pixel limit before reading the body.
+`frame_sha256` now hashes the PPM bytes: still a content hash of the decoded frame, but it no
+longer matches hashes recorded before this change (only distinctness within a run is used).
+`collect_hud_frames.py` still asks for PNG, because it saves FFmpeg's native files as fixtures.
+
+Measured:
+
+- **VPS, read-only `/proc` sampling, 2026-11-17, PNG code:** about 41 captures a minute. Each
+  FFmpeg process used **0.6–1.4 CPU-s** (typically ≈1.0), about a quarter of tracker CPU. Over the
+  same minute, the resident Tesseract workers used ≈2.4 CPU-s per capture, Streamlink ≈0.27 and
+  the coordinator ≈0.3.
+- **Workstation, the production command on three recorded 1080p Twitch clips, first frame then
+  terminate:** median FFmpeg CPU **0.23–0.28 s with PNG, 0.08–0.11 s with PPM**. Python decode
+  plus SHA-256 in the coordinator: 35–42 ms → 14–27 ms per frame.
+
+Not measured: the VPS saving. If it scales like the workstation, the estimate is
+≈0.6 CPU-s less per capture. The October estimate ("≈3 %, low value", in
+[throughput research](throughput-architecture-research.md)) used a workstation-only FFmpeg figure.
+
+## Region cache with layout-first scans (2026-11)
+
+`--hud-cache-seconds N` (opt-in) now combines with `--resident-tesseract` layout-first scans and
+the database roster. Per channel, a capture first reads a small box around the last **unique
+full-frame** HUD (`adaptive_hud.CachedLocator`); full-frame scans use layout-first as before.
+The whole frame is scanned again:
+
+- at least every N seconds, and whenever the region finds 0 or ≥2 HUDs, different spacing,
+  a moved EXP/level box or a changed frame size (the existing `same_layout` checks);
+- while the character has no confirmed name, or its latest name read disagrees with it;
+- after a capture that recommended holding its reading (name mismatch, pending switch,
+  unverified numeric anomaly) or saw a level change or contradictory numbers;
+- after a capture that raised an error.
+
+Name evidence from a cached capture keeps `provenance.search = "cached_region"`, which
+automatic character confirmation already ignores, so switches and discovery still rest on
+full-frame scans. A cached capture never leases a layout worker; it takes pool workers call
+by call, so 6 capture threads cannot deadlock on 4 native workers. Records carry
+`hud_layout.path = "cached_region"`.
+
+**Production evidence for the policy** (read-only query of the VPS database, last 24 hours,
+2026-11-17): 43,620 captures over 42 streamers. 99.90 % of consecutive single-HUD captures
+kept the EXP box within the cache tolerance; every streamer was ≥ 99.1 % stable; the
+median shift was 0 px, p99 4.7 px. Only 17 frames (0.04 %) reported two HUDs, and all 17 were
+one HUD found twice (EXP boxes a few pixels apart, one HUD before and after); none was a
+second game client. Those frames are rejected today; the cache reads them.
+
+**Paired replay** through the real `capture_attempt`, resident Tesseract, resident RapidOCR
+and `IdentityCapture`, with a virtual 20 s clock and N = 300: full scan every frame versus
+the cache, 441 frames (13 fresh live sequences of 18 frames at 20 s, plus the three sample
+recordings at 80–140 s spacing). 345 frames took the cached path. Workstation wall time
+850 s → 336 s for the whole attempt (2.5×). 9 frames differed:
+
+| Outcome | Frames |
+| --- | ---: |
+| Cache recovered a reading the full scan rejected or missed (values checked against the pixels) | 5 |
+| Same numbers, different separator character in raw text | 1 |
+| Cache read malformed text where the full scan was clean (rejected, not stored) | 2 |
+| Cache misread a percentage with a spurious leading `1`; the EXP-table check marks it `conflict` | 1 |
+
+No incorrect value passed the EXP-table check in either mode. Crops taken from the last
+full scan's geometry instead of the region's own boxes were tried and were worse (5
+cache-only rejections against 4 recoveries), so the region geometry is kept.
+
+**Local trial** (workstation, `msxp tracker` from this branch, a new database, 13 live streamers
+at 20 s, `--workers 6 --stagger-capture --resident-neural --resident-tesseract
+--hud-cache-seconds 300`, 30 minutes, saved crops on): 1,143 attempts, 855 recognized. 696
+(81 %) took the cached path, with mean recognition **0.39 s** against 1.77 s for layout-first
+selective and 2.39 s for full fallback. Each trial pair was bracketed by production's
+readings of the same stream (read-only VPS query): 576 pairs, 2 outside the bracket, both by
+under 0.02 % and both confirmed correct in their saved crops (the production frame was a
+second or two older). 3 pairs failed the EXP-table check, all from one streamer's misread
+level badge, one of them on a full scan.
+
+Not measured yet: whole-tracker CPU per capture with the cache on the VPS, and behaviour over
+hours or across stream restarts.
+
 ## Streamlink import preloading (automatic on Linux)
 
 Linux network capture enables this automatically (`MSXP_PRELOAD_STREAMLINK=auto`).
@@ -132,7 +212,8 @@ All default to today's behaviour: `--workers 1` (the unchanged serial path, run 
 on the coordinator thread), no cache and one neural process per attempt. Without these
 flags, `capture_attempt` receives exactly the arguments it did before; a test asserts
 that. `deploy/msxp-tracker.service` is unchanged, so production changes only when flags
-are added to its `ExecStart`. **HUD caching stays disabled** until separately approved.
+are added to its `ExecStart`. HUD caching stays opt-in; see
+[region cache with layout-first scans](#region-cache-with-layout-first-scans-2026-11).
 
 | Flag (`tools/multi_alpha.py`) | Effect | Accuracy |
 |---|---|---|
@@ -206,8 +287,8 @@ the validated position and scale. That HUD could only be swapped for another
 character's at exactly the same place and scale, and full-frame scanning cannot detect
 that swap either (identity is never verified).
 
-Decide before enabling it: is a bounded blind spot for a newly appearing second HUD
-acceptable? If not, leave `--hud-cache-seconds` at 0 and rely on workers.
+The 2026-11 production measurements below found no real second HUD in 24 hours of captures;
+see [region cache with layout-first scans](#region-cache-with-layout-first-scans-2026-11).
 
 ## Neural worker startup
 

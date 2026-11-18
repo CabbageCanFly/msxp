@@ -54,7 +54,7 @@ def frame_at(item):
         png = subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-ss', str(item['seconds']), '-i', str(video), '-frames:v',
                               '1', '-f', 'image2pipe', '-c:v', 'png', 'pipe:1'], check=True, capture_output=True, timeout=120).stdout
     else:return None
-    return Frame(png=png, sequence=0, arrived_monotonic=time.monotonic(), received_at=datetime.now(timezone.utc).isoformat())
+    return Frame(data=png, sequence=0, arrived_monotonic=time.monotonic(), received_at=datetime.now(timezone.utc).isoformat())
 
 
 @pytest.mark.parametrize('item', frames())

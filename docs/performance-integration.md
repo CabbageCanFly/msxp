@@ -163,7 +163,8 @@ The loaded-VPS CPU and throughput improvement remains unmeasured.
 - The CLI path stays the default.
 - `--resident-neural`, which reuses a RapidOCR process, is a separate option. The two
   combine freely, and DB-roster mode still always uses its resident neural worker.
-- HUD caching stays off (`--hud-cache-seconds 0`), and every attempt still makes both
+- HUD caching stays off unless `--hud-cache-seconds` is given (it now combines with layout-first;
+  see [region cache](capture-performance.md#region-cache-with-layout-first-scans-2026-11)); otherwise every attempt still makes both
   full-frame passes.
 - Character-name reading, identity holds, EXP trust and accounting, and level floors are
   not touched.

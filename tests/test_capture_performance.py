@@ -270,7 +270,7 @@ def test_coordinator_flags_reach_each_attempt_and_are_bounded(multi, monkeypatch
     assert sorted(channel for channel, _ in seen) == ['alpha', 'alpha', 'beta', 'beta']
     residents = {id(kw['resident']) for _, kw in seen}
     assert len(residents) == 1 and len(closed) == 1                 # One shared resident, closed at exit.
-    locators = {c: {id(kw['analyze_frame'].keywords['locator']) for channel, kw in seen if channel == c} for c in ('alpha', 'beta')}
+    locators = {c: {id(kw['hud_cache']) for channel, kw in seen if channel == c} for c in ('alpha', 'beta')}
     assert all(len(ids) == 1 for ids in locators.values()) and locators['alpha'] != locators['beta']
     seen.clear()
     assert run_main(multi) == 0 and all(set(kw) == {'seek'} for _, kw in seen)  # Defaults keep the serial, per-attempt path.

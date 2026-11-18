@@ -60,7 +60,7 @@ def persist(d,result,index):
     captured=frame(index)
     record=dict(result,type='attempt',trusted=False,index=index,
         attempted_at=captured.received_at,received_at=captured.received_at,
-        frame_sha256=hashlib.sha256(captured.png).hexdigest(),source=dict(kind='twitch',channel='alpha'))
+        frame_sha256=hashlib.sha256(captured.data).hexdigest(),source=dict(kind='twitch',channel='alpha'))
     d.append('run',record)
 
 
