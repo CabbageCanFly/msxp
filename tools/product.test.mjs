@@ -2090,11 +2090,12 @@ test('EXP bars just over 10K fill the plot and their overlay label stays inside 
   ]};
   p.run("data={player:{character:{id:1}},tracked_history:tracked};rollingData=tracked;bucketSeconds=60;chartWindow=60;drawExpHistory();drawHourChart(el('overlay-chart'),60,3600)");
   const profile=p.elements['history-chart'].children;
-  assert.deepEqual(profile.filter(n=>n.tag==='text' && n.attributes.x==='44').map(n=>n.textContent),['0','2.5K','5K','7.5K','10K']);
+  assert.deepEqual(profile.filter(n=>n.tag==='text' && n.attributes.x==='44').map(n=>n.textContent),['0','2.5K','5.0K','7.5K','10.0K']);
   const column=profile.find(n=>n.attributes.class==='exp-column');
   assert.ok(Number(column.attributes.height)>150);
   const overlay=p.elements['overlay-chart'].children;
   const peak=overlay.find(n=>n.attributes.class==='peak'),bar=overlay.find(n=>n.attributes.class==='bar');
+  assert.deepEqual(overlay.filter(n=>n.attributes.class==='axis').map(n=>n.textContent),['10.0K','5.0K']);
   assert.equal(peak.textContent,'10.6K');
   assert.ok(Number(bar.attributes.height)>65);
   assert.ok(Number(peak.attributes.y)>=9 && Number(peak.attributes.y)<Number(bar.attributes.y));

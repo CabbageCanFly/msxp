@@ -11,11 +11,13 @@
     return {top, ticks};
   }
 
+  const axisLabel = (value, format) => format(value).replace(/^(\d[\d,]*)([KMB])$/, '$1.0$2');
+
   function overlay(svg, bins, labelled, format) {
     const peak = bins.reduce((best, b, i) => (b.value ?? 0) > (bins[best]?.value ?? 0) ? i : best, -1);
     const max = bins[peak]?.value ?? 0;
     const width = labelled ? svg.clientWidth || 462 : 462, height = labelled ? svg.clientHeight || 90 : 76;
-    const left = labelled ? 28 : 0, top = labelled ? 15 : 2, bottom = height - 2;
+    const left = labelled ? 38 : 0, top = labelled ? 15 : 2, bottom = height - 2;
     const scale = labelled ? axis(0, max, 2) : {top: Math.max(1, max)};
     const step = (width - left) / bins.length, gap = Math.min(6, step / 4);
     const y = (value) => bottom - Math.max(0, value) / scale.top * (bottom - top);
@@ -29,7 +31,7 @@
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
       for (const value of scale.ticks.slice(1).reverse()) {
         shape('line', {x1: left, x2: width, y1: y(value), y2: y(value), class: 'grid'});
-        shape('text', {x: left - 5, y: y(value) + 3, 'text-anchor': 'end', class: 'axis'}).textContent = format(value);
+        shape('text', {x: left - 5, y: y(value) + 3, 'text-anchor': 'end', class: 'axis'}).textContent = axisLabel(value, format);
       }
     }
     bins.forEach((b, i) => {
@@ -45,5 +47,5 @@
     }
   }
 
-  globalThis.ExpBars = {axis, overlay};
+  globalThis.ExpBars = {axis, axisLabel, overlay};
 })();

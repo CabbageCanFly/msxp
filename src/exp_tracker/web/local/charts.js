@@ -101,7 +101,7 @@ export function drawExpChart(svg, intervals, {anchor, seconds, range}) {
   for (const value of axisTicks) {
     const y = yValue(value);
     shape('line', {x1: 54, x2: width - 22, y1: y, y2: y, class: 'chart-grid'});
-    shape('text', {x: 44, y: y + 4, 'text-anchor': 'end'}).textContent = expText(value);
+    shape('text', {x: 44, y: y + 4, 'text-anchor': 'end'}).textContent = ExpBars.axisLabel(value, expText);
   }
   for (const bin of chart.bins) {
     const left = x(bin.start) + 2, w = Math.max(2, x(bin.end) - x(bin.start) - 4), height = bin.value == null ? 0 : Math.max(2, Math.abs(yValue(bin.value) - yValue(0)));
