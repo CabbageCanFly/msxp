@@ -161,7 +161,7 @@ function renderItems(now) {
     if (bumps.has(item.itemId)) { li.className = 'bumped'; li.style.animationDelay = `-${now - bumps.get(item.itemId)}ms`; }
     const icon = document.createElement('span'), known = icons?.get(item.itemId);
     icon.className = 'icon'; li.title = item.name;
-    if (known) icon.style.cssText = `background-image:url(/static/local/items/icons-${known.sheet}.png);background-position:-${known.cell % 16 * 32}px -${Math.floor(known.cell / 16) * 32}px`;
+    if (known?.sheet != null && known.cell != null) icon.style.cssText = `background-image:url(/static/local/items/icons-${known.sheet}.png);background-position:-${known.cell % 16 * 32}px -${Math.floor(known.cell / 16) * 32}px`;
     li.append(icon, Object.assign(document.createElement('strong'), {textContent: `×${exp(item.count)}`}));
     return li;
   }));

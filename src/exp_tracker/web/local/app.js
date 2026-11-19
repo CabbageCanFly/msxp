@@ -743,7 +743,7 @@ const ITEM_KINDS = {1: 'equip', 2: 'use', 4: 'etc'};
 function itemChip(item) {
   const li = document.createElement('li'), icon = document.createElement('span'), known = itemIcons?.get(item.itemId);
   icon.className = 'icon';
-  if (known) icon.style.cssText = `background-image:url(/static/local/items/icons-${known.sheet}.png);background-position:-${known.cell % 16 * 32}px -${Math.floor(known.cell / 16) * 32}px`;
+  if (known?.sheet != null && known.cell != null) icon.style.cssText = `background-image:url(/static/local/items/icons-${known.sheet}.png);background-position:-${known.cell % 16 * 32}px -${Math.floor(known.cell / 16) * 32}px`;
   li.append(icon, item.name, Object.assign(document.createElement('span'), {className: 'count', textContent: `×${fmtExp(item.count)}`}));
   return li;
 }

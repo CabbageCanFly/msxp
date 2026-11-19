@@ -404,9 +404,8 @@ replay also read the name, job and level, including one badge with the game curs
 keeps meso and item pickups in IndexedDB (`pickups` store, 24 hours like readings; included in the
 JSON export and deleted with the character). EXP messages are read but never kept: EXP comes only
 from the EXP bar. Items are kept only when the name matches the item list (`local/items/`, built by `tools/build_local_items.py`
-from maplestory.io's copy of the Classic World client data: 1,978 non-cash Equip, Use and Etc items, one per name;
-the client data has no drop tables; the NiaDB monster-drop build is kept as a backup source); unread messages are
-dropped. The Pickups panel shows mesos per hour (see Live rate), mesos in the last 24 hours, and the items picked up with their icons. With `?debug`
+from the Classic World client data, with 2,033 non-cash Equip, Use and Etc items, one per name and tab).
+See [November item catalog sources](#november-item-catalog-sources). Unread messages are dropped. The Pickups panel shows mesos per hour (see Live rate), mesos in the last 24 hours, and the items picked up with their icons. With `?debug`
 a log lists every message as read. Not yet in the OBS overlay; the learned message font is saved
 (setting `pickupFont`; the older `messageFont` held shapes misread before word alignment and is ignored), one
 font for game pixels and one per other window size, so reading starts from it next time; *Clear all* resets it.
@@ -689,3 +688,26 @@ Selecting next-level ETA starts with a 5-minute pace. Its overlay caption is alw
 including when a different pace window is selected. Existing saved pace choices are preserved.
 
 ETA time choices read 5m pace, 10m pace, etc., to identify the EXP/hour lookback used.
+
+
+### November item catalog sources
+
+The November 18, 2026 refresh compares the installed Classic World 2.0.0 `String`, `Character`
+and `Item` archives with the MapleStory.io MCW 1 catalog. It adds 55 named non-cash records
+and corrects three names at their existing IDs. It includes the ten new weapons, Hollow Extract,
+Sylka's Brew, quest materials and Thanksgiving pickups. The 55 new entries use the existing
+empty icon treatment. Previously assigned sprite slots remain valid. Client entries can include
+unreleased content. `tools/build_local_items.py` can rebuild the original MapleStory.io catalog.
+Preserve this refresh when rebuilding from an older snapshot.
+
+The `monsters` lists capture limited source references. The client item descriptions identify
+Aqumander Tail and Duskmander Tail. Forgotten Hollow quest records `10612`, `10613`, `10615`,
+`10623`, `10624`, `10631` and `10640` link other materials to their monsters. Untainted Mushroom
+Cap is described in the context of the quest and its map. The
+[Nexon November patch notes](https://www.nexon.com/maplestory/news/update/48255/november-update-forgotten-hollow-patch-notes)
+list Turkey's event loot and the quest-gated level-10+ pool for Pumpkin Piece, Pie Flour, Milk Jug
+and Turkey Egg. The named Turkey references are scoped to the Thanksgiving event.
+
+The installed client exposes item definitions and quest references. A complete live monster
+loot pool and drop rates are unavailable from the client. The tracker identifies items by the
+pickup text and inventory tab. Monster references have no role in OCR matching or counting.
