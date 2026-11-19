@@ -61,20 +61,20 @@ def job_region(layout, size):
 def second_look(crop):
     """The name crop without its right panel edge, with background margin all round.
     It reads touching glyphs ("yv" read as "w") that the plain crop misses, but it also
-    misreads some names the plain crop gets right, so it may only confirm a known name."""
+    misreads some names the plain crop gets right. A different spelling needs corroboration."""
     crop = crop.convert('RGB').crop((0, 0, crop.width - 3, crop.height))
     padded = Image.new('RGB', (crop.width + 12, crop.height + 12), crop.getpixel((0, 0)))
     padded.paste(crop, (6, 6))
     return padded
 
 
-def clean_name_crop(crop):
+def clean_name_crop(crop, *, binary=False):
     """Remove job remnants and separate blurred small glyphs at the original scale."""
     crop = crop.convert('RGB')
     band = max(1, round(crop.height * .08))
     crop.paste(crop.getpixel((0, min(3, crop.height - 1))), (0, 0, crop.width, band))
     # Small status text loses touching strokes to compression; larger text needs its antialiasing.
-    if crop.height < 24:
+    if binary or crop.height < 24:
         crop = crop.convert('L').point(lambda p: 255 if p > 140 else 0).convert('RGB')
     return crop
 

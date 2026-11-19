@@ -489,6 +489,31 @@ def test_known_name_anchor_rounding_retry_only_confirms_strong_exact_reference(m
     assert value['hold_reasons']==([] if used else ['name_mismatch'])
 
 
+@pytest.mark.parametrize('padded,binary,score,expected', [
+    ('CharYY', 'CharYY', .96, 'CharYY'),
+    ('CharYY', 'CharYZ', .99, 'CharY'),
+    ('CharYY', 'CharYY', .89, 'CharY'),
+    ('CharYZ', 'CharYZ', .99, 'CharY'),
+])
+def test_final_double_letter_needs_agreement_on_two_crop_variants(monkeypatch,padded,binary,score,expected):
+    identity=importlib.import_module('character_identity')
+    monkeypatch.setattr(identity,'name_region',lambda *_:dict(box=[0,0,80,25]))
+    state=IdentityCapture('channel',confirmed='CharW');state.job=state.job_seen='Cleric'
+    image=Image.new('RGB',(1920,1080),(40,50,60));image.putpixel((20,5),(210,210,210))
+    frame=make_frame(0);calls=[]
+    def read(crop):
+        calls.append(crop.size)
+        if len(calls)<4:return response('CharY' if len(calls)==1 else padded)
+        assert crop.getpixel((20,5))==(255,255,255) and crop.getpixel((0,10))==(0,0,0)
+        evidence=response(binary);evidence['raw']['scores']=[score];return evidence
+    value=state.inspect(dict(current=True,candidate=None,visual_level=None),frame,image,candidate(),read,{},max_age=15,clock=lambda:101)
+    evidence=value['evidence']
+    assert len(calls)==(4 if padded=='CharYY' else 3)
+    assert evidence['name']==expected and evidence['raw']['raw']['txts']==[expected]
+    assert ('first_read' in evidence)==(expected=='CharYY')
+    assert value['reading_hold_recommended']  # The writer still needs a second frame before switching.
+
+
 def test_matching_reads_and_unconfirmed_channels_take_no_second_look():
     for state, name in ((IdentityCapture('channel', confirmed='Alpha'), 'Alpha'), (IdentityCapture('channel'), 'Beta')):
         calls = []; state.job = state.job_seen = 'Cleric'  # No job read either.

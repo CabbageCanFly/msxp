@@ -831,16 +831,19 @@ frame locator was introduced.
 
 When a name read does not match the current character's name, the same crop is read once
 more without its 3 rightmost pixels (the status panel's edge) and with 6 pixels of
-background margin all round (`second_look`). Only an exact match with the current name
-replaces the plain read; anything else keeps it. The extra read never proposes or selects
-another character, and matching reads take no second look. The first read is kept as
-`first_read`.
+background margin all round (`second_look`). An exact match with the current name can
+replace the plain read. Matching reads take no second look. Replaced reads retain the
+original as `first_read`.
 
 If that second look also misses the reference, one final padded read includes one
 additional source row above the name box. This tolerates a one-pixel rounding change
-in the HUD anchor. It can replace the original only with an exact reference match
-scoring at least 0.90; failure keeps the original evidence. Matching reads and name
-discovery take no additional calls. No fuzzy identity matching or new model is used.
+in the HUD anchor. Confirming the current name from this crop requires an exact match
+and a score of at least 0.90. Matching reads and name discovery take no additional calls.
+
+On crops at least 24 source pixels high, a padded retry can also recover a dropped
+repeated final letter. The thresholded original crop must read the same longer name.
+Both retries need scores of at least 0.90. Selecting a character still requires two
+fresh, distinct full-frame name readings.
 
 Local paired replay on 2026-10-27: the two rounded crop positions of one saved
 Streamer_J frame improve from one to two exact reference matches. Another 226 name

@@ -239,21 +239,36 @@ class IdentityCapture:
                 observed = validated(read[1],glyphs) if glyphs else read and read[1]
                 reference = self.suggestions.reference
                 if reference and not same_character_name(observed, reference):
-                    # Only a matching current-character name replaces the plain read.
                     second = read_name(second_look(crop))
-                    if not same_character_name((parsed(second) or (0, None))[1], reference):
+                    second_read = parsed(second)
+                    retry_read = None
+                    if not same_character_name((second_read or (0, None))[1], reference):
                         # One extra top row tolerates rounding of the HUD anchor without changing discovery.
                         left, top, right, bottom = region['box']
                         try:
                             retry = read_name(second_look(image.crop((left, max(0, top - 1), right, bottom))))
                             retry_read = parsed(retry)
                             if retry_read and retry_read[0] >= NEURAL_SEED_SCORE and same_character_name(retry_read[1], reference):
-                                second = retry
+                                second, second_read = retry, retry_read
                         except (OSError, RuntimeError, ValueError, KeyError):
                             pass  # Optional context must not discard the original name evidence.
-                    if same_character_name((parsed(second) or (0, None))[1], reference):
+                    use_retry = same_character_name((second_read or (0, None))[1], reference)
+                    # A compressed final double letter can appear as one. Two preprocessing variants
+                    # must independently read the longer spelling before it can count as a vote.
+                    if not use_retry and not glyphs and crop.height >= 24 and observed and observed[-1].isalpha():
+                        repeated = observed + observed[-1]
+                        if any(v and v[0] >= NEURAL_SEED_SCORE and same_character_name(v[1], repeated)
+                               for v in (second_read, retry_read)):
+                            try:
+                                binary = read_name(clean_name_crop(crop, binary=True))
+                                binary_read = parsed(binary)
+                            except (OSError, RuntimeError, ValueError, KeyError):
+                                binary_read = None
+                            if binary_read and binary_read[0] >= NEURAL_SEED_SCORE and same_character_name(binary_read[1], repeated):
+                                second, second_read, use_retry = binary, binary_read, True
+                    if use_retry:
                         evidence['first_read'] = dict(text=response.get('text'), score=read and read[0])
-                        response, read = second, parsed(second)
+                        response, read = second, second_read
                         glyphs = None
                 evidence['raw'] = response
                 if read:
