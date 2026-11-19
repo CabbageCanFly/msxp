@@ -33,19 +33,33 @@ def recognize_fields(engine,image,level_payload=None,*,experimental=False):
     source=image
     image=image.resize((image.width*2,image.height*2),Image.Resampling.BICUBIC)
     result=recognize(engine,image)
-    hypotheses=interpret_exp(result['text'])['percentage_hypotheses']
+    parsed=interpret_exp(result['text'])
+    hypotheses=parsed['percentage_hypotheses']
     full=propose_full_exp(result['text'])['proposals']
+    retries=('grayscale2','neutral2') if len(hypotheses)==1 else ('grayscale2',)
+    recovered=parsed['full_exp']
+    if recovered['classification']=='unique_proposal' and any(
+            edit['category']=='ungrouped_exp_opener' for edit in recovered['proposals'][0]['edits']):
+        full=recovered['proposals']
+        retries=('bracket_chroma2',)
     if len(hypotheses)==1 or len(full)==1:
         # A strict retry must corroborate every digit, including absolute EXP when present.
         elapsed=result['inference_seconds'];grayscale=None
-        for preprocessing in (('grayscale2','neutral2') if len(hypotheses)==1 else ('grayscale2',)):
+        for preprocessing in retries:
             try:
                 if preprocessing=='grayscale2':
                     crop=ImageOps.grayscale(image).convert('RGB')
-                else:
+                elif preprocessing=='neutral2':
                     red,green,blue=source.convert('RGB').split()
                     crop=ImageOps.invert(ImageChops.darker(ImageChops.darker(red,green),blue)).convert('RGB')
                     crop=crop.resize(image.size,Image.Resampling.BICUBIC)
+                else:
+                    # Give the green brackets contrast against the neutral digits and HUD background.
+                    _,green,blue=source.convert('RGB').split()
+                    mask=ImageChops.subtract(green,blue).point(lambda p:255 if p>=13 else 0)
+                    gray=ImageOps.grayscale(source)
+                    crop=Image.composite(Image.new('L',source.size,130),gray,mask)
+                    crop=crop.convert('RGB').resize(image.size,Image.Resampling.BICUBIC)
                 retry=recognize(engine,crop);elapsed+=retry['inference_seconds']
                 if preprocessing=='grayscale2':grayscale=retry
                 scores=retry['raw'].get('scores') or []

@@ -67,7 +67,7 @@ def test_bracket_retry_requires_strict_same_digits_and_strong_score(modules,retr
 
 
 @pytest.mark.parametrize('text',['[77.70%]','12345[77.70%]','77.70%1','100.00%1','[$S.70%]',
-                                 '177.7%1','1177.70%1','unreadable',None])
+                                 '177.7%1','11110.07%]','unreadable',None])
 def test_bracket_retry_does_no_extra_work_for_other_fields(modules,text):
     _,worker,_=modules
     calls=[]
@@ -100,6 +100,24 @@ def test_full_exp_retry_abstains_without_a_unique_bounded_proposal(modules,text)
     def engine(*args,**kwargs):calls.append(1);return output(text)
     assert worker.recognize_fields(engine,Image.new('RGB',(100,20)))['text']==text
     assert len(calls)==1
+
+
+@pytest.mark.parametrize('retry,score,accepted',[
+    ('192[0.07%]',.93,True),('1921[0.07%]',.99,False),('192[0.08%]',.99,False),
+    ('192[0.07%]',.89,False),('19210.07%1',.99,False),
+])
+def test_short_exp_bracket_retry_requires_strict_agreement(modules,retry,score,accepted):
+    _,worker,_=modules
+    original='19210.07%1'
+    source=Image.new('RGB',(50,15),(222,222,222));source.putpixel((5,5),(130,180,140))
+    calls=[]
+    def engine(image,**kwargs):
+        calls.append(image.copy())
+        return output(original) if len(calls)==1 else output(retry,score)
+    result=worker.recognize_fields(engine,source)
+    assert len(calls)==2 and calls[1].tobytes()!=calls[0].tobytes()
+    assert result['text']==(retry if accepted else original)
+    if accepted:assert result['bracket_retry']['preprocessing']=='bracket_chroma2'
 
 
 @pytest.mark.parametrize('original',['177.70%1','123,456157.08%]'])
