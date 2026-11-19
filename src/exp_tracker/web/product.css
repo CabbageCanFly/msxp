@@ -653,6 +653,9 @@ html, body.product { overflow-x:clip; }
 .stat-edit-row label { padding:0 10px; font-size:12px; color:var(--text-muted); white-space:nowrap; text-align:right; }
 .stat-edit-row select { min-width:0; width:100%; padding:9px 24px 9px 8px; border:0; border-left:1px solid var(--line); border-radius:0; background:var(--surface-sunken); color:var(--text); font:inherit; font-size:13px; }
 .stat-edit-row select:disabled { opacity:.4; }
+.stat-overlap { grid-column:1 / -1; display:flex; gap:6px; margin:0; color:var(--text-muted); font-size:12px; line-height:1.4; }
+.stat-overlap:empty { display:none; }
+.stat-overlap::before { content:"ⓘ" / ""; color:var(--gold); }
 
 .overlay-layout-controls { display:grid; gap:12px; align-content:start; min-width:0; }
 .overlay-stat-controls { grid-template-columns:minmax(0,1fr); gap:8px; }
@@ -672,6 +675,5 @@ html, body.product { overflow-x:clip; }
 
 .stat-edit-row select { appearance:none; background-image:linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%); background-position:calc(100% - 13px) center, calc(100% - 9px) center; background-size:4px 4px; background-repeat:no-repeat; }
 .stat-edit-row select:nth-of-type(2) { font-size:12px; padding-left:6px; padding-right:18px; }
-
 
 .stat-edit-rows:has([data-metric="eta"]) { grid-template-columns:max-content minmax(0,1fr) 84px; }

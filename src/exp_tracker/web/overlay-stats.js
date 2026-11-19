@@ -33,9 +33,15 @@
     const layout = options.layout;
     root.hidden = !counts[layout];
     if (root.hidden) { previewHighlight(null, null); return; }
-    const customized = Array.from({length: counts[layout]}, (_, i) => options[`${layout}${i + 1}`]).some(Boolean);
+    const selections = Array.from({length: counts[layout]}, (_, i) => options[`${layout}${i + 1}`]);
+    const customized = selections.some(Boolean);
+    const overlap = selections.includes('rate:60') && selections.includes('gain:60')
+      ? '60m EXP/h and Last 60 min can show the same number when a full hour is tracked.' : '';
     if (root.dataset.layout === layout) {
-      const reset = root.querySelector('.stat-reset'); if (reset) reset.disabled = !customized; return;
+      const reset = root.querySelector('.stat-reset'), note = root.querySelector('.stat-overlap');
+      if (reset) reset.disabled = !customized;
+      if (note && note.textContent !== overlap) note.textContent = overlap;
+      return;
     }
     previewHighlight(null, null);
     root.dataset.layout = layout;
@@ -52,9 +58,11 @@
       const [chosen, period = '15'] = (options[key] ?? 'default').split(':'); metric.value = chosen;
       function periods(preferred) {
         row.dataset.metric = metric.value;
-        window.setAttribute('aria-description', metric.value === 'eta' ? 'EXP/hour lookback used to calculate the next-level ETA.' : '');
+        const hourly = ['rate', 'percent', 'mesoRate'].includes(metric.value);
+        const rateHint = 'Lookback window used to calculate the hourly rate.';
+        window.setAttribute('aria-description', hourly ? rateHint : metric.value === 'eta' ? 'EXP/hour lookback used to calculate the next-level ETA.' : '');
         window.replaceChildren(); window.disabled = metric.value === 'default';
-        window.title = window.disabled ? 'Uses the layout default time window.' : '';
+        window.title = window.disabled ? 'Uses the layout default time window.' : hourly ? rateHint : '';
         if (window.disabled) {
           const option = document.createElement('option'); option.value = 'auto'; option.textContent = 'Auto'; window.append(option); return;
         }
@@ -74,6 +82,8 @@
       row.addEventListener('focusout', event => { focused = row.contains(event.relatedTarget); highlight(); });
       row.append(name, metric, window); rows.append(row);
     }
+    const note = document.createElement('p'); note.className = 'stat-overlap';
+    note.setAttribute('role', 'status'); note.textContent = overlap; rows.append(note);
     const title = document.createElement('span'); title.textContent = 'Stats';
     const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'stat-reset'; reset.textContent = 'Reset';
     reset.setAttribute('aria-label', 'Reset stats to default for this layout'); reset.disabled = !customized;

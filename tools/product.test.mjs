@@ -2308,6 +2308,35 @@ test('General level visibility defaults to shown and reaches the preview indepen
 });
 
 
+test('the 60m rate and gained EXP are both selectable and show a note when paired', () => {
+  const p=page('player');
+  const root=p.run("globalThis.statsRoot=el('overlap-editor'); globalThis.statsOptions={layout:'card',card1:'rate:60',card2:'gain:30'}; globalThis.updateStats=()=>OverlayStats.editor(statsRoot,statsOptions,false,updateStats);updateStats();statsRoot");
+  const rows=root.children[1].children, rate=rows[0].children[2], gain=rows[1].children[2], note=rows.at(-1);
+  root.querySelector=selector=>selector==='.stat-overlap'?note:null;
+  assert.equal(note.textContent,'');
+  gain.value='60';gain.listeners.change();
+  assert.equal(p.run('statsOptions.card1'),'rate:60');
+  assert.equal(p.run('statsOptions.card2'),'gain:60');
+  assert.match(note.textContent,/can show the same number/);
+  rate.value='30';rate.listeners.change();
+  assert.equal(note.textContent,'');
+});
+
+test('compact durations show a lookback hint for hourly stats', () => {
+  const p=page('player');
+  const root=p.run("globalThis.statsRoot=el('rate-window-editor'); OverlayStats.editor(statsRoot,{layout:'live',live1:'rate:60',live2:'percent:10',live3:'mesoRate:5',live4:'gain:30',live5:'mesos:15'},true,()=>{});statsRoot");
+  const durations=['5m','10m','15m','30m','60m'];
+  const [rate, percent, mesoRate, gain, mesos]=root.children[1].children.slice(0,5).map(row=>row.children[2]);
+  for (const window of [rate,percent,mesoRate]) {
+    assert.match(window.title,/Lookback window/);
+    assert.deepEqual(window.children.map(option=>option.textContent),durations);
+  }
+  assert.equal(gain.title,'');
+  assert.equal(mesos.title,'');
+  assert.deepEqual(gain.children.map(option=>option.textContent),[...durations,'24h','Session']);
+  assert.deepEqual(mesos.children.map(option=>option.textContent),[...durations,'24h']);
+});
+
 test('selecting ETA starts at five minutes while saved and explicitly chosen windows stay intact', () => {
   for (const local of [false,true]) {
     const p=page('player');
