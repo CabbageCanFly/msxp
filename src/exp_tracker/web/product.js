@@ -664,10 +664,14 @@ function renderPlayer() {
       n.textContent=rate?`${expText(rate.value.approximate)}`:'—';n.dataset.paused=String(!!windowPace && !windowPace.active && faded(windowPace.age));
     }
     OverlayStats.render(overlayStatsOptions, (metric, minutes) => {
-      const pace=publicPace(p,Number(minutes)), estimates=pace?.estimates;
+      const lookback=Number(minutes), maxAge=lookback*60;
+      if(metric==='eta'){
+        const saved=publicETA(p,lookback);
+        return etaText(saved && saved.age<maxAge?saved.estimate:null);
+      }
+      const pace=publicPace(p,lookback), estimates=pace && pace.age<maxAge?pace.estimates:null;
       if(metric==='rate')return expText(estimates?.exp_per_hour?.value.approximate);
       if(metric==='percent'){const value=estimates?.percentage_per_hour?.value.approximate;return value==null?'—':value.toFixed(2)+'%';}
-      if(metric==='eta')return etaText(publicETA(p,Number(minutes))?.estimate);
       const total=p.tracked_windows?.[minutes];
       return total?.available?expText(total.gain?.approximate):'—';
     });

@@ -2102,6 +2102,29 @@ test('EXP bars just over 10K fill the plot and their overlay label stays inside 
   assert.ok(Number(peak.attributes.x)+17<=462);
 });
 
+test('custom OBS rate and ETA cells expire at their own cutoff between API polls',()=>{
+  const p=page('overlay',undefined,'?layout=rates&rates1=rate:5&rates2=percent:5&rates3=eta:5&rates4=rate:15');
+  const cells=Array.from({length:4},()=>{
+    const cell=new Element('strong'), label=new Element('span');
+    cell.parentElement={querySelector:()=>label};return cell;
+  });
+  p.context.document.querySelectorAll=selector=>selector==='.rate-stats strong'?cells:[];
+  const base=player({age_seconds:299,stale:true});
+  const pace={active:false,age_seconds:299,estimates:base.estimates};
+  base.recent_windows={5:{last_observed_pace:pace,eta:{estimate:base.estimates.eta,age_seconds:299,window_minutes:5,historical:true}},15:{last_observed_pace:pace}};
+  const values=()=>cells.map(cell=>cell.textContent);
+  p.render(base);
+  assert.deepEqual(values(),['2K','12.00%','15m','2K']);
+  p.context.performance.now=()=>1000;p.run('renderPlayer()');
+  assert.deepEqual(values(),['—','—','—','2K']);
+  p.context.performance.now=()=>121000;p.run('renderPlayer()');
+  assert.deepEqual(values(),['—','—','—','2K']);
+  assert.equal(p.elements.rate.textContent,'2K');
+  p.context.performance.now=()=>0;
+  p.render(player({recent_windows:{5:livePace(0)}}));
+  assert.equal(cells[0].textContent,'0');
+});
+
 test('overlay rates read each lookback window; the last-hour chart keeps untracked bins unknown',()=>{
   const p=page('overlay');
   const pace=rate=>({active:true,age_seconds:0,estimates:{exp_per_hour:{value:{approximate:rate}},percentage_per_hour:null,eta:null}});
