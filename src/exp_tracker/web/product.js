@@ -756,14 +756,14 @@ function drawExpHistory() {
   // Starts at y=20: nothing is drawn above the bars' hover area (y=25), and 230 tall matches the CSS box, so it is not shrunk.
   svg.setAttribute('viewBox',`0 20 ${width} 230`);svg.setAttribute('aria-label','EXP gained over time; dashes mean no data');
   svg.dataset.start=new Date(chart.start).toISOString();svg.dataset.end=new Date(chart.end).toISOString();
-  const max=Math.max(1,...chart.bins.map(b=>b.value ?? 0)),scale=10**Math.floor(Math.log10(max)),top=Math.ceil(max/scale)*scale;
-  const bottom=Math.min(0,...chart.bins.map(b=>b.value ?? 0)),yValue=v=>200-(v-bottom)/(top-bottom)*160;
+  const values=chart.bins.map(b=>b.value ?? 0),bottom=Math.min(0,...values);
+  const {top,ticks:axisTicks}=ExpBars.axis(bottom,Math.max(0,...values),4),yValue=v=>200-(v-bottom)/(top-bottom)*168;
   const x=t=>54+(t-chart.start)/(chart.end-chart.start)*plotWidth;
   function shape(tag,attrs,title){const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(title)n.append(node('title','',title));svg.append(n);return n;}
-  for(let i=0;i<=4;i++){
-    const y=200-i*40;
+  for(const value of axisTicks){
+    const y=yValue(value);
     shape('line',{x1:54,x2:width-22,y1:y,y2:y,class:'chart-grid'});
-    shape('text',{x:44,y:y+4,'text-anchor':'end'}).textContent=expText(bottom+(top-bottom)*i/4);
+    shape('text',{x:44,y:y+4,'text-anchor':'end'}).textContent=expText(value);
   }
   for(const bin of chart.bins){
     const left=x(bin.start)+2,w=Math.max(2,x(bin.end)-x(bin.start)-4),height=bin.value==null?0:Math.max(2,Math.abs(yValue(bin.value)-yValue(0)));
@@ -789,28 +789,7 @@ function drawHourChart(svg=el('overlay-chart'),seconds=300,range=3600) {
   const chart=seconds===1800?(tracked?.buckets?.length===48?{bins:tracked.buckets.slice(range===43200?-24:0).map(b=>({value:chartBucketValue(b)}))}:null)
     :bucketHistory((tracked?.chart_intervals ?? []).map(g=>({gain:g,connect_previous:true})),Date.parse(tracked?.as_of),seconds,range);
   if(!chart){el('hour-total').textContent='—';return;}
-  const shape=(tag,attrs)=>{const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);svg.append(n);return n;};
-  const max=Math.max(1,...chart.bins.map(b=>b.value ?? 0));
-  // The EXP chart layout gets a y-axis and the peak's value; the General card's mini chart stays bare.
-  // No time labels: the caption already names the window, and a "now" would crowd the Updated line below.
-  // It is drawn at its real pixel size so the text is not stretched (OBS keeps the source a fixed size).
-  const labelled=svg===el('overlay-chart'),width=labelled?svg.clientWidth || 462:462,height=labelled?svg.clientHeight || 90:76;
-  const left=labelled?28:0,top=labelled?11:2,bottom=height-2,scale=10**Math.floor(Math.log10(max));
-  const ceiling=labelled?Math.ceil(max/scale)*scale:max;  // A round top value such as 20K, like the profile chart.
-  if(labelled)svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
-  const step=(width-left)/chart.bins.length,gap=Math.min(6,step/4),y=v=>bottom-Math.max(0,v)/ceiling*(bottom-top);
-  if(labelled)for(const v of [ceiling,ceiling/2]){
-    shape('line',{x1:left,x2:width,y1:y(v),y2:y(v),class:'grid'});
-    shape('text',{x:left-5,y:y(v)+3,'text-anchor':'end',class:'axis'}).textContent=expText(v);
-  }
-  chart.bins.forEach((b,i)=>{
-    const tall=b.value==null?2:Math.max(2,bottom-y(b.value));
-    shape('rect',{x:left+i*step+gap/2,y:bottom-tall,width:step-gap,height:tall,rx:b.value==null?1:3,class:b.value==null?'none':'bar'});
-  });
-  if(labelled) {
-    const peak=chart.bins.reduce((best,b,i)=>b.value!=null && b.value>(chart.bins[best]?.value ?? -Infinity)?i:best,-1);
-    if(peak>=0 && chart.bins[peak].value>0)shape('text',{x:left+(peak+.5)*step,y:y(chart.bins[peak].value)-3,'text-anchor':'middle',class:'peak'}).textContent=expText(chart.bins[peak].value);
-  }
+  ExpBars.overlay(svg,chart.bins,svg===el('overlay-chart'),expText);
   const seen=chart.bins.filter(b=>b.value!=null);
   el('hour-total').textContent=seen.length?`${expText(seen.reduce((sum,b)=>sum+b.value,0))} EXP`:'—';
 }

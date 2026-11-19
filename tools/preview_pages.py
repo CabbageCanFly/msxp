@@ -59,22 +59,29 @@ def resolve(root, path):
     return None
 
 
-def handler(root, source_origin=None):
+def handler(root, source_origin=None, *, demo=False):
     rules, headers = rewrites(root), header_rules(root)
+    demo_path = '/static/local/exp-chart-demo.js'
 
     class Preview(BaseHTTPRequestHandler):
         def do_GET(self):
-            path = unquote(urlsplit(self.path).path)
+            url = urlsplit(self.path)
+            path = unquote(url.path)
             target = next((dest for pattern, dest in rules if pattern.match(path)), path)
             file, status = resolve(root, target), 200
             if file is None:file, status = root / '404.html', 404
             name = file.relative_to(root).as_posix()
-            if source_origin is not None and name in export_pages.PAGES:
+            if demo and path == demo_path:
+                file, status = Path(__file__).with_name('local-exp-demo.js'), 200
+                body = file.read_bytes()
+            elif source_origin is not None and name in export_pages.PAGES:
                 body = export_pages.page(export_pages.PAGES[name], source_origin)
             elif source_origin is not None and name.removeprefix('static/') in export_pages.STATIC and name.startswith('static/'):
                 body = export_pages.source(name.removeprefix('static/'))
             else:
                 body = file.read_bytes()
+            if demo and name == 'local.html' and url.query == 'demo=exp-chart':
+                body = body.replace(b'/static/local/app.js', demo_path.encode(), 1)
             self.send_response(status)
             self.send_header('Content-Type', TYPES.get(file.suffix, mimetypes.guess_type(file.name)[0] or 'application/octet-stream'))
             self.send_header('Content-Length', str(len(body)))
@@ -100,7 +107,7 @@ class PreviewServer(ThreadingHTTPServer):
     request_queue_size = 64
 
 
-def with_api(database, out, port=0, *, live=False):
+def with_api(database, out, port=0, *, live=False, demo=False):
     """Export against a local public-only API and preview it; both listen on 127.0.0.1 only.
 
     The preview binds first so the API can allow exactly its origin; the API then takes an
@@ -117,7 +124,7 @@ def with_api(database, out, port=0, *, live=False):
         preview.server_close()
         if api:api.server_close()
         raise
-    preview.RequestHandlerClass = handler(Path(out).resolve(), f'http://127.0.0.1:{api.server_port}' if live else None)
+    preview.RequestHandlerClass = handler(Path(out).resolve(), f'http://127.0.0.1:{api.server_port}' if live else None, demo=demo)
     return preview, api
 
 
@@ -142,7 +149,7 @@ def main(argv=None):
             character_demo.create(now=datetime.now(timezone.utc), path=args.api_db, characters=12, streamers=5, history=True)
             print('Using temporary fictional characters; no capture is started.', flush=True)
         if args.api_db:
-            preview, api = with_api(args.api_db, args.dir or dist / 'pages-local', args.port, live=args.live)
+            preview, api = with_api(args.api_db, args.dir or dist / 'pages-local', args.port, live=args.live, demo=args.demo)
             if args.demo:
                 from exp_tracker.store import Store
                 with Store(args.api_db,read_only=True) as store:channels=[r[0] for r in store.db.execute('SELECT login FROM streamers')]
@@ -153,6 +160,7 @@ def main(argv=None):
             preview = PreviewServer(('127.0.0.1', args.port), handler((args.dir or dist / 'pages').resolve()))
         url = f'http://127.0.0.1:{preview.server_port}/'
         print(f'Preview: {url}', flush=True)
+        if args.demo: print(f'Local EXP chart demo: {url}local/?demo=exp-chart', flush=True)
         if args.live:
             print('Save source files and refresh the browser; no export or restart needed.', flush=True)
             for town in ('sleepywood', 'kerning'):print(f'{town.title()}: {url}?background={town}', flush=True)

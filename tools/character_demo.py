@@ -36,7 +36,7 @@ SCENARIO = [('Alpha', 67, 2000, 12, 24), ('Beta', 43, 5000, 25, 30), ('Alpha', 6
 NAMES = ('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa', 'Lambda', 'Mu')
 # Extra fictional streams for homepage sorting: (channel, character, level, first bp, bp per reading, readings, minutes it ended before now).
 # Ember and Frost share a level so level ties break on EXP %; Quiet ended hours ago, so it has a 24h total but no live pace.
-STREAMS = [('synthetic_ember', 'Ember', 61, 7200, 30, 40, 0), ('synthetic_frost', 'Frost', 61, 4800, 9, 40, 0),
+STREAMS = [('synthetic_ember', 'Ember', 61, 7200, 5, 120, 0), ('synthetic_frost', 'Frost', 61, 4800, 9, 40, 0),
            ('synthetic_sprout', 'Sprout', 32, 1500, 70, 30, 0), ('synthetic_quiet', 'Quiet', 70, 3000, 6, 40, 180)]
 # The job each generated status panel shows; the real two-read confirmation records it.
 # Every job appears once; Quiet (an ended stream) repeats Cleric because there are 16 characters and 15 jobs.
@@ -138,8 +138,13 @@ def create(*, now, path=DATABASE, characters=2, streamers=1, history=False):
     streams = [(CHANNEL, (day(CHANNEL, *scenario[0][:4], now) if history else []) + readings)]
     for channel, name, level, bp, step, count, ago in STREAMS[:streamers - 1]:
         first = now - timedelta(minutes=ago, seconds=INTERVAL * count)
-        streams.append((channel, (day(channel, name, level, bp, step, now) if history else [])
-                        + [(name, level, bp + step * i, first + timedelta(seconds=INTERVAL * i)) for i in range(count)]))
+        rows = day(channel, name, level, bp, step, now) if history else []
+        for i in range(count):
+            rows.append((name, level, bp, first + timedelta(seconds=INTERVAL * i)))
+            bp += step
+            if channel == 'synthetic_ember':  # Short bursts just above a 10K grid mark.
+                bp += 80 if i in (35, 85, 108) else i % 5
+        streams.append((channel, rows))
     with Store(path) as store:
         switches = []
         for channel, rows in streams:

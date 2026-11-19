@@ -5,6 +5,12 @@ overlays and daily History in **EXP progress**. It runs in the current terminal 
 cleans up its temporary database and servers with Ctrl+C. See the
 [preview guide](website-background.md#preview-and-tune) for ports, live edits and worktrees.
 
+For the EXP scale example, open [Ember's profile](http://127.0.0.1:8890/stream/synthetic_ember)
+and select **1 min** bars over the last **60 min**. The same fictional stream is available
+in the [OBS EXP chart layout](http://127.0.0.1:8890/live/overlay/synthetic_ember?layout=chart&interval=60&range=60).
+The [personal tracker demo](http://127.0.0.1:8890/local/?demo=exp-chart) adds a fictional
+character with a 10.6K peak to the browser storage for the preview origin.
+
 Player profiles include a red broadcast light and compact uptime such as **2h 13m 47s**
 beside Twitch, on its own header line on phones. The demo supplies fictional live
 status and a fixed start time so the timer advances locally; it never contacts

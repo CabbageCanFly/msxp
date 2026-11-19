@@ -47,7 +47,8 @@ SHADOW_ASSETS = {
     "/static/shadow.js": ("shadow.js", "text/javascript"),
 }
 DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
-PRODUCT_ASSETS = {'/static/overlay-stats.js':('overlay-stats.js','text/javascript'),'/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
+PRODUCT_ASSETS = {'/static/overlay-stats.js':('overlay-stats.js','text/javascript'),'/static/exp-bars.js':('exp-bars.js','text/javascript'),
+                  '/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
 # Public-only mode also serves these shared assets; everything else outside the product is refused.
 PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css', '/static/live-overlay.css', '/static/steely.png',
                  '/static/sleepywood.webp', '/static/sleepywood-forest.webp',

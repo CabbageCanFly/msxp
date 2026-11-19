@@ -29,6 +29,7 @@ function page(view='overlay',fetcher=()=>new Promise(()=>{}),search='',api=null,
       querySelectorAll:selector=>selector==='[data-color]'?colorInputs:selector==='[data-option] button'?themeButtons:selector==='[data-window]'?buttons:selector==='[data-mode]'?modes:selector==='[data-bucket]'?bucketButtons:selector==='[data-chart-window]'?chartButtons:selector==='[data-character-sort]'?characterSortButtons:[],createElement:tag=>Object.assign(new Element(tag),tag==='img'?{decode(){images.push(this);return decodeImage(this.src);}}:{}),createElementNS:(ns,tag)=>new Element(tag)},
     fetch:fetcher,setInterval:()=>{},setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout:()=>{}});
   vm.runInContext(readFileSync(new URL('../src/exp_tracker/web/overlay-stats.js',import.meta.url),'utf8'),context);
+  vm.runInContext(readFileSync(new URL('../src/exp_tracker/web/exp-bars.js',import.meta.url),'utf8'),context);
   vm.runInContext(source,context);
   // Most cases below were written against the original 5 minute card and chart windows with 1 minute bars.
   if(view==='player' && !search.includes('defaults'))vm.runInContext('windowMinutes=5;lineWindow=5;chartWindow=5;bucketSeconds=60',context);
@@ -2082,6 +2083,24 @@ test('minute bucket rendering rejects observation gaps over an hour without remo
   assert.equal(p.run("bucketHistory(rows,Date.parse('2026-01-01T02:01:00Z'),300,86400).bins.reduce((sum,b)=>sum+(b.value??0),0)"),150);
 });
 
+test('EXP bars just over 10K fill the plot and their overlay label stays inside the right edge',()=>{
+  const p=page('player');
+  p.context.tracked={character_id:1,as_of:'2026-01-01T01:00:00Z',chart_intervals:[
+    {start:'2026-01-01T00:59:00Z',end:'2026-01-01T01:00:00Z',value:{approximate:10600},policy:'public_endpoint_window_v2'}
+  ]};
+  p.run("data={player:{character:{id:1}},tracked_history:tracked};rollingData=tracked;bucketSeconds=60;chartWindow=60;drawExpHistory();drawHourChart(el('overlay-chart'),60,3600)");
+  const profile=p.elements['history-chart'].children;
+  assert.deepEqual(profile.filter(n=>n.tag==='text' && n.attributes.x==='44').map(n=>n.textContent),['0','2.5K','5K','7.5K','10K']);
+  const column=profile.find(n=>n.attributes.class==='exp-column');
+  assert.ok(Number(column.attributes.height)>150);
+  const overlay=p.elements['overlay-chart'].children;
+  const peak=overlay.find(n=>n.attributes.class==='peak'),bar=overlay.find(n=>n.attributes.class==='bar');
+  assert.equal(peak.textContent,'10.6K');
+  assert.ok(Number(bar.attributes.height)>65);
+  assert.ok(Number(peak.attributes.y)>=9 && Number(peak.attributes.y)<Number(bar.attributes.y));
+  assert.ok(Number(peak.attributes.x)+17<=462);
+});
+
 test('overlay rates read each lookback window; the last-hour chart keeps untracked bins unknown',()=>{
   const p=page('overlay');
   const pace=rate=>({active:true,age_seconds:0,estimates:{exp_per_hour:{value:{approximate:rate}},percentage_per_hour:null,eta:null}});
@@ -2094,7 +2113,7 @@ test('overlay rates read each lookback window; the last-hour chart keeps untrack
   const shapes=p.elements['overlay-chart'].children,bars=shapes.filter(n=>n.tag==='rect');
   assert.equal(bars.length,12);assert.equal(bars.filter(b=>b.attributes.class==='bar').length,1);
   assert.equal(p.elements['hour-total'].textContent,'400 EXP');
-  // A round y-axis top and its half, and the peak bar's value.
+  // Round grid values and the peak bar's value.
   assert.deepEqual(shapes.filter(n=>n.tag==='text').map(n=>[n.attributes.class,n.textContent]),[['axis','400'],['axis','200'],['peak','400']]);
 });
 

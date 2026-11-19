@@ -1,6 +1,7 @@
 // Charts for /local and its pop-out, ported from product.js (drawExpHistory, drawPercentageHistory,
 // drawDailyHistory, drawHourChart, bucketHistory) so they look and behave like the live site, but fed
-// from local readings instead of the API. product.js itself is unchanged.
+// from local readings instead of the API.
+import '../exp-bars.js';
 
 const numbers = new Intl.NumberFormat('en-US'), shortNumber = new Intl.NumberFormat('en-US', {maximumSignificantDigits: 3});
 const wholeNumbers = new Intl.NumberFormat('en-US', {maximumFractionDigits: 0});
@@ -94,13 +95,13 @@ export function drawExpChart(svg, intervals, {anchor, seconds, range}) {
   if (!chart) return '';
   const width = Math.max(300, Math.min(960, svg.clientWidth || 960)), plotWidth = width - 76;
   svg.setAttribute('viewBox', `0 20 ${width} 230`); svg.setAttribute('aria-label', 'EXP gained over time; dashes mean no data');
-  const max = Math.max(1, ...chart.bins.map((b) => b.value ?? 0)), scale = 10 ** Math.floor(Math.log10(max)), top = Math.ceil(max / scale) * scale;
-  const yValue = (v) => 200 - v / top * 160, x = (t) => 54 + (t - chart.start) / (chart.end - chart.start) * plotWidth;
+  const {top, ticks: axisTicks} = ExpBars.axis(0, Math.max(0, ...chart.bins.map((b) => b.value ?? 0)), 4);
+  const yValue = (v) => 200 - v / top * 168, x = (t) => 54 + (t - chart.start) / (chart.end - chart.start) * plotWidth;
   const shape = drawer(svg);
-  for (let i = 0; i <= 4; i++) {
-    const y = 200 - i * 40;
+  for (const value of axisTicks) {
+    const y = yValue(value);
     shape('line', {x1: 54, x2: width - 22, y1: y, y2: y, class: 'chart-grid'});
-    shape('text', {x: 44, y: y + 4, 'text-anchor': 'end'}).textContent = expText(top * i / 4);
+    shape('text', {x: 44, y: y + 4, 'text-anchor': 'end'}).textContent = expText(value);
   }
   for (const bin of chart.bins) {
     const left = x(bin.start) + 2, w = Math.max(2, x(bin.end) - x(bin.start) - 4), height = bin.value == null ? 0 : Math.max(2, Math.abs(yValue(bin.value) - yValue(0)));
@@ -236,25 +237,7 @@ export function drawHourChart(svg, intervals, {anchor, seconds, range, labelled}
   svg.replaceChildren();
   const chart = bucketHistory(intervals, anchor, seconds, range);
   if (!chart) return null;
-  const shape = drawer(svg);
-  const max = Math.max(1, ...chart.bins.map((b) => b.value ?? 0));
-  const width = labelled ? svg.clientWidth || 462 : 462, height = labelled ? svg.clientHeight || 90 : 76;
-  const left = labelled ? 28 : 0, top = labelled ? 11 : 2, bottom = height - 2, scale = 10 ** Math.floor(Math.log10(max));
-  const ceiling = labelled ? Math.ceil(max / scale) * scale : max;
-  if (labelled) svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  const step = (width - left) / chart.bins.length, gap = Math.min(6, step / 4), y = (v) => bottom - Math.max(0, v) / ceiling * (bottom - top);
-  if (labelled) for (const v of [ceiling, ceiling / 2]) {
-    shape('line', {x1: left, x2: width, y1: y(v), y2: y(v), class: 'grid'});
-    shape('text', {x: left - 5, y: y(v) + 3, 'text-anchor': 'end', class: 'axis'}).textContent = expText(v);
-  }
-  chart.bins.forEach((b, i) => {
-    const tall = b.value == null ? 2 : Math.max(2, bottom - y(b.value));
-    shape('rect', {x: left + i * step + gap / 2, y: bottom - tall, width: step - gap, height: tall, rx: b.value == null ? 1 : 3, class: b.value == null ? 'none' : 'bar'});
-  });
-  if (labelled) {
-    const peak = chart.bins.reduce((best, b, i) => b.value != null && b.value > (chart.bins[best]?.value ?? -Infinity) ? i : best, -1);
-    if (peak >= 0 && chart.bins[peak].value > 0) shape('text', {x: left + (peak + .5) * step, y: y(chart.bins[peak].value) - 3, 'text-anchor': 'middle', class: 'peak'}).textContent = expText(chart.bins[peak].value);
-  }
+  ExpBars.overlay(svg, chart.bins, labelled, expText);
   const seen = chart.bins.filter((b) => b.value != null);
   return seen.length ? seen.reduce((sum, b) => sum + b.value, 0) : null;
 }
