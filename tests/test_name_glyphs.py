@@ -104,3 +104,13 @@ def test_two_corrected_frames_select_exact_name_without_an_ocr_alias(auto,calibr
     assert [r[0] for r in store.db.execute('select label from characters order by id')] == ['Alpha','Ax00']
     rows = [json.loads(r[0]) for r in store.db.execute('select payload_json from diagnostic_attempts')]
     assert all(r.get('identity_hold',{}).get('evidence',r)['character_name']['evidence']['raw']['raw']['txts'] == ['AxOO'] for r in rows)
+
+
+@pytest.mark.parametrize('raw,name,score,eligible',[('Charwve','CharWe',.95,True),('Charvve','CharWe',.95,True),
+    ('Charwve','CharWe',.85,False),('CharXve','CharWe',.95,False),('Charwve','Charwe',.95,False)])
+def test_split_w_repair_votes_only_for_the_spelling_it_collapses_to(raw,name,score,eligible):
+    value = record(1,raw,score=score);evidence = value['character_name']['evidence']
+    evidence.update(name=name,repair='split_w')
+    assert bool(name_evidence(value)) is eligible
+    evidence.pop('repair')
+    assert name_evidence(value) is None

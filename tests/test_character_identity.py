@@ -517,8 +517,9 @@ def test_final_double_letter_needs_agreement_on_two_crop_variants(monkeypatch,pa
 @pytest.mark.parametrize('plain,binary,score,expected', [
     ('CharWve', 'Charwve', .95, 'CharWe'),
     ('CharWve', 'Charvve', .95, 'CharWe'),
-    ('CharWve', 'CharWie', .95, 'CharWve'),
-    ('CharWve', 'Charwve', .85, 'CharWve'),
+    ('CharWve', 'CharWie', .95, None),
+    ('CharWve', 'Charwve', .85, None),
+    ('Charvve', 'CharXe', .99, None),
     ('CharXve', 'CharWe', .99, 'CharXve'),
 ])
 def test_split_w_confirms_only_the_current_name_with_binary_agreement(monkeypatch,plain,binary,score,expected):
@@ -535,7 +536,10 @@ def test_split_w_confirms_only_the_current_name_with_binary_agreement(monkeypatc
     evidence=value['evidence']
     assert len(calls)==(3 if plain=='CharXve' else 4)
     assert evidence['name']==expected and (evidence.get('repair')=='split_w')==(expected=='CharWe')
-    assert value['hold_reasons']==([] if expected=='CharWe' else ['name_mismatch'])
+    # Uncorroborated, a split W is neutral: no vote for another name and no mismatch hold.
+    assert ('split_w_read' in evidence)==(expected is None)
+    assert value['hold_reasons']==(['name_mismatch'] if expected=='CharXve' else [])
+    if expected is None:assert evidence['status']=='unreadable_or_conflicting' and not state.suggestions.streak
 
 
 def test_matching_reads_and_unconfirmed_channels_take_no_second_look():

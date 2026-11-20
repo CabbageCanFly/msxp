@@ -5,13 +5,12 @@ from dataclasses import asdict
 from datetime import datetime
 import hashlib
 import math
-import re
 import time
 
 from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS, NEURAL_SEED_SCORE, WRAP_FROM_BP, WRAP_TO_BP
 from exp_tracker.exp_consistency import MODES, assess, displayed_bp
 from exp_tracker.jobs import match, next_level, tier
-from exp_tracker.models import Reading, same_character_name
+from exp_tracker.models import Reading, same_character_name, split_w
 from exp_tracker.name_glyphs import refine, validated
 from exp_tracker.validation import Observation, validate_transition
 from character_name_ocr import clean_name_crop, job_region, name_region, name_text, second_look
@@ -23,7 +22,6 @@ OWNERSHIP_RISK = {'reset_loss_or_character_switch', 'level_decrease',
 PENDING_TTL_SECONDS = 600
 JOB_RETRY_SECONDS = 60  # Until two job reads agree, or after one disagreed with the known job.
 JOB_RECHECK_SECONDS = 120  # Once the level allows the next job advancement.
-SPLIT_W = re.compile('[WwVv][Vv]')  # The status font's W has a split middle, read as "Wv" or "vv".
 
 
 class IdentitySuggestions:
@@ -269,20 +267,24 @@ class IdentityCapture:
                             if binary_read and binary_read[0] >= NEURAL_SEED_SCORE and same_character_name(binary_read[1], repeated):
                                 second, second_read, use_retry = binary, binary_read, True
                     # A split W can only confirm the current name: the thresholded crop must collapse to it too.
-                    if not use_retry and not glyphs and observed and same_character_name(SPLIT_W.sub('W', observed), reference):
+                    if not use_retry and not glyphs and observed and same_character_name(split_w(observed), reference):
                         try:
                             binary = read_name(clean_name_crop(crop, binary=True))
                             binary_read = parsed(binary)
                         except (OSError, RuntimeError, ValueError, KeyError):
                             binary_read = None
                         if (binary_read and binary_read[0] >= NEURAL_SEED_SCORE and binary_read[1]
-                                and same_character_name(SPLIT_W.sub('W', binary_read[1]), reference)):
+                                and same_character_name(split_w(binary_read[1]), reference)):
                             second, second_read, use_retry = binary, (binary_read[0], reference), True
                             evidence['repair'] = 'split_w'
                     if use_retry:
                         evidence['first_read'] = dict(text=response.get('text'), score=read and read[0])
                         response, read = second, second_read
                         glyphs = None
+                    elif not glyphs and observed and same_character_name(split_w(observed), reference):
+                        # Uncorroborated, it neither confirms the current name nor votes for another one.
+                        evidence['split_w_read'] = dict(text=response.get('text'), score=read[0])
+                        read = None
                 evidence['raw'] = response
                 if read:
                     evidence['score'], evidence['name'] = read

@@ -849,10 +849,20 @@ The status font draws W with a split middle, which RapidOCR can read as `Wv` or 
 (a confirmed `CharWe` read as `CharWve`; padded retries read `Charive`). When the plain
 read matches the current name only after collapsing such a pair to `W`, the thresholded
 crop must collapse to the same name with a score of at least 0.90. The evidence is then
-marked `repair: split_w` and keeps the plain read as `first_read`. This only confirms
-the current name; it never proposes or selects another character. Measured on 2026-11-20
-with five live 1080p frames from Streamer_K: confirmations rose from two to four; the
-fifth (thresholded read `CharWie`, 0.81) stays held.
+marked `repair: split_w` and keeps the plain read as `first_read`; automatic attribution
+(`name_evidence`) accepts it only when the raw text collapses to exactly that name at
+0.90 or above. Without that agreement the read is neutral (`split_w_read`, no name):
+it neither confirms the current character nor votes for, holds or records a risk of
+another one. This never proposes or selects a character. Other names are unaffected
+unless a read differs from the current name by exactly such a pair.
+
+Paired replay on 2026-11-20 (pixel-keyed OCR cache, production identity and attribution
+code): 44 live 1080p Streamer_K frames went from 3 attributable confirmations and 39
+held readings to 34 confirmations, 2 exact reads below 0.90, 8 neutral, none held.
+369 frames of 16 other names kept identical outcomes (361 confirmed, the same 7
+pre-existing mismatches), and none of 1,239 wrong-name references was accepted. Affected
+frames take one extra name OCR call. Discovering a new split-W name still needs two
+consecutive exact reads and is not improved.
 
 Local paired replay on 2026-10-27: the two rounded crop positions of one saved
 Streamer_J frame improve from one to two exact reference matches. Another 226 name

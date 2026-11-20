@@ -11,7 +11,7 @@ from .diagnostic_evidence import project, consistency, full_reading, CONFIRM_GAP
 from .diagnostics import Diagnostics, HELD_ENVELOPE, encoded, identity_held
 from .jobs import match, min_level, tier
 from .manual import active
-from .models import PLACEHOLDER_CHARACTER, same_character_name
+from .models import PLACEHOLDER_CHARACTER, same_character_name, split_w
 from .name_glyphs import validated as glyph_name, MIN_SCORE as GLYPH_MIN_SCORE
 from .shadow_view import observation
 from .store import utc
@@ -81,6 +81,8 @@ def name_evidence(record):
     texts = raw.get('txts')
     raw_name = texts[0].strip() if isinstance(texts,list) and len(texts)==1 and isinstance(texts[0],str) else None
     refined = glyph_name(raw_name,value.get('glyph_refinement'))
+    # Corroborated in capture, where it may only spell the current name; the full score bar still applies.
+    repaired = split_w(raw_name) if value.get('repair') == 'split_w' and raw_name and not refined else None
     provenance = value.get('provenance') or {}
     if (not record.get('current') or record.get('localization', {}).get('count') != 1 or value.get('status') != 'candidate'
             or value.get('received_at') != record.get('received_at')
@@ -91,7 +93,7 @@ def name_evidence(record):
             or not (GLYPH_MIN_SCORE if refined else NEURAL_SEED_SCORE) <= score <= 1
             or provenance.get('layout_count') != 1 or provenance.get('search') != 'full_frame'
             or not isinstance(texts, list) or len(texts) != 1 or not isinstance(texts[0], str)
-            or len(texts[0]) > 160 or (refined or raw_name) != name
+            or len(texts[0]) > 160 or (refined or repaired or raw_name) != name
             or raw.get('scores') != [score]):
         return None
     digest = value.get('pixel_sha256')

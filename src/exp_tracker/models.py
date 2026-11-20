@@ -2,12 +2,19 @@
 
 from dataclasses import dataclass, field
 import math
+import re
 
 PLACEHOLDER_CHARACTER = 'PendingOCR'  # Reserved internal identity until name verification.
+SPLIT_W = re.compile('[WwVv][Vv]')
 
 
 def same_character_name(left, right):
     return isinstance(left, str) and isinstance(right, str) and left.casefold() == right.casefold()
+
+
+def split_w(text):
+    """The status font's W has a split middle that OCR can read as "Wv" or "vv"."""
+    return SPLIT_W.sub('W', text)
 
 
 @dataclass(frozen=True)
