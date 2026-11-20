@@ -514,6 +514,30 @@ def test_final_double_letter_needs_agreement_on_two_crop_variants(monkeypatch,pa
     assert value['reading_hold_recommended']  # The writer still needs a second frame before switching.
 
 
+@pytest.mark.parametrize('plain,binary,score,expected', [
+    ('CharWve', 'Charwve', .95, 'CharWe'),
+    ('CharWve', 'Charvve', .95, 'CharWe'),
+    ('CharWve', 'CharWie', .95, 'CharWve'),
+    ('CharWve', 'Charwve', .85, 'CharWve'),
+    ('CharXve', 'CharWe', .99, 'CharXve'),
+])
+def test_split_w_confirms_only_the_current_name_with_binary_agreement(monkeypatch,plain,binary,score,expected):
+    identity=importlib.import_module('character_identity')
+    monkeypatch.setattr(identity,'name_region',lambda *_:dict(box=[0,0,80,25]))
+    state=IdentityCapture('channel',confirmed='CharWe');state.job=state.job_seen='Cleric'
+    frame=make_frame(0);calls=[]
+    def read(crop):
+        calls.append(crop.size)
+        if len(calls)==1:return response(plain)
+        if len(calls)<4:return response('Charive')
+        evidence=response(binary);evidence['raw']['scores']=[score];return evidence
+    value=state.inspect(dict(current=True,candidate=None,visual_level=None),frame,frame.image(),candidate(),read,{},max_age=15,clock=lambda:101)
+    evidence=value['evidence']
+    assert len(calls)==(3 if plain=='CharXve' else 4)
+    assert evidence['name']==expected and (evidence.get('repair')=='split_w')==(expected=='CharWe')
+    assert value['hold_reasons']==([] if expected=='CharWe' else ['name_mismatch'])
+
+
 def test_matching_reads_and_unconfirmed_channels_take_no_second_look():
     for state, name in ((IdentityCapture('channel', confirmed='Alpha'), 'Alpha'), (IdentityCapture('channel'), 'Beta')):
         calls = []; state.job = state.job_seen = 'Cleric'  # No job read either.

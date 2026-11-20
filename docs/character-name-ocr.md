@@ -845,6 +845,15 @@ repeated final letter. The thresholded original crop must read the same longer n
 Both retries need scores of at least 0.90. Selecting a character still requires two
 fresh, distinct full-frame name readings.
 
+The status font draws W with a split middle, which RapidOCR can read as `Wv` or `vv`
+(a confirmed `CharWe` read as `CharWve`; padded retries read `Charive`). When the plain
+read matches the current name only after collapsing such a pair to `W`, the thresholded
+crop must collapse to the same name with a score of at least 0.90. The evidence is then
+marked `repair: split_w` and keeps the plain read as `first_read`. This only confirms
+the current name; it never proposes or selects another character. Measured on 2026-11-20
+with five live 1080p frames from Streamer_K: confirmations rose from two to four; the
+fifth (thresholded read `CharWie`, 0.81) stays held.
+
 Local paired replay on 2026-10-27: the two rounded crop positions of one saved
 Streamer_J frame improve from one to two exact reference matches. Another 226 name
 checks (214 saved controls plus 12 different-reference negatives, spanning 12
