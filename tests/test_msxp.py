@@ -48,6 +48,8 @@ def test_each_command_runs_the_documented_tool():
     assert build('cleanup', apply=True)[0][-3:] == ['--apply', '--log-root', 'private/multi-alpha/runs']
     assert build('test-data') == ([str(msxp.VENV), 'tools/restore_test_data.py', '--download'], None)
     assert build('test-data', check=True)[0][-1] == '--check'
+    assert build('alert', action='check')[0][1:] == ['-m', 'exp_tracker.alerts', '--db', db]
+    assert build('alert', action='test')[0][1:] == ['-m', 'exp_tracker.alerts', '--test']  # Needs no database.
     twitch = dict(msxp.settings('missing', {'TWITCH_CLIENT_ID': 'a', 'TWITCH_CLIENT_SECRET': 'b'}, ()))
     assert build('tracker', twitch)[0][-1] == '--twitch-status' and build('api', twitch)[0][-1] == '--twitch-status'
 
@@ -129,6 +131,18 @@ def test_server_commands_run_over_ssh_with_a_tunnel_and_the_service_user():
     assert msxp.remote(['health', '--minutes', '10; rm -rf /'], s)[0][-1].endswith("./msxp health --minutes '10; rm -rf /'")
     assert msxp.remote(['dashboard'], s) == (['ssh', '-t', '-L', '8767:127.0.0.1:8767', 'root@203.0.113.7',
         'cd /opt/msxp/app && sudo -u msxp ./msxp dashboard --no-browser'], 'http://127.0.0.1:8767/dev/streams')
+    # Alert checks read the database as its owner; installing or stopping the timer is root work.
+    assert msxp.remote(['alert', 'test'], s)[0][-1] == 'cd /opt/msxp/app && sudo -u msxp ./msxp alert test'
+    assert msxp.remote(['alert', 'status'], s)[0][-1] == 'cd /opt/msxp/app && sudo -u msxp ./msxp alert status'
+    for action in ('on', 'off', 'remove'):
+        assert msxp.remote(['alert', action], s)[0][-1] == f'cd /opt/msxp/app && ./msxp alert {action}'
+
+
+def test_alert_timer_commands_explain_themselves_without_systemd(monkeypatch, capsys):
+    monkeypatch.setattr(msxp.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(msxp, 'run', lambda *a, **k: pytest.fail('must not run'))
+    for action in ('on', 'off', 'remove', 'status'):
+        assert msxp.main(['alert', action]) == 1 and 'msxp alert --watch' in capsys.readouterr().out
 
 
 def test_dashboard_is_the_read_only_server_with_operator_pages():
@@ -153,7 +167,7 @@ def test_split_settings_precede_roster_but_not_explicit_settings(tmp_path):
     local.write_text('MSXP_DATABASE=local.sqlite3\n')
     assert msxp.settings(local, {}, (split, roster))['MSXP_DATABASE'] == 'local.sqlite3'
     assert msxp.settings(local, {'MSXP_DATABASE': 'explicit.sqlite3'}, (split, roster))['MSXP_DATABASE'] == 'explicit.sqlite3'
-    assert [p.name for p in msxp.SERVER_ENV] == ['split.env', 'roster.env', 'msxp.env']
+    assert [p.name for p in msxp.SERVER_ENV] == ['split.env', 'roster.env', 'msxp.env', 'alert.env']
 
 
 @pytest.mark.parametrize('options,lines,follow,pager', [

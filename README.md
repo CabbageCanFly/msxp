@@ -112,10 +112,11 @@ whole frame at least every 300 seconds and on any doubt; it is opt-in
 | `msxp dashboard` | Operator view: every capture's details per streamer, read-only (`msxp tracker` includes it at `/dev/streams`) |
 | `msxp health` | Missed captures in the last hour, and why |
 | `msxp cleanup` | Keeps only the last 24 hours of raw readings (`--apply` to actually delete) |
+| `msxp alert` | Discord message when a live stream is stuck; `test`, `--dry-run`, `--watch`; on a server `on`, `status`, `off`, `remove` ([alerts](docs/vps-deployment.md#stuck-stream-alerts)) |
 | `msxp test` | Runs the test suite |
 | `msxp test-data` | Downloads only the required private test files; `--check` verifies installed files |
 | `msxp where` | Where your settings, database, logs and backups are |
-| `msxp logs` | Follow or browse logs; filter by time or text (on a server: `tracker`, `api` or `cleanup`) |
+| `msxp logs` | Follow or browse logs; filter by time or text (on a server: `tracker`, `api`, `cleanup` or `alert`) |
 | `msxp sql` | Open the configured database in a read-only SQLite shell; optionally supply a quoted SQL query |
 | `msxp server ...` | Runs any command on your server over SSH (see [Put it online](#put-it-online)) |
 | `msxp help` | This list, plus where your settings live |

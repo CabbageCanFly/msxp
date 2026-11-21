@@ -1,0 +1,10 @@
+# OPT-IN: see msxp-alert.service. Stop with `msxp alert off`; settings stay in /etc/msxp/alert.env.
+[Unit]
+Description=MS XP stuck-stream alert check every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

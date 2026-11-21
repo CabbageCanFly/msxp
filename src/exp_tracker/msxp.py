@@ -42,10 +42,11 @@ OCR_PACKAGES = ['rapidocr==3.10.0', 'onnxruntime==1.31.0', 'psutil==7.2.2', 'Pil
 SETTINGS = {'MSXP_DATABASE': 'private/msxp/tracker.sqlite3', 'MSXP_PORT': '8765', 'MSXP_ADMIN_PORT': '8766',
             'MSXP_DEMO_PORT': '8890', 'MSXP_DASHBOARD_PORT': '8767', 'MSXP_WORKERS': '2',
             'MSXP_SERVER': '', 'MSXP_SERVER_DIR': '/opt/msxp/app', 'MSXP_SERVER_USER': 'msxp',
-            'MSXP_PRELOAD_STREAMLINK': 'auto'}
+            'MSXP_PRELOAD_STREAMLINK': 'auto', 'MSXP_ALERT_WEBHOOK': '', 'MSXP_ALERT_MINUTES': '30', 'MSXP_FRONTEND_ORIGIN': ''}
 TWITCH_KEYS = ('TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET')
-SERVER_ENV = (Path('/etc/msxp/split.env'), Path('/etc/msxp/roster.env'), Path('/etc/msxp/msxp.env'))
-UNITS = {'tracker': 'msxp-tracker', 'api': 'msxp-api', 'cleanup': 'msxp-retention'}
+ALERT_ENV = Path('/etc/msxp/alert.env')
+SERVER_ENV = (Path('/etc/msxp/split.env'), Path('/etc/msxp/roster.env'), Path('/etc/msxp/msxp.env'), ALERT_ENV)
+UNITS = {'tracker': 'msxp-tracker', 'api': 'msxp-api', 'cleanup': 'msxp-retention', 'alert': 'msxp-alert'}
 PORTS = {'admin': 'MSXP_ADMIN_PORT', 'demo': 'MSXP_DEMO_PORT', 'dashboard': 'MSXP_DASHBOARD_PORT', 'api': 'MSXP_PORT', 'tracker': 'MSXP_PORT'}
 PAGES = {'dashboard': 'dev/streams'}  # The page each command opens; default the homepage.
 INSTALL = {  # Windows, macOS, Linux (Debian/Ubuntu)
@@ -69,10 +70,11 @@ msxp: MapleStory Classic EXP tracker
                  msxp dashboard   operator view: every capture's details per streamer (read-only)
                  msxp health      missed captures in the last hour, and why
                  msxp cleanup     keep only the last 24 h of raw readings (add --apply)
+                 msxp alert       Discord message when a live stream is stuck (see Alerts below)
                  msxp test        run the test suite
                  msxp test-data   download only the private files needed by tests
                  msxp where       where your settings, database, logs and backups are
-                 msxp logs        follow the log (on a server: tracker, api or cleanup)
+                 msxp logs        follow the log (on a server: tracker, api, cleanup or alert)
                  msxp sql         open your database in a read-only SQLite shell
   On a server    msxp server ...  run any command on your server over SSH, e.g. msxp server admin
 
@@ -83,7 +85,15 @@ Settings and secrets live in .env (msxp install copies .env.example; never commi
   MSXP_PRELOAD_STREAMLINK  auto (default): preload on Linux; 0 disables, 1 explicitly enables
   MSXP_SERVER     your server's SSH login for msxp server, e.g. root@203.0.113.7
   TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET   optional, shows who is live (docs/twitch-authentication.md)
-On a server, /etc/msxp/split.env, roster.env and msxp.env are read too, in that order.
+  MSXP_ALERT_WEBHOOK / MSXP_ALERT_MINUTES   Discord webhook URL for alerts / minutes before stuck (30)
+On a server, /etc/msxp/split.env, roster.env, msxp.env and alert.env are read too, in that order.
+
+Alerts           msxp alert            check once now (--dry-run shows, sends nothing)
+                 msxp alert test       send a test message to the webhook
+                 msxp alert --watch    keep checking every 5 minutes (on a PC)
+  On a server    msxp server alert on       install and start the 5-minute timer; asks for the webhook
+                 msxp server alert status   timer, settings and open alerts
+                 msxp server alert off      stop the timer, keep settings (remove: delete it all)
 
 Browse logs      msxp logs tracker --browse
                  msxp logs tracker --since "14 hours ago" --until "10 hours ago" --search "Streamer_A" --browse
@@ -176,6 +186,7 @@ def build(name, args, s, extra=()):
         'cleanup': ([py, '-m', 'exp_tracker.retention', '--db', db,
                      *(['--apply', '--log-root', 'private/multi-alpha/runs'] if getattr(args, 'apply', False) else [])], False),
         'test': ([py, '-m', 'pytest'], False),
+        'alert': ([py, '-m', 'exp_tracker.alerts', *(['--test'] if getattr(args, 'action', '') == 'test' else ['--db', db])], False),
         'test-data': ([py, 'tools/restore_test_data.py', '--download', *(['--check'] if getattr(args, 'check', False) else [])], False),
     }[name]
     return [*command, *extra], url if opens and not args.no_browser else None
@@ -356,13 +367,61 @@ def streamer(args, s):
     return 0
 
 
+ALERT_UNITS = ('msxp-alert.service', 'msxp-alert.timer')
+ALERT_STATE = ROOT / 'private/alert-state.json'  # As exp_tracker.alerts.STATE.
+
+
+def alert(args, s):
+    """on/off/remove/status for the server's msxp-alert.timer; checks and tests run exp_tracker.alerts instead."""
+    if not shutil.which('systemctl'):
+        print('on, off, remove and status manage the alert timer on a Linux server.\n'
+              'On this computer, keep  msxp alert --watch  running instead.');return 1
+    timer = ALERT_UNITS[1]
+    if args.action == 'status':
+        state = {}
+        try:state = json.loads(ALERT_STATE.read_text(encoding='utf-8'))
+        except (OSError, ValueError):pass
+        active = subprocess.run(['systemctl', 'is-active', timer], capture_output=True, text=True).stdout.strip()
+        open_alerts = sorted(k for k, v in state.get('streams', {}).items() if v.get('open'))
+        print(f'  Timer          {timer}: {active or "not installed"}\n'
+              f'  Webhook        {"set" if s["MSXP_ALERT_WEBHOOK"] else "not set (alerts only reach the log)"}\n'
+              f'  Stuck after    {s["MSXP_ALERT_MINUTES"]} minutes\n'
+              f'  Last check     {state.get("checked_at", "never")}\n'
+              f'  Open alerts    {", ".join(open_alerts) or "none"}\n'
+              f'  Change         msxp alert on (webhook), MSXP_ALERT_MINUTES in {ALERT_ENV}; logs: msxp logs alert')
+        return 0
+    if os.geteuid() != 0:os.execvp('sudo', ['sudo', sys.executable, *sys.argv])  # Installs units and edits /etc/msxp.
+    if args.action in ('off', 'remove'):
+        run(['systemctl', 'disable', '--now', timer], tool=False)
+        if args.action == 'off':
+            print(f'Alerts stopped. Settings kept in {ALERT_ENV}; start again with: msxp alert on');return 0
+        for file in (*(Path('/etc/systemd/system') / u for u in ALERT_UNITS), ALERT_ENV, ALERT_STATE):
+            file.unlink(missing_ok=True);print(f'removed {file}')
+        return run(['systemctl', 'daemon-reload'], tool=False)
+    for unit in ALERT_UNITS:shutil.copyfile(ROOT / 'deploy' / unit, Path('/etc/systemd/system') / unit)
+    lines = (ALERT_ENV if ALERT_ENV.exists() else ROOT / 'deploy/msxp-alert.env.example').read_text(encoding='utf-8').splitlines()
+    current = read_env(ALERT_ENV).get('MSXP_ALERT_WEBHOOK')
+    try:url = input(f'Discord webhook URL ({"Enter keeps the current one" if current else "Enter for none: log only"}): ').strip()
+    except EOFError:url = ''
+    if url and not url.startswith('https://'):print('Not saved: a webhook URL starts with https://');return 1
+    if url:lines = [f'MSXP_ALERT_WEBHOOK={url}' if l.startswith('MSXP_ALERT_WEBHOOK=') else l for l in lines]
+    ALERT_ENV.parent.mkdir(exist_ok=True)
+    ALERT_ENV.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    os.chmod(ALERT_ENV, 0o640);shutil.chown(ALERT_ENV, 'root', s['MSXP_SERVER_USER'])
+    if run(['systemctl', 'daemon-reload'], tool=False) or run(['systemctl', 'enable', '--now', timer], tool=False):return 1
+    print(f'Alerts on: a check every 5 minutes. Webhook {"set" if url or current else "not set"}.\n'
+          'Try it: msxp alert test    See it: msxp alert status    Stop: msxp alert off')
+    return 0
+
+
 def remote(command, s, no_browser=False):
     """(ssh command, local url) running `msxp COMMAND` in the server's checkout; admin/api come through an SSH tunnel."""
     name = command[0] if command else 'doctor'
     port = s[PORTS[name]] if name in ('admin', 'api', 'dashboard') else None
     msxp = ' '.join(shlex.quote(c) for c in ['./msxp', *(command or ['doctor']), *(['--no-browser'] if port else [])])
     # As the service user, who owns the database and its WAL files; only reading the journal needs this login.
-    as_owner = '' if name == 'logs' else f'sudo -u {shlex.quote(s["MSXP_SERVER_USER"])} '
+    owner_free = name == 'logs' or name == 'alert' and command[1:2] in (['on'], ['off'], ['remove'])  # Root work.
+    as_owner = '' if owner_free else f'sudo -u {shlex.quote(s["MSXP_SERVER_USER"])} '
     ssh = ['ssh', '-t', *(['-L', f'{port}:127.0.0.1:{port}'] if port else []), s['MSXP_SERVER'],
            f'cd {shlex.quote(s["MSXP_SERVER_DIR"])} && {as_owner}{msxp}']
     return ssh, (f'http://127.0.0.1:{port}/{PAGES.get(name, "")}' if port and not no_browser else None)
@@ -381,10 +440,11 @@ def main(argv=None):
                        ('test', 'run the test suite'), ('test-data', 'download only required private test files'),
                        ('where', 'where files are'), ('logs', 'follow or browse the log'),
                        ('sql', 'open a read-only SQLite shell'),
+                       ('alert', 'Discord message when a live stream is stuck'),
                        ('server', 'run a command on your server over SSH')):
         sub = commands.add_parser(name, help=text, aliases=['diag'] if name == 'doctor' else [])
         if name == 'logs':
-            sub.add_argument('which', nargs='*', choices=list(UNITS), help='on a server: tracker, api, cleanup (default all)')
+            sub.add_argument('which', nargs='*', choices=list(UNITS), help='on a server: tracker, api, cleanup, alert (default all)')
             sub.add_argument('--lines', type=log_lines, help='latest N entries, or all (default 50; all with time filters/browse)')
             sub.add_argument('--since', help='start time, e.g. "14 hours ago" or "2026-10-23 08:00:00"')
             sub.add_argument('--until', help='end time, e.g. "10 hours ago"')
@@ -393,6 +453,9 @@ def main(argv=None):
             mode.add_argument('--browse', action='store_true', help='scroll/search historical logs in the journal viewer')
             mode.add_argument('--follow', dest='follow', action='store_true', default=None, help='keep waiting for new entries')
             mode.add_argument('--no-follow', dest='follow', action='store_false', help='show entries and exit')
+        if name == 'alert':
+            sub.add_argument('action', nargs='?', default='check', choices=['check', 'test', 'on', 'off', 'remove', 'status'],
+                             help='check once (default), send a test, or manage the server timer')
         if name == 'sql':sub.add_argument('query', nargs='?', help='optional SQL to execute instead of opening the shell')
         if name == 'streamer':
             sub.add_argument('action', choices=['add', 'disable', 'hide'], help='add enables tracking')
@@ -401,7 +464,7 @@ def main(argv=None):
         if name == 'server':
             sub.add_argument('--no-browser', action='store_true')
             sub.add_argument('remote', nargs=argparse.REMAINDER, help='the msxp command to run there (default: doctor)')
-        if name in ('setup', 'admin', 'streamer', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'sql'):sub.add_argument('--db', help='database (default: MSXP_DATABASE)')
+        if name in ('setup', 'admin', 'streamer', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'sql', 'alert'):sub.add_argument('--db', help='database (default: MSXP_DATABASE)')
         if name in ('demo', 'admin', 'tracker', 'api', 'dashboard'):
             sub.add_argument('--port', type=int);sub.add_argument('--no-browser', action='store_true')
         if name == 'tracker':sub.add_argument('--workers', type=int, help='streams captured at once (default: MSXP_WORKERS)')
@@ -411,7 +474,7 @@ def main(argv=None):
         if name == 'test-data':sub.add_argument('--check', action='store_true', help='verify installed files; downloads only the manifest')
     args, extra = parser.parse_known_args(argv)
     name = {'diag': 'doctor', None: 'help'}.get(args.command, args.command)
-    if extra and name not in ('demo', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'test', 'test-data'):parser.error(f'unknown option {extra[0]}')
+    if extra and name not in ('demo', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'test', 'test-data', 'alert'):parser.error(f'unknown option {extra[0]}')
     s = settings()
     if name == 'help':print(HELP, end='');return 0
     if name == 'doctor':return doctor(s)
@@ -420,6 +483,7 @@ def main(argv=None):
     if name == 'logs':return logs(args)
     if name == 'sql':return sql(args, s)
     if name == 'streamer':return streamer(args, s)
+    if name == 'alert' and args.action not in ('check', 'test'):return alert(args, s)
     if name == 'server':
         if not s['MSXP_SERVER']:
             print("Add your server's SSH login to .env first, e.g.  MSXP_SERVER=root@203.0.113.7\n"

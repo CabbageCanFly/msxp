@@ -263,4 +263,34 @@ procedure above only for a real recovery.
   `python -m exp_tracker.server --diagnostic-dashboard` on another loopback port.
 
 Not prepared here: Cloudflare in front of the API, rate limiting (stock Caddy has
-none), off-host backup automation, monitoring and alerting.
+none), off-host backup automation, general monitoring.
+
+## Stuck-stream alerts
+
+Optional. A stream is stuck when it has been captured for the last `MSXP_ALERT_MINUTES` (default 30)
+with its HUD on screen in at least half of the captures and no usable reading. Each stuck episode posts one
+Discord message, and one more when readings resume. A stream is reported at most every 6 hours, so one that
+flaps stays quiet, and one that ends while stuck is reported again if it is still stuck next stream. The check is read-only on the database,
+runs outside the tracker and API (neither needs a restart), and adds no OCR work.
+
+From your PC (needs `MSXP_SERVER` in `.env`), or on the server as root without `server`:
+
+```
+msxp server alert on        # installs msxp-alert.service/.timer, asks for the Discord webhook URL, starts the timer
+msxp server alert test      # posts a test message
+msxp server alert status    # timer state, settings, last check and open alerts
+msxp server logs alert      # what each check found
+msxp server alert off       # stops the timer; /etc/msxp/alert.env is kept
+msxp server alert remove    # stops it and deletes the units, /etc/msxp/alert.env and private/alert-state.json
+```
+
+Settings live in `/etc/msxp/alert.env` (root:msxp 0640, from `deploy/msxp-alert.env.example`), outside the
+checkout, so a fork or clone uses its own webhook. Running `msxp alert on` again replaces the webhook (Enter
+keeps it). Edit `MSXP_ALERT_MINUTES` there; the next check uses it. Without a webhook, stuck streams only
+reach the log. Errors name the HTTP status only, never the URL. On a PC, set the same two variables in `.env`
+and keep `msxp alert --watch` running; `msxp alert --dry-run` shows what would be sent.
+
+Measured on the 2026-11-20/21 production history (the 24 hours retention keeps): the rule would have alerted for
+the 2026-11-21 percentage-only level skip at about 30 minutes, and for a second stream held by an unresolved
+level change. Other alerts were a new low-level character read as a level regression and a stream with
+repeated malformed reads. Streams without a HUD (another game or a web page) never alerted.

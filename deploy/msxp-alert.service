@@ -1,0 +1,22 @@
+# OPT-IN: installed and started by `msxp alert on` (or `msxp server alert on` from your PC); removed by `msxp alert remove`.
+# One read-only stuck-stream check; msxp-alert.timer repeats it. Settings: /etc/msxp/alert.env (msxp reads it).
+[Unit]
+Description=MS XP stuck-stream alert check
+After=msxp-tracker.service
+
+[Service]
+Type=oneshot
+User=msxp
+Group=msxp
+WorkingDirectory=/opt/msxp/app
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/msxp/app/msxp alert
+Nice=10
+CPUWeight=20
+TimeoutStartSec=2min
+NoNewPrivileges=yes
+ProtectSystem=strict
+# Only private/alert-state.json is written.
+ReadWritePaths=/opt/msxp/app/private
+PrivateTmp=yes
+UMask=0027
