@@ -13,6 +13,7 @@ from .jobs import match, min_level, tier
 from .manual import active
 from .models import PLACEHOLDER_CHARACTER, same_character_name, split_w
 from .name_glyphs import validated as glyph_name, MIN_SCORE as GLYPH_MIN_SCORE
+from .parsing import parse_level
 from .shadow_view import observation
 from .store import utc
 
@@ -148,6 +149,16 @@ def level_held(record, reason, floor):
                                evidence={k: v for k, v in record.items() if k not in HELD_ENVELOPE})}
 
 
+def skip_corroborated(record, level, floor):
+    """Offline play can skip levels. A neural skip counts only if this frame's own Tesseract level reads
+    (already computed, too unconfident to accept alone) name that level at least twice and no other above the floor."""
+    if not isinstance(level, int) or level <= floor + 1:
+        return False
+    reads = [parse_level(a.get('text') or '') for a in record.get('visual_attempts') or [] if isinstance(a, dict)]
+    above = [v for v in reads if v is not None and floor < v <= 200]
+    return len(above) >= 2 and all(v == level for v in above)
+
+
 def guard_level(store, character, record, *, support=None):
     """Persistent monotone floor with bounded independent level confirmation."""
     if 'level_hold' in record and record.get('current') is False:
@@ -199,7 +210,8 @@ def guard_level(store, character, record, *, support=None):
     normalized = observation(record)
     neural=normalized.get('neural_level') or {}
     name=name_evidence(record)
-    neural_percentage=bool(floor is not None and session_id is not None and neural.get('level')==floor+1
+    neural_percentage=bool(floor is not None and session_id is not None
+        and (neural.get('level')==floor+1 or skip_corroborated(record,neural.get('level'),floor))
         and neural.get('preprocessing')=='neutral4' and (neural.get('score') or 0)>=NEURAL_PERCENTAGE_SCORE
         and neural.get('source_complete') is not False and normalized['visual_level'] is None
         and normalized['status']=='diagnostic_percentage_only' and normalized['percentage_only_candidate']
@@ -259,7 +271,8 @@ def guard_level(store, character, record, *, support=None):
         if votes and (not independent(votes[-1],vote)
                 or (when-datetime.fromisoformat(votes[0]['received_at'])).total_seconds()>NEURAL_PERCENTAGE_SECONDS
                 or any(v['pixel_sha256']==vote['pixel_sha256'] for v in votes)
-                or any(not same_character_name(v['name'],vote['name']) for v in votes)):
+                or any(not same_character_name(v['name'],vote['name']) for v in votes)
+                or any(v['level']!=vote['level'] for v in votes)):
             votes=[]
         # Keep the first vote when fast captures have not yet spanned the minimum time.
         votes=votes[:1]+votes[2:]+[vote] if len(votes)==NEURAL_PERCENTAGE_SAMPLES else votes+[vote]

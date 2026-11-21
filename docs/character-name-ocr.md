@@ -1005,8 +1005,14 @@ exact next level: at least five consecutive qualifying captures, neural score >=
 matching current-character name evidence, distinct pixels and fresh full-frame HUDs.
 The streak must span at least 30 seconds and no more than five minutes, with at most
 120 seconds between votes, in the same session. Missing/unsafe readings or accepted
-conflicting levels reset it. It cannot initialize a level, skip levels, use recovered
-percentage syntax, or use an unreadable name. The saved proof retains five votes and
+conflicting levels reset it. It cannot initialize a level, use recovered percentage
+syntax, or use an unreadable name. Skipping levels (offline play between streams) also
+needs every vote frame's own already-computed Tesseract level reads to name the same
+level at least twice, with no other level above the floor; all five votes must name the
+same level. A neural read alone repeats its own misreads, and a too-high floor would block
+every correct reading afterwards. Measured case (2026-11-21): a percentage-only HUD went
+from 76 to 81 offline; Tesseract read "81" at 0.02-0.61 confidence, never the two
+confident reads it needs on its own, so the floor stayed at 76. The saved proof retains five votes and
 survives process restarts. Existing faster corroborated paths remain available.
 After confirmation, fresh matching neural reads can display strict percentage-only
 progress using that stored floor; no numeric EXP is invented. Repeated OCR errors

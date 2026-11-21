@@ -605,6 +605,26 @@ def test_named_neural_percentage_cannot_confirm_from_invalid_streak(auto,case):
     assert floor==(None if case=='bootstrap' else 57)
 
 
+def skip_record(index,seconds,level=60,reads=('60','1','60','')):
+    value=percentage_levelup_record(index,seconds)
+    value['neural_level'].update(level=level,text=str(level))
+    value['visual_attempts']=[dict(variant=f'v{i}',text=t,confidence=.2) for i,t in enumerate(reads)]
+    return value
+
+
+@pytest.mark.parametrize('case',['confirmed','no_reads','one_read','other_level','mixed_levels'])
+def test_named_neural_percentage_skips_levels_only_with_tesseract_corroboration(auto,case):
+    from exp_tracker.character_automation import guard_level
+    _,store,_=auto;sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    cid=store._channel('alpha')['selected_character_id']
+    reads={'no_reads':(),'one_read':('60','1'),'other_level':('60','60','61')}.get(case,('60','1','60',''))
+    values=[skip_record(i+3,45+i*20,reads=reads) for i in range(5)]
+    if case=='mixed_levels':values[2]=skip_record(5,85,level=61,reads=('61','61'))
+    results=[guard_level(store,cid,v)['current'] for v in values]
+    floor=store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]
+    assert (floor,results[-1])==((60,True) if case=='confirmed' else (57,False))
+
+
 @pytest.mark.parametrize('restart',[False,True])
 @pytest.mark.parametrize('exp',[1437,1441])
 @pytest.mark.parametrize('interval',[15,40])
