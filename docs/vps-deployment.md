@@ -268,10 +268,21 @@ none), off-host backup automation, general monitoring.
 ## Stuck-stream alerts
 
 Optional. A stream is stuck when it has been captured for the last `MSXP_ALERT_MINUTES` (default 30)
-with its HUD on screen in at least half of the captures and no usable reading. Each stuck episode posts one
+with its HUD on screen in at least half of the captures and no usable reading. Before alerting, the check
+also consults the website's validated reading, including grammar recoveries whose initial OCR status
+still says `malformed_or_unavailable`. A recent accepted recovery prevents a false stuck alert and
+can close an existing alert. An unvalidated recovery proposal or a held reading does not count as recovery. Each stuck episode posts one
 Discord message, and one more when readings resume. A stream is reported at most every 6 hours, so one that
 flaps stays quiet, and one that ends while stuck is reported again if it is still stuck next stream. The check is read-only on the database,
 runs outside the tracker and API (neither needs a restart), and adds no OCR work.
+
+A 90-minute override means no counted reading anywhere in the preceding 90 minutes. An accepted
+reading resets that wait even if EXP has not increased. Checks run every five minutes, so detection
+can take up to another five minutes. Captures must span the full window, with a capture within five
+minutes before its start and a recent capture within five minutes. The HUD must be detected in at
+least half the window's captures. Consistently covered or missing HUDs therefore do not qualify.
+This is a detector-based filter, not proof that the HUD was unobstructed or the stream was live
+throughout; mixed scenes and detector errors remain possible.
 
 From your PC (needs `MSXP_SERVER` in `.env`), or on the server as root without `server`:
 
@@ -289,6 +300,31 @@ checkout, so a fork or clone uses its own webhook. Running `msxp alert on` again
 keeps it). Edit `MSXP_ALERT_MINUTES` there; the next check uses it. Without a webhook, stuck streams only
 reach the log. Errors name the HTTP status only, never the URL. On a PC, set the same two variables in `.env`
 and keep `msxp alert --watch` running; `msxp alert --dry-run` shows what would be sent.
+
+To give selected streamers more time without changing everyone else:
+
+```powershell
+.\msxp server alert streamer Streamer_A min 90
+.\msxp server alert streamer Streamer_A              # show its effective wait
+.\msxp server alert streamer Streamer_A min default  # restore the default
+```
+
+Omit `server` for local settings. The command preserves the webhook and other streamers' overrides,
+and saves atomically to `/etc/msxp/alert.env` on a server or `.env` locally. No service is restarted
+and no Discord message is sent. A small configuration file is sufficient for these operator settings;
+they do not need a tracking-database migration. The equivalent file setting is:
+
+```dotenv
+MSXP_ALERT_STREAM_MINUTES=Streamer_A=90,Streamer_B=120
+```
+
+This waits 90 minutes for Streamer_A and 120 for Streamer_B; everyone else still uses
+`MSXP_ALERT_MINUTES` (30 by default). Logins ignore case. Overrides must be at least the default
+and no more than 1440 minutes; duplicates and invalid settings fail without sending or saving state.
+Remove a login's entry to restore its default. On the VPS edit `/etc/msxp/alert.env`; locally use `.env`.
+The next timer check or `--watch` iteration reloads settings. `msxp alert status` shows the overrides.
+Neither tracker nor API needs restarting. Existing one-message-per-episode and six-hour repeat
+limits still apply; this setting delays alerts rather than changing which readings are accepted.
 
 Measured on the 2026-11-20/21 production history (the 24 hours retention keeps): the rule would have alerted for
 the 2026-11-21 percentage-only level skip at about 30 minutes, and for a second stream held by an unresolved

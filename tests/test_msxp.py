@@ -136,6 +136,39 @@ def test_server_commands_run_over_ssh_with_a_tunnel_and_the_service_user():
     assert msxp.remote(['alert', 'status'], s)[0][-1] == 'cd /opt/msxp/app && sudo -u msxp ./msxp alert status'
     for action in ('on', 'off', 'remove'):
         assert msxp.remote(['alert', action], s)[0][-1] == f'cd /opt/msxp/app && ./msxp alert {action}'
+    assert msxp.remote(['alert','streamer','Streamer_A'],s)[0][-1] == 'cd /opt/msxp/app && sudo -u msxp ./msxp alert streamer Streamer_A'
+    assert msxp.remote(['alert','streamer','Streamer_A','min','90'],s)[0][-1] == 'cd /opt/msxp/app && ./msxp alert streamer Streamer_A min 90'
+
+
+@pytest.mark.parametrize('server',[False,True])
+def test_alert_streamer_command_sets_shows_and_resets_only_its_override(tmp_path,monkeypatch,capsys,server):
+    monkeypatch.setattr(msxp,'ROOT',tmp_path)
+    file = tmp_path/('alert.env' if server else '.env')
+    monkeypatch.setattr(msxp,'ALERT_ENV',file)
+    monkeypatch.setattr(msxp.shutil,'which',lambda _: '/bin/systemctl' if server else None)
+    monkeypatch.setattr(msxp.os,'geteuid',lambda:0,raising=False)
+    monkeypatch.setattr(msxp.shutil,'chown',lambda *args:None,raising=False)
+    monkeypatch.delenv('MSXP_ALERT_STREAM_MINUTES',raising=False)
+    file.write_text('# Keep this comment\nMSXP_ALERT_WEBHOOK=https://example.test/SECRET\nMSXP_ALERT_STREAM_MINUTES=Streamer_B=120\n')
+    monkeypatch.setattr(msxp,'settings',lambda:dict(msxp.SETTINGS,**msxp.read_env(file)))
+    prefix = ['alert','streamer','Streamer_A']
+    assert msxp.main(prefix+['min','90'])==0
+    saved = file.read_text()
+    assert 'streamer_a=90,streamer_b=120' in saved and '# Keep this comment' in saved and '/SECRET' in saved
+    assert 'SECRET' not in capsys.readouterr().out
+    assert msxp.main(prefix)==0 and '90 minutes (override)' in capsys.readouterr().out
+    assert file.read_text()==saved
+    assert msxp.main(prefix+['min','default'])==0
+    assert msxp.read_env(file)['MSXP_ALERT_STREAM_MINUTES']=='streamer_b=120'
+    assert msxp.main(prefix)==0 and '30 minutes (default)' in capsys.readouterr().out
+    before = file.read_text()
+    for suffix in (['min','29'],['min','nan'],['min'],['wrong','90']):
+        with pytest.raises(SystemExit):msxp.main(prefix+suffix)
+        assert file.read_text()==before
+    def fail_replace(*args):raise OSError('simulated replacement failure')
+    monkeypatch.setattr(msxp.os,'replace',fail_replace)
+    with pytest.raises(SystemExit):msxp.main(prefix+['min','90'])
+    assert file.read_text()==before and sorted(p.name for p in tmp_path.iterdir())==[file.name]
 
 
 def test_alert_timer_commands_explain_themselves_without_systemd(monkeypatch, capsys):

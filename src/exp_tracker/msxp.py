@@ -16,6 +16,7 @@ import socket
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import webbrowser
 
@@ -42,7 +43,8 @@ OCR_PACKAGES = ['rapidocr==3.10.0', 'onnxruntime==1.31.0', 'psutil==7.2.2', 'Pil
 SETTINGS = {'MSXP_DATABASE': 'private/msxp/tracker.sqlite3', 'MSXP_PORT': '8765', 'MSXP_ADMIN_PORT': '8766',
             'MSXP_DEMO_PORT': '8890', 'MSXP_DASHBOARD_PORT': '8767', 'MSXP_WORKERS': '2',
             'MSXP_SERVER': '', 'MSXP_SERVER_DIR': '/opt/msxp/app', 'MSXP_SERVER_USER': 'msxp',
-            'MSXP_PRELOAD_STREAMLINK': 'auto', 'MSXP_ALERT_WEBHOOK': '', 'MSXP_ALERT_MINUTES': '30', 'MSXP_FRONTEND_ORIGIN': ''}
+            'MSXP_PRELOAD_STREAMLINK': 'auto', 'MSXP_ALERT_WEBHOOK': '', 'MSXP_ALERT_MINUTES': '30',
+            'MSXP_ALERT_STREAM_MINUTES': '', 'MSXP_FRONTEND_ORIGIN': ''}
 TWITCH_KEYS = ('TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET')
 ALERT_ENV = Path('/etc/msxp/alert.env')
 SERVER_ENV = (Path('/etc/msxp/split.env'), Path('/etc/msxp/roster.env'), Path('/etc/msxp/msxp.env'), ALERT_ENV)
@@ -86,9 +88,13 @@ Settings and secrets live in .env (msxp install copies .env.example; never commi
   MSXP_SERVER     your server's SSH login for msxp server, e.g. root@203.0.113.7
   TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET   optional, shows who is live (docs/twitch-authentication.md)
   MSXP_ALERT_WEBHOOK / MSXP_ALERT_MINUTES   Discord webhook URL for alerts / minutes before stuck (30)
+  MSXP_ALERT_STREAM_MINUTES   per-streamer increases, e.g. Streamer_A=90,Streamer_B=120
 On a server, /etc/msxp/split.env, roster.env, msxp.env and alert.env are read too, in that order.
 
 Alerts           msxp alert            check once now (--dry-run shows, sends nothing)
+                 msxp server alert streamer Streamer_A min 90       set a longer wait
+                 msxp server alert streamer Streamer_A min default  restore the default
+                 msxp server alert streamer Streamer_A              show its wait
                  msxp alert test       send a test message to the webhook
                  msxp alert --watch    keep checking every 5 minutes (on a PC)
   On a server    msxp server alert on       install and start the 5-minute timer; asks for the webhook
@@ -371,6 +377,45 @@ ALERT_UNITS = ('msxp-alert.service', 'msxp-alert.timer')
 ALERT_STATE = ROOT / 'private/alert-state.json'  # As exp_tracker.alerts.STATE.
 
 
+def alert_streamer(args, s):
+    """Persist one alert override without touching tracking or sending a message."""
+    from .alerts import windows
+    key = 'MSXP_ALERT_STREAM_MINUTES'
+    if not args.login or not re.fullmatch(r'[A-Za-z0-9_]{1,25}', args.login):
+        raise ValueError('Use a Twitch login, not a URL')
+    default, overrides = windows(s)
+    login = args.login.lower()
+    if args.minutes is None:
+        duration = overrides.get(login, default)
+        print(f'{login}: {duration.total_seconds()/60:g} minutes ({"override" if login in overrides else "default"})');return 0
+    if args.minutes == 'default':overrides.pop(login, None)
+    else:
+        _, replacement = windows(dict(s, MSXP_ALERT_STREAM_MINUTES=f'{login}={args.minutes}'))
+        overrides.update(replacement)
+    value = ','.join(f'{name}={duration.total_seconds()/60:g}' for name,duration in sorted(overrides.items()))
+    server = bool(shutil.which('systemctl'))
+    if os.environ.get(key) or server and read_env(ROOT / '.env').get(key):
+        raise ValueError(f'Unset the overriding {key} in the process environment or project .env before saving file settings')
+    if server and os.geteuid() != 0:os.execvp('sudo', ['sudo', sys.executable, *sys.argv])
+    file = ALERT_ENV if server else ROOT / '.env'
+    original = file.read_text(encoding='utf-8') if file.exists() else ''
+    lines = [line for line in original.splitlines() if not re.match(r'^\s*(?:export\s+)?MSXP_ALERT_STREAM_MINUTES\s*=', line)]
+    lines.append(f'{key}={value}')
+    file.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=file.parent, delete=False) as output:
+            temporary = Path(output.name)
+            output.write('\n'.join(lines) + '\n')
+        os.chmod(temporary, 0o640 if server else 0o600)
+        if server:shutil.chown(temporary, 'root', s['MSXP_SERVER_USER'])
+        os.replace(temporary, file)
+    finally:
+        if temporary:temporary.unlink(missing_ok=True)
+    print(f'Saved {login}: {overrides.get(login, default).total_seconds()/60:g} minutes in {file}. Next check uses it; no restart needed.')
+    return 0
+
+
 def alert(args, s):
     """on/off/remove/status for the server's msxp-alert.timer; checks and tests run exp_tracker.alerts instead."""
     if not shutil.which('systemctl'):
@@ -386,9 +431,10 @@ def alert(args, s):
         print(f'  Timer          {timer}: {active or "not installed"}\n'
               f'  Webhook        {"set" if s["MSXP_ALERT_WEBHOOK"] else "not set (alerts only reach the log)"}\n'
               f'  Stuck after    {s["MSXP_ALERT_MINUTES"]} minutes\n'
+              f'  Per streamer   {s["MSXP_ALERT_STREAM_MINUTES"] or "none"}\n'
               f'  Last check     {state.get("checked_at", "never")}\n'
               f'  Open alerts    {", ".join(open_alerts) or "none"}\n'
-              f'  Change         msxp alert on (webhook), MSXP_ALERT_MINUTES in {ALERT_ENV}; logs: msxp logs alert')
+              f'  Change         msxp alert on (webhook), MSXP_ALERT_MINUTES / MSXP_ALERT_STREAM_MINUTES in {ALERT_ENV}; logs: msxp logs alert')
         return 0
     if os.geteuid() != 0:os.execvp('sudo', ['sudo', sys.executable, *sys.argv])  # Installs units and edits /etc/msxp.
     if args.action in ('off', 'remove'):
@@ -420,7 +466,8 @@ def remote(command, s, no_browser=False):
     port = s[PORTS[name]] if name in ('admin', 'api', 'dashboard') else None
     msxp = ' '.join(shlex.quote(c) for c in ['./msxp', *(command or ['doctor']), *(['--no-browser'] if port else [])])
     # As the service user, who owns the database and its WAL files; only reading the journal needs this login.
-    owner_free = name == 'logs' or name == 'alert' and command[1:2] in (['on'], ['off'], ['remove'])  # Root work.
+    owner_free = name == 'logs' or name == 'alert' and (command[1:2] in (['on'], ['off'], ['remove'])
+        or command[1:2] == ['streamer'] and len(command) >= 5)  # Root work; showing an override uses msxp's read access.
     as_owner = '' if owner_free else f'sudo -u {shlex.quote(s["MSXP_SERVER_USER"])} '
     ssh = ['ssh', '-t', *(['-L', f'{port}:127.0.0.1:{port}'] if port else []), s['MSXP_SERVER'],
            f'cd {shlex.quote(s["MSXP_SERVER_DIR"])} && {as_owner}{msxp}']
@@ -454,8 +501,11 @@ def main(argv=None):
             mode.add_argument('--follow', dest='follow', action='store_true', default=None, help='keep waiting for new entries')
             mode.add_argument('--no-follow', dest='follow', action='store_false', help='show entries and exit')
         if name == 'alert':
-            sub.add_argument('action', nargs='?', default='check', choices=['check', 'test', 'on', 'off', 'remove', 'status'],
+            sub.add_argument('action', nargs='?', default='check', choices=['check', 'test', 'on', 'off', 'remove', 'status', 'streamer'],
                              help='check once (default), send a test, or manage the server timer')
+            sub.add_argument('login', nargs='?', help='streamer action: Twitch login')
+            sub.add_argument('setting', nargs='?', choices=['min'], help='streamer action: set its waiting time')
+            sub.add_argument('minutes', nargs='?', help='streamer action: minutes, or default to remove its override')
         if name == 'sql':sub.add_argument('query', nargs='?', help='optional SQL to execute instead of opening the shell')
         if name == 'streamer':
             sub.add_argument('action', choices=['add', 'disable', 'hide'], help='add enables tracking')
@@ -476,6 +526,12 @@ def main(argv=None):
     name = {'diag': 'doctor', None: 'help'}.get(args.command, args.command)
     if extra and name not in ('demo', 'admin', 'tracker', 'api', 'dashboard', 'health', 'cleanup', 'test', 'test-data', 'alert'):parser.error(f'unknown option {extra[0]}')
     s = settings()
+    if name == 'alert':
+        if args.action == 'streamer':
+            if extra or bool(args.setting) != (args.minutes is not None):parser.error('Use alert streamer LOGIN [min MINUTES|default]')
+            try:return alert_streamer(args, s)
+            except (ValueError, OSError) as error:parser.error(str(error))
+        if args.login or args.setting or args.minutes:parser.error('Only alert streamer accepts a login and minutes')
     if name == 'help':print(HELP, end='');return 0
     if name == 'doctor':return doctor(s)
     if name == 'install':return install(args, s)
