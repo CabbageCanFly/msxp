@@ -1,5 +1,23 @@
 # Layout-first HUD recognition
 
+## Level badge fallback digit checks
+
+When the initial neutral level passes cannot form a consensus, a fallback whole-number
+consensus is now checked against isolated native-pixel digits. Two thresholds must
+independently segment the expected number of digits and read the same conflicting
+digit at confidence >=0.40 before the whole-number result is withheld. These digit
+reads never supply or repair a level. Uncertain segmentation or disagreement supplies
+no veto; initial neutral consensus takes no extra OCR calls. Existing neural, identity
+and level-floor rules still decide whether the capture is usable.
+
+On ten saved level-85 frames, Windows Tesseract's six false 83 results became unavailable;
+the unchanged neural reader supplied 85, so all ten passed the ordinary level guard
+(previously four). The VPS's Tesseract 5.5.0 similarly withheld seven false 83 results
+in an in-memory comparison. Outputs on 207 older control crops stayed identical,
+including two pre-existing wrong results. This reduces false confidence; it does not
+establish perfect badge recognition. This capture-side change needs only a tracker
+restart after deployment. No API or level-policy change is involved.
+
 With `--resident-tesseract`, layout-first HUD recognition is now on by default.
 Existing VPS roster/capture service commands already have that flag. Pull the
 code and restart **only `msxp-tracker`**. No environment, database or API-service

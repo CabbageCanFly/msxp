@@ -278,6 +278,33 @@ def same_layout(a, b, size):
                for x,y in zip(a['regions'][field].pixels(*size),b['regions'][field].pixels(*size)))
 
 
+def disputed_level_digits(gray, level):
+    """Native digit checks can veto a fallback consensus, never supply a level."""
+    masks=[]
+    for threshold in (120,160):
+        mask=gray.point(lambda p:255 if p>threshold else 0)
+        spans=[];start=None
+        for x in range(mask.width+1):
+            on=x<mask.width and mask.crop((x,0,x+1,mask.height)).getbbox() is not None
+            if on and start is None:start=x
+            if not on and start is not None:spans.append((start,x));start=None
+        if len(spans)!=len(str(level)):return False,[]
+        masks.append((threshold,mask,spans))
+    attempts=[]
+    for index,expected in reversed(list(enumerate(str(level)))):
+        votes=[]
+        for threshold,mask,spans in masks:
+            a,b=spans[index];glyph=mask.crop((a,0,b,mask.height))
+            glyph=glyph.crop(glyph.getbbox())
+            image=ImageOps.invert(glyph).resize((glyph.width*8,glyph.height*8),Image.Resampling.NEAREST)
+            tokens=_ocr(ImageOps.expand(image,20,fill=255),10,'0123456789')
+            text=''.join(t['text'] for t in tokens);confidence=min((t['confidence'] for t in tokens),default=0)
+            attempts.append(dict(variant=f'native{threshold}-digit{index}',text='',confidence=confidence,digit=text,position=index))
+            if confidence>=.4 and re.fullmatch('[0-9]',text):votes.append(text)
+        if len(votes)==2 and votes[0]==votes[1] and votes[0]!=expected:return True,attempts
+    return False,attempts
+
+
 def level_reading(crop):
     """Suppress orange tile backgrounds with RGB minimum, not luma thresholding."""
     red,green,blue = crop.convert("RGB").split()
@@ -286,6 +313,7 @@ def level_reading(crop):
         return None,[]
     gray = ImageChops.darker(ImageChops.darker(red,green),blue)
     gray = gray.crop(box)
+    native = gray
     gray = gray.resize((gray.width*5,gray.height*5),Image.Resampling.BICUBIC)
     attempts=[]
     def neutral(*thresholds,psm=7):
@@ -299,6 +327,7 @@ def level_reading(crop):
                 if a['confidence']>=.4 and (v:=parse_level(a['text'])) is not None]
     neutral(160,180,200)
     confident=options()
+    fallback=len(confident)<2
     if len(confident)<2:
         attempts.extend(_read_field(crop,'level',None))
         confident=options()
@@ -311,6 +340,10 @@ def level_reading(crop):
             confident=options()
     if len(confident)<2 or len({v for v,c in confident})!=1:
         return None,attempts
+    if fallback:
+        disputed,digits=disputed_level_digits(native,confident[0][0])
+        attempts.extend(digits)
+        if disputed:return None,attempts
     return confident[0][0],attempts
 
 

@@ -325,6 +325,38 @@ def test_existing_consensus_never_runs_the_lower_thresholds(monkeypatch):
     assert [a['variant'] for a in attempts]==['neutral160','neutral180','neutral200']
 
 
+@pytest.mark.parametrize('votes,disputed',[
+    ([('5',.8),('5',.7)],True),
+    ([('5',.8),('3',.7),('',0),('',0)],False),
+    ([('5',.8),('5',.39),('',0),('',0)],False),
+    ([('3',.8),('3',.7),('8',.9),('8',.9)],False),
+])
+def test_native_digit_evidence_only_vetoes_two_agreeing_confident_disagreements(monkeypatch,votes,disputed):
+    from PIL import ImageDraw
+    image=Image.new('L',(24,16));draw=ImageDraw.Draw(image)
+    draw.rectangle((2,2,8,13),fill=220);draw.rectangle((14,2,20,13),fill=220)
+    answers=iter(votes)
+    def ocr(image,psm,whitelist):
+        assert psm==10 and whitelist=='0123456789'
+        text,confidence=next(answers)
+        return [dict(text=text,confidence=confidence)] if text else []
+    monkeypatch.setattr(hud,'_ocr',ocr)
+    result,attempts=hud.disputed_level_digits(image,83)
+    assert result is disputed
+    assert all(a['text']=='' for a in attempts)  # An isolated digit is never a whole-level vote.
+
+
+def test_native_digit_veto_applies_only_to_fallback_consensus(monkeypatch):
+    scripted_level_passes(monkeypatch,[('83',.8),('83',.9),('',0)])
+    monkeypatch.setattr(hud,'disputed_level_digits',lambda *_:pytest.fail('Fast consensus needs no extra OCR'))
+    assert hud.level_reading(Image.new('RGB',(12,12),(250,140,40)))[0]==83
+    scripted_level_passes(monkeypatch,[('83',.8),('',0),('',0)])
+    monkeypatch.setattr(hud,'_read_field',lambda *_:[dict(variant='luma',text='83',confidence=.7)])
+    monkeypatch.setattr(hud,'disputed_level_digits',lambda *_:(True,[dict(variant='native',text='',digit='5',confidence=.8)]))
+    level,attempts=hud.level_reading(Image.new('RGB',(12,12),(250,140,40)))
+    assert level is None and attempts[-1]['digit']=='5'
+
+
 def test_monster_level_tags_and_damage_numbers_do_not_become_the_level_anchor():
     status_bar=anchors(700,1040,150)
     # Monster name tags, damage numbers and a small picture-in-picture feed's label share the frame.
