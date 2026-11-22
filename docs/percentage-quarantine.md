@@ -5,6 +5,17 @@ It never changes raw SQLite payloads, trusted Store accounting, requirements,
 schema, character assignment or historical source timestamps. “Accepted” below
 means eligible for the **experimental public projection**, not verified OCR.
 
+## Damaged numerical prefixes
+
+A recovered percentage extracted from a numeric EXP prefix with invalid digit grouping
+is withheld when there is no valid full-pair interpretation. For example, a damaged
+`1234.567[8.94%]` must not become a percentage-only endpoint after its numerical EXP
+fails parsing: arithmetic cannot corroborate that percentage. The rejection reason is
+`malformed_exp_prefix`. Raw text and parser proposals remain available for review.
+Genuine percentage-only HUDs, ungrouped numerical EXP, valid grouping and existing
+supported punctuation repairs retain their policies. No maximum EXP/hour was added;
+large valid gains still use the existing acceptance rules.
+
 ## Policy
 
 The first same-context decrease is withheld. The public percentage, numerical EXP

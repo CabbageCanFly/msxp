@@ -4,11 +4,12 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 from fractions import Fraction
+import re
 import threading
 
 from .exp_requirements import requirement
-from .shadow_grammar import interpret_exp
-from .diagnostic_evidence import project,consistency
+from .shadow_grammar import interpret_exp,GROUPED
+from .diagnostic_evidence import project,consistency,full_reading
 from .diagnostic_percentage import review,boundary,CONFIRM_SECONDS
 
 LABEL = 'EXPERIMENTAL / UNVERIFIED'
@@ -88,7 +89,13 @@ def _percentage_point(row, *, include_recovered=True):
         else:
             return None, 'candidate_contradiction'
     elif include_recovered and interpreted['percentage']['classification']=='unique_proposal':
-        kind, reading = 'grammar_recovered', interpreted['percentage']['proposals'][0]['reading']
+        proposal = interpreted['percentage']['proposals'][0]
+        prefix = (row.get('raw_text') or '')[:proposal['field_span'][0]]
+        # A damaged numerical prefix cannot supply arithmetic evidence for its percentage either.
+        if (re.fullmatch(r'[0-9.,]+',prefix) and not prefix.isdigit() and not re.fullmatch(GROUPED,prefix)
+                and full_reading(row) is None):
+            return None,'malformed_exp_prefix'
+        kind, reading = 'grammar_recovered', proposal['reading']
     if reading is None:
         return None, 'invalid_or_ambiguous_percentage'
     if leading_brackets and (

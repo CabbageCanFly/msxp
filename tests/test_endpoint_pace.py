@@ -35,6 +35,45 @@ def snapshot(rows,seconds):
     return dict(observations=rows,percentage_progress=data,run_id=rows[-1]['run_id'])
 
 
+def test_damaged_exp_prefix_cannot_turn_a_wrong_percentage_into_a_pace_endpoint():
+    rows=[point(1,0,124844,'3.19',level=82),missing(2,20),missing(3,40),missing(4,60),
+        point(5,80,130637,'8.94',level=82),point(6,100,134007,'3.42',level=82),
+        point(7,120,135480,'3.46',level=82)]
+    rows[4].update(candidate=None,status='malformed_or_unavailable',raw_text='2130.637[8.94%]')
+    snap=snapshot(rows,120)
+    bad=snap['observations'][4]
+    assert not bad['percentage_review']['public_eligible']
+    assert bad['percentage_review']['reason']=='malformed_exp_prefix'
+    pace=responsive_pace(snap,dict(value=82),now=NOW+timedelta(seconds=120))
+    assert all('run:5' not in (i['first_event_id'],i['last_event_id']) for i in pace['intervals'])
+    assert pace['total_gain']['approximate']==135480-124844
+    assert pace['coverage_seconds']['approximate']==120
+    assert pace['estimates']['exp_per_hour']['value']['approximate']==127632
+
+
+def test_arithmetically_valid_large_gain_is_not_capped_as_a_bad_rate():
+    rows=[point(1,0,124844,'3.19',level=82),point(2,80,349834,'8.94',level=82)]
+    pace=responsive_pace(snapshot(rows,80),dict(value=82),now=NOW+timedelta(seconds=80))
+    assert pace['total_gain']['approximate']==349834-124844
+    assert pace['estimates']['exp_per_hour']['value']['approximate']>1_000_000
+
+
+def test_real_percentage_only_hud_above_one_million_survives_unreadable_gaps():
+    from exp_tracker.shadow_types import parse_percentage_only
+    rows=[point(1,0,1486988,'38.00',level=82),missing(2,20),missing(3,40),
+        point(4,60,1494814,'38.20',level=82),missing(5,80),point(6,100,1498728,'38.30',level=82)]
+    for r in rows:
+        if r.get('candidate'):
+            percentage=r['candidate']['percentage']
+            r.update(candidate=None,status='diagnostic_percentage_only',raw_text=f'[{percentage}%]',
+                percentage_only_candidate=parse_percentage_only(f'[{percentage}%]'))
+    snap=snapshot(rows,100)
+    assert all(r['percentage_review']['public_eligible'] for r in snap['observations'] if r['hud_count']==1)
+    pace=responsive_pace(snap,dict(value=82),now=NOW+timedelta(seconds=100))
+    assert pace['total_gain']['approximate']>11000
+    assert pace['coverage_seconds']['approximate']==100
+
+
 @pytest.fixture
 def synthetic_requirement(monkeypatch):
     import exp_tracker.product as product
