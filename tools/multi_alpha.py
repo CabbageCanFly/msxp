@@ -830,9 +830,10 @@ def main(argv=None):
                                 persist(lane, record)
                                 cache = lane['options'].get('hud_cache')
                                 if cache is not None and record.get('current') and store.schema_version >= 10:
-                                    # A skipped level needs two full-frame name votes even after numeric OCR settles.
+                                    # Level confirmation counts only full-frame name votes: two for a skip, five for a
+                                    # percentage-only level-up, so cached captures must not wait out the vote window.
                                     pending_jump = store.db.execute('''SELECT 1 FROM character_level_guard
-                                        WHERE character_id=? AND json_extract(pending_json, '$.level') > level+1''',
+                                        WHERE character_id=? AND json_extract(pending_json, '$.level') > level''',
                                         (lane['character_id'],)).fetchone()
                                     if pending_jump:
                                         cache.doubt = True

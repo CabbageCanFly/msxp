@@ -74,8 +74,12 @@ The whole frame is scanned again:
 - while the character has no confirmed name, or its latest name read disagrees with it;
 - after a capture that recommended holding its reading (name mismatch, pending switch,
   unverified numeric anomaly) or saw a level change or contradictory numbers;
-- while the saved level guard is confirming a jump of more than one level. It needs two
-  distinct full-frame name votes even when consecutive captures agree on the new level.
+- while the saved level guard is confirming any level above its floor. Only full-frame name
+  reads vote: a skip needs two, and a level-up on a percentage-only HUD needs five within
+  five minutes. Until 2026-11-21 only skips requested full frames, so a percentage-only
+  level-up got one vote per periodic full scan and never confirmed. One stream was held at
+  its old level for a whole stream. Replaying its 199 production frames with full-frame name reads
+  confirmed the new level about 90 s in.
 - after a capture that raised an error.
 
 Name evidence from a cached capture keeps `provenance.search = "cached_region"`, which
