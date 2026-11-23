@@ -34,6 +34,7 @@ on new API fields must wait for that backend to be live.
 | `local.html`, `local-overlay.html`, `static/local/*` | The browser-only personal tracker and its self-hosted OCR runtime ([local tracker](local-tracker.md)) |
 | `static/local/community-exp.json` | Copy of `src/exp_tracker/data/community-exp-v2.json` for the local tracker's checks |
 | `_redirects`, `_headers`, `404.html` | Generated: routes, security headers, not-found page |
+| `robots.txt`, `sitemap.xml` | Generated: crawler rules and the static entry pages (`/`, `/local`) for search engines |
 | `.msxp-pages-export` | Marker that lets a rerun replace its own output |
 
 Admin, shadow viewer, developer diagnostics, the demo leaderboard, the legacy `/overlay/`

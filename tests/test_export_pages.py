@@ -18,7 +18,7 @@ import export_pages  # noqa: E402
 import preview_pages  # noqa: E402
 
 API = 'https://api.example.org'  # Illustrative; the real API hostname is supplied at build time.
-EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'index.html', 'live-overlay.html', 'player.html',
+EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'robots.txt', 'sitemap.xml', 'index.html', 'live-overlay.html', 'player.html',
             'static/fonts/OFL-Fredoka.txt', 'static/fonts/OFL-Nunito.txt', 'static/fonts/fredoka-latin.woff2',
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
             'static/product.js', 'static/username-history.js', 'static/overlay-stats.js', 'static/exp-bars.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp',
@@ -77,7 +77,7 @@ def test_pages_load_only_their_own_static_files_and_developer_links_stay_hidden(
     for name in ('index.html', 'player.html', 'live-overlay.html'):
         html = (out / name).read_text(encoding='utf-8')
         assert html.count(f'data-site="public" data-api="{API}"') == 1
-        loaded = [ref for tag, attrs in re.findall(r'<([a-z]+)\b([^>]*)>', html) if tag != 'a' for ref in re.findall(r'\b(?:href|src)="([^"]*)"', attrs)]
+        loaded = [ref for tag, attrs in re.findall(r'<([a-z]+)\b([^>]*)>', html) if tag != 'a' and 'rel="canonical"' not in attrs for ref in re.findall(r'\b(?:href|src)="([^"]*)"', attrs)]
         assert loaded and all(ref.startswith('/static/') for ref in loaded), name
     assert '[data-site=public] .dev-link { display:none; }' in (out / 'static/product.css').read_text(encoding='utf-8')
     # A third-party script, stylesheet or font would fail the build.
@@ -119,6 +119,12 @@ def test_mob_sprites_match_the_names_product_js_uses():
     wanted = {f'{slug}-{action}.{"webp" if slug == "slime" else "gif"}' for slug in walkers for action in ('move', 'hit', 'die')} | {f'{slug}-stand.gif' for slug in bosses}
     # A typo would 404 silently in the browser; a stray file would be published unused.
     assert walkers and bosses and {p.name for p in (export_pages.WEB / 'mobs').iterdir()} == wanted
+
+
+def test_robots_and_sitemap_point_search_engines_at_the_public_pages(out):
+    assert 'Sitemap: https://msxp.pages.dev/sitemap.xml' in (out / 'robots.txt').read_text(encoding='utf-8')
+    assert re.findall(r'<loc>([^<]+)</loc>', (out / 'sitemap.xml').read_text(encoding='utf-8')) == ['https://msxp.pages.dev/', 'https://msxp.pages.dev/local']
+    for name in ('live-overlay.html', 'local-overlay.html'):assert '<meta name="robots" content="noindex">' in (out / name).read_text(encoding='utf-8')
 
 
 def test_cloudflare_rewrites_keep_public_routes_and_nothing_else(out):

@@ -33,7 +33,14 @@ if(apiOrigin && !/^(https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](
   throw new Error(`Invalid data-api origin: ${apiOrigin}`);
 const endpoint=channel?`${apiOrigin}/api/players/${encodeURIComponent(channel)}`:`${apiOrigin}/api/players`;
 // The server lowercases logins; an empty path keeps the static HTML title.
-if(view==='player' && channel)document.title=`${channel.toLowerCase()} · EXP Tracker`;
+if(view==='player' && channel){
+  const login=channel.toLowerCase(),canonical=document.createElement('link');
+  document.title=`${login} · MapleStory Classic EXP Tracker`;
+  document.querySelectorAll('meta[name=description]')[0]?.setAttribute('content',`${login}'s MapleStory Classic level, EXP per hour, time to next level and EXP history, tracked live from Twitch.`);
+  // One indexed URL per channel, whatever its case or trailing slash; alt characters keep their own.
+  const character=new URLSearchParams(location.search).get('character');
+  canonical.rel='canonical';canonical.href=`${location.origin}/stream/${encodeURIComponent(login)}${character?`?character=${encodeURIComponent(character)}`:''}`;document.head?.append(canonical);
+}
 const numbers=new Intl.NumberFormat('en-US'),shortNumber=new Intl.NumberFormat('en-US',{maximumSignificantDigits:3});
 const wholeNumbers=new Intl.NumberFormat('en-US',{maximumFractionDigits:0});
 // Times use the visitor's zone, or one they picked (remembered in this browser only).

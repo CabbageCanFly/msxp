@@ -350,7 +350,7 @@ for(const view of ['player','overlay'])test(`${view} marks estimated percentage 
 });
 
 test('character page tab names the channel before any reading; overlay keeps its own title',()=>{
-  assert.equal(page('player').context.document.title,'alpha · EXP Tracker');
+  assert.equal(page('player').context.document.title,'alpha · MapleStory Classic EXP Tracker');
   assert.equal(page().context.document.title,undefined);
 });
 
