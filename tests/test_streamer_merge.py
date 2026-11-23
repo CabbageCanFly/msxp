@@ -185,6 +185,7 @@ def test_repeated_username_changes_flatten_previous_links(fixture):
 def test_public_redirects_profiles_metadata_and_daily_history(fixture):
     from exp_tracker.server import create_server
     from tests.test_server import request
+    from tests.test_character_profiles import get
     path,old,alt,new,other=fixture
     with Store(path) as store:merge.commit(store,merge.preview(store,'streamer_a','streamer_b',{old:new}))
     with create_server(path,port=0,public_only=True) as server:
@@ -207,6 +208,11 @@ def test_public_redirects_profiles_metadata_and_daily_history(fixture):
         rows=[r for r in json.loads(body)['characters'] if r['channel']=='streamer_b']
         assert {r['id'] for r in rows}=={new,alt}
         assert all(r['previous_usernames']==['streamer_a'] for r in rows)
+        for character in (new,alt):
+            status,profile=get(server,f'/api/players/streamer_b?character={character}')
+            assert status==200
+            assert profile['player']['previous_usernames']==['streamer_a']
+            assert profile['view']['current']==(character==new)
         status,_,body=request((server,None),f'/api/players/streamer_b/daily-history?character={new}&days=365')
         assert status==200 and len(json.loads(body)['points'])==3
         assert request((server,None),f'/api/players/streamer_b?character={other}')[0]==404

@@ -693,6 +693,8 @@ class Publisher:
             value = refresh(found['public']['player'], now=now, activity=dict(state='historical_session'))
             value = tracked_statistics(value, found['public']['tracked'], now=now, pace_as_of=datetime.fromisoformat(found['card']['recent_as_of']))
             value.update(activity=public(value['activity']), twitch=dict(status='not_applicable', reason='inactive_character'))
+            previous=self.previous_usernames.get(channel)
+            if previous:value['previous_usernames']=list(previous)
             return self.sections(dict(player=value, roster=self.roster(channel, entry, now), view=dict(character_id=character, current=False)), found, held, now)
         try:return self.present((*key, held[0] is not None, held[1] is not None), build, json.dumps(held))
         except LookupError:return None
