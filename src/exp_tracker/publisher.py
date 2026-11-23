@@ -28,6 +28,7 @@ from .character_automation import PLACEHOLDER_CHARACTER
 from .diagnostics import Diagnostics, due, operation
 from .product import refresh, tracked_statistics
 from .store import Store, utc
+from . import streamer_aliases
 from .twitch_probe import outside_maplestory
 
 PRESENT_SECONDS = 1  # A presented body is reused for at most this long.
@@ -89,6 +90,7 @@ def board(p):
     """Only what the Streamers list reads (product.js entry, sort and ETA). Everything was ~130 KB
     gzipped per 2 s poll for 36 players; the profile and overlay keep it on /api/players/{channel}."""
     value = {k: p[k] for k in BOARD_FIELDS if k in p}
+    if p.get('previous_usernames'):value['previous_usernames']=p['previous_usernames']
     reading, level = p.get('reading'), p.get('display_level')
     value['reading'] = reading and dict(reading, level=reading['level'] and {k: reading['level'].get(k) for k in ('value', 'status')},
         exp_validity=reading.get('exp_validity') and {'status': reading['exp_validity'].get('status')})
@@ -144,6 +146,7 @@ class Publisher:
         self.work = threading.Lock()  # One refresher; inline requests take turns.
         self.entries = {}; self.heads = []; self.truncated = False; self.statuses = {}
         self.visibility = {}
+        self.username_aliases = {}; self.previous_usernames = {}
         self.channel_views = {}; self.directory_logins = set()
         self.generation = 0; self.failures = {}; self.wanted = set()
         self.cards = {}  # Card cache owned by the refresher (see Diagnostics.card).
@@ -165,6 +168,7 @@ class Publisher:
         self.stats['started_at'] = time.monotonic()
         try:  # Channel list only, so the first homepage already names warming channels.
             with Store(self.server.database, read_only=True) as store, store._transaction():
+                self.refresh_aliases(store)
                 from .streamer_roster import visible
                 self.publish_heads(Diagnostics(store).heads(public_directory=True), self.statuses,visible(store))
                 cache=getattr(self.server,'publication_cache',None)
@@ -267,6 +271,7 @@ class Publisher:
                 diagnostics = Diagnostics(store)
                 with store._transaction():
                     directory = diagnostics.heads(public_directory=True)
+                    self.refresh_aliases(store)
                     from .streamer_roster import visible
                     visibility=visible(store)
                     with self.lock:
@@ -309,6 +314,16 @@ class Publisher:
                 if not pending[1:] and self.stats['ready_at'] is None and all(h['login'] in self.entries for h in directory):
                     self.stats['ready_at'] = time.monotonic()
                 return len(pending) + len(requested) + len(views) > 1
+
+    def refresh_aliases(self, store):
+        aliases=streamer_aliases.load(store)
+        with self.lock:
+            if aliases!=self.username_aliases:
+                self.username_aliases=aliases;self.previous_usernames=streamer_aliases.previous(aliases)
+                self.generation+=1
+
+    def canonical(self, channel, query):
+        with self.lock:return streamer_aliases.canonical(self.username_aliases,channel,query)
 
     def publish_heads(self, heads, statuses, visibility=None, *, extra=()):
         """Channel list and Twitch status; removed channels lose every cached state."""
@@ -522,6 +537,8 @@ class Publisher:
         value = tracked_statistics(value, entry['public']['tracked'], now=now, pace_as_of=datetime.fromisoformat(card['recent_as_of']),
             current_level=character_page)
         value['activity'] = public(value['activity'])  # The coordinator's runtime state joins at presentation.
+        previous=self.previous_usernames.get(card['channel'])
+        if previous:value['previous_usernames']=list(previous)
         if entry.get('restored'):value['publication']=dict(state='restored',computed_at=entry['built_at'],updating=True)
         return value
 
@@ -559,6 +576,9 @@ class Publisher:
                 warming = [h['login'] for h in self.heads if h['login'] in self.directory_logins and (
                     h['login'] not in self.entries or self.entries[h['login']].get('restored'))]
                 truncated = self.truncated
+                for row in rows:
+                    previous=self.previous_usernames.get(row['channel'])
+                    if previous:row['previous_usernames']=list(previous)
             return encode(dict(characters=rows, warming=warming, served_at=utc(now), truncated=truncated, poll_seconds=2, experimental=True))
         return self.present('home-characters', build)
 

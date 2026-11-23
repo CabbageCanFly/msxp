@@ -191,14 +191,14 @@ function expTitle(r) {
 }
 function percentageText(r) { return r?.percentage!=null?`${r.estimated_percentage?'~':''}${r.percentage}%`:'—'; }
 function sourceText(p) { return `${p.source_kind==='file'?'Video · ':p.source_kind==='twitch'?'ttv/':''}${p.channel}`; }
-function rowContent(row,profile) {
-  if(!globalThis.matchMedia?.('(max-width:650px)').matches)return row;
+function rowContent(row,profile,hasHistory=false) {
+  if(hasHistory || !globalThis.matchMedia?.('(max-width:650px)').matches)return row;
   const link=node('a','row-profile');link.href=profile;row.append(link);return link;
 }
 // The mobile row already links to its profile; keep its labels free of nested links.
 function sourceLink(p,profile) {
   if(profile && globalThis.matchMedia?.('(max-width:650px)').matches) {
-    return node('span','channel',sourceText(p));
+    return historicalSource(node('span','channel',sourceText(p)),p);
   }
   const source=node(p.source_kind==='twitch'?'a':'span','channel',sourceText(p));
   if(p.source_kind==='twitch') {
@@ -209,7 +209,11 @@ function sourceLink(p,profile) {
     path.setAttribute('d','M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0 1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z');
     icon.append(path);source.append(icon);
   }
-  return source;
+  return historicalSource(source,p);
+}
+function historicalSource(source,p) {
+  if(!p.previous_usernames?.length)return source;
+  return UsernameHistory.decorate(source,p,view==='board'?el('character-filter').value:'');
 }
 function lastSeenReading(p) { return p.last_seen?.reading ?? p.last_seen?.full_exp ?? null; }
 // A level newer than the reading's: show that level's start, never the old level's % beside it.
@@ -462,7 +466,7 @@ function entry({player:p,value,rank}) {
   row.dataset.metric=sort;
   const badge=node('span','rank',rank??'—');badge.dataset.medal=rank!=null && rank<=3?rank:'';badge.setAttribute('aria-label',rank==null?'Not ranked yet':`Rank ${rank}`);
   const level=levelPill(levelText(p),statusText(p)==='Online',statusText(p));level.title=levelTitle(p);
-  const profile=`/stream/${p.channel}`,content=rowContent(row,profile);
+  const profile=`/stream/${p.channel}`,content=rowContent(row,profile,!!p.previous_usernames?.length);
   const identity=node('div','identity'),name=node(content===row?'a':'span','character',p.character?.label ?? 'Character not selected');
   if(content===row)name.href=profile;name.title=name.textContent;
   identity.append(nameLine(name,p.character?.job,content===row),sourceLink(p,profile));
@@ -506,7 +510,7 @@ function renderBoard() {
   showPresence();
   if(characters){renderCharacters();return;}
   const search=el('character-filter').value.trim().toLowerCase();
-  const all=data?.players ?? [],matching=all.filter(p=>shown(statusText(p)==='Online') && `${p.character?.label ?? ''} ${p.channel}`.toLowerCase().includes(search));
+  const all=data?.players ?? [],matching=all.filter(p=>shown(statusText(p)==='Online') && `${p.character?.label ?? ''} ${p.channel} ${(p.previous_usernames ?? []).join(' ')}`.toLowerCase().includes(search));
   showJobCounts(matching.map(p=>p.character?.job));
   const rows=ranked(matching.filter(p=>jobMatches(p.character?.job)),sort);
   const focus=document.activeElement?.closest?.('#entries a')?.getAttribute('href');
@@ -524,7 +528,7 @@ function renderBoard() {
 function renderCharacters() {
   const search=el('character-filter').value.trim().toLowerCase(),order=characterSort;
   document.querySelectorAll('[data-character-sort]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.characterSort===order)));
-  const all=data?.characters ?? [],matching=all.filter(r=>shown(!!r.online) && `${r.label} ${r.channel}`.toLowerCase().includes(search));
+  const all=data?.characters ?? [],matching=all.filter(r=>shown(!!r.online) && `${r.label} ${r.channel} ${(r.previous_usernames ?? []).join(' ')}`.toLowerCase().includes(search));
   showJobCounts(matching.map(r=>r.job));
   const rows=matching.filter(r=>jobMatches(r.job));
   rows.sort((a,b)=>(order==='level'?(b.level ?? -1)-(a.level ?? -1):order==='name'?a.label.localeCompare(b.label):
@@ -535,7 +539,7 @@ function renderCharacters() {
     const row=node('li','entry character-entry');row.dataset.channel=r.channel;row.dataset.character=r.id;row.dataset.rank=order==='level'?index+1:'';
     const badge=node('span','rank',index+1);badge.dataset.medal=order==='level' && index<3?index+1:'';badge.setAttribute('aria-label',`Rank ${index+1}`);
     const level=levelPill(r.level ?? '—',!!r.online,r.online?'Online':r.current?'Offline':'Not currently tracked');
-    const profile=`/stream/${encodeURIComponent(r.channel)}${r.current?'':`?character=${r.id}`}`,content=rowContent(row,profile);
+    const profile=`/stream/${encodeURIComponent(r.channel)}${r.current?'':`?character=${r.id}`}`,content=rowContent(row,profile,!!r.previous_usernames?.length);
     const identity=node('div','identity'),link=node(content===row?'a':'span','character',r.label);
     if(content===row)link.href=profile;  // The plain profile shows the current character.
     identity.append(nameLine(link,r.job,content===row),sourceLink({...r,source_kind:r.source_kind ?? 'twitch'},profile));
@@ -617,6 +621,11 @@ function renderPlayer() {
     // Video and demo sources have no channel page, so they link to Twitch itself.
     el('twitch-link').href=p.source_kind==='twitch'?`https://www.twitch.tv/${encodeURIComponent(p.channel)}`:'https://www.twitch.tv/';
     el('twitch-link').title=p.source_kind==='twitch'?`Watch ${p.channel} on Twitch`:'Open Twitch';
+    const previous=el('previous-username');
+    if(previous){
+      previous.hidden=!p.previous_usernames?.length;
+      previous.dataset.previousUsernames=JSON.stringify(p.previous_usernames ?? []);
+    }
   }
   el('level').textContent=`Lv. ${levelText(p)}`;el('level').title=levelTitle(p);
   el('level').dataset.lastKnown=String(lastKnown(p));
@@ -1002,6 +1011,13 @@ async function poll() {
     const response=await fetch(String(query)?`${endpoint}?${query}`:endpoint,{cache:'no-store',signal:controller.signal});
     const body=await response.json().catch(()=>({}));
     if(!unchanged())return;  // The visitor chose another character or homepage mode meanwhile.
+    if(channel && response.redirected && body.player && (body.player.channel!==channel ||
+        requestedView && String(body.view?.character_id)!==requestedView)) {
+      const canonical=new URL(location.href);
+      canonical.pathname=`/${view==='overlay'?'live/overlay':'stream'}/${encodeURIComponent(body.player.channel)}`;
+      if(requestedView)canonical.searchParams.set('character',String(body.view.character_id));
+      location.replace(canonical.href);return;
+    }
     // The first publication or a changed character/session is not ready yet.
     warming=response.status===503 && body.error==='warming_up';
     if(warming){

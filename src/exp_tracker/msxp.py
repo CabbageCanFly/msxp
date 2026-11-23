@@ -67,6 +67,7 @@ msxp: MapleStory Classic EXP tracker
                  msxp streamer add LOGIN      add with admin defaults and tracking enabled
                  msxp streamer disable LOGIN  pause tracking, preserve history
                  msxp streamer hide LOGIN     hide publicly, keep tracking setting
+                 msxp streamer merge OLD --into NEW  preview a Twitch username change (see --help)
                  msxp tracker     capture the streams + your local website
   More           msxp api         website only, for an existing database
                  msxp dashboard   operator view: every capture's details per streamer (read-only)
@@ -356,6 +357,30 @@ def streamer(args, s):
     db = path(args.db or s['MSXP_DATABASE']).resolve()
     if not db.is_file():
         print(f'No tracker database at {db}. Check msxp where or supply --db PATH.');return 1
+    if args.action=='merge':
+        from . import streamer_merge
+        import json
+        try:
+            if not args.into:raise ValueError('merge requires --into CURRENT_USERNAME')
+            if args.reason:raise ValueError('merge uses its own audit receipt; --reason applies to roster edits')
+            mapping={}
+            for pair in args.map_character:
+                if not re.fullmatch(r'[1-9][0-9]*:[1-9][0-9]*',pair):raise ValueError('use --map-character OLD_ID:NEW_ID')
+                old,new=map(int,pair.split(':'))
+                if old in mapping:raise ValueError('old character mapped more than once')
+                mapping[old]=new
+            if args.apply:
+                if not args.backup:raise ValueError('--apply requires --backup NEW_FILE')
+                result=streamer_merge.apply(db,args.login.lower(),args.into.lower(),mapping,path(args.backup))
+            else:
+                if args.backup:raise ValueError('--backup is used only with --apply')
+                with Store(db,read_only=True) as store,store._transaction():
+                    result=streamer_merge.preview(store,args.login.lower(),args.into.lower(),mapping)
+            print(json.dumps(result,indent=2));return 0
+        except (ValueError,OSError,sqlite3.Error) as error:
+            print(f'Merge not completed: {error}');return 1
+    if args.into or args.map_character or args.apply or args.backup or args.preview:
+        print('Merge options require streamer merge.');return 1
     raw = dict(action='roster_add' if args.action == 'add' else 'roster_update', channel=args.login,
                reason=args.reason if args.reason is not None else f'msxp streamer {args.action}')
     if args.action == 'add':
@@ -508,9 +533,15 @@ def main(argv=None):
             sub.add_argument('minutes', nargs='?', help='streamer action: minutes, or default to remove its override')
         if name == 'sql':sub.add_argument('query', nargs='?', help='optional SQL to execute instead of opening the shell')
         if name == 'streamer':
-            sub.add_argument('action', choices=['add', 'disable', 'hide'], help='add enables tracking')
+            sub.add_argument('action', choices=['add', 'disable', 'hide', 'merge'], help='add enables tracking; merge previews a username change')
             sub.add_argument('login', help='Twitch login, not a URL or character name')
             sub.add_argument('--reason', help='single-line audit reason (default: msxp streamer ACTION)')
+            sub.add_argument('--into', help='merge: current Twitch username, already tracked')
+            sub.add_argument('--map-character', action='append', default=[], metavar='OLD_ID:NEW_ID', help='merge: explicitly verified duplicate character (repeatable)')
+            merge_mode=sub.add_mutually_exclusive_group()
+            merge_mode.add_argument('--preview', action='store_true', help='merge: read-only review (default)')
+            merge_mode.add_argument('--apply', action='store_true', help='merge: back up, drain only these lanes, merge and resume the destination')
+            sub.add_argument('--backup', help='merge --apply: new backup SQLite file; never overwritten')
         if name == 'server':
             sub.add_argument('--no-browser', action='store_true')
             sub.add_argument('remote', nargs=argparse.REMAINDER, help='the msxp command to run there (default: doctor)')

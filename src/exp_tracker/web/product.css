@@ -677,3 +677,21 @@ html, body.product { overflow-x:clip; }
 .stat-edit-row select:nth-of-type(2) { font-size:12px; padding-left:6px; padding-right:18px; }
 
 .stat-edit-rows:has([data-metric="eta"]) { grid-template-columns:max-content minmax(0,1fr) 84px; }
+
+/* Previous Twitch usernames: compact, selectable disclosure; search never expands rows. */
+.rename-history[hidden] {display:none}
+.rename-source {display:contents}
+.rename-source:has(.rename-history:not([hidden])) {display:inline-flex;align-items:center;gap:3px;min-width:0;max-width:100%;position:relative}
+.rename-source:has(.rename-history:not([hidden])) + .stream-uptime {margin-left:-8px}
+.rename-source:has(.rename-history:not([hidden])) .twitch-link {max-width:100%;box-sizing:border-box}
+.rename-history {flex:none;display:inline-flex;align-items:center;justify-content:center;min-height:0;width:25px;height:25px;padding:5px;border:0;border-radius:50%;background:none;color:var(--text-soft);opacity:.65;cursor:pointer}
+.rename-history:hover,.rename-history:focus-visible,.rename-history[aria-expanded="true"] {opacity:1;color:var(--gold)}
+.rename-history:focus-visible {outline:2px solid var(--gold);outline-offset:1px}
+.product .channel.history-target {text-decoration:underline;text-decoration-style:dotted;text-decoration-color:#aab3c480;text-underline-offset:3px}
+.product button.channel.history-target {position:relative;z-index:2;text-align:left;min-height:0;min-width:0;max-width:100%;width:fit-content;padding:0;border:0;border-radius:0;background:none;font:700 11px var(--font-ui);color:var(--text-muted)}
+.username-history {position:fixed;z-index:100;padding:10px 13px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);box-shadow:0 4px 15px #0006;color:var(--text-soft);font:12px/1.6 var(--font-ui);white-space:nowrap;user-select:text;cursor:text}
+.username-history strong {display:block;color:var(--text);font-weight:700}
+.username-history[hidden] {display:none}
+.product .channel.alias-query-match {text-decoration-color:var(--gold);color:var(--text-soft)}
+.username-history mark {padding:0 1px;border-radius:2px;background:#ffc56b;color:#232c3e}
+@media(max-width:650px) {.rename-source:has(.rename-history:not([hidden])) + .stream-uptime {margin-left:0}}

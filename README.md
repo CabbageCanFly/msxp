@@ -107,6 +107,7 @@ whole frame at least every 300 seconds and on any doubt; it is opt-in
 | `msxp streamer add LOGIN` | Add a streamer with the admin defaults and tracking enabled |
 | `msxp streamer disable LOGIN` | Disable tracking without deleting history or changing visibility |
 | `msxp streamer hide LOGIN` | Hide a streamer from public views without changing tracking |
+| `msxp streamer merge OLD --into NEW` | Preview a username change; [merge guide](docs/streamer-username-changes.md) |
 | `msxp tracker` | Captures the streams and serves your leaderboard |
 | `msxp api` | Only the website, from an existing database, without capturing |
 | `msxp dashboard` | Operator view: every capture's details per streamer, read-only (`msxp tracker` includes it at `/dev/streams`) |
@@ -137,6 +138,11 @@ checks and the restored Safari capture replays. These checks skip when Node.js i
 replays use the page's own bundled OCR engine, so they give the browser's results on any machine.
 
 ### Manage streamers without a browser
+
+For a Twitch username change, `msxp streamer merge Streamer_A --into Streamer_B`
+previews a merge into the already-tracked current profile. Apply requires a new
+backup file and explicitly verified mappings for duplicate characters; see
+[username changes](docs/streamer-username-changes.md) for supported histories and commands.
 
 ```bash
 msxp streamer add Streamer_A

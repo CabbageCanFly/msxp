@@ -48,6 +48,7 @@ SHADOW_ASSETS = {
 }
 DIRECTORY_ASSETS = {'/static/streams.js': ('streams.js','text/javascript')}
 PRODUCT_ASSETS = {'/static/overlay-stats.js':('overlay-stats.js','text/javascript'),'/static/exp-bars.js':('exp-bars.js','text/javascript'),
+                  '/static/username-history.js':('username-history.js','text/javascript'),
                   '/static/product.css':('product.css','text/css'),'/static/product.js':('product.js','text/javascript')}
 # Public-only mode also serves these shared assets; everything else outside the product is refused.
 PUBLIC_ASSETS = {'/static/leaderboard.css', '/static/leaderboard.svg', '/static/overlay.css', '/static/live-overlay.css', '/static/steely.png',
@@ -141,6 +142,12 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     channel=(product_api or product_history or product_daily or product_page)[2 if product_page else 1].lower()
                     if not CHANNEL.fullmatch(channel):self.reply(400,{'error':'invalid_channel'});return
+                    canonical,query=self.server.publisher.canonical(channel,urlsplit(self.path).query)
+                    if canonical!=channel or query!=urlsplit(self.path).query:
+                        route=product_api or product_history or product_daily or product_page
+                        group=2 if product_page else 1
+                        target=path[:route.start(group)]+canonical+path[route.end(group):]
+                        self.reply(307,{},headers=[('Location',target+('?' + query if query else ''))]);return
                     if product_daily:
                         try:query=parse_qs(urlsplit(self.path).query,keep_blank_values=True,max_num_fields=4)
                         except ValueError:self.reply(400,{'error':'invalid_history_query'});return
