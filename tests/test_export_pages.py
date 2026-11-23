@@ -121,10 +121,21 @@ def test_mob_sprites_match_the_names_product_js_uses():
     assert walkers and bosses and {p.name for p in (export_pages.WEB / 'mobs').iterdir()} == wanted
 
 
-def test_robots_and_sitemap_point_search_engines_at_the_public_pages(out):
-    assert 'Sitemap: https://msxp.pages.dev/sitemap.xml' in (out / 'robots.txt').read_text(encoding='utf-8')
+def test_robots_and_sitemap_point_search_engines_at_the_public_pages(out, tmp_path):
+    # The static entry pages, plus the API's live player-page sitemap (server.py), so new streamers need no rebuild.
+    robots = (out / 'robots.txt').read_text(encoding='utf-8')
+    assert re.findall(r'^Sitemap: (\S+)$', robots, re.M) == ['https://msxp.pages.dev/sitemap.xml', f'{API}/sitemap.xml']
     assert re.findall(r'<loc>([^<]+)</loc>', (out / 'sitemap.xml').read_text(encoding='utf-8')) == ['https://msxp.pages.dev/', 'https://msxp.pages.dev/local']
     for name in ('live-overlay.html', 'local-overlay.html'):assert '<meta name="robots" content="noindex">' in (out / name).read_text(encoding='utf-8')
+    # A fork names its own site; canonical and link-preview URLs follow, the visible brand text stays.
+    fork = tmp_path / 'fork'
+    export_pages.export(fork, API, 'https://fork.example.org')
+    index = (fork / 'index.html').read_text(encoding='utf-8')
+    assert '<link rel="canonical" href="https://fork.example.org/">' in index and 'https://msxp.pages.dev' not in index
+    assert '<strong>msxp.pages.dev</strong>' in index
+    assert 'Sitemap: https://fork.example.org/sitemap.xml' in (fork / 'robots.txt').read_text(encoding='utf-8')
+    assert '<loc>https://fork.example.org/local</loc>' in (fork / 'sitemap.xml').read_text(encoding='utf-8')
+    with pytest.raises(ValueError, match='Site origin'):export_pages.export(tmp_path / 'bad', API, 'https://fork.example.org/')
 
 
 def test_cloudflare_rewrites_keep_public_routes_and_nothing_else(out):

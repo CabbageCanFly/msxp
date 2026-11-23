@@ -7,7 +7,8 @@ Standard library only: Cloudflare's build image has Python but not this project'
 dependencies. Only the files named in PAGES and STATIC are exported; everything else
 under src/exp_tracker/web (admin, diagnostics, shadow viewer, demo) stays private.
 The API origin comes from --api-origin, else MSXP_API_ORIGIN; there is no default, so a
-build never silently points at a guessed backend.
+build never silently points at a guessed backend. Canonical, link-preview and sitemap URLs name
+--site-origin, else MSXP_SITE_ORIGIN, else https://msxp.pages.dev.
 See docs/cloudflare-pages-deployment.md.
 """
 
@@ -51,11 +52,18 @@ REDIRECTS = ('/streams / 200', '/streams/ / 200', '/stream/:channel /player 200'
              '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200',
              '/local/ /local 200', '/local/overlay /local-overlay 200', '/local/overlay/ /local-overlay 200')
 ROUTES = {'/', '/streams', '/local', '/local/overlay'}
-# Player pages are discovered through the rendered directory links; the sitemap lists the static entry pages.
+# The public site the canonical, link-preview and sitemap URLs name; a fork sets --site-origin or MSXP_SITE_ORIGIN.
 SITE = 'https://msxp.pages.dev'
-ROBOTS = f'User-agent: *\nAllow: /\n\nSitemap: {SITE}/sitemap.xml\n'
-SITEMAP = ('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-           + ''.join(f'  <url><loc>{SITE}{path}</loc></url>\n' for path in ('/', '/local')) + '</urlset>\n')
+
+
+def robots(site, origin):
+    # The API serves the player-page sitemap from its live directory (server.py), so new streamers need no rebuild.
+    return f'User-agent: *\nAllow: /\n\nSitemap: {site}/sitemap.xml\nSitemap: {origin}/sitemap.xml\n'
+
+
+def sitemap(site):
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + ''.join(f'  <url><loc>{site}{path}</loc></url>\n' for path in ('/', '/local')) + '</urlset>\n')
 # Cloudflare Web Analytics (enabled on the Pages project, which injects its beacon): its script and its report.
 ANALYTICS_SCRIPT, ANALYTICS_REPORT = 'https://static.cloudflareinsights.com', 'https://cloudflareinsights.com'
 # The local tracker compiles WebAssembly (OCR) in a same-origin worker. Its only API request is one visit ping per
@@ -94,12 +102,13 @@ def source(name):
     return path.read_bytes()
 
 
-def page(name, origin):
+def page(name, origin, site=SITE):
     body = source(name)
     tag = b'<html lang="en">'
     if body.count(tag) != 1:raise ValueError(f'{name}: expected exactly one {tag.decode()}')
     # The same public-site attribute the Python server adds in public-only mode, plus the API origin.
-    return body.replace(tag, f'<html lang="en" data-site="public" data-api="{origin}">'.encode(), 1)
+    body = body.replace(tag, f'<html lang="en" data-site="public" data-api="{origin}">'.encode(), 1)
+    return body.replace(SITE.encode(), site.encode())  # Canonical and link-preview URLs; the visible brand text stays.
 
 
 def headers(origin):
@@ -113,13 +122,13 @@ def headers(origin):
     return '\n'.join(lines) + '\n'
 
 
-def references(out):
+def references(out, site=SITE):
     """Everything a page loads is an exported /static/ file on the site's own origin; only <a> links may go elsewhere."""
     problems = []
     for html in sorted(out.glob('*.html')):
         for tag, attributes in re.findall(r'<([a-z]+)\b([^>]*)>', html.read_text(encoding='utf-8')):
             for ref in re.findall(r'\b(?:href|src)="([^"]*)"', attributes):
-                if tag == 'a' or tag == 'link' and 'rel="canonical"' in attributes and ref.startswith(SITE + '/'):
+                if tag == 'a' or tag == 'link' and 'rel="canonical"' in attributes and ref.startswith(site + '/'):
                     if ref == '#' or ref.startswith('https://') or ref in ROUTES or ref in DEVELOPER_LINKS:continue
                 elif ref.startswith('/static/') and (out / ref[1:]).is_file():continue
                 problems.append(f'{html.name}: <{tag}> {ref}')
@@ -132,35 +141,38 @@ def references(out):
     if problems:raise ValueError('Unresolved or external references: ' + ', '.join(problems))
 
 
-def export(out, origin):
+def export(out, origin, site=SITE):
     origin = api_origin(origin)
+    if not isinstance(site, str) or not ORIGIN.fullmatch(site):
+        raise ValueError(f'Site origin must be an exact https://host[:port] origin (http only for localhost), got {site!r}')
     out = Path(out).resolve()
     if out.exists():
         if not out.is_dir() or any(out.iterdir()) and not (out / MARKER).is_file():
             raise ValueError(f'Refusing to replace {out}: not empty and not a previous export')
         shutil.rmtree(out)
-    files = {name: page(src, origin) for name, src in PAGES.items()}
+    files = {name: page(src, origin, site) for name, src in PAGES.items()}
     files.update({f'static/{name}': source(name) for name in STATIC})
     files.update({'404.html': NOT_FOUND.encode(), '_redirects': ('\n'.join(REDIRECTS) + '\n').encode(),
-                  '_headers': headers(origin).encode(),
-                  'robots.txt': ROBOTS.encode(), 'sitemap.xml': SITEMAP.encode(), MARKER: b'Generated by tools/export_pages.py; safe to delete.\n'})
+                  '_headers': headers(origin).encode(), 'robots.txt': robots(site, origin).encode(),
+                  'sitemap.xml': sitemap(site).encode(), MARKER: b'Generated by tools/export_pages.py; safe to delete.\n'})
     for name, body in sorted(files.items()):
         (out / name).parent.mkdir(parents=True, exist_ok=True)
         (out / name).write_bytes(body)
-    references(out)
+    references(out, site)
     return sorted(files)
 
 
 def main(argv=None):
     cli = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     cli.add_argument('--api-origin', default=os.environ.get('MSXP_API_ORIGIN'), help='Public API origin; or set MSXP_API_ORIGIN')
+    cli.add_argument('--site-origin', default=os.environ.get('MSXP_SITE_ORIGIN') or SITE, help=f'Public site origin for canonical and sitemap URLs; or set MSXP_SITE_ORIGIN (default {SITE})')
     cli.add_argument('--out', type=Path, default=DEFAULT_OUT)
     args = cli.parse_args(argv)
     if not args.api_origin:
         print('Pages export failed: set --api-origin or MSXP_API_ORIGIN to the public API origin, e.g. https://api.example.org', file=sys.stderr)
         return 1
     try:
-        files = export(args.out, args.api_origin)
+        files = export(args.out, args.api_origin, args.site_origin)
     except (OSError, ValueError) as error:
         print(f'Pages export failed: {error}', file=sys.stderr)
         return 1

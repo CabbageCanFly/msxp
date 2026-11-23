@@ -34,7 +34,7 @@ on new API fields must wait for that backend to be live.
 | `local.html`, `local-overlay.html`, `static/local/*` | The browser-only personal tracker and its self-hosted OCR runtime ([local tracker](local-tracker.md)) |
 | `static/local/community-exp.json` | Copy of `src/exp_tracker/data/community-exp-v2.json` for the local tracker's checks |
 | `_redirects`, `_headers`, `404.html` | Generated: routes, security headers, not-found page |
-| `robots.txt`, `sitemap.xml` | Generated: crawler rules and the static entry pages (`/`, `/local`) for search engines |
+| `robots.txt`, `sitemap.xml` | Generated: crawler rules and the static entry pages (`/`, `/local`). `robots.txt` also names the API's live player-page sitemap, `<API origin>/sitemap.xml` ([VPS](vps-deployment.md#api-contract-for-the-frontend)), so new streamers reach search engines without a rebuild |
 | `.msxp-pages-export` | Marker that lets a rerun replace its own output |
 
 Admin, shadow viewer, developer diagnostics, the demo leaderboard, the legacy `/overlay/`
@@ -57,7 +57,7 @@ return the 404 page on Pages.
 | Root directory | repository root (leave empty) |
 | Build command | `python3 tools/export_pages.py` |
 | Build output directory | `dist/pages` |
-| Environment variables | `MSXP_API_ORIGIN` = the public API origin, e.g. `https://api.example.org`, set for **both** Production and Preview |
+| Environment variables | `MSXP_API_ORIGIN` = the public API origin, e.g. `https://api.example.org`, set for **both** Production and Preview. Optional `MSXP_SITE_ORIGIN` (or `--site-origin`) = the public site origin that canonical, link-preview and sitemap URLs name; default `https://msxp.pages.dev`, so only a fork sets it |
 | Build watch paths | Include `src/exp_tracker/web/*`, `src/exp_tracker/data/*`, `tools/export_pages.py`; exclude nothing |
 
 The watch paths are everything the export reads, so pushes that change only the API, tracker,

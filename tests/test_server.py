@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import http.client
 from io import BytesIO
 import json
+import re
 from pathlib import Path
 import shutil
 import sqlite3
@@ -573,6 +574,19 @@ def test_populated_statistics_are_read_from_guarded_history_not_api_constants(tm
     assert result["statistics"]["exp_per_hour_30m"]["exp_per_hour"] == 240000
     assert result["statistics"]["to_next_level"]["seconds"] == 11400
     assert "ranking" not in result
+
+
+def test_sitemap_lists_the_directory_player_pages_on_the_configured_frontend(database):
+    pages = "https://msxp.pages.dev"
+    with server.create_server(database, port=0, public_only=True, cors_origins=[pages]) as httpd:
+        listed = sorted(p["channel"] for p in json.loads(request((httpd, None), "/api/players")[2])["players"])
+        code, headers, body = request((httpd, None), "/sitemap.xml")
+        assert code == 200 and headers["Content-Type"] == "application/xml; charset=utf-8" and listed
+        assert re.findall(r"<loc>([^<]+)</loc>", body.decode()) == [f"{pages}/stream/{c}" for c in listed]
+        assert request((httpd, None), "/sitemap.xml", "POST")[0] == 405
+    with server.create_server(database, port=0, public_only=True) as httpd:  # No frontend origin: nothing to list.
+        assert request((httpd, None), "/sitemap.xml")[0] == 404
+    assert "/sitemap.xml" in (Path(__file__).parents[1] / "deploy" / "Caddyfile").read_text(encoding="utf-8")
 
 
 def test_cors_allows_only_configured_origins_on_every_response(database, capsys):

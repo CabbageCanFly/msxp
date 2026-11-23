@@ -9,7 +9,7 @@ import re
 import sqlite3
 import sys
 import threading
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .store import STALE_AFTER_SECONDS, Store, utc
 from .shadow_view import ShadowLog
@@ -119,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
         product_history=re.fullmatch(r'/api/players/([^/]*)/history',path)
         product_daily=re.fullmatch(r'/api/players/([^/]*)/daily-history',path)
         product_page=re.fullmatch(r'/(stream|live/overlay)/([^/]*)',path)
-        product = path in ('/','/streams','/api/players') or product_api or product_history or product_daily or product_page or path in PRODUCT_ASSETS
+        product = path in ('/','/streams','/api/players','/sitemap.xml') or product_api or product_history or product_daily or product_page or path in PRODUCT_ASSETS
         if self.server.public_only and not (product or path in PUBLIC_ASSETS):
             # Deny by default: developer, shadow, trusted-state and demo routes do not exist here.
             self.reply(404,{'error':'not_found'});return
@@ -131,6 +131,14 @@ class Handler(BaseHTTPRequestHandler):
                     name,kind=PRODUCT_ASSETS[path];self.reply(200,(WEB/name).read_bytes(),kind)
                 elif path in ('/','/streams'):
                     self.reply(200,self.page('tracker.html'),'text/html')
+                elif path=='/sitemap.xml':
+                    # Lists the directory's player pages on the frontend, so search engines find new streamers without a
+                    # frontend rebuild; the Pages robots.txt points here. No frontend origin configured: no sitemap.
+                    if not self.server.site_origin:self.reply(404,{'error':'not_found'});return
+                    publisher=self.server.publisher
+                    if not publisher.background:publisher.settle()
+                    with publisher.lock:logins=sorted(publisher.directory_logins)
+                    self.reply(200,sitemap(self.server.site_origin,logins),'application/xml',cache='public, max-age=3600')
                 elif path=='/api/players':
                     # Requests only present published state; inline servers settle it first.
                     publisher=self.server.publisher
@@ -301,6 +309,11 @@ class Handler(BaseHTTPRequestHandler):
     do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = reject_write
 
 
+def sitemap(site, logins):
+    urls = ''.join(f'  <url><loc>{site}/stream/{quote(login)}</loc></url>\n' for login in logins)
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n'.encode()
+
+
 def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=False,twitch_status=False,background=False,public_only=False,cors_origins=(),publication_cache=None,runtime_state=None):
     """background=True runs the publisher thread; otherwise requests settle it inline.
     public_only serves only the homepage, character pages, OBS overlay and their APIs/assets.
@@ -321,6 +334,7 @@ def create_server(database, *, port=8765, shadow_log=None, diagnostic_dashboard=
     server.diagnostic_dashboard = diagnostic_dashboard
     server.public_only = public_only
     server.cors_origins = frozenset(cors_origins)
+    server.site_origin = next(iter(cors_origins), None)  # The first --cors-origin is the public frontend /sitemap.xml lists.
     server.active_run_ids = set()
     server.coordinator_status = {}
     server.directory_cache = {}

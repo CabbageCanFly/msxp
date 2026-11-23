@@ -18,7 +18,7 @@ establish the current state of any running server.
 browser ── https://msxp.pages.dev (Cloudflare Pages: HTML/JS/CSS, tools/export_pages.py)
    │ fetch, simple GET, no credentials
    ▼
-Caddy :443 (TLS, HSTS, gzip/zstd) ── only GET /api/players and /api/players/*
+Caddy :443 (TLS, HSTS, gzip/zstd) ── only GET /api/players, /api/players/* and /sitemap.xml
    ▼
 multi_alpha --public-only --cors-origin https://msxp.pages.dev   127.0.0.1:8765
    capture + OCR workers ─► SQLite (WAL) ◄─ background publisher ─► public JSON
@@ -36,6 +36,7 @@ Unchanged from the same-origin product. Base URL `https://API_HOSTNAME`.
 | `GET /api/players/{ch}?history=H&tracked=T` | As above, omitting `history` / `tracked_history` while the page holds exactly those revisions ([conditional history](vps-readiness.md#conditional-character-history)) |
 | `GET /api/players/{ch}/history` | The tracked packet plus `served_at` |
 | `GET /api/players/{ch}/daily-history?character=ID&days=365` | Compact daily progress; [contract and limits](24h-retention.md#daily-character-snapshots) |
+| `GET /sitemap.xml` | XML sitemap of `<first --cors-origin>/stream/{ch}` for every directory channel, cached 1 h; `404 not_found` without `--cors-origin`. The Pages `robots.txt` names it, so search engines find new streamers without a frontend rebuild |
 
 Errors are JSON with an `error` field:
 
