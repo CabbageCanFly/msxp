@@ -637,6 +637,21 @@ def test_skip_vote_chain_survives_agreeing_frames_without_votes(auto,between,con
     assert (floor,results[-1])==((60,True) if confirmed else (57,False))
 
 
+def test_skip_vote_chain_survives_agreement_frames_and_slow_captures(auto):
+    # Production 2026-11-25: captures 37 s apart, every other frame without a vote, and confident
+    # Tesseract agreement frames used to erase the chain; the 5-minute window now slides.
+    from exp_tracker.character_automation import guard_level
+    _,store,_=auto;sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    cid=store._channel('alpha')['selected_character_id']
+    floors=[]
+    for i in range(14):
+        value=skip_record(i+3,45+i*37,reads=('60',) if i%2==0 else ('6',))
+        if i in (3,9):value.update(visual_level=60,visual_status='available')
+        guard_level(store,cid,value)
+        floors.append(store.db.execute('SELECT level FROM character_level_guard').fetchone()[0])
+    assert floors[-1]==60 and floors[:6]==[57]*6
+
+
 @pytest.mark.parametrize('restart',[False,True])
 @pytest.mark.parametrize('exp',[1437,1441])
 @pytest.mark.parametrize('interval',[15,40])

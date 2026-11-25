@@ -217,7 +217,7 @@ def guard_level(store, character, record, *, support=None):
     name=name_evidence(record)
     percentage_frame=bool(floor is not None and session_id is not None
         and neural.get('preprocessing')=='neutral4' and (neural.get('score') or 0)>=NEURAL_PERCENTAGE_SCORE
-        and neural.get('source_complete') is not False and normalized['visual_level'] is None
+        and neural.get('source_complete') is not False and normalized['visual_level'] in (None,neural.get('level'))
         and normalized['status']=='diagnostic_percentage_only' and normalized['percentage_only_candidate']
         and not normalized['percentage_only_invalid'] and not normalized['candidate'] and not normalized['candidate_invalid']
         and normalized['frame_sha256'] and not normalized['crop_suspect']
@@ -241,13 +241,38 @@ def guard_level(store, character, record, *, support=None):
     if misread:normalized = observation(judged)
     qualified = level_evidence(judged,floor=floor,character_name=owner['label'])
     if qualified and qualified['basis'] in ('named_normal_level_up','agreement'):qualified['session_id']=session_id
+    def cast(prev):
+        """Add this frame's vote to prev's chain; returns (floor, proof, pending, reason)."""
+        vote=dict(level=neural['level'],**name,basis='named_neural_percentage',session_id=session_id,neural_score=neural['score'])
+        votes=prev.get('votes',[]) if prev and prev.get('basis')=='named_neural_percentage' else []
+        when=datetime.fromisoformat(vote['received_at'])
+        # Sliding window: slow captures (35-40 s apart under load) drop only votes older than the window.
+        votes=[v for v in votes if 0<=(when-datetime.fromisoformat(v['received_at'])).total_seconds()<=NEURAL_PERCENTAGE_SECONDS]
+        # Continuity is the gap since the last agreeing frame (vote or not); a capture outage still resets.
+        seen=datetime.fromisoformat(prev.get('seen_at') or votes[-1]['received_at']) if votes else None
+        if votes and (not independent(votes[-1],vote,max_seconds=NEURAL_PERCENTAGE_SECONDS)
+                or not 0<(when-seen).total_seconds()<=CONFIRM_GAP_SECONDS
+                or any(v['pixel_sha256']==vote['pixel_sha256'] for v in votes)
+                or any(not same_character_name(v['name'],vote['name']) for v in votes)
+                or any(v['level']!=vote['level'] for v in votes)):
+            votes=[]
+        # Keep the first vote when fast captures have not yet spanned the minimum time.
+        votes=votes[:1]+votes[2:]+[vote] if len(votes)==NEURAL_PERCENTAGE_SAMPLES else votes+[vote]
+        if len(votes)==NEURAL_PERCENTAGE_SAMPLES and (when-datetime.fromisoformat(votes[0]['received_at'])).total_seconds()>=NEURAL_PERCENTAGE_MIN_SECONDS:
+            return vote['level'],dict(**vote,support=votes[-2],votes=votes),None,None
+        carried={'agreement':prev['agreement']} if prev and prev.get('agreement') else {}
+        return floor,proof,dict(**vote,votes=votes,**carried),'level_confirmation_pending'
+
     reason = None
     claims = [v for v in (normalized['visual_level'], (normalized.get('neural_level') or {}).get('level'),
                          (qualified or {}).get('level')) if v is not None]
     if floor and any(v < floor for v in claims):
         reason, pending = 'level_regression', None
     elif qualified and (floor is None or qualified['level'] > floor):
-        prior = support or (pending if pending and pending.get('basis')!='named_neural_percentage' else None)
+        # A confident agreement frame rides along with a same-level vote chain instead of erasing it.
+        chain = pending if pending and pending.get('basis')=='named_neural_percentage' and pending['level']==qualified['level'] else None
+        prior = support or (chain.get('agreement') if chain else
+                            pending if pending and pending.get('basis')!='named_neural_percentage' else None)
         identity_supported=(floor is None or qualified['level']<=floor+1 or
                             same_character_name(qualified['name'], (prior or {}).get('name')) and same_character_name(qualified['name'], owner['label']))
         named_pair=bool(named_pending and prior is pending and qualified['basis']=='named_normal_level_up'
@@ -255,8 +280,10 @@ def guard_level(store, character, record, *, support=None):
         if prior and prior['level'] == qualified['level'] and independent(prior, qualified,
                 max_seconds=NAMED_LEVEL_UP_SECONDS if named_pair else CONFIRM_GAP_SECONDS) and identity_supported:
             floor, proof, pending = qualified['level'], {**qualified, 'support': prior}, None
+        elif chain and neural_percentage:  # A confident agreement is also a chain vote.
+            floor, proof, pending, reason = cast(dict(chain, agreement=qualified))
         else:
-            pending, reason = qualified, 'level_confirmation_pending'
+            pending, reason = (dict(chain, agreement=qualified, seen_at=qualified['received_at']) if chain else qualified), 'level_confirmation_pending'
     elif qualified:
         pending = None
     elif ((named_pending or agreement_pending) and floor is not None and pending['level']==floor+1
@@ -278,23 +305,9 @@ def guard_level(store, character, record, *, support=None):
             and consistency(full_reading(normalized),pending['level'])['status']!='invalid'):
         reason='level_confirmation_pending'  # An unreadable vote neither confirms nor refreshes the original evidence.
     elif neural_percentage:
-        vote=dict(level=neural['level'],**name,basis='named_neural_percentage',session_id=session_id,neural_score=neural['score'])
-        votes=pending.get('votes',[]) if pending and pending.get('basis')=='named_neural_percentage' else []
-        when=datetime.fromisoformat(vote['received_at'])
-        if votes and (not independent(votes[-1],vote)
-                or (when-datetime.fromisoformat(votes[0]['received_at'])).total_seconds()>NEURAL_PERCENTAGE_SECONDS
-                or any(v['pixel_sha256']==vote['pixel_sha256'] for v in votes)
-                or any(not same_character_name(v['name'],vote['name']) for v in votes)
-                or any(v['level']!=vote['level'] for v in votes)):
-            votes=[]
-        # Keep the first vote when fast captures have not yet spanned the minimum time.
-        votes=votes[:1]+votes[2:]+[vote] if len(votes)==NEURAL_PERCENTAGE_SAMPLES else votes+[vote]
-        if len(votes)==NEURAL_PERCENTAGE_SAMPLES and (when-datetime.fromisoformat(votes[0]['received_at'])).total_seconds()>=NEURAL_PERCENTAGE_MIN_SECONDS:
-            floor,proof,pending=vote['level'],dict(**vote,support=votes[-2],votes=votes),None
-        else:
-            pending,reason=dict(**vote,votes=votes),'level_confirmation_pending'
-    elif keeps_votes and all(v==pending['level'] for v in claims):
-        reason='level_confirmation_pending'
+        floor,proof,pending,reason=cast(pending)
+    elif keeps_votes and all(v==pending['level'] for v in claims) and normalized['received_at']:
+        pending,reason=dict(pending,seen_at=normalized['received_at']),'level_confirmation_pending'
     elif floor is None and claims:
         reason, pending = 'level_unvalidated', None
     elif floor and (any(v > floor for v in claims) or

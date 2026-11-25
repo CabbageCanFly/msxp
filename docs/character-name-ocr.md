@@ -1001,10 +1001,12 @@ agreement must still arrive within 120 seconds, in the same session. Conflicting
 levels, unsafe frames or missing name evidence clear this pending agreement.
 
 Percentage-only HUDs also have a named neural fallback for an established character's
-exact next level: at least five consecutive qualifying captures, neural score >= .99,
-matching current-character name evidence, distinct pixels and fresh full-frame HUDs.
-The streak must span at least 30 seconds and no more than five minutes, with at most
-120 seconds between votes, in the same session. Missing/unsafe readings or accepted
+exact next level: five qualifying captures within a sliding five-minute window, neural
+score >= .99, matching current-character name evidence, distinct pixels and fresh
+full-frame HUDs. The votes must span at least 30 seconds, in the same session, with at
+most 120 seconds between agreeing frames (a vote, a safe frame that cannot vote, or a
+confident Tesseract agreement, which also counts as a vote and is kept for the
+two-frame agreement path). Missing/unsafe readings or accepted
 conflicting levels reset it. It cannot initialize a level, use recovered percentage
 syntax, or use an unreadable name. Skipping levels (offline play between streams) also
 needs every vote frame's own already-computed Tesseract level reads to name the same
@@ -1015,7 +1017,12 @@ pending level but cannot vote (a cached-region name read, or Tesseract reading "
 skip stayed held for a whole stream because only about 1 in 13 frames had two "77" reads
 and every frame between wiped the votes; replaying 40 production frames under the
 rule from that date confirms 77 about 2.6 minutes after the first vote. Until 2026-11-24 a skip needed two
-reads per frame. Checked against 223 labeled level badges (recordings 1-3 plus 43 live frames
+reads per frame. Deployed on 2026-11-25, production captured that stream every 35-40 s, not
+20 s: the chain reached four votes and was erased by confident Tesseract agreement frames,
+by votes more than 120 s apart while non-voting frames still agreed, and by the hard
+five-minute reset. The sliding window, continuity measured from agreeing frames and
+agreement frames counting as votes confirm 77 about 3.5 minutes after the first vote on
+those 20 production frames; the same 11-character, 24-hour replay is otherwise unchanged. Checked against 223 labeled level badges (recordings 1-3 plus 43 live frames
 from 22 streams, levels 1-91): per frame, one read corroborates 468/557 real skips against 411/557
 for two reads, and wrong levels 3 times against 2. Neither rule corroborated a level above the
 true one; stream 3's occasional "41" for 40 always came with a "40" read that vetoes it.
