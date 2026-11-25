@@ -75,7 +75,7 @@ The whole frame is scanned again:
 - after a capture that recommended holding its reading (name mismatch, pending switch,
   unverified numeric anomaly) or saw a level change or contradictory numbers;
 - while the saved level guard is confirming any level above its floor. Only full-frame name
-  reads vote: a skip needs two, and a level-up on a percentage-only HUD needs five within
+  reads vote: a skip or a level-up on a percentage-only HUD needs five within
   five minutes. Until 2026-11-21 only skips requested full frames, so a percentage-only
   level-up got one vote per periodic full scan and never confirmed. One stream was held at
   its old level for a whole stream. Replaying its 199 production frames with full-frame name reads

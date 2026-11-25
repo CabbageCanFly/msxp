@@ -1008,8 +1008,14 @@ The streak must span at least 30 seconds and no more than five minutes, with at 
 conflicting levels reset it. It cannot initialize a level, use recovered percentage
 syntax, or use an unreadable name. Skipping levels (offline play between streams) also
 needs every vote frame's own already-computed Tesseract level reads to name the same
-level at least twice, with no other level above the floor; all five votes must name the
-same level. A neural read alone repeats its own misreads, and a too-high floor would block
+level, with no other level above the floor; all five votes must name the same level.
+A safe percentage-only frame whose neural level and Tesseract reads agree with the
+pending level but cannot vote (a cached-region name read, or Tesseract reading "77" as
+"7") keeps the streak instead of resetting it. Measured case (2026-11-24): a 74 to 77
+skip stayed held for a whole stream because only about 1 in 13 frames had two "77" reads
+and every frame between wiped the votes; replaying 40 production frames under the
+rule from that date confirms 77 about 2.6 minutes after the first vote. Until 2026-11-24 a skip needed two
+reads per frame. A neural read alone repeats its own misreads, and a too-high floor would block
 every correct reading afterwards. Measured case (2026-11-21): a percentage-only HUD went
 from 76 to 81 offline; Tesseract read "81" at 0.02-0.61 confidence, never the two
 confident reads it needs on its own, so the floor stayed at 76. The saved proof retains five votes and

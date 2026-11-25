@@ -151,12 +151,17 @@ def level_held(record, reason, floor):
 
 def skip_corroborated(record, level, floor):
     """Offline play can skip levels. A neural skip counts only if this frame's own Tesseract level reads
-    (already computed, too unconfident to accept alone) name that level at least twice and no other above the floor."""
+    (already computed, too unconfident to accept alone) name that level and no other above the floor.
+    One read suffices: Tesseract often drops a repeated digit ('77' -> '7'), and five such votes are needed."""
     if not isinstance(level, int) or level <= floor + 1:
         return False
+    above = reads_above(record, floor)
+    return bool(above) and all(v == level for v in above)
+
+
+def reads_above(record, floor):
     reads = [parse_level(a.get('text') or '') for a in record.get('visual_attempts') or [] if isinstance(a, dict)]
-    above = [v for v in reads if v is not None and floor < v <= 200]
-    return len(above) >= 2 and all(v == level for v in above)
+    return [v for v in reads if v is not None and floor < v <= 200]
 
 
 def guard_level(store, character, record, *, support=None):
@@ -210,15 +215,23 @@ def guard_level(store, character, record, *, support=None):
     normalized = observation(record)
     neural=normalized.get('neural_level') or {}
     name=name_evidence(record)
-    neural_percentage=bool(floor is not None and session_id is not None
-        and (neural.get('level')==floor+1 or skip_corroborated(record,neural.get('level'),floor))
+    percentage_frame=bool(floor is not None and session_id is not None
         and neural.get('preprocessing')=='neutral4' and (neural.get('score') or 0)>=NEURAL_PERCENTAGE_SCORE
         and neural.get('source_complete') is not False and normalized['visual_level'] is None
         and normalized['status']=='diagnostic_percentage_only' and normalized['percentage_only_candidate']
         and not normalized['percentage_only_invalid'] and not normalized['candidate'] and not normalized['candidate_invalid']
         and normalized['frame_sha256'] and not normalized['crop_suspect']
         and normalized['local_age_seconds'] is not None and normalized['local_age_seconds']<=15
-        and name and same_character_name(name['name'],owner['label']) and not record.get('automatic_identity_risk'))
+        and not record.get('automatic_identity_risk'))
+    neural_percentage=bool(percentage_frame
+        and (neural.get('level')==floor+1 or skip_corroborated(record,neural.get('level'),floor))
+        and name and same_character_name(name['name'],owner['label']))
+    # A safe frame that agrees with the vote chain but cannot vote (cached name read, '77' read as '7') keeps it.
+    seen=record.get('character_name',{}).get('evidence',{})
+    keeps_votes=bool(percentage_frame and pending and pending.get('basis')=='named_neural_percentage'
+        and neural.get('level')==pending['level'] and record.get('localization',{}).get('count')==1
+        and seen.get('status')=='candidate' and same_character_name(seen.get('name'),owner['label'])
+        and all(v==pending['level'] for v in reads_above(record,floor)))
     # A reader below the floor that this frame's own strict EXP pair contradicts misread the digits
     # (Tesseract read Lv. 19 as 13 twice); it is no regression, and the frame is judged without it.
     strict = full_reading(normalized) if normalized.get('candidate') else None
@@ -280,6 +293,8 @@ def guard_level(store, character, record, *, support=None):
             floor,proof,pending=vote['level'],dict(**vote,support=votes[-2],votes=votes),None
         else:
             pending,reason=dict(**vote,votes=votes),'level_confirmation_pending'
+    elif keeps_votes and all(v==pending['level'] for v in claims):
+        reason='level_confirmation_pending'
     elif floor is None and claims:
         reason, pending = 'level_unvalidated', None
     elif floor and (any(v > floor for v in claims) or

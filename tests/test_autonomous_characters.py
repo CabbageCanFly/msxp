@@ -622,7 +622,19 @@ def test_named_neural_percentage_skips_levels_only_with_tesseract_corroboration(
     if case=='mixed_levels':values[2]=skip_record(5,85,level=61,reads=('61','61'))
     results=[guard_level(store,cid,v)['current'] for v in values]
     floor=store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]
-    assert (floor,results[-1])==((60,True) if case=='confirmed' else (57,False))
+    assert (floor,results[-1])==((60,True) if case in ('confirmed','one_read') else (57,False))
+
+
+@pytest.mark.parametrize('between,confirmed',[(('7',),True),(('7','61'),False)])
+def test_skip_vote_chain_survives_agreeing_frames_without_votes(auto,between,confirmed):
+    # Tesseract read 77 as '7' in most frames of a percentage-only stream; those frames must not reset the votes.
+    from exp_tracker.character_automation import guard_level
+    _,store,_=auto;sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    cid=store._channel('alpha')['selected_character_id']
+    values=[skip_record(i+3,45+i*20,reads=('60',) if i%2==0 else between) for i in range(9)]
+    results=[guard_level(store,cid,v)['current'] for v in values]
+    floor=store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]
+    assert (floor,results[-1])==((60,True) if confirmed else (57,False))
 
 
 @pytest.mark.parametrize('restart',[False,True])
