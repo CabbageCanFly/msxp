@@ -170,3 +170,18 @@ variant bank under the existing grammar, ambiguity and trust guards; measure
 incorrect accepts separately. This level experiment supports that inexpensive
 direction, but does not demonstrate reliable EXP recognition or justify relaxing
 its safeguards. Defer production integration and automatic level-ups.
+
+## Per-tile Tesseract check (2026-11-24)
+
+A badge whose digits repeat ("77") is often read as one digit by whole-badge Tesseract.
+Splitting the badge at its orange tiles and reading each tile alone was tested as an extra
+corroboration source on the same 223 labeled badges used for the level-skip rule
+(recordings 1-3 plus 43 live frames from 22 streams). Splitting is cheap (0.2 ms) and
+found the right tile count on 215/223 badges; small badges whose tiles touch and a
+window overlay failed. Reading was not good enough: the best rule (PSM 8, thresholds
+110/140/170/200, any disagreement vetoes) made no wrong reads but read only 89/223 badges,
+and 7 of the 52 badges whole-badge Tesseract leaves unread. Tesseract rarely reads a lone
+"9", "1", "0" or "5" in this font (it returns "3" or nothing), and the second "7" of the
+77 stream was empty in nearly every attempt. Production would pay about 9 ms per extra
+call for that, so per-tile Tesseract was not integrated. Native templates remain the
+likelier route.

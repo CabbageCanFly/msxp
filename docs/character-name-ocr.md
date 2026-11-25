@@ -1015,7 +1015,13 @@ pending level but cannot vote (a cached-region name read, or Tesseract reading "
 skip stayed held for a whole stream because only about 1 in 13 frames had two "77" reads
 and every frame between wiped the votes; replaying 40 production frames under the
 rule from that date confirms 77 about 2.6 minutes after the first vote. Until 2026-11-24 a skip needed two
-reads per frame. A neural read alone repeats its own misreads, and a too-high floor would block
+reads per frame. Checked against 223 labeled level badges (recordings 1-3 plus 43 live frames
+from 22 streams, levels 1-91): per frame, one read corroborates 468/557 real skips against 411/557
+for two reads, and wrong levels 3 times against 2. Neither rule corroborated a level above the
+true one; stream 3's occasional "41" for 40 always came with a "40" read that vetoes it.
+Replaying the last 24 hours of production frames for the 11 characters held on a level change
+gave identical accepted frames and floor changes under both rules, except the 74-to-77 stream,
+which went from 0 to 118 accepted frames. A neural read alone repeats its own misreads, and a too-high floor would block
 every correct reading afterwards. Measured case (2026-11-21): a percentage-only HUD went
 from 76 to 81 offline; Tesseract read "81" at 0.02-0.61 confidence, never the two
 confident reads it needs on its own, so the floor stayed at 76. The saved proof retains five votes and
