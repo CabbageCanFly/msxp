@@ -1091,6 +1091,9 @@ capture, the 83 to 89 skip then confirms 12 times in 80 minutes instead of 4, an
 next-level change 26 times instead of 10. Votes still need a score of .99 or more. Skipping levels (offline play between streams) also
 needs every vote frame's own already-computed Tesseract level reads to name the same
 level, with no other level above the floor; all five votes must name the same level.
+Since 2026-11-26 these "Tesseract" level reads come from the [badge digit model](badge-digits.md)
+first, so a percentage-only HUD whose badge and neural reads agree usually confirms the next level
+from two frames before five votes are needed.
 A safe percentage-only frame whose neural level and Tesseract reads agree with the
 pending level but cannot vote (a cached-region name read, or Tesseract reading "77" as
 "7") keeps the streak instead of resetting it. Measured case (2026-11-24): a 74 to 77

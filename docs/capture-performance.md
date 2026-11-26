@@ -10,6 +10,10 @@ API failures and expired/future status timestamps never block capture. A live st
 an unknown category is still checked.
 `--any-category` still skips confirmed offline streams. Local files are unaffected.
 
+The level badge is read by a small digit model in about 0.4 ms; Tesseract's six or more level
+passes run only on the few frames the model is unsure of. In a local A/B on five live streams the
+mean level-read time fell from 0.6-1.5 s to 1-230 ms per frame ([badge digits](badge-digits.md)).
+
 The coordinator now samples diagnostic CPU/memory once a second rather than 20 times a second.
 Short-lived subprocess CPU and brief memory peaks can be missed more often; these sampled
 statistics do not control OCR acceptance or scheduling. Use systemd CPU accounting for capacity

@@ -24,7 +24,7 @@ The README's [Next improvements](../README.md#next-improvements) is the single s
 
 - [Layout-first HUD recognition](layout-first-hud.md) · [Merged HP/MP labels in 720p HUDs](720p-hud-label-recovery.md)
 - [Capture performance](capture-performance.md) · [Staggered capture and resident Tesseract](performance-integration.md)
-- [Character-name OCR](character-name-ocr.md)
+- [Character-name OCR](character-name-ocr.md) · [Level badge digits](badge-digits.md)
 
 ## Tracking and EXP math
 

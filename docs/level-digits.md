@@ -1,5 +1,8 @@
 # Experimental level-digit recognition
 
+Superseded on 2026-11-26 by the [badge digit model](badge-digits.md), which scales each
+digit to its own height and works across stream sizes.
+
 This is an isolated Pillow prototype in `tools/level_digits.py`, not production
 OCR or automatic level-up support. Capture, EXP profiles/guards, tracking,
 SQLite, statistics and overlay are unchanged. No dependencies were added.

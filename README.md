@@ -296,7 +296,8 @@ Restart only the services affected by the change. The [docs index](docs/README.m
 ## How it works
 
 At each stream's configured interval: grab one video frame with Streamlink and FFmpeg, find the game's
-status bar, read level and EXP with Tesseract and RapidOCR, and accept the reading only when the
+status bar, read the level badge with a small learned digit model (Tesseract when it is unsure) and
+EXP with RapidOCR, and accept the reading only when the
 numbers pass its checks. Readings go into SQLite, and a read-only web server turns them into the
 leaderboard, history charts and overlays. When a reading is uncertain, msxp rejects it and keeps
 the last good one rather than guessing. The [docs index](docs/README.md) covers the design, accuracy tests and operations;
