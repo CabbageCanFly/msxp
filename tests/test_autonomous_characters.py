@@ -287,6 +287,7 @@ def lanes(multi,monkeypatch):  # noqa: F811
         n=counters[channel];counters[channel]+=1
         names=scripts[channel];name=names[n%len(names)]
         reference=options['identity'].suggestions.reference
+        if reference not in options['identity'].known:counters['stale_known']=reference  # Saved names follow switches.
         time.sleep(.005)  # Exercise actual overlapping scheduler workers, without shared OCR globals.
         return record(index,name,selected=reference,at=start+timedelta(seconds=15*(n+1)))
     monkeypatch.setattr(module.shadow,'capture_attempt',capture)
@@ -312,10 +313,11 @@ def test_parallel_channels_switch_independently_and_restart_reuses_selection(lan
 
 
 def test_switch_crosses_rotation_and_returns_without_history_leak(lanes):
-    module,path,_,scripts,_=lanes
+    module,path,_,scripts,counters=lanes
     for c in scripts:scripts[c]=['Alpha']*59+['Beta','Beta','Beta','Alpha','Alpha']
     assert module.main(['--config',str(path),'--automatic-characters','--continuous',
                         '--max-attempts','64','--workers','2','--exit-after-capture'])==0
+    assert 'stale_known' not in counters
     with Store(path.parent/'shared.sqlite3',read_only=True) as store:
         for c in scripts:
             cid=store._channel(c)['selected_character_id']

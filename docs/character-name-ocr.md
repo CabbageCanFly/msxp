@@ -853,8 +853,9 @@ marked `repair: split_w` and keeps the plain read as `first_read`; automatic att
 (`name_evidence`) accepts it only when the raw text collapses to exactly that name at
 0.90 or above. Without that agreement the read is neutral (`split_w_read`, no name):
 it neither confirms the current character nor votes for, holds or records a risk of
-another one. This never proposes or selects a character. Other names are unaffected
-unless a read differs from the current name by exactly such a pair.
+another one. It never proposes a new name; since 2026-11-26 it may also spell another
+saved character (see below). Other names are unaffected unless a read differs from a
+saved name by exactly such a pair.
 
 Paired replay on 2026-11-20 (pixel-keyed OCR cache, production identity and attribution
 code): 44 live 1080p Streamer_K frames went from 3 attributable confirmations and 39
@@ -907,6 +908,26 @@ wrong spelling (0.905).
 Setup for such a channel: rename the current character to the real name, and keep the
 remaining misspelling as a ruled-out character so two misreads in a row cannot switch to
 it. Untested: other fonts, resolutions and names.
+
+#### Returning to another saved character (2026-11-26)
+
+The repairs above only confirmed the selected name. A streamer who went back from `CharA`
+to a saved split-W character (`CharWe`, plain reads `CharWve`/`Charvve` at 0.80–0.89) was
+held for over 30 minutes and a level-up: only an occasional clean `CharWe` read reached
+0.90, and two never landed back to back. With `CharWe` selected the same pixels confirm on
+almost every check through `split_w`.
+
+With automatic characters, capture now also receives the streamer's saved, not ruled-out
+names (`IdentityCapture(known=...)`, refreshed after each automatic switch). The second
+look, the one-row retry and `split_w` may spell any of them; a new name still gets none
+of these repairs. The writer's two-frame rule, guards and refusal of ruled-out names are
+unchanged. Rule out a saved misspelling (here `CharWve`) so its exact reads cannot vote.
+Admin renames or invalidations reach capture on the next switch or restart.
+
+Paired run on 15 live 1080p Streamer_C frames (real capture path, selected `CharA`):
+attributable `CharWe` votes went from 3 to 14, proposing the switch on the second frame.
+With `CharWe` selected, names, scores and votes were identical old vs new. Only frames
+that already mismatch the selected name take the extra reads (about 25 ms more there).
 
 ### Job (class) from the status panel
 

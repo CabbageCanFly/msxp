@@ -125,8 +125,9 @@ class IdentitySuggestions:
 
 
 class IdentityCapture:
-    def __init__(self, channel, *, interval=0, confirmed=None, confirmation_source='operator_confirmed'):
+    def __init__(self, channel, *, interval=0, confirmed=None, confirmation_source='operator_confirmed', known=()):
         self.suggestions = IdentitySuggestions(channel, confirmed=confirmed,confirmation_source=confirmation_source)
+        self.known = tuple(known)  # The streamer's other saved names: repairs may spell these, never a new name.
         self.interval = interval
         self.last_check = None
         self.previous = None
@@ -252,20 +253,22 @@ class IdentityCapture:
                 observed = validated(read[1],glyphs) if glyphs else read and read[1]
                 reference = self.suggestions.reference
                 if reference and not same_character_name(observed, reference):
+                    saved = (reference, *self.known)
+                    target = lambda name: next((n for n in saved if same_character_name(name, n)), None)
                     second = read_name(second_look(crop))
                     second_read = parsed(second)
                     retry_read = None
-                    if not same_character_name((second_read or (0, None))[1], reference):
+                    if not target((second_read or (0, None))[1]):
                         # One extra top row tolerates rounding of the HUD anchor without changing discovery.
                         left, top, right, bottom = region['box']
                         try:
                             retry = read_name(second_look(image.crop((left, max(0, top - 1), right, bottom))))
                             retry_read = parsed(retry)
-                            if retry_read and retry_read[0] >= NEURAL_SEED_SCORE and same_character_name(retry_read[1], reference):
+                            if retry_read and retry_read[0] >= NEURAL_SEED_SCORE and target(retry_read[1]):
                                 second, second_read = retry, retry_read
                         except (OSError, RuntimeError, ValueError, KeyError):
                             pass  # Optional context must not discard the original name evidence.
-                    use_retry = same_character_name((second_read or (0, None))[1], reference)
+                    use_retry = bool(target((second_read or (0, None))[1]))
                     # A compressed final double letter can appear as one. Two preprocessing variants
                     # must independently read the longer spelling before it can count as a vote.
                     if not use_retry and not glyphs and crop.height >= 24 and observed and observed[-1].isalpha():
@@ -279,22 +282,22 @@ class IdentityCapture:
                                 binary_read = None
                             if binary_read and binary_read[0] >= NEURAL_SEED_SCORE and same_character_name(binary_read[1], repeated):
                                 second, second_read, use_retry = binary, binary_read, True
-                    # A split W can only confirm the current name: the thresholded crop must collapse to it too.
-                    if not use_retry and not glyphs and observed and same_character_name(split_w(observed), reference):
+                    # A split W can only spell a saved name: the thresholded crop must collapse to it too.
+                    if not use_retry and not glyphs and observed and target(split_w(observed)):
                         try:
                             binary = read_name(clean_name_crop(crop, binary=True))
                             binary_read = parsed(binary)
                         except (OSError, RuntimeError, ValueError, KeyError):
                             binary_read = None
                         if (binary_read and binary_read[0] >= NEURAL_SEED_SCORE and binary_read[1]
-                                and same_character_name(split_w(binary_read[1]), reference)):
-                            second, second_read, use_retry = binary, (binary_read[0], reference), True
+                                and same_character_name(split_w(binary_read[1]), target(split_w(observed)))):
+                            second, second_read, use_retry = binary, (binary_read[0], target(split_w(observed))), True
                             evidence['repair'] = 'split_w'
                     if use_retry:
                         evidence['first_read'] = dict(text=response.get('text'), score=read and read[0])
                         response, read = second, second_read
                         glyphs = None
-                    elif not glyphs and observed and same_character_name(split_w(observed), reference):
+                    elif not glyphs and observed and target(split_w(observed)):
                         # Uncorroborated, it neither confirms the current name nor votes for another one.
                         evidence['split_w_read'] = dict(text=response.get('text'), score=read[0])
                         read = None

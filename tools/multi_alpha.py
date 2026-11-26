@@ -21,6 +21,7 @@ import shadow_capture as shadow
 from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS
 from exp_tracker.diagnostics import Diagnostics, identity_held
 from exp_tracker.metrics import ResourceMonitor
+from exp_tracker.models import PLACEHOLDER_CHARACTER
 from exp_tracker.recognition import configure_tesseract
 from exp_tracker.server import CHANNEL, create_server
 from exp_tracker.store import Store, utc
@@ -794,6 +795,7 @@ def main(argv=None):
                                         lane['args'].output=pending['path'];handles[lane['channel']]=lane['log']
                                         httpd.active_run_ids.discard(previous);httpd.active_run_ids.add(lane['run_id'])
                                         lane['options']['identity'].select(receipt['name'],record['received_at'],source='automatic_two_frame')
+                                        lane['options']['identity'].known=saved_names(lane['channel'])
                                         old.close()
                                         print(f"{lane['channel']}: automatically selected {receipt['name']} / character {receipt['character_id']} / session {receipt['session_id']}",flush=True)
                                     else:
@@ -868,6 +870,11 @@ def main(argv=None):
                                     channels=[row['channel'] for row in streams if row.get('source')=='twitch'])
                                 print('Twitch captures pause while offline'+(' or outside the MapleStory category.' if not args.any_category else '.'),flush=True)
                                 print(f'After {MISSING_HUD_GRACE_SECONDS}s without a Classic HUD, live streams recheck every {MISSING_HUD_RECHECK_SECONDS}s; a detected HUD restores normal checks.',flush=True)
+                            def saved_names(channel):
+                                # shortcut: admin renames/invalidations mid-run reach capture on the next switch or restart; automation still refuses ruled-out names.
+                                streamer=store._channel(channel);ruled=store.invalidated_characters(streamer['id'])
+                                return tuple(label for id,label in store.db.execute('SELECT id,label FROM characters WHERE streamer_id=?',(streamer['id'],))
+                                             if id not in ruled and label!=PLACEHOLDER_CHARACTER)
                             def lane_options(lane):
                                 lane['options']={'resident':resident} if resident else {}
                                 if tesseract:lane['options']['tesseract']=tesseract  # Shared bounded pool; never shares a reply.
@@ -877,7 +884,7 @@ def main(argv=None):
                                 if lane['args'].character_names:  # Per channel; survives rotation, not restarts.
                                     from character_identity import IdentityCapture
                                     lane['options']['identity']=IdentityCapture(lane['channel'],confirmed=lane['character'],
-                                        **({'confirmation_source':'persisted_selection'} if lane['args'].automatic_characters else {}))
+                                        **({'confirmation_source':'persisted_selection','known':saved_names(lane['channel'])} if lane['args'].automatic_characters else {}))
                             for lane in lanes:lane_options(lane)
                             if db_mode:
                                 from db_roster_runtime import Reconciler

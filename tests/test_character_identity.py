@@ -542,6 +542,25 @@ def test_split_w_confirms_only_the_current_name_with_binary_agreement(monkeypatc
     if expected is None:assert evidence['status']=='unreadable_or_conflicting' and not state.suggestions.streak
 
 
+@pytest.mark.parametrize('known,expected,calls', [
+    (('CharWe',), 'CharWe', 4),  # Live Streamer_A: back on a saved W name while another character is selected.
+    ((), 'CharWve', 3),  # An unsaved name still never gets the repair.
+    (('CharXe',), 'CharWve', 3),
+])
+def test_split_w_may_spell_another_saved_name(monkeypatch,known,expected,calls):
+    identity=importlib.import_module('character_identity')
+    monkeypatch.setattr(identity,'name_region',lambda *_:dict(box=[0,0,80,25]))
+    state=IdentityCapture('channel',confirmed='CharA',known=known);state.job=state.job_seen='Cleric'
+    frame=make_frame(0);seen=[]
+    def read(crop):
+        seen.append(crop.size)
+        return response('CharWve' if len(seen)==1 else 'Charive' if len(seen)<4 else 'Charwve')
+    value=state.inspect(dict(current=True,candidate=None,visual_level=None),frame,frame.image(),candidate(),read,{},max_age=15,clock=lambda:101)
+    evidence=value['evidence']
+    assert evidence['name']==expected and len(seen)==calls and (evidence.get('repair')=='split_w')==(expected=='CharWe')
+    assert value['hold_reasons']==['name_mismatch'] and state.suggestions.streak[-1]['name']==expected
+
+
 @pytest.mark.parametrize('reference,plain,second,name,calls', [
     ('CharAI', 'CharAI', 'CharA', 'CharA', 4),  # Live Streamer_A: the misread itself became the reference.
     (None, 'CharA!', 'CharA', 'CharA', 2),
