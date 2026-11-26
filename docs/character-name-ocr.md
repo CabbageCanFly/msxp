@@ -879,6 +879,23 @@ change; on a frame showing another of a channel's characters, the second look di
 confirm the current one. Using the padded crop for every read is not safe: it fixed
 Streamer_J but misread two names the plain crop reads correctly.
 
+#### Panel divider in the plain read (2026-11-25)
+
+The name box ends a few pixels past the status panel's divider. RapidOCR appended that
+divider to short names: live 1080p Streamer_A frames read `CharAI` or `CharA!` on most
+checks all evening, and only the second look kept them `CharA`. After a two-minute alt
+visit (Lv. 1, read as `CharA1I`), the reference became the misread and matching plain reads
+took no second look, so the real character stayed held as an old misread profile until a
+stuck-stream alert. `clean_name_crop` now paints the same 3 rightmost pixels with the
+background before every plain and thresholded read.
+
+Measured through the production RapidOCR worker: 6 Streamer_A frames across 3 hours went
+from `CharAI` (0.89–0.93) to `CharA` (0.999). With reference `CharAI`, the real tracker path
+read `CharA` and proposed the switch back on the second frame. The 24 saved live regressions,
+including long and top-edge names, are unchanged. Production at the time showed three other
+channels whose plain reads carried a trailing `I`, `!` or `:` that the second look removed.
+Untested: names whose final glyph reaches the last 3 pixels of the box.
+
 Setup for such a channel: rename the current character to the real name, and keep the
 remaining misspelling as a ruled-out character so two misreads in a row cannot switch to
 it. Untested: other fonts, resolutions and names.

@@ -89,6 +89,17 @@ def test_name_cleanup_removes_job_remnants_without_resizing_or_touching_name_pix
     assert image.getpixel((50,0))==(230,230,230)
 
 
+@pytest.mark.parametrize('height',[18,24])
+def test_name_cleanup_removes_the_panel_divider_at_the_right_edge(height):
+    """Live Streamer_A: the divider in the last columns read as "CharAI" until second_look trimmed it."""
+    image=Image.new('RGB',(132,height),(40,50,60))
+    for y in range(height):image.putpixel((130,y),(200,200,200))
+    image.putpixel((128,height//2),(210,210,210))
+    cleaned=names.clean_name_crop(image)
+    assert cleaned.getpixel((130,height//2))==cleaned.getpixel((0,height//2))
+    assert cleaned.getpixel((128,height//2))!=cleaned.getpixel((0,height//2))
+
+
 @pytest.mark.parametrize('height',[14,18,21,23])
 def test_small_name_cleanup_binarizes_blurred_strokes_without_resizing(height):
     image=Image.new('RGB',(120,height),(40,50,60))
