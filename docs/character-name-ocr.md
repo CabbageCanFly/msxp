@@ -1083,7 +1083,12 @@ percentage-only HUD, and a vote never uses its digits. Measured case (2026-11-26
 read that form on 88 of 90 frames, so an 83 to 89 offline skip stayed held for the whole
 stream with no vote; replaying those 90 production frames, with full-frame name reads after
 each pending vote as capture requests, confirms 89 about 2 minutes after the first vote, and
-61 of the 66 accepted frames then become public percentage points. Skipping levels (offline play between streams) also
+61 of the 66 accepted frames then become public percentage points. `[38.54%1` and
+`138.54%]` (one bracket read as `1`) count the same way. A frame that agrees with the
+pending level but has a neural score of .90-.99 keeps the chain without voting, like a
+cached-name frame. On 242 frames of that stream, with full-frame scans on every held
+capture, the 83 to 89 skip then confirms 12 times in 80 minutes instead of 4, and a
+next-level change 26 times instead of 10. Votes still need a score of .99 or more. Skipping levels (offline play between streams) also
 needs every vote frame's own already-computed Tesseract level reads to name the same
 level, with no other level above the floor; all five votes must name the same level.
 A safe percentage-only frame whose neural level and Tesseract reads agree with the

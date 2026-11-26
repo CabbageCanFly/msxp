@@ -5,6 +5,7 @@ from datetime import datetime
 import hashlib
 import json
 import math
+import re
 import sys
 
 from .diagnostic_evidence import project, consistency, full_reading, CONFIRM_GAP_SECONDS, NEURAL_SEED_SCORE, WRAP_TO_BP
@@ -14,7 +15,6 @@ from .manual import active
 from .models import PLACEHOLDER_CHARACTER, same_character_name, split_w
 from .name_glyphs import validated as glyph_name, MIN_SCORE as GLYPH_MIN_SCORE
 from .parsing import parse_level
-from .shadow_grammar import interpret_exp
 from .shadow_view import observation
 from .store import utc
 
@@ -216,23 +216,25 @@ def guard_level(store, character, record, *, support=None):
     normalized = observation(record)
     neural=normalized.get('neural_level') or {}
     name=name_evidence(record)
-    # '138.54%1' is the same percentage-only HUD with both brackets read as '1'; votes never use its digits.
+    # '138.54%1' / '[38.54%1' are the same percentage-only HUD with a bracket read as '1'; votes never use its digits.
     bracketed=(normalized['status']=='malformed_or_unavailable'
-        and interpret_exp(normalized['raw_text'])['percentage']['reason']=='leading_one_bracket_recovery')
-    percentage_frame=bool(floor is not None and session_id is not None
-        and neural.get('preprocessing')=='neutral4' and (neural.get('score') or 0)>=NEURAL_PERCENTAGE_SCORE
+        and re.fullmatch(r'[\[1][0-9]{1,2}\.[0-9]{2}%[\]1I)]',normalized['raw_text'] or '') is not None)
+    safe_frame=bool(floor is not None and session_id is not None
+        and neural.get('preprocessing')=='neutral4' and (neural.get('score') or 0)>=NEURAL_SEED_SCORE
         and neural.get('source_complete') is not False and normalized['visual_level'] in (None,neural.get('level'))
         and (normalized['status']=='diagnostic_percentage_only' and normalized['percentage_only_candidate'] or bracketed)
         and not normalized['percentage_only_invalid'] and not normalized['candidate'] and not normalized['candidate_invalid']
         and normalized['frame_sha256'] and not normalized['crop_suspect']
         and normalized['local_age_seconds'] is not None and normalized['local_age_seconds']<=15
         and not record.get('automatic_identity_risk'))
+    percentage_frame=safe_frame and neural['score']>=NEURAL_PERCENTAGE_SCORE
     neural_percentage=bool(percentage_frame
         and (neural.get('level')==floor+1 or skip_corroborated(record,neural.get('level'),floor))
         and name and same_character_name(name['name'],owner['label']))
-    # A safe frame that agrees with the vote chain but cannot vote (cached name read, '77' read as '7') keeps it.
+    # A safe frame that agrees with the vote chain but cannot vote (cached name read, '77' read as '7',
+    # neural score .90-.99) keeps it.
     seen=record.get('character_name',{}).get('evidence',{})
-    keeps_votes=bool(percentage_frame and pending and pending.get('basis')=='named_neural_percentage'
+    keeps_votes=bool(safe_frame and pending and pending.get('basis')=='named_neural_percentage'
         and neural.get('level')==pending['level'] and record.get('localization',{}).get('count')==1
         and seen.get('status')=='candidate' and same_character_name(seen.get('name'),owner['label'])
         and all(v==pending['level'] for v in reads_above(record,floor)))

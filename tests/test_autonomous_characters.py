@@ -559,12 +559,12 @@ def test_named_neural_percentage_confirms_after_five_votes_and_thirty_seconds(au
 
 @pytest.mark.parametrize('changes',[
     dict(visual_level=56),dict(visual_level=59),
-    dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.989,preprocessing='neutral4')),
+    dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.89,preprocessing='neutral4')),
     dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.999,preprocessing='rgb4')),
     dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.999,preprocessing='neutral4',source_complete=False)),
     dict(local_age_seconds=16),dict(localization=dict(count=2)),dict(automatic_identity_risk='mismatch'),
     dict(character_name=dict(evidence=dict(status='unreadable_or_conflicting'))),
-    dict(neural=dict(text='[95.00%1'),percentage_only_candidate=None,status='malformed_or_unavailable'),
+    dict(neural=dict(text='[95.00%'),percentage_only_candidate=None,status='malformed_or_unavailable'),
     dict(current=False,status='unavailable',reasons=['missing_hud'],localization=dict(count=0)),
 ])
 def test_named_neural_percentage_unsafe_frame_resets_streak(auto,changes):
@@ -578,6 +578,22 @@ def test_named_neural_percentage_unsafe_frame_resets_streak(auto,changes):
     for i in range(4):
         assert not guard_level(store,cid,percentage_levelup_record(i+8,145+i*20))['current']
     assert store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]==57
+
+
+@pytest.mark.parametrize('changes,votes',[
+    (dict(neural_level=dict(level=58,text='58',status='numeric_candidate',score=.95,preprocessing='neutral4')),4),
+    (dict(neural=dict(text='[95.00%1'),percentage_only_candidate=None,status='malformed_or_unavailable'),5),
+])
+def test_named_neural_percentage_agreeing_frame_keeps_streak(auto,changes,votes):
+    # Production 2026-11-26: frames at .98 and '[44.42%1' texts wiped every skip chain before five votes.
+    from exp_tracker.character_automation import guard_level
+    _,store,_=auto;sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    cid=store._channel('alpha')['selected_character_id']
+    for i in range(4):guard_level(store,cid,percentage_levelup_record(i+3,45+i*20))
+    frame=percentage_levelup_record(7,125);frame.update(deepcopy(changes))
+    guard_level(store,cid,frame)
+    level,pending=store.db.execute('SELECT level,pending_json FROM character_level_guard').fetchone()
+    assert (level,len(json.loads(pending)['votes']) if pending else 0)==((58,0) if votes==5 else (57,votes))
 
 
 @pytest.mark.parametrize('case',['duplicate','out_of_order','gap','total_span','session','missing_name','jump','bootstrap','mixed_agreement'])
