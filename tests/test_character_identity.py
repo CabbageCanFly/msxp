@@ -561,6 +561,22 @@ def test_split_w_may_spell_another_saved_name(monkeypatch,known,expected,calls):
     assert value['hold_reasons']==['name_mismatch'] and state.suggestions.streak[-1]['name']==expected
 
 
+@pytest.mark.parametrize('reference,known,plain,expected', [
+    ('CharA', ('CharA', 'CharWe', 'CharVVe'), 'CharVVe', None),  # Pixel-identical saved names: an operator decides.
+    ('CharWe', ('CharWe', 'CharVVe'), 'CharWe', None),
+    ('CharWe', ('CharWe',), 'CharWe', 'CharWe'),  # The selected name is also in the saved list: not a look-alike.
+    ('CharA', ('CharA', 'CharWe', 'CharB'), 'CharB', 'CharB'),
+])
+def test_look_alike_saved_names_neither_confirm_nor_vote(reference,known,plain,expected):
+    state=IdentityCapture('channel',confirmed=reference,known=known);state.job=state.job_seen='Cleric'
+    frame=make_frame(0)
+    value=state.inspect(dict(current=True,candidate=None,visual_level=None),frame,frame.image(),candidate(),
+                        lambda crop:response(plain),{},max_age=15,clock=lambda:101)
+    evidence=value['evidence']
+    assert evidence['name']==expected and ('look_alike_read' in evidence)==(expected is None)
+    if expected is None:assert evidence['status']=='unreadable_or_conflicting' and not state.suggestions.streak
+
+
 @pytest.mark.parametrize('reference,plain,second,name,calls', [
     ('CharAI', 'CharAI', 'CharA', 'CharA', 4),  # Live Streamer_A: the misread itself became the reference.
     (None, 'CharA!', 'CharA', 'CharA', 2),
@@ -585,7 +601,8 @@ def test_panel_divider_read_as_a_final_letter_is_trimmed(reference, plain, secon
 
 
 def test_matching_reads_and_unconfirmed_channels_take_no_second_look():
-    for state, name in ((IdentityCapture('channel', confirmed='Alpha'), 'Alpha'), (IdentityCapture('channel'), 'Beta')):
+    for state, name in ((IdentityCapture('channel', confirmed='Alpha'), 'Alpha'), (IdentityCapture('channel'), 'Beta'),
+                        (IdentityCapture('channel', confirmed='Alpha', known=('Alpha', 'Beta')), 'Beta')):  # A strong saved read stays.
         calls = []; state.job = state.job_seen = 'Cleric'  # No job read either.
         f = make_frame(0)
         state.inspect(dict(current=True, candidate=None, visual_level=None), f, f.image(), candidate(),

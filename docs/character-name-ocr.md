@@ -924,10 +924,33 @@ of these repairs. The writer's two-frame rule, guards and refusal of ruled-out n
 unchanged. Rule out a saved misspelling (here `CharWve`) so its exact reads cannot vote.
 Admin renames or invalidations reach capture on the next switch or restart.
 
+A plain read that already spells another saved name at 0.90 or above is kept as is: in a
+first paired run, retrying such reads replaced a 0.998 read with a 0.878 one.
+
 Paired run on 15 live 1080p Streamer_C frames (real capture path, selected `CharA`):
 attributable `CharWe` votes went from 3 to 14, proposing the switch on the second frame.
-With `CharWe` selected, names, scores and votes were identical old vs new. Only frames
-that already mismatch the selected name take the extra reads (about 25 ms more there).
+With `CharWe` selected, names, scores and votes were identical old vs new. A second paired
+run on 42 frames of all 21 live channels, each with its selected name and again with each
+of its other saved names as a wrong selection (100 checks): every selected-name check and
+every other channel was identical; only Streamer_C's 10 wrong-selection checks changed,
+from no vote to a `CharWe` vote. Name-check time fell from 8.4 s to 6.6 s in total, since
+strong saved reads skip the retries; a split-W repair costs about 25 ms on its frame.
+
+#### Look-alike saved names
+
+`CharWe` and `CharVVe` (or `CharWve`) are pixel-identical in the status font: the middle
+letter is cap height, so lowercase `vv` is ruled out, but a joined W and two touching
+capital Vs cannot be told apart reliably. Name matching ignores case, so `CharVVe` and
+`Charvve` are the same name. If a streamer has two such saved, not ruled-out names, a read
+of either spelling is neutral (`look_alike_read`, no name): it neither confirms the selected
+character nor votes for the other, so the tracker never picks between them on its own.
+
+Resolve it by deciding the real spelling once (e.g. from the streamer's chat, profile or a
+ranking page) and ruling out the other. Renaming later keeps all history (readings belong to
+the character id); after a rename to `CharVVe`, `Charvve` reads confirm directly while
+`Charwve` reads become neutral, so re-check that channel. A future pixel test (W vs VV
+width or spacing against a confirmed V sample of this font) could replace the operator
+decision; it is not implemented. Production on 2026-11-26 had one such pair, a misread.
 
 ### Job (class) from the status panel
 

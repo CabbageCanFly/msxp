@@ -252,9 +252,10 @@ class IdentityCapture:
                 glyphs = refine(crop,read[1]) if read else None
                 observed = validated(read[1],glyphs) if glyphs else read and read[1]
                 reference = self.suggestions.reference
-                if reference and not same_character_name(observed, reference):
-                    saved = (reference, *self.known)
-                    target = lambda name: next((n for n in saved if same_character_name(name, n)), None)
+                saved = (reference, *self.known)
+                target = lambda name: next((n for n in saved if same_character_name(name, n)), None)
+                # A strong plain read of another saved name needs no repair; a retry could only weaken it.
+                if reference and not same_character_name(observed, reference) and not (target(observed) and read[0] >= NEURAL_SEED_SCORE):
                     second = read_name(second_look(crop))
                     second_read = parsed(second)
                     retry_read = None
@@ -307,6 +308,11 @@ class IdentityCapture:
                     if glyphs:
                         evidence['name'] = observed
                         evidence['glyph_refinement'] = glyphs
+                # Saved names that differ only by W vs Wv/vv/VV look identical on screen: neither may confirm or vote.
+                alike = {n.casefold() for n in (reference, *self.known) if n and evidence['name']
+                         and split_w(n).casefold() == split_w(evidence['name']).casefold()}
+                if len(alike) > 1:
+                    evidence.update(look_alike_read=dict(name=evidence['name'], score=evidence['score']), name=None, score=None)
                 evidence['status'] = 'candidate' if evidence['name'] else 'unreadable_or_conflicting'
                 level = result.get('visual_level') or (result.get('neural_level') or {}).get('level')
                 if self.job_due(level, started):
