@@ -25,6 +25,7 @@ from exp_tracker.models import Reading, Recognition, Region, reading_errors
 from exp_tracker.parsing import parse_exp, parse_level
 from exp_tracker.recognition import _ocr, _read_field, _tokens, configure_tesseract, ocr_engine
 from exp_tracker.trust import guard_unverified_exp
+from exp_tracker.badge_digits import read_badge
 from exp_tracker.diagnostic_geometry import exp_vertical_origin, level_tile_box
 
 
@@ -306,7 +307,12 @@ def disputed_level_digits(gray, level):
 
 
 def level_reading(crop):
-    """Suppress orange tile backgrounds with RGB minimum, not luma thresholding."""
+    """Badge digit model first (docs/badge-digits.md); Tesseract only when it is unsure.
+
+    Tesseract suppresses orange tile backgrounds with RGB minimum, not luma thresholding."""
+    level,details=read_badge(crop)
+    if level is not None:
+        return level,[dict(variant='badge_digits',text=details['text'],confidence=round(details['confidence'],4))]
     red,green,blue = crop.convert("RGB").split()
     box=level_tile_box(crop)
     if box is None:
