@@ -5,6 +5,7 @@ from dataclasses import asdict
 from datetime import datetime
 import hashlib
 import math
+import re
 import time
 
 from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS, NEURAL_SEED_SCORE, WRAP_FROM_BP, WRAP_TO_BP
@@ -19,6 +20,7 @@ from character_name_ocr import clean_name_crop, job_region, name_region, name_te
 # Numeric changes another character could explain; the rest stay ordinary EXP-validity questions.
 OWNERSHIP_RISK = {'reset_loss_or_character_switch', 'level_decrease',
                   'level_change_requires_confirmation', 'possible_offstream_progression'}
+PANEL_EDGE = re.compile(r'-?[I!|:]$')  # Divider reads seen live; real final "l"/"1" glyphs are left alone.
 PENDING_TTL_SECONDS = 600
 JOB_RETRY_SECONDS = 60  # Until two job reads agree, or after one disagreed with the known job.
 JOB_RECHECK_SECONDS = 120  # Once the level allows the next job advancement.
@@ -235,6 +237,17 @@ class IdentityCapture:
                     return None
                 crop = image.crop(region['box'])
                 response = read_name(clean_name_crop(crop)); read = parsed(response)
+                text = response.get('text')
+                # The box ends past the panel divider, which OCR can append to a name as "I", "!" or ":".
+                # Only the edge-trimmed second look may drop it, and only by spelling the rest exactly.
+                if isinstance(text, str) and (edge := PANEL_EDGE.search(text)) and edge.start() >= 2:
+                    try:
+                        second = read_name(second_look(crop)); second_read = parsed(second)
+                        if second_read and second_read[0] >= NEURAL_SEED_SCORE and second_read[1] == text[:edge.start()]:
+                            evidence.update(first_read=dict(text=text, score=read and read[0]), repair='panel_edge')
+                            response, read = second, second_read
+                    except (OSError, RuntimeError, ValueError, KeyError):
+                        pass  # Optional context must not discard the original name evidence.
                 glyphs = refine(crop,read[1]) if read else None
                 observed = validated(read[1],glyphs) if glyphs else read and read[1]
                 reference = self.suggestions.reference

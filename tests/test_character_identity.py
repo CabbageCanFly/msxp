@@ -542,6 +542,29 @@ def test_split_w_confirms_only_the_current_name_with_binary_agreement(monkeypatc
     if expected is None:assert evidence['status']=='unreadable_or_conflicting' and not state.suggestions.streak
 
 
+@pytest.mark.parametrize('reference,plain,second,name,calls', [
+    ('CharAI', 'CharAI', 'CharA', 'CharA', 4),  # Live Streamer_A: the misread itself became the reference.
+    (None, 'CharA!', 'CharA', 'CharA', 2),
+    (None, 'CharB1I', 'CharB1', 'CharB1', 2),
+    ('CharA', 'CharA-I', 'CharA', 'CharA', 2),
+    (None, 'CharAI', 'CharAI', 'CharAI', 2),  # A real final I survives the trimmed edge.
+    (None, 'CharAI', 'CharB', 'CharAI', 2),  # Only exactly the remaining spelling may replace it.
+    (None, 'Daniel', 'Danie', 'Daniel', 1),  # A final l or 1 takes no edge check at all.
+])
+def test_panel_divider_read_as_a_final_letter_is_trimmed(reference, plain, second, name, calls):
+    state = IdentityCapture('channel', confirmed=reference); seen = []
+    state.job = state.job_seen = 'Cleric'
+    def read(crop):
+        seen.append(crop.size)
+        return response(plain if len(seen) == 1 else second)
+    f = make_frame(0)
+    evidence = state.inspect(dict(current=True, candidate=None, visual_level=None), f, f.image(), candidate(), read,
+                             {1: 10000, 2: 20000}, max_age=15, clock=lambda: 101)['evidence']
+    assert evidence['name'] == name and len(seen) == calls
+    assert (evidence.get('repair') == 'panel_edge') is (name != plain)
+    assert evidence['raw']['raw']['txts'] == [name] or name == plain
+
+
 def test_matching_reads_and_unconfirmed_channels_take_no_second_look():
     for state, name in ((IdentityCapture('channel', confirmed='Alpha'), 'Alpha'), (IdentityCapture('channel'), 'Beta')):
         calls = []; state.job = state.job_seen = 'Cleric'  # No job read either.

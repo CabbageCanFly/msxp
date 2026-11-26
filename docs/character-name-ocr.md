@@ -879,22 +879,30 @@ change; on a frame showing another of a channel's characters, the second look di
 confirm the current one. Using the padded crop for every read is not safe: it fixed
 Streamer_J but misread two names the plain crop reads correctly.
 
-#### Panel divider in the plain read (2026-11-25)
+#### Panel divider read as a final letter (2026-11-25)
 
 The name box ends a few pixels past the status panel's divider. RapidOCR appended that
 divider to short names: live 1080p Streamer_A frames read `CharAI` or `CharA!` on most
 checks all evening, and only the second look kept them `CharA`. After a two-minute alt
-visit (Lv. 1, read as `CharA1I`), the reference became the misread and matching plain reads
+visit (`CharA1`, read as `CharA1I`), the reference became a misread and matching plain reads
 took no second look, so the real character stayed held as an old misread profile until a
-stuck-stream alert. `clean_name_crop` now paints the same 3 rightmost pixels with the
-background before every plain and thresholded read.
+stuck-stream alert.
 
-Measured through the production RapidOCR worker: 6 Streamer_A frames across 3 hours went
-from `CharAI` (0.89–0.93) to `CharA` (0.999). With reference `CharAI`, the real tracker path
-read `CharA` and proposed the switch back on the second frame. The 24 saved live regressions,
-including long and top-edge names, are unchanged. Production at the time showed three other
-channels whose plain reads carried a trailing `I`, `!` or `:` that the second look removed.
-Untested: names whose final glyph reaches the last 3 pixels of the box.
+Now a plain read ending in `I`, `!`, `|`, `:` or `-I` always gets the edge-trimmed second look.
+If that reads exactly the rest of the spelling at 0.90 or above, it replaces the plain read
+(`repair: panel_edge`, original kept as `first_read`), with or without a reference. A real
+final `I` survives the trimmed edge and is kept. Final `l` and `1` take no check.
+
+Paired run through the real capture path (production locator and RapidOCR worker, old vs new):
+4 Streamer_A frames with reference `CharAI` went from `CharAI` (0.92–0.93) to `CharA`
+(0.996–0.999, proposing the switch back); 21 frames of 17 other live channels had identical
+names, scores and holds. Affected frames take one extra name read (about 60 ms on the
+developer PC); others take none. The 24 saved live regressions are unchanged.
+Production at the time showed three other channels whose plain reads ended in `I`, `!` or `:`.
+
+Rejected: painting the 3 rightmost pixels in every plain read. It fixed Streamer_A but moved
+other scores by up to 0.05 and turned one neutral Streamer_B read (0.897) into a held
+wrong spelling (0.905).
 
 Setup for such a channel: rename the current character to the real name, and keep the
 remaining misspelling as a ruled-out character so two misreads in a row cannot switch to
