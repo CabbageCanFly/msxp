@@ -834,9 +834,10 @@ def main(argv=None):
                                 if cache is not None and record.get('current') and store.schema_version >= 10:
                                     # Level confirmation counts only full-frame name votes: two for a skip, five for a
                                     # percentage-only level-up, so cached captures must not wait out the vote window.
+                                    # A neural read above the floor needs them too: a skip's chain starts only on one.
                                     pending_jump = store.db.execute('''SELECT 1 FROM character_level_guard
-                                        WHERE character_id=? AND json_extract(pending_json, '$.level') > level''',
-                                        (lane['character_id'],)).fetchone()
+                                        WHERE character_id=? AND (json_extract(pending_json, '$.level') > level OR ? > level)''',
+                                        (lane['character_id'], (record.get('neural_level') or {}).get('level'))).fetchone()
                                     if pending_jump:
                                         cache.doubt = True
                             def rotate(lane):

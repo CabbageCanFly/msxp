@@ -80,6 +80,11 @@ The whole frame is scanned again:
   level-up got one vote per periodic full scan and never confirmed. One stream was held at
   its old level for a whole stream. Replaying its 199 production frames with full-frame name reads
   confirmed the new level about 90 s in.
+- while the latest capture's neural level reads above the floor. A percentage-only HUD shows no EXP
+  numbers, so the level-change trigger above never fired, and a skip's vote chain could only start on
+  a periodic full scan. Measured case (2026-11-26): an 83 to 89 skip; replaying 168 production frames
+  confirmed it 4 times an hour with full scans instead of once. Cost: these captures were 428 of
+  71,460 (0.6 %) in the 24 hours before, about 0.7 s each on the VPS.
 - after a capture that raised an error.
 
 Name evidence from a cached capture keeps `provenance.search = "cached_region"`, which

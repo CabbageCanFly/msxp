@@ -890,6 +890,47 @@ def test_percentage_only_level_up_requests_full_frames_for_all_neural_votes(runn
         assert store.db.execute('SELECT level FROM character_level_guard WHERE character_id=?', (cid,)).fetchone()[0] == 58
 
 
+@pytest.mark.parametrize('neural,expected', [(60, ['full_frame'] * 4), (57, ['full_frame'] + ['cached_region'] * 3)])
+def test_level_read_above_floor_requests_full_frames(running_roster, monkeypatch, neural, expected):
+    # Production 2026-11-26: an 83 -> 89 skip with no vote yet read names from the cached region, so a chain rarely started.
+    from exp_tracker.character_automation import guard_level
+    from tests.test_autonomous_characters import percentage_levelup_record
+
+    legacy = running_roster[0]
+    module, path = legacy[0], legacy[3]
+    change(path, 'newcaster', authorized=True)
+    with Store(path) as store:
+        cid = store.add_character('newcaster', 'Alpha')
+    change(path, 'newcaster', selected_character_id=cid, tracking_enabled=True)
+    with Store(path) as store:
+        store.start_session('newcaster', at=datetime.now(timezone.utc) - timedelta(hours=1))
+        for index in (1, 2):
+            guard_level(store, cid, record(index, level=57))
+
+    capture = module.shadow.capture_attempt
+    searches = []
+    now = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+    def reading(args, source, requirements, index, **options):
+        if source.value != 'newcaster':
+            return capture(args, source, requirements, index, **options)
+        cache = options['hud_cache']
+        search = 'full_frame' if not searches or cache.doubt else 'cached_region'
+        searches.append(search)
+        cache.doubt = False
+        value = percentage_levelup_record(index, 20 * index)
+        value['neural_level'].update(level=neural, text=str(neural), score=.95)  # Below the vote bar: no pending vote.
+        for key in ('received_at', 'attempted_at'):value[key] = (now + timedelta(seconds=20 * index)).isoformat()
+        value['character_name']['evidence']['received_at'] = value['received_at']
+        value['source'] = dict(kind='twitch', channel='newcaster')
+        value['character_name']['evidence']['provenance']['search'] = search
+        return value
+
+    monkeypatch.setattr(module.shadow, 'capture_attempt', reading)
+    assert run_db(running_roster, '--max-attempts', '4', '--hud-cache-seconds', '300') == 0
+    assert searches == expected
+
+
 def test_bounded_attempt_limit_survives_dynamic_lane_replacement(running_roster,monkeypatch):
     legacy,counters,_,_,_,_=running_roster;module=legacy[0];path=legacy[3]
     capture=module.shadow.capture_attempt;updated=[False]
