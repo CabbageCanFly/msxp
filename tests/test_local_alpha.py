@@ -263,7 +263,7 @@ def test_capture_log_shows_held_hud_levels_and_reason_without_publishing_them(lo
     if kind in ('level','nested'):current=level_held(current,'level_regression',39)
     diagnostics.append('log-test',current)
     report=module.report_attempt(current,True,database=database,channel='alpha',neural_enabled=True)
-    assert 'HUD=unique' in report and 'Tesseract=39' in report and 'neural level=39' in report
+    assert 'HUD=unique' in report and 'badge level=39' in report and 'neural level=39' in report
     assert 'EXP=HELD (' in report
     assert ('held: level regression' if kind!='identity' else 'held: name mismatch') in report
     assert 'no eligible reading yet' in report

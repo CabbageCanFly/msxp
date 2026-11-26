@@ -108,7 +108,7 @@ def report_attempt(record, committed, *, database, channel, neural_enabled):
         elif (pair or only) and not held:value+=' (not eligible)'
     if held:value='HELD ('+value+')'
     return (f"#{row['index']:02d} frame={'acquired' if captured else 'FAILED'}; HUD={hud}; EXP={value}; "
-        f"Tesseract={row['visual_level'] if row['visual_level'] is not None else 'unavailable'}; "
+        f"badge level={row['visual_level'] if row['visual_level'] is not None else 'unavailable'}; "
         f"neural level={level}; SQLite={'committed' if committed else 'NOT COMMITTED'}; latest={freshness}. "
         + '; '.join(explanations.get(reason, reason.replace('_', ' ')) for reason in reasons))
 

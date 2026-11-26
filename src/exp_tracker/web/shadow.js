@@ -70,7 +70,7 @@ function renderCoverage() {
     ["Original percentage-only", "strict_percentage_only"], ["Recovered percentages (overlap)", "recovered_percentages"],
     ["Percentage recovery without full", "percentage_recovery_without_full"], ["Unrecoverable / unavailable", "unrecoverable"],
     ["Malformed / missing strict values", "malformed_or_missing_strict"],
-    ["Ambiguous grammar", "ambiguous"], ["Unavailable Tesseract levels", "visual_level_unavailable"],
+    ["Ambiguous grammar", "ambiguous"], ["Unavailable badge levels", "visual_level_unavailable"],
     ["Unavailable neural levels", "neural_level_unavailable"], ["Visual / neural conflicts", "level_conflicts"]];
   document.getElementById("coverage-counts").replaceChildren(...labels.map(([label, key]) => {
     const cell = element("div"); cell.append(element("dt", label), element("dd", String(counts[key]))); return cell;
@@ -132,7 +132,7 @@ function drawTimeline(rows, interval, percentage = false) {
   for (const point of points) {
     const row = point.row, px = x(point.time);
     const value = valueOf(row);
-    const label = `#${row.index ?? "?"} ${displayTime(row)} · ${row.status} · experimental level ${chartLevel(row) ?? "unavailable"} · raw visual level ${row.visual_level ?? "unavailable"} (Tesseract)`;
+    const label = `#${row.index ?? "?"} ${displayTime(row)} · ${row.status} · experimental level ${chartLevel(row) ?? "unavailable"} · raw visual level ${row.visual_level ?? "unavailable"}`;
     const kind = chartValue(row, percentage).kind;
     const detail = value === null ? label : `${label} · ${kind} · UNVERIFIED ${percentage ? value+"%" : exactExp(value)+" EXP"} · ${row.event_id ?? "no event ID"}`;
     if (value !== null) {
@@ -300,7 +300,7 @@ function render() {
       value.append(element('small',row.conditional_percent?
         `${row.conditional_percent.policy}: ${row.conditional_percent.status} · ${reason(row.conditional_percent.reason)} · ${hypothesis.interpretation} · untrusted; original strict evidence unchanged`:
         `Review only: ${hypothesis.interpretation} · missing % symbol; excluded from observations and pace`));
-    visual.append(element("small", `Tesseract (UNVERIFIED): ${row.visual_status ?? "unavailable"}`));
+    visual.append(element("small", `Badge reader (UNVERIFIED): ${row.visual_status ?? "unavailable"}`));
     if (row.visual_attempts?.length) visual.append(element("small", `Raw passes: ${row.visual_attempts.map(text => text ?? "[redacted]").join(" / ")}`));
     if (row.neural_level) {
       const neural=row.neural_level;
