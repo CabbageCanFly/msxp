@@ -627,6 +627,20 @@ def test_named_neural_percentage_skips_levels_only_with_tesseract_corroboration(
     assert (floor,results[-1])==((60,True) if case in ('confirmed','one_read') else (57,False))
 
 
+@pytest.mark.parametrize('text,confirmed',[('195.00%1',True),('195.00%]',True),('95.00%1',False),('1195.00%1',False)])
+@pytest.mark.parametrize('skip',[False,True])
+def test_neural_percentage_votes_accept_leading_one_brackets(auto,text,confirmed,skip):
+    # Production 2026-11-26: a percentage-only HUD read '[38.54%]' as '138.54%1' on 88 of 90 frames.
+    from exp_tracker.character_automation import guard_level
+    _,store,_=auto;sequence(auto,['Alpha','Alpha'],levels=[57,57])
+    cid=store._channel('alpha')['selected_character_id']
+    values=[skip_record(i+3,45+i*20) if skip else percentage_levelup_record(i+3,45+i*20) for i in range(5)]
+    for value in values:value.update(status='malformed_or_unavailable',percentage_only_candidate=None,neural=dict(text=text))
+    results=[guard_level(store,cid,v)['current'] for v in values]
+    floor=store.db.execute('SELECT level FROM character_level_guard').fetchone()[0]
+    assert (floor,results[-1])==(((60 if skip else 58),True) if confirmed else (57,False))
+
+
 @pytest.mark.parametrize('between,confirmed',[(('7',),True),(('7','61'),False)])
 def test_skip_vote_chain_survives_agreeing_frames_without_votes(auto,between,confirmed):
     # Tesseract read 77 as '7' in most frames of a percentage-only stream; those frames must not reset the votes.

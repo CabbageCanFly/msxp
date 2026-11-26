@@ -14,6 +14,7 @@ from .manual import active
 from .models import PLACEHOLDER_CHARACTER, same_character_name, split_w
 from .name_glyphs import validated as glyph_name, MIN_SCORE as GLYPH_MIN_SCORE
 from .parsing import parse_level
+from .shadow_grammar import interpret_exp
 from .shadow_view import observation
 from .store import utc
 
@@ -215,10 +216,13 @@ def guard_level(store, character, record, *, support=None):
     normalized = observation(record)
     neural=normalized.get('neural_level') or {}
     name=name_evidence(record)
+    # '138.54%1' is the same percentage-only HUD with both brackets read as '1'; votes never use its digits.
+    bracketed=(normalized['status']=='malformed_or_unavailable'
+        and interpret_exp(normalized['raw_text'])['percentage']['reason']=='leading_one_bracket_recovery')
     percentage_frame=bool(floor is not None and session_id is not None
         and neural.get('preprocessing')=='neutral4' and (neural.get('score') or 0)>=NEURAL_PERCENTAGE_SCORE
         and neural.get('source_complete') is not False and normalized['visual_level'] in (None,neural.get('level'))
-        and normalized['status']=='diagnostic_percentage_only' and normalized['percentage_only_candidate']
+        and (normalized['status']=='diagnostic_percentage_only' and normalized['percentage_only_candidate'] or bracketed)
         and not normalized['percentage_only_invalid'] and not normalized['candidate'] and not normalized['candidate_invalid']
         and normalized['frame_sha256'] and not normalized['crop_suspect']
         and normalized['local_age_seconds'] is not None and normalized['local_age_seconds']<=15

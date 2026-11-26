@@ -1077,7 +1077,13 @@ most 120 seconds between agreeing frames (a vote, a safe frame that cannot vote,
 confident Tesseract agreement, which also counts as a vote and is kept for the
 two-frame agreement path). Missing/unsafe readings or accepted
 conflicting levels reset it. It cannot initialize a level, use recovered percentage
-syntax, or use an unreadable name. Skipping levels (offline play between streams) also
+syntax, or use an unreadable name. The one exception is the leading-one bracket repair
+(`138.54%1` for `[38.54%]`, see `leading-percentage-recovery.md`): it is the same
+percentage-only HUD, and a vote never uses its digits. Measured case (2026-11-26): a stream
+read that form on 88 of 90 frames, so an 83 to 89 offline skip stayed held for the whole
+stream with no vote; replaying those 90 production frames, with full-frame name reads after
+each pending vote as capture requests, confirms 89 about 2 minutes after the first vote, and
+61 of the 66 accepted frames then become public percentage points. Skipping levels (offline play between streams) also
 needs every vote frame's own already-computed Tesseract level reads to name the same
 level, with no other level above the floor; all five votes must name the same level.
 A safe percentage-only frame whose neural level and Tesseract reads agree with the
