@@ -32,7 +32,7 @@ Reading a badge takes about 0.4 ms in pure Python (Pillow only).
 ## Data
 
 `private/badge-digits/` holds 1,903 badge crops, each checked by eye, from 178 sources:
-frames from 90 roster streamers' public VODs at the 720p production quality, plus the
+frames from 90 roster streamers' public VODs at 720p (production captures the best rendition, usually 1080p, so VOD badges are the harder, smaller case), plus the
 private recordings, live captures and investigation frames. 28 are labelled "x" (blends
 during a level change, or too small to read by eye). Tesseract's and the model's reads were
 only proposals. Retrain with:
