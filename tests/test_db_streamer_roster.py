@@ -931,6 +931,51 @@ def test_level_read_above_floor_requests_full_frames(running_roster, monkeypatch
     assert searches == expected
 
 
+def test_unresolved_name_misread_keeps_requesting_full_frames(running_roster, monkeypatch):
+    # Production 2026-11-26: one misread name, then a blurry full-frame read; cached reads stayed held ~5 min.
+    from exp_tracker.character_automation import guard_level
+    from tests.test_autonomous_characters import percentage_levelup_record
+
+    legacy = running_roster[0]
+    module, path = legacy[0], legacy[3]
+    change(path, 'newcaster', authorized=True)
+    with Store(path) as store:
+        cid = store.add_character('newcaster', 'Alpha')
+    change(path, 'newcaster', selected_character_id=cid, tracking_enabled=True)
+    with Store(path) as store:
+        store.start_session('newcaster', at=datetime.now(timezone.utc) - timedelta(hours=1))
+        for index in (1, 2):
+            guard_level(store, cid, record(index, level=57))
+
+    capture = module.shadow.capture_attempt
+    searches = []
+    now = datetime.now(timezone.utc) + timedelta(minutes=5)
+    names = {2: ('Alpba', .65), 3: ('Alpha', .85)}
+
+    def reading(args, source, requirements, index, **options):
+        if source.value != 'newcaster':
+            return capture(args, source, requirements, index, **options)
+        cache = options['hud_cache']
+        search = 'full_frame' if not searches or cache.doubt else 'cached_region'
+        searches.append(search)
+        value = percentage_levelup_record(index, 20 * index)
+        value['neural_level'].update(level=57, text='57')
+        name, score = names.get(index, ('Alpha', .97))
+        evidence = value['character_name']['evidence']
+        evidence.update(name=name, score=score, raw=dict(raw=dict(txts=[name], scores=[score])))
+        value['character_name'].update(reading_hold_recommended=name != 'Alpha', hold_reasons=['name_mismatch'] if name != 'Alpha' else [])
+        for key in ('received_at', 'attempted_at'):value[key] = (now + timedelta(seconds=20 * index)).isoformat()
+        evidence['received_at'] = value['received_at']
+        value['source'] = dict(kind='twitch', channel='newcaster')
+        evidence['provenance']['search'] = search
+        cache.doubt = module.shadow.identity_doubt(value['character_name'])  # As capture_attempt does.
+        return value
+
+    monkeypatch.setattr(module.shadow, 'capture_attempt', reading)
+    assert run_db(running_roster, '--max-attempts', '5', '--hud-cache-seconds', '300') == 0
+    assert searches == ['full_frame', 'cached_region', 'full_frame', 'full_frame', 'cached_region']
+
+
 def test_bounded_attempt_limit_survives_dynamic_lane_replacement(running_roster,monkeypatch):
     legacy,counters,_,_,_,_=running_roster;module=legacy[0];path=legacy[3]
     capture=module.shadow.capture_attempt;updated=[False]

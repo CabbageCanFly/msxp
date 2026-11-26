@@ -90,6 +90,11 @@ The whole frame is scanned again:
   confirmed it 4 times an hour with full scans instead of once. Cost: these captures were 428 of
   71,460 (0.6 %) in the 24 hours before, about 0.7 s each on the VPS.
 - after a capture that raised an error.
+- while a misread name still holds the character's frames. The hold clears only on a full-frame
+  name read, and the capture's own name doubt asks for just one. Measured case (2026-11-26): one
+  misread, then a blurry full-frame read, held a stream for 5 minutes until the next periodic scan.
+  In the 24 hours before, 1,504 of 87,065 captures carried such a hold (most already rescan for
+  their own name mismatch); 128 were held only by a stale misread.
 
 Name evidence from a cached capture keeps `provenance.search = "cached_region"`, which
 automatic character confirmation already ignores, so switches and discovery still rest on

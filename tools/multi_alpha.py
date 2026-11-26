@@ -18,6 +18,7 @@ import time
 import uuid
 
 import shadow_capture as shadow
+from exp_tracker.character_automation import original
 from exp_tracker.diagnostic_evidence import CONFIRM_GAP_SECONDS
 from exp_tracker.diagnostics import Diagnostics, identity_held
 from exp_tracker.metrics import ResourceMonitor
@@ -838,7 +839,10 @@ def main(argv=None):
                                     pending_jump = store.db.execute('''SELECT 1 FROM character_level_guard
                                         WHERE character_id=? AND (json_extract(pending_json, '$.level') > level OR ? > level)''',
                                         (lane['character_id'], (record.get('neural_level') or {}).get('level'))).fetchone()
-                                    if pending_jump:
+                                    # A misread name holds frames until a full-frame read clears it; one rescan can be blurry too.
+                                    saved = store.db.execute('SELECT payload_json FROM diagnostic_attempts WHERE run_id=? AND attempt_index=?',
+                                        (lane['run_id'], record['index'])).fetchone()
+                                    if pending_jump or saved and original(json.loads(saved[0])).get('automatic_identity_risk'):
                                         cache.doubt = True
                             def rotate(lane):
                                 previous=lane['run_id']; following=uuid.uuid4().hex
