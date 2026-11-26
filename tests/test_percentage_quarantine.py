@@ -316,3 +316,34 @@ def test_sqlite_api_and_restart_share_quarantine_without_mutating_raw_or_trusted
     with Store(configured,read_only=True) as store:
         assert player(Diagnostics(store).snapshot('alpha',now=clock[0]),now=clock[0])==result
         assert payloads==[r[0] for r in store.db.execute('select payload_json from diagnostic_attempts')]
+
+
+def repaired(rows,*indexes):
+    # The closing bracket read as '1' ([43.81%1): a grammar-recovered reading, as on soft or ghosted frames.
+    for i in indexes:
+        r=rows[i];r.update(raw_text=r['raw_text'][:-1]+'1',percentage_only_candidate=None,status='malformed_or_unavailable')
+    return rows
+
+
+def test_repaired_rise_beyond_pace_shows_unreadable_until_confirmed():
+    # Production 2026-11-26: 43.61 read as 43.81 on one frame, then 43.62; the spike was published.
+    rows=repaired(sequence(['43.60','43.61','43.81','43.62','43.62'],interval=20),2)
+    result=evaluate(rows)
+    assert [r['public_eligible'] for r in result['percentage_reviews']]==[True,True,False,True,True]
+    assert result['percentage_reviews'][2]['status']=='pending_large_increase'
+    assert result['latest_percentage']['percentage']=='43.62'
+    # A genuine jump (a quest reward) is confirmed by the next capture, even a repaired one.
+    rows=repaired(sequence(['43.60','43.61','45.00','45.00'],interval=20),2,3)
+    result=evaluate(rows)
+    assert [r['public_eligible'] for r in result['percentage_reviews']]==[True,True,False,True]
+    assert result['latest_percentage']['percentage']=='45.00'
+
+
+@pytest.mark.parametrize('values,indexes',[
+    (['43.60','43.61','43.81'],()),               # A strict reading is not held.
+    (['43.60','43.61','43.70'],(2,)),             # Within the 0.10-point step.
+    (['40.00','41.00','42.00'],(2,)),             # Within three times the recent pace.
+])
+def test_repaired_rise_within_pace_or_strict_publishes_immediately(values,indexes):
+    result=evaluate(repaired(sequence(values,interval=20),*indexes))
+    assert all(r['public_eligible'] for r in result['percentage_reviews'])

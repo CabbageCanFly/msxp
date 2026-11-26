@@ -69,6 +69,18 @@ changes also wait for corroboration, so an isolated upward spike cannot immediat
 become the public reference. Two eligible higher captures can establish a new
 higher baseline without a maximum gain cap; the suspicious interval is not counted.
 
+**Fast repaired rises (2026-11-26).** A grammar-repaired percentage (e.g. `[43.81%1`,
+the closing bracket read as `1`) that no consistent EXP number backs, read on the
+capture right after an accepted one, waits for one more capture when it rises more than
+0.10 points (`REPAIRED_STEP_BP`) and more than three times the pace of the last accepted
+step. It shows as unreadable meanwhile. A next capture at or above it confirms it, even
+a repaired one, so a quest reward still appears one capture late; a lower one resolves it
+as a suspected OCR anomaly. Measured case: Streamer_C's ghosted frame read 43.61 as 43.81
+(the VOD shows 43.61 throughout), was published, and the true 43.62 was then held as a drop.
+Replaying the last 24 hours of all streams through the production history pipeline
+changed 6 of 71,873 public points: two such misreads hidden, the two true readings after
+them published, and two other repaired rises delayed one capture.
+
 Unknown-level percentages can still be displayed when otherwise usable, but a
 drop from their latest public reference is withheld as **unresolved numerical
 continuity**. They cannot confirm a same-level loss or contribute comparable pace.

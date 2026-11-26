@@ -10,6 +10,7 @@ POLICY='percentage_continuity_v3'
 CONFIRM_SECONDS=60
 RECOVERY_SECONDS=300
 LARGE_CHANGE_BP=1000  # 10 percentage points: evidence gate, not an EXP gain/rate cap.
+REPAIRED_STEP_BP=10  # A repaired reading may rise this much, or 3x the recent pace, without a second capture.
 PERCENTAGE_CONTEXT_SECONDS=180  # Saved supports span 156.765s over four attempt steps.
 PERCENTAGE_CONTEXT_STEPS=4  # Two strict supports, at most two intervening unreadable captures.
 CONTEXT_KEYS=('channel','source_channel','source_kind','source_identity','character_id','session_id','run_id','manual_epoch')
@@ -51,6 +52,16 @@ def recovery_capture(point,row):
         and (row.get('neural_level') or {}).get('source_complete') is not False
         and row.get('local_age_seconds') is not None and 0<=row['local_age_seconds']<=15
         and consistency(full_reading(row),point['level'])['status']=='consistent')
+
+
+def outpaces(point,row,anchor,difference,when):
+    """A repaired percentage, not backed by consistent EXP, rising well beyond the recent pace: e.g. 43.61 read 43.81."""
+    if (point['evidence']!='grammar_recovered' or difference<=REPAIRED_STEP_BP
+            or consistency(full_reading(row),point['level'])['status']=='consistent'):return False
+    before,at=anchor.get('before'),datetime.fromisoformat(anchor['point']['timestamp'])
+    seconds=(at-datetime.fromisoformat(before['timestamp'])).total_seconds() if before else 0
+    rate=max(0,anchor['point']['bp']-before['bp'])/seconds if seconds>0 else 0
+    return difference>3*rate*(when-at).total_seconds()
 
 
 def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
@@ -179,7 +190,7 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
                     if 0<=difference<LARGE_CHANGE_BP:value['break_before']='excluded_suspected_ocr_interval'
                     pending=None
                 elif (not expired and not (pending['direction']=='down' and (pending['large'] or anchor['point']['bp']-point['bp']>=LARGE_CHANGE_BP))
-                        and independent and clean and point['bp']>=first['bp']):
+                        and independent and (clean or pending.get('repaired_rise')) and point['bp']>=first['bp']):
                     value.update(status='corroborated_lower_baseline' if lower else 'accepted_observation',
                         reason='two_distinct_eligible_captures_cause_unverified',resolves_event_id=first['event_id'],
                         break_before='confirmed_change_new_baseline')
@@ -191,15 +202,18 @@ def review(rows,evidence,*,now,confirmation_seconds=CONFIRM_SECONDS,state=None):
                         reason='confirmation_expired' if expired else 'large_decrease_requires_independent_evidence' if lower and -difference>=LARGE_CHANGE_BP else 'insufficient_independent_confirmation')
                     if expired:pending=None
                     else:pending.update(point=point,row=row,large=pending['large'] or -difference>=LARGE_CHANGE_BP)
-            if pending is None and value['public_eligible'] and value['break_before'] is None and (difference<0 or difference>=LARGE_CHANGE_BP):
-                pending=dict(point=point,row=row,since=when,direction='down' if difference<0 else 'up',large=-difference>=LARGE_CHANGE_BP)
+            if pending is None and value['public_eligible'] and value['break_before'] is None and (
+                    difference<0 or difference>=LARGE_CHANGE_BP or previous is anchor['point'] and edge is None and outpaces(point,row,anchor,difference,when)):
+                # A second independent capture at or above a fast repaired rise confirms it, even if also repaired.
+                pending=dict(point=point,row=row,since=when,direction='down' if difference<0 else 'up',large=-difference>=LARGE_CHANGE_BP,
+                    repaired_rise=0<difference<LARGE_CHANGE_BP)
                 value.update(public_eligible=False,progress_eligible=False,
                     status='unresolved_numerical_continuity' if difference<=-LARGE_CHANGE_BP else 'pending_exp_decrease' if difference<0 else 'pending_large_increase',
                     reason='large_decrease_requires_independent_evidence' if difference<=-LARGE_CHANGE_BP else 'second_capture_required')
             elif pending is None and not value['public_eligible']:
                 # Expiry never turns a single still-lower observation into a new public baseline.
                 pending=dict(point=point,row=row,since=when,direction='down' if difference<0 else 'up',large=-difference>=LARGE_CHANGE_BP)
-        if value['public_eligible']:anchor=dict(point=point,row=row,level=point['level'])
+        if value['public_eligible']:anchor=dict(point=point,row=row,level=point['level'],before=anchor['point'] if anchor else None)
         if pending:
             value.update(pending_since=pending['since'].isoformat(),
                 confirmation_deadline=(pending['since']+timedelta(seconds=span())).isoformat())
