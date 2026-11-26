@@ -7,7 +7,6 @@ import pytest
 from exp_tracker import badge_digits
 
 ROOT = Path(__file__).resolve().parents[1]
-PRIVATE = ROOT / 'private/badge-digits'
 
 
 def badge(tiles=2, size=17, margin=4):
@@ -80,12 +79,15 @@ def test_shipped_model_is_valid():
     assert data['version'] == 1 and len(data['weights']) == data['grid'] ** 2 + 1
 
 
-@pytest.mark.skipif(not (PRIVATE / 'labels.json').exists(), reason='private badge crops are not restored')
-def test_shipped_model_reads_checked_badges_without_wrong_levels():
-    labels = json.loads((PRIVATE / 'labels.json').read_text())['labels']
+@pytest.mark.parametrize('folder', ['badge-digits', 'badge-digits-holdout'])  # Training set; never-trained VODs.
+def test_shipped_model_reads_checked_badges_without_wrong_levels(folder):
+    folder = ROOT / 'private' / folder
+    if not (folder / 'labels.json').exists():
+        pytest.skip('private badge crops are not restored')
+    labels = json.loads((folder / 'labels.json').read_text())['labels']
     wrong, read, readable = [], 0, 0
     for name, level in labels.items():
-        got, _ = badge_digits.read_badge(Image.open(PRIVATE / 'crops' / name))
+        got, _ = badge_digits.read_badge(Image.open(folder / 'crops' / name))
         readable += level != 'x'
         if got is not None and level != 'x':
             read += 1

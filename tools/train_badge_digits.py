@@ -98,7 +98,7 @@ def main():
     data = train(tile_examples(rows), epochs=args.epochs)
     print(score(rows, data))
     if args.output:
-        args.output.write_text(json.dumps(data, separators=(',', ':')) + '\n')
+        args.output.write_text(json.dumps(data, separators=(',', ':')) + '\n', newline='\n')
 
 
 if __name__ == '__main__':

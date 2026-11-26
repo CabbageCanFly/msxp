@@ -57,9 +57,14 @@ def feature(cell, grid, ink):
     if hi - lo < 60:
         return None
     threshold = lo + (hi - lo) * ink
-    box = inner.point(lambda p: 255 if p > threshold else 0).getbbox()
-    if not box:
+    # Edge rows/columns with a single bright pixel are tile-border specks: on small sharpened
+    # tiles they stretched a 3 into a 7.
+    bright = [p > threshold for p in pixels]
+    rows = [y for y in range(inner.height) if sum(bright[y * inner.width:(y + 1) * inner.width]) >= 2]
+    cols = [x for x in range(inner.width) if sum(bright[x::inner.width]) >= 2]
+    if not rows or not cols:
         return None
+    box = (cols[0], rows[0], cols[-1] + 1, rows[-1] + 1)
     glyph = inner.crop(box).point(lambda p: max(0, min(255, round((p - lo) * 255 / (hi - lo)))))
     width = max(1, min(grid, round(glyph.width * grid / glyph.height)))
     canvas = Image.new('L', (grid, grid), 0)
