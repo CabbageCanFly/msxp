@@ -30,8 +30,20 @@ def streamer_a_tokens():
              ('EXP',.94,999,1048+1/3,21,14),('LV.',.54,563+1/3,1054+2/3,29+2/3,25+1/3)]]]
 
 
-def candidates():
-    return [hud.layouts(tokens,SIZE)[0] for tokens in streamer_a_tokens()]
+def candidates(tall=False):
+    """The 3x LV. token is 25 px tall (it merged the HUD frame); by default it is cut to a normal 13 px so
+    the two level boxes stay a dispute between normal tokens."""
+    pages=streamer_a_tokens()
+    if not tall:pages[1][3]={**pages[1][3],'height':13}
+    return [hud.layouts(tokens,SIZE)[0] for tokens in pages]
+
+
+@pytest.mark.parametrize('reverse',[False,True])
+def test_saved_streamer_a_tall_merged_lv_token_yields_to_the_normal_one(reverse):
+    group=candidates(tall=True)[::(-1 if reverse else 1)]
+    merged=hud.merge_layouts(group,SIZE)
+    assert len(merged)==1 and not merged[0].get('level_ambiguous')
+    assert merged[0]['regions']['level']==candidates(tall=True)[0]['regions']['level']
 
 
 @pytest.mark.parametrize('reverse',[False,True])
@@ -150,7 +162,10 @@ def test_private_saved_candidate_replay_keeps_exp_disagreements_rejected(folder,
         assert candidates==frozen
         if len(candidates)==1:assert merged==candidates
         if len(candidates)>1 and len(merged)==1:
-            assert merged[0]['regions']['level'] is None and merged[0]['level_ambiguous']
+            # A disputed level is unavailable unless only normal-height LV tokens agree on it.
+            normal=[c['regions']['level'] for c in candidates if c['anchors'].get('lv') and c['anchors']['lv']['height']<=.15*c['anchor_step']]
+            assert (merged[0]['regions']['level'] is None and merged[0]['level_ambiguous']
+                    or merged[0]['regions']['level'] in normal and not merged[0].get('level_ambiguous'))
             assert merged[0]['regions']['exp'] in [c['regions']['exp'] for c in candidates]
         original_counts.append(len(candidates));merged_counts.append(len(merged))
     assert len(rows)==count and original_counts.count(1)==before and merged_counts.count(1)==after

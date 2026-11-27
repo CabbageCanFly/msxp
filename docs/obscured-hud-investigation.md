@@ -682,3 +682,25 @@ publisher, identity-boundary, numerical-consistency and level-transition checks.
 `git diff --check` passed. Frontend/browser checks were not repeated for this
 locator-only change. Suggested commit:
 `fix(capture): deduplicate EXP HUDs with ambiguous level crops`.
+
+## Tall merged LV tokens (2026-11-27)
+
+Full frames now show what the disputed level boxes above were. Where the HUD's light
+left frame meets bright scenery, one OCR scale merges the frame into `LV.`: the token is
+about twice as tall (0.22-0.24 of the HP-MP step instead of 0.12) and starts 11-14 px
+further left, so its level box disagrees with the other scale's and the level was voided.
+The badge itself is fully visible. On the VPS this voided 193 of 55,844 unique-HUD
+captures in 24 hours (Streamer_D 10%, then two others), and the cache then kept the
+level-less layout until the next full scan, up to five minutes.
+
+`merge_layouts()` now drops the level boxes of LV tokens taller than 0.15 step (the
+existing HP/MP/EXP height bound) only when they disagree with a normal-height token's box;
+the normal tokens' boxes then decide, and normal tokens that still disagree remain
+ambiguous. A tall token alone still serves, as before (its box is usually right: the
+merge is often vertical). LV token heights over 2,549 saved full frames from dozens of
+streams: 99% of normal tokens at 0.113-0.13 step, 175 merged ones at 0.16-0.32.
+
+Replaying production's full-frame scan over those frames (cached tokens, before vs after):
+41 frames change, all from no level crop to a level crop; no HUD, EXP box or other level
+box changes. The badge reader reads 38 of them; all 38 match the digits visible in the
+crop, and 3 blurry ones abstain. Ambiguous frames fall from 43 to 2.

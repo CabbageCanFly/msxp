@@ -150,9 +150,13 @@ def merge_layouts(candidates,size):
     result=[]
     for group in groups:
         levels=[c for c in group if c['regions']['level'] is not None]
+        conflict=lambda xs:any(box_delta(a,b,'level')>tolerance(a,b) for a,b in combinations(xs,2))
+        # A taller LV token merged the HUD frame or background (about twice the height, shifted):
+        # when its level box disagrees, the normal-height tokens' boxes decide.
+        clean=[c for c in levels if not c['anchors'].get('lv') or c['anchors']['lv']['height']<=.15*c['anchor_step']]
+        if clean and conflict(levels):levels=clean
         candidate=levels[0] if levels else group[0]
-        if (any(c.get('level_ambiguous') for c in group)
-                or any(box_delta(a,b,'level')>tolerance(a,b) for a,b in combinations(levels,2))):
+        if any(c.get('level_ambiguous') for c in group) or conflict(levels):
             candidate={**candidate,'regions':{**candidate['regions'],'level':None},
                 'anchors':{**candidate['anchors'],'lv':None},'anchor_mode':'hp_mp_exp','level_ambiguous':True}
         result.append(candidate)

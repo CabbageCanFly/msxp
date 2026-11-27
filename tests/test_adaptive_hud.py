@@ -559,3 +559,13 @@ def test_locate_benchmark_reports_any_token_difference(monkeypatch,tmp_path):
     assert result['summary']['mismatches']==[str(frame)] and result['rows'][0]['candidates']==1
     with pytest.raises(FileExistsError):
         tool.main([str(frame),'--output',str(output)])
+
+
+def test_tall_lv_token_merged_with_the_hud_frame_yields_to_the_normal_one():
+    """One scale merges the HUD's left frame into LV. (twice as tall, 13 px left); it must not void the level."""
+    clean=anchors(700,1040,150);clean[3]={**clean[3],'width':28,'height':18}
+    tall=[*clean[:3],{**clean[3],'x':clean[3]['x']-13,'y':clean[3]['y']-2,'width':41,'height':36}]
+    pages=[hud.layouts(page,(1920,1080),deduplicate=False) for page in (clean,tall)]
+    found=hud.merge_layouts(pages[0]+pages[1],(1920,1080))
+    assert len(found)==1 and found[0]['regions']['level']==pages[0][0]['regions']['level'] and not found[0].get('level_ambiguous')
+    assert hud.merge_layouts(pages[1],(1920,1080))[0]['regions']['level']==pages[1][0]['regions']['level']  # Alone it still serves.
