@@ -9,7 +9,8 @@ previous one times 1.0548 (51–89) or 2.1 (90–99). Recomputing that gives all
 exactly; the client defines nothing for level 100 or above. Live HUD pairs agree independently:
 13 daily snapshots with a full `EXP[%]` at 90–91 (e.g. 579,929 [4.86%] at 90, 366,361 [1.46%]
 at 91) match the table, while the +5.5% per level some community pages now show after 89 fails
-every one. Re-check after a client patch. The site's About and level planner link to this table.
+every one. Re-check after a client patch. The public `/exp-table` page (rows written in by
+`tools/export_pages.py`) shows this table; About links to it and the level planner opens it as a popup.
 
 ## Requirement refresh (2026-11-07)
 

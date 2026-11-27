@@ -638,9 +638,7 @@ html, body.product { overflow-x:clip; }
 .planner-steps li.goal b { color:var(--gold); font-weight:900; }
 .planner-steps li.goal time { color:var(--text-soft); font-weight:700; }
 .planner-steps li.beyond { opacity:.4; }
-/* EXP table popup (static/local/exp-table.js), from About and the planner's header. */
-.link-button { min-height:0; padding:0; border:0; border-bottom:1px solid var(--line-strong); border-radius:0; background:none; color:var(--text-soft); font:inherit; cursor:pointer; }
-.link-button:hover, .link-button:focus-visible { color:var(--gold); border-color:var(--gold-deep); }
+/* EXP table popup (static/local/exp-table.js), from the planner's header; About links to the /exp-table page. */
 .planner-source { margin:0 8px 0 auto; min-height:0; height:24px; padding:0 9px; border:1px solid var(--line-strong); border-radius:999px; background:transparent;
   color:var(--text-muted); font-family:inherit; font-size:11px; font-weight:800; letter-spacing:.3px; cursor:pointer; }
 .planner-source:hover, .planner-source:focus-visible { border-color:var(--gold-deep); color:var(--gold); }
@@ -651,6 +649,7 @@ html, body.product { overflow-x:clip; }
   font-variant-numeric:tabular-nums; }
 .exp-table-row > :not(:first-child) { text-align:right; }
 .exp-table-row b { color:var(--gold); }
+.exp-table-source a { color:var(--text-soft); }
 .exp-table-head { position:sticky; top:0; padding-block:5px; border-bottom:2px solid var(--line-strong); background:var(--surface); color:var(--text-muted); font-size:11px; font-weight:700; letter-spacing:.3px; }
 .planner-steps b { color:var(--text); font-weight:800; }
 .planner-steps time { color:var(--text-muted); font-size:13px; }
@@ -709,3 +708,17 @@ html, body.product { overflow-x:clip; }
 .product .channel.alias-query-match {text-decoration-color:var(--gold);color:var(--text-soft)}
 .username-history mark {padding:0 1px;border-radius:2px;background:#ffc56b;color:#232c3e}
 @media(max-width:650px) {.rename-source:has(.rename-history:not([hidden])) + .stream-uptime {margin-left:0}}
+
+/* The /exp-table page (exp-table.html): the same rows as a table, written in at build time (tools/export_pages.py). */
+.exp-page .board-header h1 { margin:0; font-family:var(--font-display); font-size:20px; font-weight:600; letter-spacing:.2px; }
+.exp-page-intro { display:grid; gap:4px; padding:14px 20px 10px; color:var(--text-soft); font-size:14px; }
+.exp-page-intro p { margin:0; }
+.exp-page-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+.exp-page-table th, .exp-page-table td { padding:6px 20px; border-bottom:1px solid color-mix(in srgb, var(--line) 45%, transparent); text-align:right; }
+.exp-page-table th:first-child { width:64px; text-align:left; }
+.exp-page-table thead th { position:sticky; top:0; background:var(--surface); border-bottom:2px solid var(--line-strong); color:var(--text-muted); font-size:12px; font-weight:700; }
+.exp-page-table tbody th { color:var(--gold); }
+.exp-page-table tbody tr:hover, .exp-page-table tbody tr:target { background:color-mix(in srgb, var(--surface-raised) 60%, transparent); }
+.exp-page-foot { margin:14px 4px 0; color:var(--text-muted); font-size:12px; font-weight:600; }
+.exp-page-foot a { color:var(--text-soft); }
+@media(max-width:650px) { .exp-page-table th, .exp-page-table td { padding:6px 12px; } .exp-page-intro { padding:12px 14px 8px; } }

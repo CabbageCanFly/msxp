@@ -23,10 +23,10 @@ EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'robots.
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
             'static/product.js', 'static/username-history.js', 'static/overlay-stats.js', 'static/exp-bars.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp',
             'static/kerning.webp', 'static/kerning-sky.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')} \
-    | {f'static/jobs/{p.name}' for p in (export_pages.WEB / 'jobs').glob('*.png')}     | {f'static/classes/{p.name}' for p in (export_pages.WEB / 'classes').glob('*.gif')}     | {'local.html', 'local-overlay.html', 'static/local/community-exp.json'}     | {f'static/local/{p.relative_to(export_pages.WEB / "local").as_posix()}' for p in (export_pages.WEB / 'local').rglob('*.*')}
+    | {f'static/jobs/{p.name}' for p in (export_pages.WEB / 'jobs').glob('*.png')}     | {f'static/classes/{p.name}' for p in (export_pages.WEB / 'classes').glob('*.gif')}     | {'local.html', 'local-overlay.html', 'exp-table.html', 'static/local/community-exp.json'}     | {f'static/local/{p.relative_to(export_pages.WEB / "local").as_posix()}' for p in (export_pages.WEB / 'local').rglob('*.*')}
 ROUTES = ['/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
           '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200',
-          '/local/ /local 200', '/local/overlay /local-overlay 200', '/local/overlay/ /local-overlay 200']
+          '/local/ /local 200', '/local/overlay /local-overlay 200', '/local/overlay/ /local-overlay 200', '/exp-table/ /exp-table 200']
 
 
 def tree(root):
@@ -124,7 +124,11 @@ def test_robots_and_sitemap_point_search_engines_at_the_public_pages(out, tmp_pa
     # The static entry pages, plus the API's live player-page sitemap (server.py), so new streamers need no rebuild.
     robots = (out / 'robots.txt').read_text(encoding='utf-8')
     assert re.findall(r'^Sitemap: (\S+)$', robots, re.M) == ['https://msxp.pages.dev/sitemap.xml', f'{API}/sitemap.xml']
-    assert re.findall(r'<loc>([^<]+)</loc>', (out / 'sitemap.xml').read_text(encoding='utf-8')) == ['https://msxp.pages.dev/', 'https://msxp.pages.dev/local']
+    assert re.findall(r'<loc>([^<]+)</loc>', (out / 'sitemap.xml').read_text(encoding='utf-8')) == ['https://msxp.pages.dev/', 'https://msxp.pages.dev/local', 'https://msxp.pages.dev/exp-table']
+    # The EXP table page carries every level as HTML (no script needed), ending on the level after the last requirement.
+    table = (out / 'exp-table.html').read_text(encoding='utf-8')
+    assert '<tr id="lv-90"><th scope="row">90</th><td>11,938,059</td><td>103,322,764</td></tr>' in table
+    assert re.findall(r'<tr id="lv-(\d+)"', table) == [str(n) for n in range(1, 101)] and '<!-- exp-rows -->' not in table
     for name in ('live-overlay.html', 'local-overlay.html'):assert '<meta name="robots" content="noindex">' in (out / name).read_text(encoding='utf-8')
     # A fork names its own site; canonical and link-preview URLs follow, the visible brand text stays.
     fork = tmp_path / 'fork'

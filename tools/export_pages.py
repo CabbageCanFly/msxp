@@ -13,6 +13,7 @@ See docs/cloudflare-pages-deployment.md.
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -30,7 +31,7 @@ ORIGIN = re.compile(rf"https://{LABEL}(?:\.{LABEL})+(?::[0-9]{{1,5}})?|http://(?
 
 # Exported path -> source under web/. Anything not listed is never published.
 PAGES = {'index.html': 'tracker.html', 'player.html': 'player.html', 'live-overlay.html': 'live-overlay.html',
-         'local.html': 'local.html', 'local-overlay.html': 'local-overlay.html'}
+         'local.html': 'local.html', 'local-overlay.html': 'local-overlay.html', 'exp-table.html': 'exp-table.html'}
 STATIC = ('overlay-stats.js', 'exp-bars.js', 'username-history.js', 'product.js', 'product.css', 'leaderboard.css', 'live-overlay.css', 'steely.png', 'sleepywood.webp', 'sleepywood-forest.webp',
           'kerning.webp', 'kerning-sky.webp',
           'fonts/fredoka-latin.woff2', 'fonts/nunito-latin.woff2', 'fonts/OFL-Fredoka.txt', 'fonts/OFL-Nunito.txt',
@@ -50,8 +51,8 @@ DEVELOPER_LINKS = {'/dev/streams', '/demo/leaderboard'}
 # (with or without a trailing slash). Anything unmatched gets 404.html.
 REDIRECTS = ('/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
              '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200',
-             '/local/ /local 200', '/local/overlay /local-overlay 200', '/local/overlay/ /local-overlay 200')
-ROUTES = {'/', '/streams', '/local', '/local/overlay'}
+             '/local/ /local 200', '/local/overlay /local-overlay 200', '/local/overlay/ /local-overlay 200', '/exp-table/ /exp-table 200')
+ROUTES = {'/', '/streams', '/local', '/local/overlay', '/exp-table'}
 # The public site the canonical, link-preview and sitemap URLs name; a fork sets --site-origin or MSXP_SITE_ORIGIN.
 SITE = 'https://msxp.pages.dev'
 
@@ -63,7 +64,7 @@ def robots(site, origin):
 
 def sitemap(site):
     return ('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-            + ''.join(f'  <url><loc>{site}{path}</loc></url>\n' for path in ('/', '/local')) + '</urlset>\n')
+            + ''.join(f'  <url><loc>{site}{path}</loc></url>\n' for path in ('/', '/local', '/exp-table')) + '</urlset>\n')
 # Cloudflare Web Analytics (enabled on the Pages project, which injects its beacon): its script and its report.
 ANALYTICS_SCRIPT, ANALYTICS_REPORT = 'https://static.cloudflareinsights.com', 'https://cloudflareinsights.com'
 # The local tracker compiles WebAssembly (OCR) in a same-origin worker. Its only API request is one visit ping per
@@ -102,8 +103,21 @@ def source(name):
     return path.read_bytes()
 
 
+def exp_rows():
+    """The EXP table page's rows, written into the HTML so search engines read them without running scripts."""
+    to_next, rows, total = json.loads(DATA['local/community-exp.json'].read_bytes())['to_next'], [], 0
+    for level in range(1, 1000):
+        need = to_next.get(str(level))
+        rows.append(f'<tr id="lv-{level}"><th scope="row">{level}</th><td>{f"{need:,}" if need else "—"}</td><td>{total:,}</td></tr>')
+        if not need:return '\n'.join(rows)
+        total += need
+
+
 def page(name, origin, site=SITE):
     body = source(name)
+    if name == 'exp-table.html':
+        if body.count(b'<!-- exp-rows -->') != 1:raise ValueError(f'{name}: expected one <!-- exp-rows --> placeholder')
+        body = body.replace(b'<!-- exp-rows -->', exp_rows().encode())
     tag = b'<html lang="en">'
     if body.count(tag) != 1:raise ValueError(f'{name}: expected exactly one {tag.decode()}')
     # The same public-site attribute the Python server adds in public-only mode, plus the API origin.

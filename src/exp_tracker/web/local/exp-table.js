@@ -1,4 +1,4 @@
-// EXP table popup, opened from About and the level planner on every page: the bundled requirements as a list.
+// EXP table popup, opened from the level planner's header: the bundled requirements as a list (/exp-table has them as a page).
 
 const numbers = new Intl.NumberFormat('en-US');
 const node = (tag, props = {}, ...children) => { const n = Object.assign(document.createElement(tag), props); n.append(...children); return n; };
@@ -19,7 +19,7 @@ export function openExpTable(root, table) {
   const rows = expRows(table);
   if (!rows.length) { root.replaceChildren(node('p', {className: 'planner-empty', textContent: 'The EXP table could not be loaded.'})); return; }
   root.replaceChildren(
-    node('p', {className: 'exp-table-source', textContent: 'From the game client\'s own formula, checked Nov 27, 2026.'}),
+    node('p', {className: 'exp-table-source'}, 'From the game client\'s own formula, checked Nov 27, 2026. ', node('a', {href: '/exp-table', textContent: 'Open as a page'})),
     node('div', {className: 'exp-table-list'},
       node('div', {className: 'exp-table-row exp-table-head'}, node('span', {textContent: 'Level'}), node('span', {textContent: 'EXP to next level'}), node('span', {textContent: 'Total from Lv. 1'})),
       ...rows.map(({level, next, total}) => node('div', {className: 'exp-table-row'},
