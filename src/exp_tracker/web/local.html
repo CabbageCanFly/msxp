@@ -18,11 +18,16 @@
     <li><strong>EXP / hour, time to next level, mesos and items</strong>, with history and a free OBS overlay pop-out.</li>
   </ul>
   <p class="about-contact"><strong>Questions or ideas?</strong> Message me on Discord, Twitch, Twitter, Instagram or GitHub. I'm <a href="https://cabbagecanfly.com" target="_blank" rel="noopener noreferrer"><b>@cabbagecanfly</b></a> everywhere, so use whichever works for you.</p>
+  <p>Level-up EXP comes from the game client itself: <button type="button" class="link-button" popovertarget="exp-table">EXP table</button></p>
   <p>See more on <a href="https://github.com/cabbagecanfly/msxp" target="_blank" rel="noopener noreferrer">GitHub</a>.</p>
   <p class="about-credit">Item names and icons from <a href="https://maplestory.io" target="_blank" rel="noopener noreferrer">maplestory.io</a> · Not affiliated with <a href="https://www.nexon.com/maplestory/" target="_blank" rel="noopener noreferrer">Official MapleStory</a></p>
 </div>
+<div id="exp-table" class="about exp-table" popover aria-labelledby="exp-table-title">
+  <header><h2 id="exp-table-title">EXP table</h2><button type="button" class="about-close" popovertarget="exp-table" popovertargetaction="hide" aria-label="Close">×</button></header>
+  <div id="exp-table-body"></div>
+</div>
 <div id="planner" class="about planner" popover aria-labelledby="planner-title">
-  <header><h2 id="planner-title">Level planner</h2><button type="button" class="about-close" popovertarget="planner" popovertargetaction="hide" aria-label="Close">×</button></header>
+  <header><h2 id="planner-title">Level planner</h2><button type="button" class="planner-source" popovertarget="exp-table" title="The EXP table the plan uses">EXP table</button><button type="button" class="about-close" popovertarget="planner" popovertargetaction="hide" aria-label="Close">×</button></header>
   <div id="planner-body"></div>
 </div>
 

@@ -94,12 +94,11 @@ def test_pages_load_only_their_own_static_files_and_developer_links_stay_hidden(
 def test_product_js_contacts_only_the_configured_api_origin():
     source = (export_pages.WEB / 'product.js').read_text(encoding='utf-8')
     # All three request paths use the configured origin; daily history is separate from live polling.
-    assert re.findall(r'fetch\(([^,]*),', source) == [
+    assert re.findall(r'fetch\(([^,]*),', source) == ["'/static/local/community-exp.json'",
         '`${apiOrigin}/api/players/${encodeURIComponent(channel)}/daily-history?character=${id}&days=365`',
-        "String(query)?`${endpoint}?${query}`:endpoint", '`${apiOrigin}/api/players/${encodeURIComponent(channel)}/history`',
-        "'/static/local/community-exp.json'"]
-    # The level planner is the one module loaded on demand, from this site.
-    assert re.findall(r'import\(([^)]*)\)', source) == ["'/static/local/level-plan.js'"]
+        "String(query)?`${endpoint}?${query}`:endpoint", '`${apiOrigin}/api/players/${encodeURIComponent(channel)}/history`']
+    # The EXP table popup and the level planner are the modules loaded on demand, from this site.
+    assert re.findall(r'import\(([^)]*)\)', source) == ["'/static/local/exp-table.js'", "'/static/local/level-plan.js'"]
     assert re.search(r"const endpoint=channel\?`\$\{apiOrigin\}/api/players/\$\{encodeURIComponent\(channel\)\}`:`\$\{apiOrigin\}/api/players`;", source)
     for channel in ('XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'importScripts', 'new Image'):
         assert channel not in source, channel

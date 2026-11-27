@@ -136,6 +136,9 @@ let boardMode=boardParam(),shownMode=boardMode;  // shownMode: the list on scree
 const inactiveView=()=>view!=='board' && data?.view?.current===false;
 const el=id=>document.getElementById(id);
 let plannerState={},expTable=null;
+// The EXP table, fetched once when the planner or the EXP table popup (About, planner header) first opens; a failed fetch retries.
+const loadExpTable=()=>expTable??=fetch('/static/local/community-exp.json',{credentials:'omit'}).then(r=>r.ok?r.json():null).catch(()=>null).then(t=>t ?? (expTable=null));
+el('exp-table')?.addEventListener('toggle',async e=>{if(e.newState==='open')(await import('/static/local/exp-table.js')).openExpTable(el('exp-table-body'),await loadExpTable());});
 function node(tag,className,text) { const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n; }
 // Each job's skill icon is web/jobs/<slug of the job name>.png.
 const jobSrc=job=>`/static/jobs/${job.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}.png`;
@@ -1350,7 +1353,7 @@ if(view==='player') {
   el('eta-stat')?.addEventListener('click',e=>{if(el('planner') && !e.target.closest('button'))el('planner').showPopover();});
   el('planner')?.addEventListener('toggle',async e=>{
     if(e.newState!=='open')return;
-    expTable??=fetch('/static/local/community-exp.json',{credentials:'omit'}).then(r=>r.ok?r.json():null).catch(()=>null).then(t=>t ?? (expTable=null));
+    loadExpTable();
     // Starts from the EXP / hour the card shows (the chosen window's), else the pace estimate.
     const shownRate=el('rate-label').textContent.startsWith('EXP')?Number((el('rate').dataset.fullNumber ?? '').replace(/\D/g,''))||null:null;
     (await import('/static/local/level-plan.js')).openPlanner(el('planner-body'),await expTable,{...plannerState,rate:shownRate ?? plannerState.rate});
