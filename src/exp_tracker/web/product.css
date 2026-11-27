@@ -709,16 +709,22 @@ html, body.product { overflow-x:clip; }
 .username-history mark {padding:0 1px;border-radius:2px;background:#ffc56b;color:#232c3e}
 @media(max-width:650px) {.rename-source:has(.rename-history:not([hidden])) + .stream-uptime {margin-left:0}}
 
-/* The /exp-table page (exp-table.html): the same rows as a table, written in at build time (tools/export_pages.py). */
-.exp-page .board-header h1 { margin:0; font-family:var(--font-display); font-size:20px; font-weight:600; letter-spacing:.2px; }
-.exp-page-intro { display:grid; gap:4px; padding:14px 20px 10px; color:var(--text-soft); font-size:14px; }
-.exp-page-intro p { margin:0; }
-.exp-page-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
-.exp-page-table th, .exp-page-table td { padding:6px 20px; border-bottom:1px solid color-mix(in srgb, var(--line) 45%, transparent); text-align:right; }
-.exp-page-table th:first-child { width:64px; text-align:left; }
-.exp-page-table thead th { position:sticky; top:0; background:var(--surface); border-bottom:2px solid var(--line-strong); color:var(--text-muted); font-size:12px; font-weight:700; }
+/* The /exp-table page (exp-table.html): the table (rows written in at build time, tools/export_pages.py) beside the
+   level planner (static/local/level-plan.js, the popup's own module and styles). Stacked on narrow screens. */
+.exp-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,440px); gap:20px; align-items:start; }
+.exp-layout > .mob-lane { grid-column:1 / -1; margin-bottom:-20px; }  /* scenery.js puts the mobs' lane before the first board. */
+.exp-page .board-header h1 { margin:0; font-family:var(--font-display); font-size:18px; font-weight:600; letter-spacing:.2px; }
+.exp-page-intro { margin:0; padding:12px 18px 10px; color:var(--text-soft); font-size:13px; line-height:1.5; }
+.exp-page-scroll { max-height:calc(100vh - 250px); min-height:320px; overflow-y:auto; border-top:1px solid var(--line); }
+.exp-page-table { width:100%; border-collapse:collapse; font-size:14px; font-variant-numeric:tabular-nums; }
+.exp-page-table th, .exp-page-table td { padding:5px 18px; border-bottom:1px solid color-mix(in srgb, var(--line) 45%, transparent); text-align:right; }
+.exp-page-table th:first-child { width:56px; text-align:left; }
+.exp-page-table thead th { position:sticky; top:0; z-index:1; background:var(--surface); border-bottom:2px solid var(--line-strong); color:var(--text-muted); font-size:11px; font-weight:700; letter-spacing:.3px; }
 .exp-page-table tbody th { color:var(--gold); }
 .exp-page-table tbody tr:hover, .exp-page-table tbody tr:target { background:color-mix(in srgb, var(--surface-raised) 60%, transparent); }
+.exp-planner { position:sticky; top:16px; }
+.exp-planner .planner { width:auto; padding:14px 18px 16px; color:var(--text-soft); font-size:14px; }
 .exp-page-foot { margin:14px 4px 0; color:var(--text-muted); font-size:12px; font-weight:600; }
 .exp-page-foot a { color:var(--text-soft); }
-@media(max-width:650px) { .exp-page-table th, .exp-page-table td { padding:6px 12px; } .exp-page-intro { padding:12px 14px 8px; } }
+@media(max-width:860px) { .exp-layout { grid-template-columns:minmax(0,1fr); } .exp-planner { position:static; } .exp-page-scroll { max-height:60vh; } }
+@media(max-width:650px) { .exp-page-table th, .exp-page-table td { padding:5px 12px; } .exp-page-intro { padding:10px 14px 8px; } .exp-planner .planner { padding:12px 14px 14px; } }

@@ -1,4 +1,4 @@
-// The live pages' scenery on /local, switched on and off by the player: the town background (odd/even
+// The live pages' scenery on /local and /exp-table, switched on and off by the player: the town background (odd/even
 // day of month, ?background= overrides) and the decorative mobs wandering along the first card (sprites
 // credited in README; hover flinches, a click does something random, a rare faded boss drifts behind).
 // shortcut: mirrors the background and mob code in product.js; move both into one shared script if either changes.

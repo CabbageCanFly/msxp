@@ -1,26 +1,29 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MapleStory Classic EXP Table · EXP to Level Up, Lv. 1–100 · msxp</title><link rel="icon" href="/static/steely.png" type="image/png">
-<meta name="description" content="EXP needed for every level in MapleStory Classic (Classic World), level 1 to 100, with totals. From the game client's own formula, checked against in-game EXP readings.">
+<meta name="description" content="EXP needed for every level in MapleStory Classic (Classic World), level 1 to 100, with totals. From the game client's own formula.">
 <link rel="canonical" href="https://msxp.pages.dev/exp-table">
 <meta property="og:type" content="website"><meta property="og:site_name" content="msxp"><meta property="og:title" content="MapleStory Classic EXP Table · Lv. 1–100"><meta property="og:description" content="EXP needed for every level in MapleStory Classic, level 1 to 100, from the game client's own formula."><meta property="og:url" content="https://msxp.pages.dev/exp-table"><meta property="og:image" content="https://msxp.pages.dev/static/steely.png">
 <meta name="twitter:card" content="summary"><meta name="twitter:title" content="MapleStory Classic EXP Table · Lv. 1–100"><meta name="twitter:description" content="EXP needed for every level in MapleStory Classic, level 1 to 100, from the game client's own formula."><meta name="twitter:image" content="https://msxp.pages.dev/static/steely.png">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"MapleStory Classic EXP Table","url":"https://msxp.pages.dev/exp-table","description":"EXP needed for every level in MapleStory Classic (Classic World), level 1 to 100, from the game client's own formula.","dateModified":"2026-11-27","isPartOf":{"@type":"WebSite","name":"msxp","url":"https://msxp.pages.dev/"}}</script>
 <link rel="preload" href="/static/fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/static/fonts/fredoka-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/static/leaderboard.css"><link rel="stylesheet" href="/static/product.css"></head>
+<link rel="stylesheet" href="/static/leaderboard.css"><link rel="stylesheet" href="/static/product.css"><script type="module" src="/static/local/exp-page.js"></script></head>
 <body class="product exp-page"><div class="sky" aria-hidden="true"></div><main>
 <header class="masthead"><a class="brand" href="/"><img class="emblem" src="/static/steely.png" width="42" height="42" alt=""><div><strong>msxp.pages.dev</strong><span>EXP Tracker · MapleStory Classic</span></div></a></header>
-<p class="reading-info">EXP needed to level up in MapleStory Classic.<a class="local-link" href="/local">Track your own EXP</a><span class="reading-tabs"><a class="local-tab" href="/local">Track your EXP</a></span></p>
-<section class="board" aria-labelledby="exp-title">
+<p class="reading-info">EXP needed to level up in MapleStory Classic.<a class="local-link" href="/local">Track your own EXP</a><span class="reading-tabs"><button id="scenery-toggle" class="scenery-tab" type="button" aria-pressed="true" aria-label="Town background" title="Town background and mobs"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="17" cy="7" r="2.6" fill="currentColor"/><path d="M2 19l6.5-9 4.5 6 2.5-3 6.5 6z" fill="currentColor"/></svg></button><a class="local-tab" href="/">Twitch tracker</a><a class="local-tab" href="/local">Track your EXP</a></span></p>
+<div class="exp-layout">
+<section class="board exp-board" aria-labelledby="exp-title">
   <header class="board-header"><h1 id="exp-title">MapleStory Classic EXP table</h1></header>
-  <div class="exp-page-intro">
-    <p>EXP to reach the next level, for every level from 1 to 100. <b>Total</b> is the EXP from level 1.</p>
-    <p class="exp-table-source">From the game client's own formula (client of Nov 17, 2026), checked Nov 27, 2026 against in-game EXP readings at levels 89–91.</p>
-  </div>
-  <table class="exp-page-table">
+  <p class="exp-page-intro">EXP to reach the next level, for every level from 1 to 100. <b>Total</b> is the EXP from level 1.<br><span class="exp-table-source">From the game client's own formula (client of Nov 17, 2026), checked Nov 27, 2026.</span></p>
+  <div class="exp-page-scroll"><table class="exp-page-table">
     <thead><tr><th scope="col">Level</th><th scope="col">EXP to next level</th><th scope="col">Total from Lv. 1</th></tr></thead>
     <tbody><!-- exp-rows --></tbody>
-  </table>
+  </table></div>
 </section>
+<section class="board exp-planner" aria-labelledby="planner-title">
+  <header class="board-header"><h2 id="planner-title">Level planner</h2></header>
+  <div id="planner-body" class="planner"></div>
+</section>
+</div>
 <p class="exp-page-foot"><a href="/">Back to the EXP tracker</a> · Not affiliated with <a href="https://www.nexon.com/maplestory/" target="_blank" rel="noopener noreferrer">Official MapleStory</a></p>
 </main></body></html>
