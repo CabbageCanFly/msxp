@@ -1,5 +1,16 @@
 # EXP validity and provisional level context
 
+## Requirements confirmed against the client (2026-11-27)
+
+The bundled table (levels 1–99) equals the table the installed MapleStory Classic World client
+(build dated 2026-11-17) computes at startup; there is no stored table in its data files. Its
+builder: `(n²/2 + 15)·n` for 1–5, `q = n²/3`, `(q + 19)·q` for 6–50, then each level truncates the
+previous one times 1.0548 (51–89) or 2.1 (90–99). Recomputing that gives all 99 bundled values
+exactly; the client defines nothing for level 100 or above. Live HUD pairs agree independently:
+13 daily snapshots with a full `EXP[%]` at 90–91 (e.g. 579,929 [4.86%] at 90, 366,361 [1.46%]
+at 91) match the table, while the +5.5% per level some community pages now show after 89 fails
+every one. Re-check after a client patch. The site's About and level planner link to this table.
+
 ## Requirement refresh (2026-11-07)
 
 The bundled community table now selects matching published requirements for levels
