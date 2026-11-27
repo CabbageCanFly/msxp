@@ -225,6 +225,22 @@ def _interpret_exp(text, *, source_complete=None):
                         field_span=[0,len(text)],image_verification='required',source_completeness_verified=False,
                         trusted=False,numerical_identity_verified=False)]}
             return result
+    # An overlay over the field's end hides the '%' or leaves half of it, read as one digit. No digit is
+    # inferred; only arithmetic at an independently read level may accept the pair (project()).
+    covered=re.fullmatch(r'([0-9.,]+\[[0-9]{1,2}\.[0-9]{2})[0-9]?',text)
+    if covered and source_complete is not False:
+        closed=interpret_exp(covered[1]+'%]',source_complete=source_complete)
+        full=closed['strict_full'] or (closed['full_exp']['proposals'][0]['reading']
+            if closed['full_exp']['classification']=='unique_proposal' else None)
+        if full:
+            prior=closed['full_exp']['proposals'][0]['edits'] if closed['full_exp']['proposals'] else []
+            edits=prior+[dict(index=covered.end(1),old=text[covered.end(1):],new='%]',category='covered_percent_symbol')]
+            for field,reading in (('full_exp',full),('percentage',parse_percentage_only(f'[{full["percentage"]}%]'))):
+                result[field]={**base,'classification':'unique_proposal','reason':'covered_percent_requires_level_arithmetic',
+                    'proposals':[dict(interpretation=covered[1]+'%]',reading=reading,edits=edits,
+                        field_span=[0,len(text)],image_verification='required',source_completeness_verified=False,
+                        trusted=False,numerical_identity_verified=False)]}
+            return result
     # ')' is a bracket the strict parser already accepts; after a literal '%' it cannot be a digit.
     if not text.endswith(('%]', '%1', '%|', '%)')):
         # Missing '%' is not ordinary recovery evidence. Keep a bounded review

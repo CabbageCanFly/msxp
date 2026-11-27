@@ -134,3 +134,24 @@ sort uses the shown value, so the character ranks at the start of the new level.
 
 Untested: other streams and levels, and the VPS (this change is not deployed). The
 13-minute wait for level confirmation is unchanged.
+
+## Overlay over the end of the EXP field (2026-11-27)
+
+Streamer_D's stream overlay covers the closing `%]`, sometimes half of the `%`, which
+the reader then sees as a digit: `165,289[50.982` (410 of 454 attempts in 24 h) or
+`150,749[46.49` (11). The EXP number and both percentage decimals stay visible.
+`bounded_exp_v13` proposes `165,289[50.98%]` only for a grouped (or short) EXP, an actual
+`[`, exactly two decimals and at most one trailing digit, tagged `covered_percent_symbol`.
+No digit is added; a missing decimal (`[50.9`) or a longer tail still rejects.
+
+The text cannot prove the trailing digit is the `%`, so the pair takes the same gate as
+the ungrouped opener: `project()` keeps it only if it is consistent with a level read
+independently of it (badge reader or supported anchor), else `exp_opener_unverified`.
+At level 41 (324,2xx EXP to the next level), 0.01% is about 32 EXP: a one-step
+percentage or a 40-EXP misread is rejected; a misread in the last EXP digit is not,
+as for strict pairs.
+
+Replay of the last 24 hours of every stream through the VPS's own history pipeline:
+only Streamer_D changes, public points 12 → 435 of 454. A real EXP drop (51% → 46.49%)
+was confirmed by two consistent frames. The 18 still-held frames had no badge level
+(the cached HUD layout kept a full scan that missed the `LV.` text) or no EXP text.

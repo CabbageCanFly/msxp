@@ -93,9 +93,10 @@ def exp_derived(full):
 
 
 def ungrouped_opener(row):
-    """The reading needs a '1' after an EXP below 1,000 to be the opener, not a digit before a lost one."""
+    """The reading needs a '1' after an EXP below 1,000 to be the opener, not a digit before a lost one,
+    or its '%' was covered. Either way only arithmetic at an independently read level can accept it."""
     parsed = interpret_exp(row.get('raw_text'))
-    return any(edit['category'] == 'ungrouped_exp_opener' for field in ('full_exp', 'percentage')
+    return any(edit['category'] in ('ungrouped_exp_opener', 'covered_percent_symbol') for field in ('full_exp', 'percentage')
                if parsed[field]['classification'] == 'unique_proposal' for edit in parsed[field]['proposals'][0]['edits'])
 
 
