@@ -551,6 +551,12 @@ html, body.product { overflow-x:clip; }
   .row-profile { display:grid; grid-area:1 / 1 / -1 / -1; grid-template-columns:inherit; grid-template-areas:inherit; gap:inherit; align-items:center; align-self:stretch; min-width:0; margin:-10px -11px; padding:10px 11px; border-radius:inherit; color:inherit; text-decoration:none; }
   .row-profile:active { background:#ffffff08; }
   .row-profile:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+  /* A renamed channel's row can't sit inside the profile link (its history button can't nest in a link, see rowContent),
+     so the name's link stretches over the whole row instead; the history and job buttons stay on top. */
+  :is(.streamer-entry,.character-entry):not(:has(> .row-profile)) { position:relative; }
+  :is(.streamer-entry,.character-entry):not(:has(> .row-profile)) a.character::after { content:''; position:absolute; inset:0; z-index:1; border-radius:inherit; }
+  :is(.streamer-entry,.character-entry):not(:has(> .row-profile)) a.character:active::after { background:#ffffff08; }
+  :is(.streamer-entry,.character-entry):not(:has(> .row-profile)) :is(.history-target,.rename-history,button.job-icon) { position:relative; z-index:2; }
   /* Names use the space beside the value; age and label share the line beside the channel. */
   .product :is(.streamer-entry,.character-entry) :is(.identity,.score) { display:contents; }
   :is(.streamer-entry,.character-entry) .name-line { grid-area:identity; }
