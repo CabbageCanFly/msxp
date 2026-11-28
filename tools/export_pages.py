@@ -13,10 +13,13 @@ See docs/cloudflare-pages-deployment.md.
 """
 
 import argparse
+from datetime import datetime, timezone
+from functools import cache
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -113,8 +116,22 @@ def exp_rows():
         total += need
 
 
+@cache
+def updated():
+    """When the deployed site last changed: the built commit's date, else the build's (no git in the build).
+    Written into the About popups at build time, so no visitor's page load asks GitHub or anyone else."""
+    try:
+        commit = subprocess.run(['git', 'log', '-1', '--format=%cI'], cwd=ROOT, capture_output=True, text=True, timeout=10, check=True)
+        when = datetime.fromisoformat(commit.stdout.strip())
+    except (OSError, subprocess.SubprocessError, ValueError):
+        when = datetime.now(timezone.utc)
+    day = when.date()  # The committer's own calendar day, as git records it (UTC would often show tomorrow's date).
+    return f' · Updated <time datetime="{day.isoformat()}">{day:%b} {day.day}, {day.year}</time>'
+
+
 def page(name, origin, site=SITE):
     body = source(name)
+    body = body.replace(b'<!-- site-updated -->', updated().encode(), 1)
     if name == 'exp-table.html':
         if body.count(b'<!-- exp-rows -->') != 1:raise ValueError(f'{name}: expected one <!-- exp-rows --> placeholder')
         body = body.replace(b'<!-- exp-rows -->', exp_rows().encode())

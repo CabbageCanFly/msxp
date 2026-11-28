@@ -66,6 +66,8 @@ The watch paths are everything the export reads, so pushes that change only the 
 tests or docs skip the Pages build (the Free plan allows 500 builds a month). Keep them in step
 if `export_pages.py` starts reading another folder.
 
+Each About popup ends with "Updated <date>": the build writes the deployed commit's date (the committer's calendar day, from `git log`) into the page, falling back to the build date without git, so no page load asks GitHub or any other service.
+
 The build needs only Python 3.9 or newer, with no `pip install`. Without
 `MSXP_API_ORIGIN` the build fails with "set --api-origin or MSXP_API_ORIGIN", so a
 deployment can never silently point at a guessed backend. Changing the API host later

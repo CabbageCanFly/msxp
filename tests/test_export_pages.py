@@ -52,14 +52,15 @@ def test_export_contains_exactly_the_public_allowlist_and_is_repeatable(out):
     assert set(first) == EXPECTED
     assert export_pages.export(out, API) == sorted(EXPECTED)  # A rerun replaces its own output.
     assert tree(out) == first
-    # Sources are copied byte for byte; only the three pages gain the public attributes.
+    # Sources are copied byte for byte; the pages gain only the public attributes and the About popup's updated date.
     web = export_pages.WEB
     assert first['static/product.js'] == (web / 'product.js').read_bytes()
     for name in ('sleepywood.webp', 'sleepywood-forest.webp', 'kerning.webp', 'kerning-sky.webp', 'forgotten-hollow.webp'):
         assert first[f'static/{name}'] == (web / name).read_bytes()
         assert f'/static/{name}\n  Cache-Control: public, max-age=86400' in first['_headers'].decode()
     assert first['player.html'] == (web / 'player.html').read_bytes().replace(
-        b'<html lang="en">', f'<html lang="en" data-site="public" data-api="{API}">'.encode(), 1)
+        b'<html lang="en">', f'<html lang="en" data-site="public" data-api="{API}">'.encode(), 1).replace(
+        b'<!-- site-updated -->', export_pages.updated().encode(), 1)
 
 
 def test_private_and_developer_files_are_never_exported(out):
@@ -328,3 +329,21 @@ def test_local_tracker_pages_get_their_own_policy_and_send_only_a_visit_ping(out
         assert 'https://' not in source and 'http://' not in source, module.name
     assert readers == [('app.js', 1, 1)]
     assert "fetch(`${api}/ping/local`, {mode: 'no-cors', cache: 'no-store', credentials: 'omit'})" in (export_pages.WEB / 'local/app.js').read_text(encoding='utf-8')
+
+
+def test_about_popups_carry_the_deployed_commit_date_written_at_build_time(monkeypatch):
+    class Done:
+        stdout = '2026-11-27T20:15:00-05:00\n'
+    monkeypatch.setattr(export_pages.subprocess, 'run', lambda *a, **k: Done())
+    export_pages.updated.cache_clear()
+    try:
+        for name in ('tracker.html', 'player.html', 'local.html'):
+            body = export_pages.page(name, API).decode()
+            # The committer's calendar day (20:15 in Toronto stays the 27th, not UTC's 28th); static text, so loading a page asks no one.
+            assert ' · Updated <time datetime="2026-11-27">Nov 27, 2026</time></p>' in body and '<!-- site-updated -->' not in body
+        # No git in the build: the build's own date, never a failed build.
+        monkeypatch.setattr(export_pages.subprocess, 'run', lambda *a, **k: (_ for _ in ()).throw(OSError('no git')))
+        export_pages.updated.cache_clear()
+        assert re.fullmatch(r' · Updated <time datetime="\d{4}-\d\d-\d\d">\w{3} \d{1,2}, \d{4}</time>', export_pages.updated())
+    finally:
+        export_pages.updated.cache_clear()
