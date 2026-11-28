@@ -49,11 +49,13 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
    The text is painted by its clipped background, so the title's shadow moves to a drop-shadow filter
    (a text-shadow would paint over the clipped glyphs). */
 @media (prefers-reduced-motion:no-preference) {
-  /* --shimmer-spread is half the band's width; --shimmer-edge tints it so the cream text still shows it. */
+  /* --shimmer-spread is half the band's width; --shimmer-edge tints it so the cream text still shows it. The 300% layer
+     puts the band wholly past either end of the text at rest (it needs (50% - spread) × 3 > 100%); at 250% the band's
+     edge stayed on the last letter between sweeps. */
   .product .brand strong {
-    --shimmer-base:var(--text); --shimmer-edge:#ffd98a; --shimmer-light:#fff; --shimmer-spread:14%;
+    --shimmer-base:var(--text); --shimmer-edge:#ffd98a; --shimmer-light:#fff; --shimmer-spread:11.5%;
     background:linear-gradient(105deg, var(--shimmer-base) calc(50% - var(--shimmer-spread)), var(--shimmer-edge) calc(50% - var(--shimmer-spread) / 2),
-      var(--shimmer-light) 50%, var(--shimmer-edge) calc(50% + var(--shimmer-spread) / 2), var(--shimmer-base) calc(50% + var(--shimmer-spread))) 0 0 / 250% 100%;
+      var(--shimmer-light) 50%, var(--shimmer-edge) calc(50% + var(--shimmer-spread) / 2), var(--shimmer-base) calc(50% + var(--shimmer-spread))) 0 0 / 300% 100%;
     -webkit-background-clip:text; background-clip:text; color:transparent; animation:text-shimmer 4.5s ease-in-out infinite;
     text-shadow:none; filter:drop-shadow(0 3px 0 #5a3e27);
   }
@@ -62,7 +64,7 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
   .companion-cards .early-pace { position:relative; }
   .companion-cards .early-pace::before {
     content:""; position:absolute; inset:-3px -1px -1px; border-radius:inherit; pointer-events:none;
-    background:linear-gradient(90deg, transparent 38%, #ffd98a 46%, #fff 50%, #ffd98a 54%, transparent 62%) 0 0 / 250% 100% no-repeat;
+    background:linear-gradient(90deg, transparent 40%, #ffd98a 46%, #fff 50%, #ffd98a 54%, transparent 60%) 0 0 / 300% 100% no-repeat;
     -webkit-mask:linear-gradient(#000 0 0) top / 100% 3px no-repeat; mask:linear-gradient(#000 0 0) top / 100% 3px no-repeat;
     animation:text-shimmer 4s ease-in-out infinite;
   }
