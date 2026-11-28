@@ -728,7 +728,9 @@ html, body.product { overflow-x:clip; }
 /* A wooden plank over the gap, level with the boards' tops and over their rounded corners, for the mobs to walk across. */
 .exp-layout::before { content:""; position:absolute; z-index:1; top:-1px; right:426px; width:48px; height:7px; box-sizing:border-box;
   border:1px solid #4b3423; border-radius:3px; box-shadow:0 2px 3px #0007, inset 0 1px #ffffff26; pointer-events:none;
-  background:repeating-linear-gradient(90deg, transparent 0 11px, #4b342399 11px 12px), linear-gradient(var(--wood-line), var(--wood)); }
+  background:repeating-linear-gradient(90deg, transparent 0 11px, #4b342399 11px 12px), linear-gradient(var(--wood-line), var(--wood));
+  transition:opacity .2s ease-out; }
+.product[data-loading] .exp-layout::before { opacity:0; animation:reveal 0s 2s forwards; }  /* Fades in with the boards. */
 .exp-page .board-header h1 { margin:0; font-family:var(--font-display); font-size:18px; font-weight:600; letter-spacing:.2px; }
 .exp-page-intro { margin:0; padding:12px 18px 10px; color:var(--text-soft); font-size:13px; line-height:1.5; }
 .exp-page-scroll { flex:1; min-height:0; overflow-y:auto; border-top:1px solid var(--line); }
