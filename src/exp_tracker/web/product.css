@@ -13,6 +13,8 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
 .product[data-background=sleepywood] { --background-map:url(sleepywood.webp); --background-sky:url(sleepywood-forest.webp); }
 /* The original sunset sky is much brighter than Sleepywood's forest. */
 .product[data-background=kerning] { --background-tint:45%; --background-map:url(kerning.webp); --background-sky:url(kerning-sky.webp); }
+/* Forgotten Hollow's cave backdrop is composed into its map image, so it has no separate sky; its green mist takes Kerning's tint. */
+.product[data-background=forgotten-hollow] { --background-tint:45%; --background-map:url(forgotten-hollow.webp); }
 .product .sky { display:none; }
 /* The viewport-sized scene stays behind pages of any length; the original pixels are preserved in lossless WebP.
    Sized to the large viewport (lvh), not inset:0: a fixed box with bottom:0 follows a phone's address bar as it

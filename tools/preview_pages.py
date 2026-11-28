@@ -163,7 +163,7 @@ def main(argv=None):
         if args.demo: print(f'Local EXP chart demo: {url}local/?demo=exp-chart', flush=True)
         if args.live:
             print('Save source files and refresh the browser; no export or restart needed.', flush=True)
-            for town in ('sleepywood', 'kerning'):print(f'{town.title()}: {url}?background={town}', flush=True)
+            for town in ('sleepywood', 'kerning', 'forgotten-hollow'):print(f"{town.replace('-', ' ').title()}: {url}?background={town}", flush=True)
         print('Press Ctrl+C in this terminal to stop the preview and its local API.', flush=True)
         preview.serve_forever()
     except KeyboardInterrupt:pass

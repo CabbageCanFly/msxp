@@ -31,6 +31,7 @@ on new API fields must wait for that backend to be live.
 | `static/classes/*.gif` | Class badges for the home job filter (see README credits), copied byte for byte |
 | `static/sleepywood.webp`, `static/sleepywood-forest.webp` | Original town/forest background, lossless WebP (see [sources](website-background.md)) |
 | `static/kerning.webp`, `static/kerning-sky.webp` | Original Kerning City town/sunset background, lossless WebP |
+| `static/forgotten-hollow.webp` | Classic World Forgotten Hollow town over its own cave backdrop, lossless WebP |
 | `local.html`, `local-overlay.html`, `static/local/*` | The browser-only personal tracker and its self-hosted OCR runtime ([local tracker](local-tracker.md)) |
 | `exp-table.html` | The searchable EXP table (`/exp-table`), its rows written in from `src/exp_tracker/data/community-exp-v2.json` at build time, beside the level planner |
 | `static/local/community-exp.json` | Copy of `src/exp_tracker/data/community-exp-v2.json` for the local tracker's checks |

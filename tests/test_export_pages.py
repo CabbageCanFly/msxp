@@ -22,7 +22,7 @@ EXPECTED = {'.msxp-pages-export', '404.html', '_headers', '_redirects', 'robots.
             'static/fonts/OFL-Fredoka.txt', 'static/fonts/OFL-Nunito.txt', 'static/fonts/fredoka-latin.woff2',
             'static/fonts/nunito-latin.woff2', 'static/leaderboard.css', 'static/live-overlay.css', 'static/product.css',
             'static/product.js', 'static/username-history.js', 'static/overlay-stats.js', 'static/exp-bars.js', 'static/steely.png', 'static/sleepywood.webp', 'static/sleepywood-forest.webp',
-            'static/kerning.webp', 'static/kerning-sky.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')} \
+            'static/kerning.webp', 'static/kerning-sky.webp', 'static/forgotten-hollow.webp'} | {f'static/mobs/{p.name}' for p in (export_pages.WEB / 'mobs').glob('*.*')} \
     | {f'static/jobs/{p.name}' for p in (export_pages.WEB / 'jobs').glob('*.png')}     | {f'static/classes/{p.name}' for p in (export_pages.WEB / 'classes').glob('*.gif')}     | {'local.html', 'local-overlay.html', 'exp-table.html', 'static/local/community-exp.json'}     | {f'static/local/{p.relative_to(export_pages.WEB / "local").as_posix()}' for p in (export_pages.WEB / 'local').rglob('*.*')}
 ROUTES = ['/streams / 200', '/streams/ / 200', '/stream/:channel /player 200', '/stream/:channel/ /player 200',
           '/live/overlay/:channel /live-overlay 200', '/live/overlay/:channel/ /live-overlay 200',
@@ -55,7 +55,7 @@ def test_export_contains_exactly_the_public_allowlist_and_is_repeatable(out):
     # Sources are copied byte for byte; only the three pages gain the public attributes.
     web = export_pages.WEB
     assert first['static/product.js'] == (web / 'product.js').read_bytes()
-    for name in ('sleepywood.webp', 'sleepywood-forest.webp', 'kerning.webp', 'kerning-sky.webp'):
+    for name in ('sleepywood.webp', 'sleepywood-forest.webp', 'kerning.webp', 'kerning-sky.webp', 'forgotten-hollow.webp'):
         assert first[f'static/{name}'] == (web / name).read_bytes()
         assert f'/static/{name}\n  Cache-Control: public, max-age=86400' in first['_headers'].decode()
     assert first['player.html'] == (web / 'player.html').read_bytes().replace(
@@ -105,8 +105,8 @@ def test_product_js_contacts_only_the_configured_api_origin():
     # Loaded URLs besides the API: the overlay preview, mob sprites, decoded town layers and job icons, all same-origin.
     assert set(re.findall(r'\.src=([^;]*);', source)) == {'url', "sprite(slug,'move')", "sprite(slug,'hit')", "sprite(slug,'die')", "sprite(pick(BOSSES),'stand')", '`/static/${file}`',
                                                          'jobSrc(job)', 'jobBadgeSrc(pick)', 'jobBadgeSrc(value)'}
-    assert "const files=[`${town}.webp`,town==='sleepywood'?'sleepywood-forest.webp':'kerning-sky.webp'];" in source
-    assert "['sleepywood','kerning'].includes(background)?background:" in source
+    assert "const files=TOWNS[town];" in source and "'forgotten-hollow':['forgotten-hollow.webp']};" in source
+    assert "Object.hasOwn(TOWNS,background ?? '')?background:" in source
     assert 'return `${location.origin}/live/overlay/${encodeURIComponent(channel)}' in source and "sprite=(slug,action)=>`/static/mobs/${slug}-${action}.${slug==='slime'?'webp':'gif'}`" in source
     # Absolute URLs are only outbound links and the SVG namespace, never fetched.
     assert set(re.findall(r'https?://[^`\'"$/]+', source)) == {'https://www.twitch.tv', 'http://www.w3.org'}

@@ -8,6 +8,8 @@ const pick = (list) => list[Math.floor(Math.random() * list.length)];
 const sprite = (slug, action) => `/static/mobs/${slug}-${action}.${slug === 'slime' ? 'webp' : 'gif'}`;  // Soft slime edges need WebP alpha.
 const node = (tag, className, text) => Object.assign(document.createElement(tag), className ? {className} : {}, text != null ? {textContent: text} : {});
 let lane = null, timer = null, frozen = [];
+// Each town's layers, as on the Twitch pages (product.js): its map, then the sky behind it.
+const TOWNS = {sleepywood: ['sleepywood.webp', 'sleepywood-forest.webp'], kerning: ['kerning.webp', 'kerning-sky.webp'], 'forgotten-hollow': ['forgotten-hollow.webp']};
 
 export function setScenery(on) {
   const body = document.body;
@@ -18,10 +20,10 @@ export function setScenery(on) {
   }
   if (!body.dataset.background) {
     const chosen = new URLSearchParams(location.search).get('background');
-    const town = body.dataset.background = ['sleepywood', 'kerning'].includes(chosen) ? chosen : new Date().getDate() % 2 ? 'sleepywood' : 'kerning';
+    const towns = Object.keys(TOWNS), town = body.dataset.background = Object.hasOwn(TOWNS, chosen ?? '') ? chosen : towns[(new Date().getDate() - 1) % towns.length];
     body.dataset.backgroundState = 'loading';
     // Revealed once both layers decode; a failed image keeps the navy page.
-    Promise.all([`${town}.webp`, town === 'sleepywood' ? 'sleepywood-forest.webp' : 'kerning-sky.webp'].map((file) => Object.assign(new Image(), {src: `/static/${file}`}).decode()))
+    Promise.all(TOWNS[town].map((file) => Object.assign(new Image(), {src: `/static/${file}`}).decode()))
       .then(() => { if (body.dataset.background === town) body.dataset.backgroundState = 'ready'; }, () => { body.dataset.backgroundState = 'failed'; });
   }
   // Reduced motion: the background only.

@@ -115,12 +115,14 @@ test('profile chart tip stays visible in History, switches to EXP on each strike
 });
 
 test('background reveals only after both chosen layers decode, independent of data; broken images keep the navy fallback',async()=>{
-  for(const town of ['sleepywood','kerning']) {
+  const layers={sleepywood:['sleepywood','sleepywood-forest'],kerning:['kerning','kerning-sky'],'forgotten-hollow':['forgotten-hollow']};
+  for(const [town,files] of Object.entries(layers)) {
     const pending=[];
     const p=page('board',undefined,`?background=${town}`,null,Math.random,()=>new Promise(resolve=>pending.push(resolve)));
-    assert.deepEqual(p.images.map(image=>image.src),[`/static/${town}.webp`,`/static/${town==='sleepywood'?'sleepywood-forest':'kerning-sky'}.webp`]);
+    assert.deepEqual(p.images.map(image=>image.src),files.map(file=>`/static/${file}.webp`));
     assert.equal(p.run('document.body.dataset.backgroundState'),'loading');
-    pending[1]();await settle();assert.equal(p.run('document.body.dataset.backgroundState'),'loading');
+    for(const resolve of pending.slice(1))resolve();
+    await settle();assert.equal(p.run('document.body.dataset.backgroundState'),'loading');
     pending[0]();await settle();assert.equal(p.run('document.body.dataset.backgroundState'),'ready');
     assert.equal(p.run("'loading' in document.body.dataset"),true);
   }
@@ -142,17 +144,18 @@ test('header introduction happens once per tab; original panel loading finishes 
   assert.equal(failed.elements.connection.textContent,'Reconnecting');  // CSS adds the animated dots.
 });
 
-test('town backgrounds follow odd/even local day of month; known overrides win and overlays stay transparent',()=>{
+test('town backgrounds take turns by local day of month; known overrides win and overlays stay transparent',()=>{
+  const towns=['sleepywood','kerning','forgotten-hollow'];
   for(const view of ['board','player']) {
-    for(const town of ['sleepywood','kerning']) {
+    for(const town of towns) {
       const p=page(view,undefined,`?background=${town}`,null,()=>{throw new Error('Backgrounds must not roll randomly');});
       assert.equal(p.run('document.body.dataset.background'),town);
     }
-    for(const day of [1,2,28,29,30,31]) {
+    for(const day of [1,2,3,4,28,29,30,31]) {
       class LocalDate extends Date {getDate(){return day;}}
-      for(const query of ['', '?background=unknown']) {
+      for(const query of ['', '?background=unknown', '?background=constructor']) {
         const p=page(view,undefined,query,null,()=>{throw new Error('No random town selection');},undefined,undefined,LocalDate);
-        assert.equal(p.run('document.body.dataset.background'),day%2?'sleepywood':'kerning');
+        assert.equal(p.run('document.body.dataset.background'),towns[(day-1)%3]);
       }
     }
   }

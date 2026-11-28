@@ -309,7 +309,9 @@ MIT licensed ([LICENSE](LICENSE)). A non-commercial fan project, **not affiliate
 
 The Sleepywood and Kerning City backgrounds (`src/exp_tracker/web/sleepywood*.webp`, `kerning*.webp`)
 and the monster sprites in `src/exp_tracker/web/mobs/` are MapleStory artwork © Nexon, rendered from
-game data by [maplestory.io](https://maplestory.io) (GMS v55 and v83); the Slime is the animated WebP
+game data by [maplestory.io](https://maplestory.io) (GMS v55 and v83). The Forgotten Hollow background
+(`forgotten-hollow.webp`) is a MapleStory Classic World map © Nexon, rendered by maplestory.io (MCW 1.2) over
+its own backdrop layers decoded from the Classic World client; the Slime is the animated WebP
 from [meowdb.com](https://meowdb.com/msclassic/es/monsters/7). The job icons in `src/exp_tracker/web/jobs/`
 are MapleStory Classic skill icons © Nexon, from the official
 [Classic World class pages](https://www.nexon.com/maplestory/game/mscw/classes-and-jobs); the class badges in

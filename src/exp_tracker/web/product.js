@@ -4,9 +4,12 @@ const view=document.body.dataset.view;
 // The town background and its mobs can be switched off with the picture tab; only "off" is remembered, in this
 // browser (localStorage), like the time zone. Nothing about it leaves the browser.
 let sceneryOn=(()=>{try {return localStorage.getItem('scenery')!=='off';} catch {return true;}})();
+// Each town's layers (product.css): its map, then the sky behind it; Forgotten Hollow's backdrop is part of its map image.
+// ?background= forces one; otherwise they take turns by local day of the month.
+const TOWNS={sleepywood:['sleepywood.webp','sleepywood-forest.webp'],kerning:['kerning.webp','kerning-sky.webp'],'forgotten-hollow':['forgotten-hollow.webp']};
 function showBackground() {
-  const background=new URLSearchParams(location.search).get('background');
-  document.body.dataset.background=['sleepywood','kerning'].includes(background)?background:new Date().getDate()%2?'sleepywood':'kerning';
+  const background=new URLSearchParams(location.search).get('background'),towns=Object.keys(TOWNS);
+  document.body.dataset.background=Object.hasOwn(TOWNS,background ?? '')?background:towns[(new Date().getDate()-1)%towns.length];
   prepareBackground(document.body.dataset.background);
 }
 if(view==='board' || view==='player') {
@@ -18,7 +21,7 @@ if(view==='board' || view==='player') {
 }
 async function prepareBackground(town) {
   document.body.dataset.backgroundState='loading';
-  const files=[`${town}.webp`,town==='sleepywood'?'sleepywood-forest.webp':'kerning-sky.webp'];
+  const files=TOWNS[town];
   try {
     await Promise.all(files.map(file=>{const image=node('img');image.src=`/static/${file}`;return image.decode();}));
     document.body.dataset.backgroundState='ready';

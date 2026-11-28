@@ -1,8 +1,8 @@
 # Classic town website backgrounds
 
-The public player list and character page choose original pre-Big Bang
-Sleepywood artwork on odd local dates and Kerning City on even local dates,
-from GMS v55. A navy CSS tint
+The public pages rotate three town scenes by local day of the month: original
+pre-Big Bang Sleepywood and Kerning City (GMS v55) and Classic World's Forgotten
+Hollow (added 2026-11-27). A navy CSS tint
 matches the existing Classic Night palette. Sleepywood uses its dark forest;
 Kerning uses its original sunset sky. These are tinted original scenes, not newly
 drawn nighttime versions. No claim that every detail matches the earliest
@@ -24,6 +24,7 @@ current terminal. No previously generated database or exported folder is needed.
 - Town of the day: <http://127.0.0.1:8890/>
 - Force Sleepywood: <http://127.0.0.1:8890/?background=sleepywood>
 - Force Kerning City: <http://127.0.0.1:8890/?background=kerning>
+- Force Forgotten Hollow: <http://127.0.0.1:8890/?background=forgotten-hollow>
 
 Save CSS, HTML or JavaScript and refresh the browser. Live preview reads
 allowlisted source files for every request and disables browser caching; no
@@ -49,11 +50,12 @@ zoom that crops away the original render's uneven transparent bottom border.
 
 Overrides apply to the current URL; add the parameter on a character URL too,
 e.g. `/stream/synthetic_demo?background=kerning`. Without an override, the selection
-follows the visitor's local day of the month: odd dates use Sleepywood and even
-dates use Kerning. The choice is made on page load, stays consistent between pages
-that day, and does not change while a page is open. Unknown override values use
-the daily selection. Month boundaries follow date parity, so the 31st and the 1st
-both show Sleepywood. Only the chosen town's images are loaded.
+follows the visitor's local day of the month: day 1 Sleepywood, day 2 Kerning, day 3
+Forgotten Hollow, then repeating ((day − 1) mod 3). The choice is made on page load,
+stays consistent between pages that day, and does not change while a page is open.
+Unknown override values use the daily selection. The 31st and the 1st both show
+Sleepywood. Only the chosen town's images are loaded. The town list lives in
+`product.js` (Twitch pages) and `local/scenery.js` (/local and /exp-table).
 
 ## Candidates inspected
 
@@ -65,6 +67,16 @@ portals, HUDs or players. They are decorative game assets, not tracking fixtures
 | Sleepywood | 105040300 | 2,983 × 1,435 | Shipped: recognizable hotel, leaf-roof houses and naturally dark forest |
 | Ellinia | 101000000 | 2,775 × 4,948 | Iconic, but very tall; a viewport crop loses most of the town |
 | Kerning City | 103000000 | 5,260 × 1,817 | Shipped: wide rooftops and sunset sky with a stronger navy tint |
+
+Forgotten Hollow candidates (Classic World data, MCW 1.2):
+
+| Map | Map ID | Native render | Fit |
+|---|---|---|---|
+| Forgotten Hollow (town) | 10006000 | 2,661 × 1,350 | Shipped: cave town, giant trees, light beam; namesake of the region |
+| Primeval Forest I | 10006010 | 3,478 × 1,770 | Good stalactite cave, less recognizable |
+| Hanging Gardens of Rot | 10006022 | 5,028 × 2,877 | Striking pillars, very large and busy |
+| End of Fleeting Light | 10006070 | 4,821 × 1,710 | Scene sits low in a lot of plain rock |
+| Cave Fairy Sanctuary, The Faded Threshold, The Faded Canopy | 10006001/3, 10006072 | small or very tall | Not suited to a landscape viewport |
 
 ## Sources and transformation
 
@@ -80,6 +92,29 @@ non-commercial fan site. No separate artwork redistribution licence was obtained
 - [Kerning City render](https://maplestory.io/api/GMS/55/map/103000000/render/0?showLife=false&showPortals=false)
 - [Kerning City backdrop reference](https://maplestory.io/api/wz/GMS/55/Map/Map/Map1/103000000.img/back/0/bS): `sunsetCity`.
 - [Kerning sunset sky](https://maplestory.io/api/wz/img/GMS/55/Map/Back/sunsetCity.img/back/0), native 900 × 799.
+
+### Forgotten Hollow
+
+- [Forgotten Hollow map metadata](https://maplestory.io/api/MCW/1.2/map/10006000) and
+  [render](https://maplestory.io/api/MCW/1.2/map/10006000/render/0?showLife=false&showPortals=false),
+  native 2,661 × 1,350.
+- The map's backdrop list (`Map/Map0/010006000.img/back`) uses `Map/Back/back_grassyCave.img`:
+  a misty green sky tile (layer 0), tree silhouettes, canopy, tall cave-tree pillars and bushes.
+  maplestory.io serves those MCW backdrop images as 1 × 1 placeholders, so they were decoded
+  read-only from the installed Classic World client (build of 2026-11-17) with the local
+  maple-client-extractor.
+
+Unlike the other two towns, the backdrop is composed into the image: the renderer leaves the
+open cave areas transparent, and the in-game scene fills them with these layers. Each layer
+from the town's own list is placed by its x/y, parallax (rx/ry) and origin for a camera fixed at
+the map's centre; the sky tile repeats; the render goes on top. The render's world offset
+(+359, +693 px) comes from its two ropes (x = 620 and 1,456). The two front vine layers are
+left out: they are screen overlays and would form a hard-edged dark block in a still image.
+The result is cropped to its central 1/1.12 (2,376 × 1,205), trimming the mossy rock border,
+and stored as lossless WebP: 1,178,388 bytes, no separate sky file. CSS uses Kerning's 45% tint.
+It is still downscaled at 1080p (0.90×) and upscaled 1.2× at 1440p, 1.8× at 4K.
+Private, ignored `private/background-forgotten-hollow-20261127/` keeps the composition and
+extraction scripts and layer data; no client files are committed beyond the final image.
 
 The renderer omits the scrolling backdrop. CSS places each transparent town
 render over its original forest or sky tile. This is a static composition of those source

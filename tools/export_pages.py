@@ -33,7 +33,7 @@ ORIGIN = re.compile(rf"https://{LABEL}(?:\.{LABEL})+(?::[0-9]{{1,5}})?|http://(?
 PAGES = {'index.html': 'tracker.html', 'player.html': 'player.html', 'live-overlay.html': 'live-overlay.html',
          'local.html': 'local.html', 'local-overlay.html': 'local-overlay.html', 'exp-table.html': 'exp-table.html'}
 STATIC = ('overlay-stats.js', 'exp-bars.js', 'username-history.js', 'product.js', 'product.css', 'leaderboard.css', 'live-overlay.css', 'steely.png', 'sleepywood.webp', 'sleepywood-forest.webp',
-          'kerning.webp', 'kerning-sky.webp',
+          'kerning.webp', 'kerning-sky.webp', 'forgotten-hollow.webp',
           'fonts/fredoka-latin.woff2', 'fonts/nunito-latin.woff2', 'fonts/OFL-Fredoka.txt', 'fonts/OFL-Nunito.txt',
           *sorted(f'mobs/{p.name}' for p in WEB.glob('mobs/*.*')),  # Wandering mob sprites; the folder holds only these.
           *sorted(f'jobs/{p.name}' for p in WEB.glob('jobs/*.png')),  # Job skill icons.
@@ -76,7 +76,7 @@ def local_policy(origin):
     return (f"default-src 'self'; script-src 'self' 'wasm-unsafe-eval' {ANALYTICS_SCRIPT}; worker-src 'self'; "
             f"connect-src 'self' {origin} {ANALYTICS_REPORT}; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'")
 CACHED = ('/static/fonts/*', '/static/steely.png', '/static/sleepywood.webp', '/static/sleepywood-forest.webp',
-          '/static/kerning.webp', '/static/kerning-sky.webp', '/static/mobs/*', '/static/jobs/*', '/static/classes/*', '/static/local/vendor/*', '/static/local/items/*')
+          '/static/kerning.webp', '/static/kerning-sky.webp', '/static/forgotten-hollow.webp', '/static/mobs/*', '/static/jobs/*', '/static/classes/*', '/static/local/vendor/*', '/static/local/items/*')
 NOT_FOUND = '''<!doctype html>
 <html lang="en" data-site="public"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Not found · EXP Tracker</title><link rel="icon" href="/static/steely.png" type="image/png">
