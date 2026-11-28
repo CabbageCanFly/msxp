@@ -711,8 +711,15 @@ html, body.product { overflow-x:clip; }
 
 /* The /exp-table page (exp-table.html): the table (rows written in at build time, tools/export_pages.py) beside the
    level planner (static/local/level-plan.js, the popup's own module and styles). Stacked on narrow screens. */
-.exp-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,440px); gap:20px; align-items:start; }
-.exp-layout > .mob-lane { grid-column:1 / -1; margin-bottom:-20px; }  /* scenery.js puts the mobs' lane before the first board. */
+.exp-layout { position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,440px); gap:20px; align-items:start; }
+/* scenery.js puts the mobs' lane before the first board; it shares the boards' row (0 tall), so nothing moves as it comes and goes. */
+.exp-layout > .mob-lane { grid-area:1 / 1 / 2 / -1; align-self:start; }
+.exp-board { grid-area:1 / 1; }
+.exp-planner { grid-area:1 / 2; }
+/* A wooden plank over the gap, level with the boards' tops and over their rounded corners, for the mobs to walk across. */
+.exp-layout::before { content:""; position:absolute; z-index:1; top:-1px; right:426px; width:48px; height:7px; box-sizing:border-box;
+  border:1px solid #4b3423; border-radius:3px; box-shadow:0 2px 3px #0007, inset 0 1px #ffffff26; pointer-events:none;
+  background:repeating-linear-gradient(90deg, transparent 0 11px, #4b342399 11px 12px), linear-gradient(var(--wood-line), var(--wood)); }
 .exp-page .board-header h1 { margin:0; font-family:var(--font-display); font-size:18px; font-weight:600; letter-spacing:.2px; }
 .exp-page-intro { margin:0; padding:12px 18px 10px; color:var(--text-soft); font-size:13px; line-height:1.5; }
 .exp-page-scroll { max-height:calc(100vh - 250px); min-height:320px; overflow-y:auto; border-top:1px solid var(--line); }
@@ -726,5 +733,5 @@ html, body.product { overflow-x:clip; }
 .exp-planner .planner { width:auto; padding:14px 18px 16px; color:var(--text-soft); font-size:14px; }
 .exp-page-foot { margin:14px 4px 0; color:var(--text-muted); font-size:12px; font-weight:600; }
 .exp-page-foot a { color:var(--text-soft); }
-@media(max-width:860px) { .exp-layout { grid-template-columns:minmax(0,1fr); } .exp-planner { position:static; } .exp-page-scroll { max-height:60vh; } }
+@media(max-width:860px) { .exp-layout { grid-template-columns:minmax(0,1fr); } .exp-layout::before { display:none; } .exp-planner { grid-area:2 / 1; position:static; } .exp-page-scroll { max-height:60vh; } }
 @media(max-width:650px) { .exp-page-table th, .exp-page-table td { padding:5px 12px; } .exp-page-intro { padding:10px 14px 8px; } .exp-planner .planner { padding:12px 14px 14px; } }
