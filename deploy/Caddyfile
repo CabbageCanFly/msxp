@@ -17,8 +17,8 @@
 }
 
 API_HOSTNAME {
-	# Access log (JSON, to the journal: journalctl -u caddy). It also counts /local visits: the page's one
-	# GET /ping/local per load, answered 404 below.
+	# Access log (JSON, to the journal: journalctl -u caddy). It also counts /local and /exp-table visits: each
+	# page's one GET /ping/local or /ping/exp-table per load, answered 404 below.
 	log {
 		format json
 	}

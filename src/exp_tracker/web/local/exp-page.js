@@ -4,6 +4,10 @@ import {setScenery} from './scenery.js';
 import {openPlanner} from './level-plan.js';
 
 const $ = (id) => document.getElementById(id);
+// One request per visit, like /local's (app.js), to a path the API host answers with 404: its access log is how
+// /exp-table visits are counted. It carries nothing (no cookies, no data); only the deployed site names an API origin.
+const api = document.documentElement.dataset.api;
+if (api) fetch(`${api}/ping/exp-table`, {mode: 'no-cors', cache: 'no-store', credentials: 'omit'}).catch(() => {});
 // The header fades in on the session's first page, as on the Twitch pages (product.js); the boards wait for the planner.
 try {
   if (!sessionStorage.getItem('site-intro-seen')) document.body.dataset.intro = 'true';

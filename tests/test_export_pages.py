@@ -327,8 +327,10 @@ def test_local_tracker_pages_get_their_own_policy_and_send_only_a_visit_ping(out
         if 'dataset.api' in source:readers.append((module.name, source.count('dataset.api'), source.count('${api}')))
         assert set(re.findall(r"fetch\('([^']*)'", source)) <= {'/static/local/community-exp.json', '/static/local/items/items.json'}, module.name
         assert 'https://' not in source and 'http://' not in source, module.name
-    assert readers == [('app.js', 1, 1)]
+    # Only the two visit pings read the API origin: /local's and /exp-table's, each a data-free GET the host answers 404.
+    assert sorted(readers) == [('app.js', 1, 1), ('exp-page.js', 1, 1)]
     assert "fetch(`${api}/ping/local`, {mode: 'no-cors', cache: 'no-store', credentials: 'omit'})" in (export_pages.WEB / 'local/app.js').read_text(encoding='utf-8')
+    assert "fetch(`${api}/ping/exp-table`, {mode: 'no-cors', cache: 'no-store', credentials: 'omit'})" in (export_pages.WEB / 'local/exp-page.js').read_text(encoding='utf-8')
 
 
 def test_about_popups_carry_the_deployed_commit_date_written_at_build_time(monkeypatch):

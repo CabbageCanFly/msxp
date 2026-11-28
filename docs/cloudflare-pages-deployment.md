@@ -100,6 +100,7 @@ detach that policy (`! Content-Security-Policy`) and send their own: the same ru
 request is one `GET /ping/local` per page load, carrying no data; Caddy answers it 404 and its
 access log (JSON in the journal) counts `/local` visits:
 `sudo journalctl -u caddy --since today -o cat | grep -c '"uri":"/ping/local"'`.
+`/exp-table` sends the same kind of ping, `GET /ping/exp-table` (count it with `"uri":"/ping/exp-table"`).
 
 The Caddy allowlist (`deploy/Caddyfile`) already covers the player GET routes, including
 `/api/players/{channel}/daily-history`; no proxy change is needed for that endpoint.
