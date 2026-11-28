@@ -4,6 +4,11 @@ import {setScenery} from './scenery.js';
 import {openPlanner} from './level-plan.js';
 
 const $ = (id) => document.getElementById(id);
+// The header fades in on the session's first page, as on the Twitch pages (product.js); the boards wait for the planner.
+try {
+  if (!sessionStorage.getItem('site-intro-seen')) document.body.dataset.intro = 'true';
+  sessionStorage.setItem('site-intro-seen', 'true');
+} catch {}  // Storage can be unavailable; the header stays visible.
 let on = (() => { try { return localStorage.getItem('scenery') !== 'off'; } catch { return true; } })();
 function show() {
   setScenery(on);
@@ -20,3 +25,5 @@ show();
 const table = await fetch('/static/local/community-exp.json').then((r) => r.ok ? r.json() : null).catch(() => null);
 if (table) openPlanner($('planner-body'), table, {});
 else $('planner-body').textContent = 'The planner could not load the EXP table. The table on this page is complete.';
+// Paint the hidden state first, then fade the boards in (product.css; shown anyway after 2 s if this never runs).
+requestAnimationFrame(() => requestAnimationFrame(() => { delete document.body.dataset.loading; }));
