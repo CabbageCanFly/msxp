@@ -152,6 +152,26 @@ authorized, the two-frame recovery path can select an already-existing correct
 record. Any wrong-spelling records remain separate; hiding them is an explicit,
 reversible operator invalidation, not a rename, deletion or history merge.
 
+## Faint strokes lost to thresholding (2026-11-28)
+
+Threshold 140 can also erase a faint antialiased stroke: on a 720p stream the gray
+crossbar of a `t` vanished and every frame read `CharM` with an `l` in its place
+(0.50-0.976), while the unthresholded crop read the right spelling at 0.999+.
+No single threshold fixed it: 100-120 broke three other names that 140 reads correctly.
+
+Capture now gives a thresholded small-crop read scoring below **0.99** one
+antialiased read, and keeps it only when it is a valid name with a higher score.
+The evidence records `repair: antialiased` and the `first_read`. Strong thresholded
+reads cost nothing extra; weak ones cost one more OCR call (about 40 ms).
+
+Measured on 56 small crops: all live target frames switch to the right spelling,
+both frames of the earlier `CharN` case keep their thresholded reading (antialiased 0.96-0.97
+loses to 0.995), and one other crop changes, dropping a trailing panel-edge `|`.
+Real-pixel replay of 26 live target frames through capture and identity gives the
+right discovery name on all 26. One stream and one name: broader fonts are untested.
+An existing record saved under the wrong spelling still needs the reviewed rename
+described under [job-line remnants](#job-line-remnants-in-name-crops-2026-10-25).
+
 ## Run it
 
 Run from this worktree. Its optional environments and footage remain at their

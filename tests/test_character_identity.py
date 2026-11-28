@@ -489,6 +489,31 @@ def test_known_name_anchor_rounding_retry_only_confirms_strong_exact_reference(m
     assert value['hold_reasons']==([] if used else ['name_mismatch'])
 
 
+@pytest.mark.parametrize('height,binary,plain,expected,calls', [
+    (17, ('Charlax', .94), ('Chartax', .999), 'Chartax', 2),  # Live: thresholding erased the "t" bar.
+    (17, ('Charrx3', .97), ('Charnx3', .96), 'Charrx3', 2),  # Less confident antialiased read loses.
+    (17, ('CharF', .995), ('CharE', .999), 'CharF', 1),  # A strong thresholded read is not rechecked.
+    (17, ('CharF', .984), ('CharF', .999), 'CharF', 2),
+    (17, ('Charlax', .94), ('Char$tax', .999), 'Charlax', 2),  # An invalid name never replaces it.
+    (25, ('Charlax', .94), ('Chartax', .999), 'Charlax', 1),  # Larger crops keep antialiasing already.
+])
+def test_weak_small_name_read_rechecks_antialiased_crop(monkeypatch,height,binary,plain,expected,calls):
+    identity=importlib.import_module('character_identity')
+    monkeypatch.setattr(identity,'name_region',lambda *_:dict(box=[0,0,80,height]))
+    state=IdentityCapture('channel');state.job=state.job_seen='Cleric'
+    image=Image.new('RGB',(1920,1080),(40,50,60));image.putpixel((20,5),(120,120,120))
+    frame=make_frame(0);seen=[]
+    def read(crop):
+        seen.append(crop.getpixel((20,5)))
+        name,score=binary if len(seen)==1 else plain
+        evidence=response(name);evidence['raw']['scores']=[score];return evidence
+    value=state.inspect(dict(current=True,candidate=None,visual_level=None),frame,image,candidate(),read,{},max_age=15,clock=lambda:101)
+    evidence=value['evidence']
+    assert len(seen)==calls and seen[1:]==[(120,120,120)][:calls-1]  # The recheck keeps the gray stroke.
+    assert evidence['name']==expected and evidence['raw']['raw']['txts']==[expected]
+    assert (evidence.get('repair')=='antialiased')==(evidence['score']==plain[1])
+
+
 @pytest.mark.parametrize('padded,binary,score,expected', [
     ('CharYY', 'CharYY', .96, 'CharYY'),
     ('CharYY', 'CharYZ', .99, 'CharY'),

@@ -68,13 +68,14 @@ def second_look(crop):
     return padded
 
 
-def clean_name_crop(crop, *, binary=False):
-    """Remove job remnants and separate blurred small glyphs at the original scale."""
+def clean_name_crop(crop, *, binary=None):
+    """Remove job remnants and separate blurred small glyphs at the original scale.
+    binary=None thresholds only small crops; True or False forces the choice."""
     crop = crop.convert('RGB')
     band = max(1, round(crop.height * .08))
     crop.paste(crop.getpixel((0, min(3, crop.height - 1))), (0, 0, crop.width, band))
     # Small status text loses touching strokes to compression; larger text needs its antialiasing.
-    if binary or crop.height < 24:
+    if binary or binary is None and crop.height < 24:
         crop = crop.convert('L').point(lambda p: 255 if p > 140 else 0).convert('RGB')
     return crop
 

@@ -21,6 +21,7 @@ from character_name_ocr import clean_name_crop, job_region, name_region, name_te
 OWNERSHIP_RISK = {'reset_loss_or_character_switch', 'level_decrease',
                   'level_change_requires_confirmation', 'possible_offstream_progression'}
 PANEL_EDGE = re.compile(r'-?[I!|:]$')  # Divider reads seen live; real final "l"/"1" glyphs are left alone.
+SMALL_NAME_RECHECK = .99  # A live thresholded misread scored up to .976; correct ones .984-.9995.
 PENDING_TTL_SECONDS = 600
 JOB_RETRY_SECONDS = 60  # Until two job reads agree, or after one disagreed with the known job.
 JOB_RECHECK_SECONDS = 120  # Once the level allows the next job advancement.
@@ -238,6 +239,16 @@ class IdentityCapture:
                     return None
                 crop = image.crop(region['box'])
                 response = read_name(clean_name_crop(crop)); read = parsed(response)
+                # Thresholding small text can erase a faint stroke (a "t" bar, read as "l"). A weak
+                # thresholded read gets one antialiased read, and the more confident spelling is kept.
+                if crop.height < 24 and (not read or read[0] < SMALL_NAME_RECHECK):
+                    try:
+                        plain = read_name(clean_name_crop(crop, binary=False)); plain_read = parsed(plain)
+                        if plain_read and plain_read[1] and plain_read[0] > (read[0] if read else 0):
+                            evidence.update(first_read=dict(text=response.get('text'), score=read and read[0]), repair='antialiased')
+                            response, read = plain, plain_read
+                    except (OSError, RuntimeError, ValueError, KeyError):
+                        pass  # Optional context must not discard the original name evidence.
                 text = response.get('text')
                 # The box ends past the panel divider, which OCR can append to a name as "I", "!" or ":".
                 # Only the edge-trimmed second look may drop it, and only by spelling the rest exactly.
