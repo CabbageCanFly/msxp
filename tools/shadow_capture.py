@@ -37,6 +37,8 @@ from shadow_neural import EXP_SIZE, png_bytes, pack, checked_level, empty_level
 
 class ShadowSession(VideoSession):
     def __init__(self, *args, **kwargs):
+        # One-picture captures must not wait for the keyframe-only reorder buffer.
+        kwargs.setdefault('keyframes_only', False)
         try:
             super().__init__(*args, **kwargs)
         except KeyboardInterrupt:

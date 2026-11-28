@@ -68,7 +68,7 @@ msxp: MapleStory Classic EXP tracker
                  msxp streamer disable LOGIN  pause tracking, preserve history
                  msxp streamer hide LOGIN     hide publicly, keep tracking setting
                  msxp streamer merge OLD --into NEW  preview a Twitch username change (see --help)
-                 msxp tracker     capture the streams + your local website
+                 msxp tracker     capture the streams + your local website (normal decoding for faster first pictures)
   More           msxp api         website only, for an existing database
                  msxp dashboard   operator view: every capture's details per streamer (read-only)
                  msxp health      missed captures in the last hour, and why

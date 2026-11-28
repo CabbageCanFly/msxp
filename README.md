@@ -80,6 +80,9 @@ The website keeps the last confirmed online/offline status and stream uptime dur
 Capture status remains valid for two minutes, overlapping the normal one-minute refresh;
 if checks keep failing beyond that, playback checks resume while the display keeps its last result.
 
+Tracker captures decode normally to avoid keyframe-only buffering delays before the first picture.
+The separate continuous-capture research tool keeps its keyframe-only default.
+
 For lower OCR CPU usage, `msxp tracker --resident-tesseract` uses isolated, reused
 Tesseract workers with layout-first HUD recognition and full-frame OCR fallback.
 Existing VPS roster services already enable it. See [results and rollback](docs/layout-first-hud.md).

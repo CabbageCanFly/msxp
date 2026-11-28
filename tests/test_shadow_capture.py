@@ -1,6 +1,8 @@
 """Synthetic safety tests; no stream access, neural model or private profile needed."""
 
 import importlib
+import shutil
+import subprocess
 import sys
 import time
 from io import BytesIO
@@ -363,3 +365,26 @@ def test_cli_writes_configuration_attempt_summary_without_store(shadow, monkeypa
     assert not list(tmp_path.rglob('*.sqlite*')) and not list(tmp_path.rglob('*.png'))
     with pytest.raises(SystemExit):
         shadow.main(arguments)  # Existing evidence cannot be overwritten.
+
+
+def test_one_picture_capture_returns_before_next_keyframe_with_identical_pixels(shadow, tmp_path):
+    ffmpeg = shutil.which('ffmpeg')
+    if not ffmpeg:
+        pytest.skip('Optional FFmpeg integration test')
+    clip = tmp_path / 'bframes.mp4'
+    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
+                    'testsrc2=size=160x90:rate=30', '-t', '8', '-c:v', 'libx264',
+                    '-threads', '1', '-g', '60', '-keyint_min', '60', '-sc_threshold', '0',
+                    '-bf', '2', '-pix_fmt', 'yuv420p', str(clip)], check=True, timeout=20)
+    expected = subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-i', str(clip),
+                               '-frames:v', '1', '-pix_fmt', 'rgb24', '-threads', '1',
+                               '-f', 'rawvideo', '-'], check=True, capture_output=True, timeout=10).stdout
+    session = shadow.ShadowSession(Source('file', str(clip)), ffmpeg=ffmpeg)
+    try:
+        # Keyframe-only decoding stalls for several seconds on this encoding.
+        frame = session.frame(timeout=2)
+        assert frame.image().tobytes() == expected
+    finally:
+        session.close()
+    assert session.decoder.poll() is not None
+    assert all(not thread.is_alive() for thread in session.threads)

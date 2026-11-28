@@ -1,5 +1,24 @@
 # Capture throughput and HUD localization
 
+## Single-picture decoding (2026-11-28)
+
+The tracker and shadow-capture tools now use normal decoding for each one-picture
+attempt. `VideoSession` and the separate `exp_tracker.capture` research CLI keep their
+keyframe-only default for continuous-reading comparisons (`--full-decode` overrides it).
+The screenshot reader, OCR, validation and scheduling rules are unchanged.
+
+Local Windows comparison, two captures per mode on six live streams: four affected
+streams returned their first picture in 7.65 s with keyframe-only decoding versus
+1.70 s with normal decoding. FFmpeg CPU per attempt averaged 0.145 versus 0.160 CPU-s.
+Two already-fast streams stayed around 1.5 s, with CPU increasing from 0.090 to
+0.156 CPU-s. These are FFmpeg-only measurements, not total tracker CPU or VPS capacity.
+All 24 saved clips produced identical first RGB pictures in both modes. A generated
+B-frame fixture reproduced the delay without Twitch; a fixture without B-frames did not.
+
+The original continuous-reading CPU saving in [live capture](live-capture.md)
+is a different workload: every one-picture attempt otherwise pays its startup delay again.
+Sustained Linux/VPS CPU impact has not been measured; no service rollout is implied.
+
 ## Current CPU reductions
 
 Continuous capture reuses the official batched Twitch status check to skip streams confirmed
