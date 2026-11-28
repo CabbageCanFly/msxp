@@ -17,7 +17,7 @@ B-frame fixture reproduced the delay without Twitch; a fixture without B-frames 
 
 The original continuous-reading CPU saving in [live capture](live-capture.md)
 is a different workload: every one-picture attempt otherwise pays its startup delay again.
-Sustained Linux/VPS CPU impact has not been measured; no service rollout is implied.
+These are local measurements; the production rollout observations are recorded below.
 
 ## Decoder shutdown comparison and decision (2026-11-28)
 
@@ -77,10 +77,53 @@ Validation on the implemented branch:
   branch rerun passed, but the final full selection reproduced the failure. This is
   separate from the decoder changes and is not silently reclassified as a skip.
 
-No VPS files, service settings or processes were changed. Production uses FFmpeg 8.0.1;
-sustained CPU/cadence results and a production-version rollout remain untested. The
-force policy is specific to this picture-pipe decoder and must not be reused unchanged
-for a recorder that needs to finish an output file.
+The local comparison above made no VPS changes; the subsequent rollout is recorded
+below. The force policy is specific to this picture-pipe decoder and must not be reused
+unchanged for a recorder that needs to finish an output file.
+
+## Production rollout observation (2026-11-28)
+
+Capture revision `09c62aa` was fast-forwarded onto main and deployed to the existing
+VPS. The 25 focused capture/cleanup tests passed on its Python 3.14 and FFmpeg 8.0.1
+before service restart. Tracker restarted at 05:16:36 UTC; API at 05:16:50 because the
+VPS also lacked an earlier main-branch API asset registration. No service configuration,
+package installation, schema migration or capture-worker increase was needed.
+
+Read-only baseline: 05:03:36-05:13:36 UTC, 611 attempts across 23 channels. Post-startup
+observation: 05:17:36-05:26:38 UTC, 557 attempts across 22 channels, covering the first
+300-second HUD-cache refresh. The live roster changed slightly; this is an observational
+comparison, not a controlled A/B or a long-running capacity guarantee.
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Mean first-picture wait | 3.348 s | 1.671 s |
+| Mean capture close | 0.953 s | 0.372 s |
+| Mean whole attempt | 5.581 s | 3.193 s |
+| Mean scheduling delay | 7.663 s | 0.049 s |
+| Median frame gap | 21.436 s | 19.991 s |
+| Frame-gap p95 | 33.183 s | 20.332 s |
+
+The seven previously slow streams' mean first-picture waits fell from 7.27-7.76 s to
+1.42-1.75 s. Six held mean gaps of 19.99-20.00 s. One temporarily entered the existing
+60-second missing-HUD backoff and then resumed successful readings; its whole-window
+mean gap was 25.99 s. Every post-window attempt acquired a frame; HUD, identity and
+numeric uncertainty still reject readings normally and preserve the last accepted state.
+
+Separate 30-second CPU samples: host busy 67.43% before versus 58.38% after; tracker
+1.8125 versus 1.4486 cores; API 0.8587 versus 0.8698 core. Completed attempts in those
+samples were 29 and 32, giving approximately 1.875 versus 1.358 tracker CPU-s per
+completed attempt. These short samples include different work mixes and are not a
+promise of a fixed CPU saving.
+
+Both services remained active with no automatic restarts. The observed journal contained
+no tracebacks, worker-startup failures or persistence failures. Public browser/API checks
+returned HTTP 200; after the approximately six-minute cold publication rebuild, 20 live
+readings were under 60 seconds old. The temporary preflight process reported during
+startup had exited on the next check. The merged worktree and branch were removed only
+after preserving private measurements and test reports in the main checkout.
+
+No multi-hour soak or larger-roster capacity trial was performed. Existing broader OCR
+and local Python 3.12 forkserver test limitations remain as documented above.
 
 ## Current CPU reductions
 
