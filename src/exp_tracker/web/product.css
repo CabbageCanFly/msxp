@@ -58,6 +58,9 @@ main { margin-left:max(0px,calc((100vw - 1160px)/2)); margin-right:0; }
       var(--shimmer-light) 50%, var(--shimmer-edge) calc(50% + var(--shimmer-spread) / 2), var(--shimmer-base) calc(50% + var(--shimmer-spread))) 0 0 / 300% 100%;
     -webkit-background-clip:text; background-clip:text; color:transparent; animation:text-shimmer 4.5s ease-in-out infinite;
     text-shadow:none; filter:drop-shadow(0 3px 0 #5a3e27);
+    /* The clipped background only covers the box, and the tight line height leaves the descenders of "p" and "g"
+       below it; extra padding paints them and the matching negative margin keeps the layout. */
+    padding-bottom:.15em; margin-bottom:-.15em;
   }
   /* The profile's EXP / hour card: a glint runs along its 3px top edge instead of across the number.
      The layer covers the card's border box (so it follows the rounded corners) and is masked to the top 3px. */
