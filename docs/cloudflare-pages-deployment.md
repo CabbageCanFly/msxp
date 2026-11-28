@@ -32,9 +32,10 @@ on new API fields must wait for that backend to be live.
 | `static/sleepywood.webp`, `static/sleepywood-forest.webp` | Original town/forest background, lossless WebP (see [sources](website-background.md)) |
 | `static/kerning.webp`, `static/kerning-sky.webp` | Original Kerning City town/sunset background, lossless WebP |
 | `local.html`, `local-overlay.html`, `static/local/*` | The browser-only personal tracker and its self-hosted OCR runtime ([local tracker](local-tracker.md)) |
+| `exp-table.html` | The searchable EXP table (`/exp-table`), its rows written in from `src/exp_tracker/data/community-exp-v2.json` at build time, beside the level planner |
 | `static/local/community-exp.json` | Copy of `src/exp_tracker/data/community-exp-v2.json` for the local tracker's checks |
 | `_redirects`, `_headers`, `404.html` | Generated: routes, security headers, not-found page |
-| `robots.txt`, `sitemap.xml` | Generated: crawler rules and the static entry pages (`/`, `/local`). `robots.txt` also names the API's live player-page sitemap, `<API origin>/sitemap.xml` ([VPS](vps-deployment.md#api-contract-for-the-frontend)), so new streamers reach search engines without a rebuild |
+| `robots.txt`, `sitemap.xml` | Generated: crawler rules and the static entry pages (`/`, `/local`, `/exp-table`). `robots.txt` also names the API's live player-page sitemap, `<API origin>/sitemap.xml` ([VPS](vps-deployment.md#api-contract-for-the-frontend)), so new streamers reach search engines without a rebuild |
 | `.msxp-pages-export` | Marker that lets a rerun replace its own output |
 
 Admin, shadow viewer, developer diagnostics, the demo leaderboard, the legacy `/overlay/`
@@ -117,6 +118,7 @@ CORS-simple GETs, so no preflight is needed.
 | `/live/overlay/{channel}`, `/live/overlay/{channel}/` (any `?layout=…&theme=…`) | `live-overlay.html` |
 | `/local`, `/local/` | `local.html` (personal tracker; Pages serves `/local` from `local.html`) |
 | `/local/overlay`, `/local/overlay/` | `local-overlay.html` |
+| `/exp-table`, `/exp-table/` | `exp-table.html` |
 | anything else, e.g. `/dev/streams`, `/dashboard/…`, `/admin`, `/overlay/…`, `/stream/a/b` | `404.html` with status 404 |
 
 A `404.html` at the root also stops Pages from treating unknown paths as a single-page
