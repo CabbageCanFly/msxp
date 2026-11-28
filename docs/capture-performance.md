@@ -19,6 +19,69 @@ The original continuous-reading CPU saving in [live capture](live-capture.md)
 is a different workload: every one-picture attempt otherwise pays its startup delay again.
 Sustained Linux/VPS CPU impact has not been measured; no service rollout is implied.
 
+## Decoder shutdown comparison and decision (2026-11-28)
+
+**Decision: force-stop the software FFmpeg decoder when a capture session closes.**
+The accepted picture is already a complete in-memory byte string. FFmpeg writes only
+pictures to our pipe, so there is no recording file or trailer to preserve. Streamlink
+still receives graceful termination with the existing two-second fallback. Both children
+are waited for, reader threads are joined, and pipes are closed. This also applies when
+capture fails or startup is interrupted; no abandoned decoder is allowed to continue.
+
+Two approaches were implemented privately and compared with the original shutdown:
+
+- **Drain:** continue reading and discarding decoder pictures during graceful exit,
+  without replacing the returned snapshot; retain the existing timeout and kill fallback.
+- **Force:** kill only FFmpeg immediately, keeping Streamlink termination and all
+  existing bounded waits, process reaping and pipe/thread cleanup.
+
+Local WSL Ubuntu / Python 3.12.3 / FFmpeg 8.1.3 development build, 36 alternating-order
+attempts: an owned 8-second 720p B-frame fixture with both decoding modes, plus two live
+streams with normal decoding. Each source/mode/strategy had three trials. Some trials
+ran while the Windows regression suite was active. This is a short local comparison,
+not a production throughput or hardware-capacity benchmark.
+
+| Mean closing time | Original | Drain | Force |
+| --- | ---: | ---: | ---: |
+| Generated fixture, keyframes only | 2.0085 s | 0.1661 s | 0.0022 s |
+| Generated fixture, normal decoding | 0.5562 s | 0.5915 s | 0.0013 s |
+| Two live streams, normal decoding (6 attempts per strategy) | 0.4228 s | 0.4072 s | 0.4462 s |
+| FFmpeg CPU per live attempt | 0.2256 CPU-s | 0.2198 CPU-s | 0.1401 CPU-s |
+
+Both approaches removed the reproduced two-second decoder-output stall. Force avoided
+more unnecessary decoder work; draining did not materially improve live total closing
+time over force because Streamlink teardown dominated. The live timing differences are
+small and noisy, so this does **not** establish a live closing-speed win for force.
+The simpler force policy was selected for its prompt decoder stop and lower measured
+decoder CPU. No new setting or CLI mode is added.
+
+All 36 attempts reaped their children and joined their reader threads. All 18 generated
+captures returned identical first-picture pixels across decoding and shutdown modes.
+A further six-attempt check compared the exact implemented close method against frozen
+original and draining implementations; cleanup and generated-picture equality passed.
+Normal live pictures differ between attempts because the streams keep playing.
+
+Validation on the implemented branch:
+
+- Full Windows suite: **3,917 passed, 75 skipped, 1 expected failure**. Skips: 68 missing
+  private live-crop cases, six Linux-only cases and one Windows symlink-permission case.
+  Existing source fixtures were reused through worktree hard links, without relaxing
+  fixture path-containment checks.
+- All 206 recorded-frame OCR cases: **204 passed, 1 expected failure, 1 failed**. The
+  144-second frame rejects its labelled zero-EXP pair; the same failure was reproduced
+  on unchanged main and is already noted in [private test data](private-test-data.md).
+- Native Linux selection: **48 passed, 1 failed, no skips**. It exercises real decoder
+  cleanup, stalled inputs, preload byte parity, concurrent playback, forkserver recovery
+  and the new fast-first-picture test. The local Python 3.12 forkserver crash/recovery
+  failure at fresh-worker startup was also reproduced on unchanged main; an isolated
+  branch rerun passed, but the final full selection reproduced the failure. This is
+  separate from the decoder changes and is not silently reclassified as a skip.
+
+No VPS files, service settings or processes were changed. Production uses FFmpeg 8.0.1;
+sustained CPU/cadence results and a production-version rollout remain untested. The
+force policy is specific to this picture-pipe decoder and must not be reused unchanged
+for a recorder that needs to finish an output file.
+
 ## Current CPU reductions
 
 Continuous capture reuses the official batched Twitch status check to skip streams confirmed

@@ -249,7 +249,11 @@ class VideoSession:
         self.stopping = True
         for process in (self.producer, self.decoder):
             if process and process.poll() is None:
-                process.terminate()
+                # Decoded pictures go only to our pipe; there is no output file to finalize.
+                if process is self.decoder:
+                    process.kill()
+                else:
+                    process.terminate()
         for process in (self.producer, self.decoder):
             if process:
                 try:

@@ -194,3 +194,32 @@ def test_live_short_stderr_is_available_for_safe_failure_classification(monkeypa
             session.frame(timeout=2)
     finally:
         session.close()
+
+
+def test_snapshot_decoder_is_killed_without_waiting_for_graceful_output(monkeypatch):
+    payload = ppm_bytes()
+    command = [sys.executable, '-c',
+        'import signal,sys,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); '
+        f'sys.stdout.buffer.write({payload!r}); sys.stdout.buffer.flush(); time.sleep(60)']
+    monkeypatch.setattr('exp_tracker.video.ffmpeg_command', lambda *a, **kw: command)
+    session = VideoSession(Source('file', 'synthetic'))
+    signals = []
+    terminate, kill = session.decoder.terminate, session.decoder.kill
+    def stop_politely():
+        signals.append('terminate')
+        terminate()
+    def stop_now():
+        signals.append('kill')
+        kill()
+    monkeypatch.setattr(session.decoder, 'terminate', stop_politely)
+    monkeypatch.setattr(session.decoder, 'kill', stop_now)
+    try:
+        frame = session.frame(timeout=2)
+    finally:
+        session.close()
+    assert frame.data == payload
+    assert signals == ['kill']
+    assert session.decoder.poll() is not None
+    assert all(not thread.is_alive() for thread in session.threads)
+    session.close()
+    assert signals == ['kill']
