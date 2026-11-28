@@ -715,6 +715,9 @@ html, body.product { overflow-x:clip; }
 /* scenery.js puts the mobs' lane before the first board; it shares the boards' row (0 tall), so nothing moves as it comes and goes. */
 .exp-layout > .mob-lane { grid-area:1 / 1 / 2 / -1; align-self:start; }
 .exp-board { grid-area:1 / 1; }
+/* The table's board ends inside the window (about 170px of header above, room below for the footer), so scrolling the
+   list never hides that the page itself goes on; the list takes whatever height is left. */
+.exp-board { display:flex; flex-direction:column; max-height:max(420px, calc(100dvh - 210px)); }
 .exp-planner { grid-area:1 / 2; }
 /* A wooden plank over the gap, level with the boards' tops and over their rounded corners, for the mobs to walk across. */
 .exp-layout::before { content:""; position:absolute; z-index:1; top:-1px; right:426px; width:48px; height:7px; box-sizing:border-box;
@@ -722,7 +725,7 @@ html, body.product { overflow-x:clip; }
   background:repeating-linear-gradient(90deg, transparent 0 11px, #4b342399 11px 12px), linear-gradient(var(--wood-line), var(--wood)); }
 .exp-page .board-header h1 { margin:0; font-family:var(--font-display); font-size:18px; font-weight:600; letter-spacing:.2px; }
 .exp-page-intro { margin:0; padding:12px 18px 10px; color:var(--text-soft); font-size:13px; line-height:1.5; }
-.exp-page-scroll { max-height:calc(100vh - 250px); min-height:320px; overflow-y:auto; border-top:1px solid var(--line); }
+.exp-page-scroll { flex:1; min-height:0; overflow-y:auto; border-top:1px solid var(--line); }
 .exp-page-table { width:100%; border-collapse:collapse; font-size:14px; font-variant-numeric:tabular-nums; }
 .exp-page-table th, .exp-page-table td { padding:5px 18px; border-bottom:1px solid color-mix(in srgb, var(--line) 45%, transparent); text-align:right; }
 .exp-page-table th:first-child { width:56px; text-align:left; }
@@ -733,5 +736,5 @@ html, body.product { overflow-x:clip; }
 .exp-planner .planner { width:auto; padding:14px 18px 16px; color:var(--text-soft); font-size:14px; }
 .exp-page-foot { margin:14px 4px 0; color:var(--text-muted); font-size:12px; font-weight:600; }
 .exp-page-foot a { color:var(--text-soft); }
-@media(max-width:860px) { .exp-layout { grid-template-columns:minmax(0,1fr); } .exp-layout::before { display:none; } .exp-planner { grid-area:2 / 1; position:static; } .exp-page-scroll { max-height:60vh; } }
+@media(max-width:860px) { .exp-layout { grid-template-columns:minmax(0,1fr); } .exp-layout::before { display:none; } .exp-planner { grid-area:2 / 1; position:static; } .exp-board { max-height:none; } .exp-page-scroll { flex:none; max-height:60vh; } }
 @media(max-width:650px) { .exp-page-table th, .exp-page-table td { padding:5px 12px; } .exp-page-intro { padding:10px 14px 8px; } .exp-planner .planner { padding:12px 14px 14px; } }
