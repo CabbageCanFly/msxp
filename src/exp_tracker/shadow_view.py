@@ -17,6 +17,7 @@ MAX_BYTES = 512 * 1024
 MAX_LINE = 64 * 1024
 MAX_LINES = 512
 MAX_ROWS = 120
+MIN_EXP_OCR_SCORE = .85
 STATUSES = {'diagnostic_pair', 'diagnostic_percentage_only', 'malformed_or_unavailable', 'stale_local_frame',
             'capture_failed', 'recognition_failed', 'unavailable'}
 REASONS = {'missing_hud', 'multiple_huds', 'local_receipt_age_exceeded', 'strict_pair_unavailable',
@@ -90,6 +91,11 @@ def observation(row):
     channel = channel if isinstance(channel, str) and re.fullmatch(r'[A-Za-z0-9_]{1,25}', channel) else None
     neural = row.get('neural') if isinstance(row.get('neural'), dict) else {}
     text = neural.get('text')
+    raw = neural.get('raw') if isinstance(neural.get('raw'), dict) else {}
+    scores = raw.get('scores')
+    score = number(scores[0], 1) if isinstance(scores, list) and len(scores) == 1 else None
+    # Old logs without score metadata retain their existing interpretation.
+    score_eligible = 'scores' not in raw or score is not None and score >= MIN_EXP_OCR_SCORE
     candidate = row.get('candidate')
     pair = None
     if isinstance(candidate, list) and len(candidate) == 2 and type(candidate[0]) is int and 0 <= candidate[0] <= 2**63-1:
@@ -128,6 +134,7 @@ def observation(row):
                 percentage_only_origin='saved' if supplied is not None else 'legacy_raw_parse' if only else None,
                 partial_percentage_evidence=partial,
                 raw_text=raw_text(text), raw_text_redacted=text is not None and raw_text(text) is None,
+                exp_ocr_score=score, exp_ocr_eligible=score_eligible,
                 visual_level=visual if type(visual) is int and 1 <= visual <= 200 else None,
                 neural_level=neural_level_view(row.get('neural_level'),visual if type(visual) is int and 1<=visual<=200 else None),
                 visual_status=row.get('visual_status') if row.get('visual_status') in ('available', 'unavailable', 'failed', 'not_run') else 'unknown',

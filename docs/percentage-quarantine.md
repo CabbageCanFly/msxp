@@ -178,3 +178,17 @@ hold real large losses. Read-time state is reproducible from the bounded selecte
 history, not a durable authenticated verdict; losses outside that context are unknown.
 Next check is a crop-preserving trial with human review of
 pending/confirmed events, particularly genuine loss and repeated damaged fields.
+
+## RapidOCR EXP score minimum (2026-11-28)
+
+The shared read-time projection excludes RapidOCR EXP/percentage readings with a
+recorded line score below **0.85**, before strict parsing or grammar recovery can
+supply public numerical evidence. Exactly 0.85 passes this additional gate; all
+existing checks still apply. A rejected reading preserves the last accepted value.
+Raw text, candidates and scores remain stored for diagnosis. Level, name, job and
+Tesseract thresholds are unchanged, as is the browser's local tracker.
+
+Invalid supplied score metadata also abstains. Legacy logs without score metadata
+retain their previous behavior. Retained raw attempts are re-evaluated on replay;
+already folded retention checkpoints and archived daily totals are not repaired.
+This is a conservative score filter, not a calibrated correctness guarantee.

@@ -30,6 +30,7 @@ CONFIRM_GAP_SECONDS = 120
 
 
 def full_reading(row):
+    if row.get('exp_ocr_eligible') is False: return None
     parsed = interpret_exp(row.get('raw_text'))
     if row.get('candidate_invalid') or row.get('percentage_only_invalid') or row.get('exp_opener_unverified'): return None
     if row.get('candidate'):
@@ -101,6 +102,7 @@ def ungrouped_opener(row):
 
 
 def _percentage(row, full):
+    if row.get('exp_ocr_eligible') is False: return None
     if full: return full['percentage']
     if row.get('exp_opener_unverified'): return None
     parsed = interpret_exp(row.get('raw_text'))
