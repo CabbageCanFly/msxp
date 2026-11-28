@@ -18,11 +18,17 @@ pytestmark=[pytest.mark.samples,pytest.mark.ocr]
 
 
 def cases():
-    if not MANIFEST.is_file():
+    # Extension manifests in subfolders add cases without changing the backed-up base manifest.
+    manifests=[p for p in [MANIFEST,*sorted(MANIFEST.parent.glob('*/manifest.json'))] if p.is_file()]
+    if not manifests:
         return [pytest.param(None,id='private-live-captures',marks=pytest.mark.skip(reason='Run msxp test-data to restore private live regressions'))]
-    data=json.loads(MANIFEST.read_text(encoding='utf-8'))
-    assert data['version']==1 and data['frames']
-    return [pytest.param(frame,id=frame['id']) for frame in data['frames']]
+    frames=[]
+    for path in manifests:
+        data=json.loads(path.read_text(encoding='utf-8'))
+        assert data['version']==1 and data['frames']
+        frames.extend(data['frames'])
+    assert len({f['id'] for f in frames})==len(frames),'Duplicate live regression ids'
+    return [pytest.param(frame,id=frame['id']) for frame in frames]
 
 
 @pytest.fixture(scope='module')

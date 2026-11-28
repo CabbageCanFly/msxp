@@ -107,6 +107,7 @@ All original capture pixels are retained losslessly; generated RGBA/PGM files ca
 | Two-feed screenshots (percentage-only HUD, second gameplay feed): 1–21 at level 71, 23–29 at level 72 after a feed swap (70 MB) | `samples/two-feed/` | Nothing; copy `two-feed/` back from the private test-data repository |
 | Saved capture logs for replay tests | `private/test-fixtures/runs/` | A frozen copy of tracker logs. Tests read an anonymized copy built from it using the private `names.json` |
 | Compact live regressions (28.5 MB) | `samples/live-regression/` | Restore with `msxp test-data`; the private manifest holds the labels and provenance |
+| Faint status-name stroke, 3 frames at 720p (1.5 MB) | `samples/live-regression/faint-name-stroke/` | Restore with `msxp test-data`; an extension manifest there adds the cases without changing the base one |
 | Safari browser replays (139 MB) | `samples/safari/` | Restore with `msxp test-data`; lossless HUD PNGs, original pickup archives and private labels |
 
 `tools/rebuild_fixture_crops.py --check` regenerates every crop from its saved full frame (or recording fallback) and compares pixels
@@ -158,14 +159,44 @@ gameplay. That is the one way to publish real frames.
 
 ## Adding new private test data
 
+This code repository is public; the real-footage fixtures live in the separate, private
+`msxp-test-data` repository. The steps below apply if you have access to it. Without access, skip
+them: the matching tests skip and the public suite stays green. A fork can keep its own private data
+repository in the same format and restore it with `tools/restore_test_data.py <folder>`, or point
+`REPOSITORY` in that file at it.
+
+**When.** A fix for a real-footage edge case (a misread name, digit, HUD layout) should leave 2-3 of
+the frames that showed it as a private regression, without being asked. Prefer the typical frame, the
+one closest to any new threshold, and the worst one. Add them only after visually confirming the label.
+
 1. **Where it goes.** Lossless frames (PNG or WebP) in `samples/<neutral-name>/`, crop sets under
    `private/`. Folder and file names describe the layout, not the person: `samples/two-feed/`, not a
-   streamer's login. Both locations are ignored by Git.
-2. **Where labels go.** Expected values live in the test itself or in a committed label file such as
-   `tests/data/recorded_frames.json`, never in folder or file names. Code and docs use placeholders
-   (`streamer_a`, `CharA`); real names stay in the private `names.json`.
-3. **Back it up.** Copy every new private fixture into your private test-data repository and add a row
-   to the table above saying where it lives and how to recreate it.
+   streamer's login. Both locations are ignored by Git. Convert captures with Pillow
+   `save(..., 'WEBP', lossless=True)` and confirm the decoded RGB bytes match the source.
+2. **Where labels go.** Expected values live in the test itself, in a committed label file such as
+   `tests/data/recorded_frames.json`, or in a private fixture manifest; never in folder or file names. Code
+   and docs use placeholders (`streamer_a`, `CharA`); real names stay in private files such as `names.json`.
+   Whole-frame capture cases go in an **extension manifest**, `samples/live-regression/<case>/manifest.json`
+   (same format as the base one): `tests/test_live_capture_regressions.py` loads every one through the real
+   tracker, and the backed-up base manifest stays unchanged. The Safari set does the same under `samples/safari/`.
+3. **Back it up.** Add the files to `msxp-test-data` so `msxp test-data` restores them, then add a row
+   to the table above saying where they live and how to recreate them. Never clone the whole data repository
+   (it is several GB, with hundreds of frames at its root, so even a cone sparse clone pulls about 300 MB):
+
+   ```sh
+   cd ..   # beside this checkout
+   git clone --depth 1 --filter=blob:none --no-checkout --config core.autocrlf=false https://github.com/CabbageCanFly/msxp-test-data.git msxp-test-data
+   cd msxp-test-data
+   MSYS_NO_PATHCONV=1 git sparse-checkout set --no-cone /manifest.json /README.md /project/samples/live-regression/<case>/
+   git checkout main
+   ```
+
+   `MSYS_NO_PATHCONV=1` stops Git Bash on Windows from rewriting `/manifest.json` into a Windows path.
+   Copy the files to `project/<target>`, append one entry per file to `manifest.json` (`path`
+   `project/<target>`, `original_path` and `target` `<target>`, `size`, `sha256`, `gzip: false`), and keep its
+   two-space indent and CRLF line endings. Add a short dated section to its README. Verify the new entries
+   against the installed files with `missing_files(entries, ROOT, check=True)` from `tools/restore_test_data.py`
+   (expect no missing files and no overwrite error), then commit there. The owner pushes. Delete the clone afterwards.
 4. **Check before committing.** Search the staged diff for real names, including any new ones not yet in
    `names.json`:
 

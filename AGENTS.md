@@ -19,6 +19,9 @@ until measurements establish a need for more infrastructure.
   from level/EXP alone. Reject uncertain readings and preserve the last accepted state.
 - Do not add screenshots, crops, credentials, databases or logs to Git. Samples are
   private fixtures; only generated synthetic fixtures may be committed.
+- When a fix addresses a real-footage edge case and you have access to the private test-data
+  repository, also add 2-3 of its frames there as regressions, using a shallow sparse clone and never
+  a full one; follow docs/private-test-data.md#adding-new-private-test-data. Without access, skip this step.
 - Use placeholders (`Streamer_A`, `CharA`) for real streamer logins and character names in
   Git-tracked files and commit messages; real names stay in private, ignored files.
 - Keep OBS credentials on the streamer's machine and keep private administration separate
